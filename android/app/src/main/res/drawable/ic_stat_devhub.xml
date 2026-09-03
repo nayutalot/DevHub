@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- DevHub 状态栏/应用图标（矢量，hub 节点图形，单色） -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FF1B6B3A"
+        android:pathData="M12,2 L21,7 L21,17 L12,22 L3,17 L3,7 Z M12,4.3 L5,8.2 L5,15.8 L12,19.7 L19,15.8 L19,8.2 Z M12,8 A4,4 0 1,0 12,16 A4,4 0 1,0 12,8 Z" />
+</vector>

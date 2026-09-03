@@ -1,0 +1,24 @@
+AC7b 验收 c 证据：observed 会话详情页 android_ui_describe 全树断言（2026-09-03，emulator-5554）
+
+断言：observed 会话详情页零控制按钮（无回复输入框 / 无 pause / 无 resume）。
+
+页面全部 clickable 元素枚举（完整树中唯一可交互按钮）：
+- index 8  android.widget.Button  bounds=[42,168][207,273]  关联文本 "< 返回"（index 7）
+
+页面 EditText 枚举：无（0 个输入框）
+「暂停」/「恢复」/「发送」文本搜索：无命中
+
+observed 标注在场（TextView）：
+- "未知"（status 徽章）
+- "observed 只读"（mode 徽章）
+- "capabilities：mode=observed granted=[] evidence=observed-only per ruling 4 (docs/12 §8.4): read-only db snapshot source, no control channel implemented"
+- "observed 会话：纯观察模式，不提供任何远程控制（服务端亦全禁）。"
+
+消息（脱敏投影，真实数据）：
+- user 09-03 02:04:34 "这是一次连通性测试。请只做一件事：用 Bash 运行 `echo explore-ok`…"
+- assistant 09-03 02:04:39 "探索成功 — Bash 输出：`explore-ok`"
+- "（已加载全部消息）"
+
+对应截图：ac7b-07-session-detail-observed.png
+对照代码：SessionDetailScreen.kt —— 控制区仅当 ConnectionManager.visibleControls(...) 为真才渲染；
+observed 时 controls.reply/pause/resume 全 false（ControlGate 纯逻辑，:core 单测覆盖）。

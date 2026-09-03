@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- DevHub Android（AC7）：Kotlin + Compose + Room + OkHttp + Android Keystore；
+     第一版无 FCM/厂商推送（docs/11 N3），事件通道 = 前台服务 + OkHttp WebSocket（docs/14 §B.2）。 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <application
+        android:name=".DevHubApp"
+        android:allowBackup="false"
+        android:icon="@drawable/ic_stat_devhub"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme"
+        android:usesCleartextTraffic="true">
+
+        <!-- 深链 devhub://session/{id}：事件通知点击直达会话详情（脱敏完整内容按需加载） -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="devhub" android:host="session" />
+            </intent-filter>
+        </activity>
+
+        <!-- 前台服务（dataSync）：维持 WS 长连 + 常驻通知「DevHub Agent 连接中」 -->
+        <service
+            android:name=".connect.GatewayConnectionService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+    </application>
+</manifest>

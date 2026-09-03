@@ -1,0 +1,263 @@
+/**
+ * tomlEdit.ts — TOML 文本块级操作纯函数（老 kimi/tomlEdit.ts 移植，docs/09 §2）。
+ *
+ * 刻意不做完整 TOML 解析器：块级文本替换最稳妥，[thinking]、[server] 等未知段落
+ * 与未知键全部原样保留（docs/09 §6.4 通用规则）。
+ * 红线：本文件的解析函数绝不输出 api_key 全值（只回尾 4 位与长度）；
+ * extractProviderSecret 例外 —— 仅供主进程导入/校验两条内存瞬间路径使用，
+ * 调用方必须立即 seal 或写回目标文件，绝不允许落日志/缓存/IPC。
+ */
+
+/** 顶格段落头行：[providers.x] / [models."a/b"] / [thinking] …（前置空白视为非顶格，不匹配） */
+const HEADER_RE = /^\[(.+)\]\s*$/
+
+/** 按文本实际行尾拆行（保留 CRLF / LF 语义，join 时用同一 eol 还原） */
+function splitLines(text: string): { lines: string[]; eol: string } {
+  const eol = text.includes('\r\n') ? '\r\n' : '\n'
+  const lines = text.length > 0 ? text.split(eol) : []
+  return { lines, eol }
+}
+
+function joinLines(lines: string[], eol: string): string {
+  return lines.join(eol)
+}
+
+/** 判断某行是否顶格段落头 */
+function isHeaderLine(line: string): boolean {
+  return HEADER_RE.test(line)
+}
+
+/**
+ * upsertBlock：把 header 指向的块（从 header 行到下一个顶格 `[` 行或 EOF）替换为 blockLines；
+ * 不存在则追加到文末（前置一个空行）。header 匹配是整行精确比较（trim 后），
+ * 因此 [models."a/b"] 绝不会误伤 [models] 或 [providers.a]。
+ */
+export function upsertBlock(text: string, header: string, blockLines: string[]): string {
+  if (!header.startsWith('[') || !header.endsWith(']')) throw new Error(`header 必须是 [xxx] 形态: ${header}`)
+  if (blockLines.length === 0) throw new Error('blockLines 不能为空')
+  const { lines, eol } = splitLines(text)
+  const idx = lines.findIndex((l) => l.trim() === header)
+  if (idx >= 0) {
+    let end = lines.length
+    for (let i = idx + 1; i < lines.length; i++) {
+      if (isHeaderLine(lines[i])) {
+        end = i
+        break
+      }
+    }
+    while (end > idx && lines[end - 1].trim() === '') end--
+    lines.splice(idx, end - idx, ...blockLines)
+    const after = lines[idx + blockLines.length]
+    if (after !== undefined && after.trim() !== '') lines.splice(idx + blockLines.length, 0, '')
+  } else {
+    while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop()
+    if (lines.length > 0) lines.push('')
+    lines.push(...blockLines)
+    lines.push('')
+  }
+  return joinLines(lines, eol)
+}
+
+/**
+ * setDefaultModel：替换顶格 default_model = "..." 行；不存在时插入到首个顶格段落头之前（无头则放文首）。
+ */
+export function setDefaultModel(text: string, model: string): string {
+  const { lines, eol } = splitLines(text)
+  const line = `default_model = ${tomlQuote(model)}`
+  const idx = lines.findIndex((l) => /^default_model\s*=/.test(l))
+  if (idx >= 0) {
+    lines[idx] = line
+    return joinLines(lines, eol)
+  }
+  const firstHeader = lines.findIndex(isHeaderLine)
+  if (firstHeader < 0) {
+    lines.unshift(line, '')
+  } else {
+    lines.splice(firstHeader, 0, line, '')
+  }
+  return joinLines(lines, eol)
+}
+
+/** TOML 基本字符串引号包裹（转义反斜杠与双引号；key/value 均走这里） */
+export function tomlQuote(s: string): string {
+  return '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"'
+}
+
+/** 构造节头行：[section.name]（apihub 适配器共用，集中一处便于审计） */
+export function tomlHeader(section: string): string {
+  return '[' + section + ']'
+}
+
+/** 构造单行 key = "value" 赋值行（value 一律经 tomlQuote；apihub 适配器共用） */
+export function tomlAssign(key: string, value: string): string {
+  return key + ' = ' + tomlQuote(value)
+}
+
+/** 构造无引号原始值赋值行（数字/布尔）：key = raw */
+export function tomlAssignRaw(key: string, raw: string): string {
+  return key + ' = ' + raw
+}
+
+// ---------------------------------------------------------------------------
+// 只读解析（UI 脱敏展示用）
+// ---------------------------------------------------------------------------
+
+/** 单行 key = value 的 value 提取（字符串/数字/布尔/单行字符串数组） */
+function parseInlineValue(raw: string): string | number | boolean | string[] | undefined {
+  const v = raw.trim()
+  if (!v) return undefined
+  if (v.startsWith('"') && v.endsWith('"') && v.length >= 2) {
+    return v.slice(1, -1).replace(/\\(["\\])/g, '$1')
+  }
+  if (v === 'true') return true
+  if (v === 'false') return false
+  if (/^-?\d+(\.\d+)?$/.test(v)) return Number(v)
+  if (v.startsWith('[') && v.endsWith(']')) {
+    const inner = v.slice(1, -1)
+    const out: string[] = []
+    const re = /"((?:[^"\\]|\\.)*)"/g
+    let m: RegExpExecArray | null
+    while ((m = re.exec(inner)) !== null) out.push(m[1].replace(/\\(["\\])/g, '$1'))
+    return out
+  }
+  return undefined
+}
+
+/** key = value 行拆分（返回 null 表示不是赋值行） */
+function parseAssign(line: string): { key: string; value: string } | null {
+  const m = /^([^#=]+?)\s*=\s*(.*)$/.exec(line)
+  if (m === null) return null
+  return { key: m[1].trim(), value: m[2] }
+}
+
+/**
+ * 提取某 provider 块的 api_key 全值——仅供 导入档案 / 切换校验 两条主进程路径在内存中使用，
+ * 调用方必须立即 seal 或写入 config.toml，绝不允许落日志/缓存/IPC。UI 展示一律走 parseKimiConfigDisplay。
+ */
+export function extractProviderSecret(text: string, providerId: string): string | null {
+  const { lines } = splitLines(text)
+  const header = `[providers.${providerId}]`
+  let inside = false
+  for (const line of lines) {
+    if (isHeaderLine(line)) {
+      inside = line.trim() === header
+      continue
+    }
+    if (!inside) continue
+    const a = parseAssign(line)
+    if (a !== null && a.key === 'api_key') {
+      const v = parseInlineValue(a.value)
+      return typeof v === 'string' ? v : null
+    }
+  }
+  return null
+}
+
+/** api_key 脱敏：只留尾 4 位与长度 */
+export function maskSecret(key: string): { tail: string; len: number } {
+  return { tail: key.slice(-4), len: key.length }
+}
+
+/** kimi config.toml 解析投影（api_key 只回尾 4 位与长度）。 */
+export interface KimiProviderDisplay {
+  id: string
+  type?: string
+  baseUrl?: string
+  apiKeyTail?: string
+  apiKeyLen?: number
+}
+
+export interface KimiModelDisplay {
+  id: string
+  provider?: string
+  model?: string
+  displayName?: string
+  maxContext?: number
+  capabilities?: string[]
+}
+
+export interface KimiConfigDisplay {
+  defaultModel: string | null
+  providers: KimiProviderDisplay[]
+  models: KimiModelDisplay[]
+}
+
+/**
+ * 只读解析 config.toml 供 UI 展示：default_model、providers（api_key 只回尾 4 位与长度）、models。
+ * 绝不返回 api_key 全值。
+ */
+export function parseKimiConfigDisplay(text: string): KimiConfigDisplay {
+  const { lines } = splitLines(text)
+  const out: KimiConfigDisplay = { defaultModel: null, providers: [], models: [] }
+  let header = ''
+  for (const line of lines) {
+    if (isHeaderLine(line)) {
+      header = (HEADER_RE.exec(line) as RegExpExecArray)[1].trim()
+      continue
+    }
+    const a = parseAssign(line)
+    if (a === null) continue
+    if (header === '' && a.key === 'default_model') {
+      const v = parseInlineValue(a.value)
+      if (typeof v === 'string') out.defaultModel = v
+      continue
+    }
+    const pm = /^providers\.([A-Za-z0-9][A-Za-z0-9-]*)$/.exec(header)
+    if (pm !== null) {
+      let p = out.providers.find((x) => x.id === pm[1])
+      if (p === undefined) {
+        p = { id: pm[1] }
+        out.providers.push(p)
+      }
+      if (a.key === 'type' && typeof parseInlineValue(a.value) === 'string') p.type = parseInlineValue(a.value) as string
+      if (a.key === 'base_url' && typeof parseInlineValue(a.value) === 'string') p.baseUrl = parseInlineValue(a.value) as string
+      if (a.key === 'api_key' && typeof parseInlineValue(a.value) === 'string') {
+        const { tail, len } = maskSecret(parseInlineValue(a.value) as string)
+        p.apiKeyTail = tail
+        p.apiKeyLen = len
+      }
+      continue
+    }
+    const mm = /^models\.(?:"([^"]+)"|([^".\]]+))$/.exec(header)
+    if (mm !== null) {
+      const id = mm[1] ?? mm[2]
+      let mo = out.models.find((x) => x.id === id)
+      if (mo === undefined) {
+        mo = { id }
+        out.models.push(mo)
+      }
+      const v = parseInlineValue(a.value)
+      if (a.key === 'provider' && typeof v === 'string') mo.provider = v
+      if (a.key === 'model' && typeof v === 'string') mo.model = v
+      if (a.key === 'display_name' && typeof v === 'string') mo.displayName = v
+      if (a.key === 'max_context_size' && typeof v === 'number') mo.maxContext = v
+      if (a.key === 'capabilities' && Array.isArray(v)) mo.capabilities = v
+      continue
+    }
+  }
+  return out
+}
+
+/** 备份文件时间戳：yyyyMMdd_HHmmss（与既有 config.toml.bak_20260814_175416 惯例一致） */
+export function backupStamp(d: Date): string {
+  const p = (n: number, w = 2): string => String(n).padStart(w, '0')
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`
+}
+
+/** [thinking] 块的 enabled 值（缺省 false；找不到块/键时不硬解） */
+export function thinkingEnabledOf(text: string): boolean {
+  const { lines } = splitLines(text)
+  let header = ''
+  let value = false
+  for (const line of lines) {
+    if (isHeaderLine(line)) {
+      header = line.trim()
+      continue
+    }
+    if (header === '[thinking]') {
+      const a = parseAssign(line)
+      if (a !== null && a.key === 'enabled') value = a.value.trim() === 'true'
+    }
+  }
+  return value
+}

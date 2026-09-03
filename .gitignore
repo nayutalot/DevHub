@@ -1,0 +1,19 @@
+node_modules/
+out/
+dist/
+*.log
+
+# 机器本地/扫描器状态
+.mimosa/
+.zcode/
+
+# Android 构建产物与机器本地配置
+android/.gradle/
+android/build/
+android/app/build/
+android/core/build/
+android/local.properties
+android/.kotlin/
+
+# 证据日志例外：acceptance 下的 .log 是交付证据，必须追踪
+!acceptance/**/*.log

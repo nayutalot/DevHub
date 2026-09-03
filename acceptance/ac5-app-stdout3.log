@@ -1,0 +1,8 @@
+
+
+DevTools listening on ws://127.0.0.1:9222/devtools/browser/607ad78f-8e90-4a06-944c-0146f129c40d
+2026-09-03T03:11:32.414Z [INFO ] apihub key crypto: electron safeStorage injected
+2026-09-03T03:11:32.417Z [INFO ] autostart applied from settings login_autostart=0
+2026-09-03T03:11:32.419Z [INFO ] gateway registered on "devhub:invoke" with 68 channels
+2026-09-03T03:11:32.454Z [INFO ] tray icon loaded: F:\Active_Project\DevHub\resources\tray.png
+2026-09-03T03:11:32.482Z [INFO ] tray created (resident mode: closing the window hides it, docs/12 §10)

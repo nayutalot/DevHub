@@ -1,0 +1,126 @@
+/**
+ * IPC channel registry (docs/04-ipc-api.md).
+ *
+ * Renderer traffic goes through the single gateway channel `devhub:invoke`
+ * with payload `{ channel, payload }` (constraint #17). The gateway must
+ * reject anything not listed in IPC_CHANNELS with CHANNEL_NOT_ALLOWED.
+ *
+ * This module is the single source of truth for the whitelist; the gateway
+ * (Step 6) and the preload bridge (Step 6) both consume it.
+ */
+
+/** The one and only gateway channel exposed to the Renderer. */
+export const IPC_GATEWAY = 'devhub:invoke' as const
+
+/**
+ * Whitelisted business channels, in docs/04 order:
+ * 3 scan + 6 projects CRUD + 4 open + 2 environment + 2 services + 4 dashboard/settings/app = 21,
+ * plus the S2 skills group (docs/09 §9 skills entries + the agent-registry /
+ * linkStates / companion channels this batch requires) = 14 more (35),
+ * plus the S3 apihub group (docs/09 §9: adapters / current / profiles / saveProfile /
+ * deleteProfile / switch) = 6 and versions group (docs/09 §9: list / check / update / job) = 4,
+ * plus the S4 docker/wsl group (docs/09 §8/§9: docker overview / logs / action +
+ * wsl action / distroStats) = 5 more, total 50,
+ * plus the S5 archive group (docs/10 §11: preview / run / history / rollback /
+ * status) = 5 more, total 55. archive:precheck 并入 preview（占用扫描即预览
+ * 影响面的一部分）；archive:settings 不设专用 channel——dest_root 读写由
+ * settings:get/set（key=archive_dest_root，003 已覆盖）承担。
+ * AC2 批次 note（docs/14 §A.1 授权的同一模式更新）：agents 13 条并入，55 → 68
+ * （providers/sessions/sessionDetail/messages/events/sessionAction/pairingCreate/
+ * devices/deviceRevoke/gatewayStatus/gatewayRestart/setAutoStart/diagnostics；
+ * 全部为轮询模式，无广播 channel，docs/14 §A.3）。
+ */
+export const IPC_CHANNELS = [
+  // scan
+  'scan:start',
+  'scan:status',
+  'scan:cancel',
+  // projects CRUD
+  'projects:list',
+  'projects:get',
+  'projects:add',
+  'projects:remove',
+  'projects:rescan',
+  'projects:update',
+  // projects open
+  'projects:openFolder',
+  'projects:openVSCode',
+  'projects:openTerminal',
+  'projects:openWSL',
+  // environment
+  'environment:detect',
+  'environment:doctor',
+  // services
+  'services:list',
+  'services:refresh',
+  // dashboard / settings / app
+  'dashboard:summary',
+  'settings:get',
+  'settings:set',
+  'app:version',
+  // skills（S2 批次，docs/09 §9 skills 条目 + 本批必需的 agent 注册表/链接态/companion 条目；
+  // 文档 skills:toggleLink 命名为准，docs/09 未列的 5 条为任务书要求的 CRUD/探测通道）
+  'skills:scan',
+  'skills:scanWsl',
+  'skills:list',
+  'skills:agents',
+  'skills:linkStates',
+  'skills:toggleLink',
+  'skills:import',
+  'skills:doctor',
+  'skills:repair',
+  'skills:sync',
+  'skills:agent.upsert',
+  'skills:agent.remove',
+  'skills:companion.status',
+  'skills:companion.deploy',
+  // apihub（S3 批次，docs/09 §9 apihub 条目；变更动作 saveProfile/deleteProfile/switch
+  // 的 CONFIRM_REQUIRED 语义在 service 层落地）
+  'apihub:adapters',
+  'apihub:current',
+  'apihub:profiles',
+  'apihub:saveProfile',
+  'apihub:deleteProfile',
+  'apihub:switch',
+  // versions（S3 批次，docs/09 §9 versions 条目；job 快照经 versions:job 轮询）
+  'versions:list',
+  'versions:check',
+  'versions:update',
+  'versions:job',
+  // docker（S4 批次，docs/09 §9 docker 条目按文档命名：overview/logs/action；
+  // 变更动作 action 的 CONFIRM_REQUIRED 两段式语义在 service 层落地）
+  'docker:overview',
+  'docker:logs',
+  'docker:action',
+  // wsl（S4 批次，docs/09 §8.2/§9 授权随 Environment 扩展批次并入：action +
+  // distroStats；boot 无害直接执行，terminate 为 CONFIRM_REQUIRED 两段式）
+  'wsl:action',
+  'wsl:distroStats',
+  // archive（S5 批次，docs/10 §11：preview/run/history/rollback/status。
+  // preview 强制 dry-run 只读；run 必须携带 preview 签发的 previewId 且 confirmed
+  // 才执行（安全规则 1/2）；rollback 为 CONFIRM_REQUIRED 两段式；status 为执行期
+  // 进度轮询（docs/10 §11「不新增广播 channel」）；dest_root 读写复用 settings:get/set）
+  'archive:preview',
+  'archive:run',
+  'archive:history',
+  'archive:rollback',
+  'archive:status',
+  // agents（AC2 批次，docs/14 §A.1 逐字命名；顺序照 A.1 表 1-13。
+  // 全部为 renderer 轮询 channel——不新增广播/推送 channel，docs/14 §A.3）
+  'agents:providers',
+  'agents:sessions',
+  'agents:sessionDetail',
+  'agents:messages',
+  'agents:events',
+  'agents:sessionAction',
+  'agents:pairingCreate',
+  'agents:devices',
+  'agents:deviceRevoke',
+  'agents:gatewayStatus',
+  'agents:gatewayRestart',
+  'agents:setAutoStart',
+  'agents:diagnostics',
+] as const
+
+/** Compile-time whitelist: a handler map must be keyed by IpcChannel. */
+export type IpcChannel = (typeof IPC_CHANNELS)[number]

@@ -1,0 +1,109 @@
+# DevHub IPC API 设计（Phase 1）
+
+## 1. 传输模型
+
+- **单一网关 channel**：`devhub:invoke`（全局唯一，约束 #17）。
+- 请求 payload：`{ channel: string, payload?: unknown }`。
+- 响应（Result envelope，全局统一）：
+  - 成功：`{ ok: true, data: T }`
+  - 失败：`{ ok: false, error: { code: string, message: string } }`
+- 网关按白名单分发到对应 service handler；未注册 channel 返回
+  `{ ok:false, error:{ code:'CHANNEL_NOT_ALLOWED', message } }`。
+- preload 经 contextBridge 仅暴露 `window.devhub.invoke(channel, payload)` 一个方法（约束 #18）。
+
+## 2. 白名单（21 条 channel）
+
+### 扫描（scan）
+
+| channel | payload | result data |
+| --- | --- | --- |
+| `scan:start` | `{ kind: 'full' \| 'projects' \| 'services' \| 'environment' }` | `{ scanId: number }` |
+| `scan:status` | `{ scanId?: number }`（缺省返回最近一次） | `ScanStatus`：`{ scanId, kind, rootPath, status: 'running'\|'done'\|'cancelled'\|'failed', startedAt, finishedAt, foundCount, errorSummary }` |
+| `scan:cancel` | `{ scanId: number }` | `{ cancelled: boolean }` |
+
+### 项目（projects）
+
+| channel | payload | result data |
+| --- | --- | --- |
+| `projects:list` | `{}` | `ProjectSummary[]`：`{ id, name, slug, winPath, wslPath, runtimeHint, lastOpenedAt, updatedAt, hasGit, dirtyCount }`（`updatedAt` 为 Step 8c F5 补充的 projects.updated_at 投影） |
+| `projects:get` | `{ id: number }` | `ProjectDetail`：summary + `repositories[]` + `containers[]` + `services[]` + `environments[]`（完整关系）。M2 增补（追加字段，renderer 不受影响）：`skills` / `mcpServers` / `archives` 三个 `{ notAvailable: true, reason: 'TABLE_EXISTS_NO_SERVICE' }` 显式占位（docs/08 §6.4：三张表已建但无 service 实现，不猜测）+ `relationships[]`（resources/relationships 读查询的关系边投影 `{ relation, direction, resourceType, refId, displayName }`） |
+| `projects:add` | `{ winPath?: string, wslPath?: string, name?: string, description?: string, runtimeHint?: string }` | `ProjectSummary`（新项目） |
+| `projects:remove` | `{ id: number }` | `{ removed: boolean }`（级联清理关系） |
+| `projects:rescan` | `{ id?: number }`（缺省全量重扫） | `{ scanId: number }` |
+| `projects:update` | `{ id, name?, description?, winPath?, wslPath?, runtimeHint? }` | `ProjectSummary`（更新后） |
+
+### 项目操作（打开类，经 launchViaStartProcess）
+
+| channel | payload | result data |
+| --- | --- | --- |
+| `projects:openFolder` | `{ id: number }`（优先 winPath，否则经 wsl 路径换算） | `{ opened: true }` |
+| `projects:openVSCode` | `{ id: number, wsl?: boolean }` | `{ opened: true }` |
+| `projects:openTerminal` | `{ id: number, wsl?: boolean }` | `{ opened: true }` |
+| `projects:openWSL` | `{ id: number }`（要求有 wslPath 或所在发行版） | `{ opened: true }` |
+
+### 环境（environment）
+
+| channel | payload | result data |
+| --- | --- | --- |
+| `environment:detect` | `{}` | `{ environments: EnvironmentWithTools[] }`：每个环境 `{ id, name, kind, osVersion, detectedAt, tools: [{ tool, version, path, state, rawVersion }] }` |
+| `environment:doctor` | `{}` | `{ checks: DoctorCheck[] }`：`{ id, severity: 'info'\|'warning'\|'error', title, detail, suggestion }`，如 Python 3.9/3.13 并存、Win Node 24 vs WSL Node 18 不一致、Docker daemon 状态 |
+
+### 服务（services）
+
+| channel | payload | result data |
+| --- | --- | --- |
+| `services:list` | `{ port?: number }`（可按端口过滤） | `ServiceRow[]`：`{ id, port, protocol, pid, processName, commandLine, workingDir, origin: 'windows'\|'wsl'\|'docker', projectId, projectName }`。M2 增补 `lastSeenAt`（services.last_seen_at；MCP devhub.services.inspect 的 snapshotAt 口径，renderer 不受影响） |
+| `services:refresh` | `{}` | `{ records: ServiceRecord[], scanId: number }`（触发 services 扫描并回写归因；records 为本轮写入/更新的记录，scanId 取本次 kind='services' 扫描行 —— Step 5 决议同步） |
+
+### 汇总与设置
+
+| channel | payload | result data |
+| --- | --- | --- |
+| `dashboard:summary` | `{}` | `{ projectCount, dirtyRepoCount, dockerRunning, dockerTotal, wslStatus: { available, distros[], detail? }, serviceCount, recentProjects: ProjectSummary[], warnings: { severity: 'info'\|'warning'\|'error', title, detail }[] }`（Step 8c F5：`recentProjects` 内 `lastOpenedAt` 在项目从未打开过时回退为 `updatedAt`，保证相对时间可显示） |
+| `settings:get` | `{ key: string }` | `{ key, value }` |
+| `settings:set` | `{ key: string, value: string }` | `{ saved: true }` |
+| `app:version` | `{}` | `{ appVersion, electronVersion, nodeVersion }` |
+
+合计：3（scan）+ 6（projects CRUD）+ 4（open 类）+ 2（environment）+ 2（services）+ 4（dashboard/settings/app）= **21 条**。
+
+## 3. 实现规则
+
+- gateway 只做：校验白名单 → 参数校验（形状）→ 调 service → 包装 envelope → 捕获一切异常折叠为 `ok:false`（约束 #14）。
+- 所有 open 类 channel 在执行前校验目标存在（项目 / 路径），不存在返回 `NOT_FOUND`。
+- open 类全部经 exec 的 `launchViaStartProcess`（PowerShell 静态字面量 + `$env:` 传参，约束 #12）。
+- `scan:start` 幂等：同一时刻只允许一个 running 扫描，重复调用返回当前 scanId。
+
+## 4. 增补白名单（S2-S4 追加模式，docs/09 §9 权威）
+
+Phase 1 的 21 条之上，合并批次按 docs/09 §9 的授权以追加模式扩展白名单（同一
+`devhub:invoke` 网关与 Result envelope，规则不变）：S2 skills 14 条（21→35）、
+S3 apihub 6 条 + versions 4 条（35→45）、S4 docker 3 条 + wsl 2 条（45→**50**）、
+S5 archive 5 条（50→**55**，docs/10 全文权威）。
+S2/S3 条目的 payload/result 契约见 docs/09 §9；S4 条目如下；S5 条目见本节末尾。
+
+### Docker（S4，docs/09 §9 按文档命名 overview / logs / action）
+
+| channel | payload | result data |
+| --- | --- | --- |
+| `docker:overview` | `{}` | info + containers + images 三合一：`{ status: { available, cliAvailable, daemonAvailable, clientVersion?, serverVersion?, reason? }, containers: [{ dockerId, name, image?, state?, ports[], project }], images: { available, reason?, images: [{ repository, tag, imageId, size, createdAt }], count, danglingCount } }`。daemon 不可用 → `available:false` + 空容器表 + images 结构化降级（常态而非异常，docs/02 §4） |
+| `docker:logs` | `{ name, tail?, since? }`（name 为容器名/ID，白名单字符集 `[A-Za-z0-9][A-Za-z0-9_.-]{0,127}`；tail 非负整数、>500 截到 500、负数/非整数 BAD_PAYLOAD；since 为秒） | `{ ok, name, tail, text, truncated?, error? }`：只读拉取，stdout/stderr 合并，超 64KB 截断并置 `truncated:true`；daemon 不可用 → `{ ok:false, text:'', error: reason }` |
+| `docker:action` | `{ name, action: 'start'\|'stop'\|'restart', confirmed? }`（action 枚举之外 BAD_PAYLOAD；docs/09 §8.3 CONFIRM_REQUIRED；remove 强确认留待后续批次） | 未带 confirmed → `{ confirmRequired: true, impacts: { name, image?, state?, ports[], project?, note? } }`；confirmed → `{ ok, name, action, detail?, error?, degraded? }`（成功后刷新 containers 缓存；daemon 不可用 → `ok:false + degraded:true`） |
+
+### WSL（S4，docs/09 §8.2/§9 授权随 Environment 扩展批次并入）
+
+| channel | payload | result data |
+| --- | --- | --- |
+| `wsl:action` | `{ distro, action: 'terminate'\|'boot', confirmed? }`（distro 白名单 = 已知发行版列表，非白名单 BAD_PAYLOAD；shutdownAll 留待后续批次） | terminate 未带 confirmed → `{ confirmRequired: true, impacts: { distro, state, listeningPorts: [{ port, address, pid, processName }], note? } }`（绝不执行）；confirmed → `{ ok, distro, action, detail?, error? }`。boot 无害幂等（`wsl.exe -d <distro> -e true`），直接执行返回 `{ ok, distro, action, detail?, error? }` |
+| `wsl:distroStats` | `{ distro? }`（缺省 = 全部发行版概要；有值 = 单发行版，须在已知列表内） | `{ available, reason?, sampledAt, distros: [{ name, state, version, isDefault?, managedByDocker?, stats, reason? }] }`：stats 为一次 /proc 复合读取 `{ memTotalKb, memFreeKb, memAvailKb, load1, diskTotal, diskUsed, diskAvail, diskPct, uptimeSec }`（取不到的字段 null，绝不硬造）；**仅对 Running 且非 docker-desktop 系探测，绝不为了取数而启动已停止的发行版**（docs/09 §8.2） |
+
+### Archive（S5，docs/10 全文权威；实现注记见 docs/10 §11）
+
+| channel | payload | result data |
+| --- | --- | --- |
+| `archive:preview` | `{ projectId, destRoot? }`（destRoot 缺省读 settings `archive_dest_root`，为空绝不猜默认盘） | **强制 dry-run**（只读，绝不移动任何东西）：`{ previewId, expiresAt, impacts }`。`previewId` 为 `arc-<uuid>` 执行凭证（10 分钟 TTL，`archive:run`/`archive:status` 必须携带）；impacts = `{ projectId, projectName, oldPath, destRoot, destPath, crossVolume, occupiers[], dirLocked, depSkipDirs[], refProjects[], report: { hits[]（≤2000 截断，totalHits 保留真实值）, scannedFiles, skippedBinary, skippedOversize, errorSummary } }`。预检职能（路径存在性 / dest 本地卷与防自吞校验 / 占用进程检测 / 目录锁探测 / depSkipDirs）全部并入本 channel 返回，无独立 `archive:precheck` |
+| `archive:run` | `{ previewId, confirmed?, killPids? }`（killPids 为正整数数组，必须出自 preview impacts 的 occupiers 清单） | 未带 confirmed → `{ confirmRequired: true, impacts }`（服务端二次确认半边）；confirmed → 执行 移动→路径修复→残留复核→联动，返回 `{ runId, movedFrom, movedTo, mode, fixed[], external[], totalReplacements, residualHits, skippedDeps[], skippedLinks[], sourceLeftovers[], durationMs }`；执行时仍有占用 → `PROJECT_LOCKED`（绝不移动），old_path 与 projects.win_path 不一致 → 拒绝 |
+| `archive:status` | `{ previewId }` | `{ active, phase: 'moving'\|'fixing'\|'verifying'\|'done'\|'failed', percent?, logTail[]（≤30） }`；无对应执行记录 → `NOT_FOUND` |
+| `archive:history` | `{ limit? }`（正整数，≤100） | `{ runs: [{ id, projectId(可空), projectName, oldPath, newPath, status: 'running'\|'done'\|'failed'\|'rolled-back', fixedFiles, externalFiles, residualHits, strippedDirs, startedAt, finishedAt, undoEntries(可空) }] }`（archive_runs 按 id 倒序，默认与上限均 100） |
+| `archive:rollback` | `{ runId, confirmed? }`（runId 为 archive_runs 行 id） | 未带 confirmed → `{ confirmRequired: true, impacts: { runId, projectName, oldPath, newPath, undoEntries, fixedFiles, note } }`；confirmed → 内容还原（undo 备份逐条 copyFile 覆写，幂等）+ 目录移回原位 + projects.win_path 还原，返回 `{ runId, restored, undoEntries, movedBack, projectsRestored, status: 'rolled-back', note }`；仅 `done` 状态可回滚 |
+
+合计（Phase 1 + S2 + S3 + S4 + S5）= 3+6+4+2+2+4 + 14 + 6+4 + 3+2 + 5 = **55 条**。

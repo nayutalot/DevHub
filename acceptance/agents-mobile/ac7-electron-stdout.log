@@ -1,0 +1,18 @@
+
+2026-09-03T13:08:25.134Z [INFO ] apihub key crypto: electron safeStorage injected
+2026-09-03T13:08:25.136Z [INFO ] autostart applied from settings login_autostart=0
+2026-09-03T13:08:25.137Z [INFO ] gateway registered on "devhub:invoke" with 68 channels
+2026-09-03T13:08:25.264Z [INFO ] tray icon loaded: F:\Active_Project\DevHub\resources\tray.png
+2026-09-03T13:08:25.298Z [INFO ] tray created (resident mode: closing the window hides it, docs/12 §10)
+2026-09-03T13:08:25.317Z [INFO ] gateway: listening on 127.0.0.1:8746 (settings gateway_port=8746)
+2026-09-03T13:08:36.875Z [INFO ] gateway: GET /v1/health from 127.0.0.1 -> 200
+2026-09-03T13:09:10.818Z [INFO ] gateway: POST /v1/pairing/create from 127.0.0.1 -> 401
+2026-09-03T13:09:10.861Z [INFO ] gateway: POST /v1/pairing/create from 127.0.0.1 -> 201
+2026-09-03T13:09:21.738Z [INFO ] gateway: POST /v1/pairing/claim from 127.0.0.1 -> 400
+2026-09-03T13:09:21.780Z [INFO ] gateway: POST /v1/pairing/claim from 127.0.0.1 -> 401
+2026-09-03T13:09:21.823Z [INFO ] gateway: POST /v1/pairing/claim from 127.0.0.1 -> 400
+2026-09-03T13:10:13.150Z [INFO ] gateway: GET /v1/health from 127.0.0.1 -> 200
+2026-09-03T13:10:13.194Z [INFO ] gateway: POST /v1/pairing/create from 127.0.0.1 -> 401
+2026-09-03T13:10:13.237Z [INFO ] gateway: POST /v1/pairing/create from 127.0.0.1 -> 201
+2026-09-03T13:10:13.508Z [INFO ] gateway: POST /v1/pairing/claim from 127.0.0.1 -> 400
+2026-09-03T13:10:13.551Z [INFO ] gateway: POST /v1/pairing/claim from 127.0.0.1 -> 400

@@ -1,0 +1,6 @@
+
+2026-09-03T02:21:21.982Z [INFO ] apihub key crypto: electron safeStorage injected
+2026-09-03T02:21:21.984Z [INFO ] autostart applied from settings login_autostart=0
+2026-09-03T02:21:21.986Z [INFO ] gateway registered on "devhub:invoke" with 68 channels
+2026-09-03T02:21:22.047Z [INFO ] tray icon loaded: F:\Active_Project\DevHub\resources\tray.png
+2026-09-03T02:21:22.065Z [INFO ] tray created (resident mode: closing the window hides it, docs/12 §10)

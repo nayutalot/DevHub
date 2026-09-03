@@ -1,0 +1,160 @@
+package com.devhub.mobile.data.remote
+
+import okhttp3.Interceptor
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import org.json.JSONObject
+import java.io.IOException
+import java.util.UUID
+import java.util.concurrent.TimeUnit
+
+/**
+ * 防重放两头拦截器（docs/14 §B.4）：
+ * - X-DevHub-Timestamp：unix 秒（服务端 ±300s 窗口）；
+ * - X-DevHub-Nonce：UUID（128-bit 随机的可打印编码形态，16-128 字符；服务端 LRU 10min 去重）。
+ * 所有请求统一携带；/v1/health 与 /v1/pairing/claim 服务端豁免（本端也不送，与契约对齐）。
+ * 鉴权头 Authorization: Bearer <token> 由 tokenProvider 动态取（撤销后即空）。
+ */
+class ProtocolHeadersInterceptor(
+    private val tokenProvider: () -> String?,
+) : Interceptor {
+    override fun intercept(chain: Interceptor.Chain): Response {
+        val request = chain.request()
+        val path = request.url.encodedPath
+        val builder = request.newBuilder()
+        if (path != "/v1/health" && path != "/v1/pairing/claim") {
+            tokenProvider()?.let { token ->
+                builder.header("Authorization", "Bearer $token")
+            }
+            builder.header("X-DevHub-Timestamp", (System.currentTimeMillis() / 1000).toString())
+            builder.header("X-DevHub-Nonce", UUID.randomUUID().toString())
+        }
+        return chain.proceed(builder.build())
+    }
+}
+
+/**
+ * Gateway REST 客户端（docs/14 §B.1 13 端点的 Android 面）。
+ * 同步执行（调用方负责切 Dispatchers.IO）；网络失败以 IOException 上抛
+ * （离线队列按 QueueReplayPlanner 分类）；结构化错误统一 ApiError。
+ */
+class GatewayApi(
+    private val baseUrlProvider: () -> String,
+    private val tokenProvider: () -> String?,
+) {
+    val client: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .addInterceptor(ProtocolHeadersInterceptor(tokenProvider))
+        .build()
+
+    private val jsonMedia = "application/json; charset=utf-8".toMediaType()
+
+    private fun url(path: String): String = baseUrlProvider().trimEnd('/') + path
+
+    private fun execute(request: Request): JSONObject {
+        val response = try {
+            client.newCall(request).execute()
+        } catch (err: IOException) {
+            throw err // 网络层失败：调用方（离线队列）按 RETRY_LATER 处理
+        }
+        response.use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (resp.isSuccessful) {
+                return if (body.isEmpty()) JSONObject() else JSONObject(body)
+            }
+            val (code, message) = Dtos.parseError(body) ?: ("INTERNAL" to "gateway: unexpected error body")
+            val retryAfter = resp.header("Retry-After")?.toIntOrNull()
+            throw ApiError(code = code, message = message, httpCode = resp.code, retryAfterSec = retryAfter)
+        }
+        @Suppress("UNREACHABLE_CODE")
+        throw IOException("unreachable")
+    }
+
+    private fun get(path: String): JSONObject = execute(Request.Builder().url(url(path)).get().build())
+
+    private fun post(path: String, payload: JSONObject): JSONObject =
+        execute(Request.Builder().url(url(path)).post(payload.toString().toRequestBody(jsonMedia)).build())
+
+    private fun delete(path: String): JSONObject = execute(Request.Builder().url(url(path)).delete().build())
+
+    // --- 端点（docs/14 §B.1 逐条） -----------------------------------------
+
+    /** GET /v1/health（无鉴权活性探测）。 */
+    fun health(): HealthInfo = Dtos.parseHealth(get("/v1/health"))
+
+    /**
+     * POST /v1/pairing/claim（AC7b 裁决：pairingId 可选——null/空白时不发送该字段，
+     * code-only 依赖服务端「同时仅 1 活跃码」唯一定位；platform 固定 android）。
+     */
+    fun claim(pairingId: String?, code: String, deviceName: String): ClaimResult {
+        val payload = JSONObject()
+            .put("code", code.uppercase())
+            .put("deviceName", deviceName)
+            .put("platform", "android")
+        if (!pairingId.isNullOrBlank()) {
+            payload.put("pairingId", pairingId)
+        }
+        return Dtos.parseClaim(post("/v1/pairing/claim", payload))
+    }
+
+    /** GET /v1/agents。 */
+    fun agents(): List<AgentDto> = Dtos.parseAgents(get("/v1/agents"))
+
+    /** GET /v1/sessions?limit。 */
+    fun sessions(limit: Int = 200): List<SessionDto> = Dtos.parseSessions(get("/v1/sessions?limit=$limit"))
+
+    /** GET /v1/sessions/{id}。 */
+    fun sessionDetail(sessionId: Long): SessionDetailDto = Dtos.parseSessionDetail(get("/v1/sessions/$sessionId"))
+
+    /** GET /v1/sessions/{id}/messages?after（游标分页）。 */
+    fun messages(sessionId: Long, after: Long?, limit: Int = 200): MessagesPage {
+        val query = buildString {
+            append("/v1/sessions/")
+            append(sessionId)
+            append("/messages?limit=")
+            append(limit)
+            if (after != null) {
+                append("&after=")
+                append(after)
+            }
+        }
+        return Dtos.parseMessages(get(query))
+    }
+
+    /** POST /v1/sessions/{id}/reply（能力门：reply ∈ granted；202 accepted）。 */
+    fun reply(sessionId: Long, text: String, idempotencyKey: String): CommandAccept = Dtos.parseCommandAccept(
+        post(
+            "/v1/sessions/$sessionId/reply",
+            JSONObject().put("text", text).put("idempotencyKey", idempotencyKey),
+        ),
+    )
+
+    /** POST /v1/sessions/{id}/actions（pause | resume；202 accepted）。 */
+    fun action(sessionId: Long, action: String, idempotencyKey: String): CommandAccept = Dtos.parseCommandAccept(
+        post(
+            "/v1/sessions/$sessionId/actions",
+            JSONObject().put("action", action).put("idempotencyKey", idempotencyKey),
+        ),
+    )
+
+    /** GET /v1/devices。 */
+    fun devices(): List<DeviceDto> = Dtos.parseDevices(get("/v1/devices"))
+
+    /** DELETE /v1/devices/{id}（仅自撤销）。 */
+    fun revokeSelf(deviceId: Long): Unit {
+        delete("/v1/devices/$deviceId")
+    }
+
+    /** GET /v1/diagnostics。 */
+    fun diagnostics(): DiagnosticsDto = Dtos.parseDiagnostics(get("/v1/diagnostics"))
+
+    /** POST /v1/events/{seq}/ack（WS ack 的 REST 等效兜底）。 */
+    fun ackEvent(sequence: Long) {
+        post("/v1/events/$sequence/ack", JSONObject())
+    }
+}

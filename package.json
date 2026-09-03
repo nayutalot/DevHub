@@ -1,0 +1,30 @@
+{
+  "name": "devhub",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Development Control Plane for Windows: discover, manage and relate projects, WSL, Docker, Git and services.",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit",
+    "smoke": "node scripts/smoke.mjs",
+    "mcp": "node scripts/run-mcp.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.5.0",
+    "electron": "44.1.1",
+    "electron-vite": "^5.0.0",
+    "typescript": "~5.9.2",
+    "vite": "^7.0.0"
+  }
+}

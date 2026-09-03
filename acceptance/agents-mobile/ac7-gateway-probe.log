@@ -1,0 +1,53 @@
+# AC7 gateway loopback probe 2026-09-03T13:10:12Z
+
+== GET /v1/health
+{"ok":true,"name":"devhub","version":"0.1.0","uptimeSec":108}
+HTTP:200
+
+== POST /v1/pairing/create (no replay headers) -> expect 401 AUTH_REPLAYED
+{"error":{"code":"AUTH_REPLAYED","message":"gateway: protected requests must carry X-DevHub-Timestamp (unix seconds, ±300s window, docs/14 B.4)"}}
+HTTP:401
+
+== POST /v1/pairing/create (with X-DevHub-Timestamp/Nonce) -> expect 201
+{"pairingId":"pair-0c1d3221-6e03-4b6a-8fb6-e031dc52d177","code":"AJWSY9WM","expiresAt":1788441313}
+HTTP:201
+<anonymous_script>:2
+HTTP:201
+^
+
+SyntaxError: Unexpected non-whitespace character after JSON at position 99 (line 2 column 1)
+    at JSON.parse (<anonymous>)
+    at [eval]:1:18
+    at runScriptInThisContext (node:internal/vm:219:10)
+    at node:internal/process/execution:451:12
+    at [eval]-wrapper:6:24
+    at runScriptInContext (node:internal/process/execution:449:60)
+    at evalFunction (node:internal/process/execution:283:30)
+    at evalTypeScript (node:internal/process/execution:295:3)
+    at node:internal/main/eval_string:71:3
+
+Node.js v24.15.0
+<anonymous_script>:2
+HTTP:201
+^
+
+SyntaxError: Unexpected non-whitespace character after JSON at position 99 (line 2 column 1)
+    at JSON.parse (<anonymous>)
+    at [eval]:1:18
+    at runScriptInThisContext (node:internal/vm:219:10)
+    at node:internal/process/execution:451:12
+    at [eval]-wrapper:6:24
+    at runScriptInContext (node:internal/process/execution:449:60)
+    at evalFunction (node:internal/process/execution:283:30)
+    at evalTypeScript (node:internal/process/execution:295:3)
+    at node:internal/main/eval_string:71:3
+
+Node.js v24.15.0
+
+== POST /v1/pairing/claim (missing pairingId) -> expect 400 BAD_PAYLOAD (pairingId REQUIRED)
+{"error":{"code":"BAD_PAYLOAD","message":"gateway: field \"pairingId\" must be a non-empty string"}}
+HTTP:400
+
+== POST /v1/pairing/claim (wrong code, failure 1/5) -> expect 401 AUTH_INVALID_TOKEN
+{"error":{"code":"BAD_PAYLOAD","message":"gateway: field \"pairingId\" must be a non-empty string"}}
+HTTP:400

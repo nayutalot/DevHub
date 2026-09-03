@@ -1,0 +1,8 @@
+
+2026-09-03T15:02:38.832Z [INFO ] apihub key crypto: electron safeStorage injected
+2026-09-03T15:02:38.834Z [INFO ] autostart applied from settings login_autostart=0
+2026-09-03T15:02:38.845Z [INFO ] gateway registered on "devhub:invoke" with 68 channels
+2026-09-03T15:02:38.924Z [INFO ] tray icon loaded: F:\Active_Project\DevHub\resources\tray.png
+2026-09-03T15:02:38.944Z [INFO ] tray created (resident mode: closing the window hides it, docs/12 §10)
+2026-09-03T15:18:45.506Z [INFO ] quit teardown: agent control runtime shut down (monitors cancelled, providers disposed)
+2026-09-03T15:18:45.513Z [INFO ] quit teardown: database closed (WAL checkpointed)
