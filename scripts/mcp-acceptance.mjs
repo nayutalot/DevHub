@@ -505,16 +505,17 @@ registerCase('A11', 'wsl.status + wsl.distributions：Ubuntu 与 docker-desktop 
   note(`distros: ${data.distributions.map((d) => `${d.name}(v${d.version},${d.state}${d.tools ? ',snapshot' : ',no-snapshot'})`).join(', ')}`)
 })
 
-registerCase('A12', 'git.status：真实项目 DevHub → notAGitRepository:true 结构化返回，不崩', async () => {
+registerCase('A12', 'git.status：真实项目 DevHub → 真实仓库结构化返回（branch=main、工作树干净），不崩（2026-09-04 用户令 git init 后就地更新：原断言 notAGitRepository:true 的前提"主仓非 git 仓库"已被推翻）', async () => {
   const devhub = ctx.projects.find((p) => p.name === 'DevHub')
   const data = await callOk(ctx.mcp.client, 'devhub.git.status', { projectId: devhub.id })
   assert.equal(data.projectId, devhub.id, 'echoed projectId')
   assert.equal(data.project, 'DevHub', 'project name projected')
   assert.equal(data.path, devhub.winPath, 'probed path is the project winPath (whitelist default)')
-  assert.equal(data.notAGitRepository, true, `notAGitRepository explicit, got ${JSON.stringify(data)}`)
-  assert.deepEqual(data.workingTree, { clean: true, modifiedCount: 0, untrackedCount: 0 }, 'degenerate working tree for a non-repository')
+  assert.notEqual(data.notAGitRepository, true, `DevHub is now a git repository (git init 2026-09-04), got ${JSON.stringify(data)}`)
+  assert.equal(data.repository?.branch, 'main', 'main branch after init (projection nests repo info under repository)')
+  assert.deepEqual(data.workingTree, { clean: true, modifiedCount: 0, untrackedCount: 0 }, 'clean working tree (验收跑在干净工作树上)')
   assert.equal(typeof data.checkedAt, 'number', 'checkedAt stamped')
-  note(`DevHub at ${data.path} → not a git repository (structured, not an error)`)
+  note(`DevHub at ${data.path} → git repo on ${data.branch}, tree clean`)
 })
 
 registerCase('A12b', 'dashboard.summary：projectCount===3、warnings≥1（与 UI Dashboard 同源口径，M3-A04）', async () => {

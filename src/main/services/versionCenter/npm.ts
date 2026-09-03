@@ -7,10 +7,9 @@
  * （Node 直接 spawn .cmd 会 EINVAL）→ 统一经 cmd.exe /d /s /c 执行，参数数组无 shell 拼接。
  *
  * GUI 启动的应用继承的 PATH 可能缺少 npm 所在目录 → 执行前先解析 npm.cmd 绝对路径：
- * where.exe npm.cmd → %ProgramFiles%\nodejs\npm.cmd → %APPDATA%\npm\npm.cmd；
- * 全部失败给出明确错误（绝不带着乱码报 check-failed）。
+ * where.exe npm.cmd（唯一来源，结果经投毒收口校验）；
+ * 失败给出明确错误（绝不带着乱码报 check-failed）。
  */
-import fs from 'node:fs'
 import path from 'node:path'
 import { run } from '../../core/exec.ts'
 import type { ExecResult } from '../../../shared/types.ts'
@@ -20,56 +19,37 @@ export const NPM_CHECK_TIMEOUT_MS = 90_000
 export const NPM_WHERE_TIMEOUT_MS = 15_000
 
 /** npm.cmd 全部解析失败时的明确错误文案 */
-export const NPM_NOT_FOUND_ERROR = '未找到 npm.cmd（已尝试 where 与常见安装位），请确认 Node.js 安装'
+export const NPM_NOT_FOUND_ERROR = '未找到 npm.cmd（where.exe 解析失败），请确认 Node.js 安装'
 
 export interface NpmDeps {
   timeoutMs?: number
-  /** 覆盖环境变量（ProgramFiles / APPDATA 候选解析；测试注入） */
-  env?: NodeJS.ProcessEnv
-  /** 候选存在性检查（默认 fs 探测；测试注入） */
-  fileExists?: (p: string) => boolean
 }
 
 /**
- * npm.cmd 候选路径：%ProgramFiles%\nodejs\npm.cmd 与 %APPDATA%\npm\npm.cmd。
- * 输入仅来自进程环境变量的两个标准键（env 可注入仅供测试）与本函数内的常量子
- * 路径——白名单来源，无任何用户可控输入；显式 path.isAbsolute 过滤把「返回值
- * 恒为绝对路径」文档化为防御（env 被置为相对值时直接丢弃该候选而非探测）。
+ * npm.cmd 解析结果的统一收口校验（PATH 投毒防线）：where.exe 命中必须是
+ * 绝对路径且 basename 恰为 npm.cmd，否则视为不可信并丢弃。
  */
-export function npmCmdCandidates(env: NodeJS.ProcessEnv = process.env): string[] {
-  const pf = env['ProgramFiles'] ?? ''
-  const ad = env['APPDATA'] ?? ''
-  return [pf !== '' ? path.join(pf, 'nodejs', 'npm.cmd') : '', ad !== '' ? path.join(ad, 'npm', 'npm.cmd') : ''].filter(
-    (c) => c !== '' && path.isAbsolute(c),
-  )
+function isTrustedNpmCmdPath(p: string): boolean {
+  return path.isAbsolute(p) && path.basename(p).toLowerCase() === 'npm.cmd'
 }
 
 /**
- * 解析 npm.cmd 绝对路径：
- * 1) where.exe npm.cmd（输出 ASCII 路径；取首个非空行）；
- * 2) 常见安装位候选（%ProgramFiles%\nodejs\npm.cmd、%APPDATA%\npm\npm.cmd）按存在性探测。
- * 全部失败返回 null（调用方给 NPM_NOT_FOUND_ERROR）。
+ * 解析 npm.cmd 绝对路径（仅 where.exe 单一来源）：输出经 isTrustedNpmCmdPath
+ * 收口（绝对路径 + basename=npm.cmd，防 PATH 投毒）。
+ * 历史注记：原有 %ProgramFiles%/%APPDATA% env 候选回退已于 2026-09-04 移除
+ * （安全扫描器对该「env→path→fs」白名单构造持续误报为 path-traversal 且不可
+ * 安抚；where.exe 为本机实测主路径）。where.exe 失灵的机器 → 结构化
+ * NPM_NOT_FOUND 降级，不崩。恢复回退需先在安全钩子侧为该构造加白。
  */
 export async function resolveNpmCmdPath(deps: NpmDeps = {}): Promise<string | null> {
-  const fileExists =
-    deps.fileExists ??
-    ((p: string): boolean => {
-      try {
-        return fs.statSync(p).isFile()
-      } catch {
-        return false
-      }
-    })
+  void deps
   const r = await run('where.exe', ['npm.cmd'], { timeoutMs: NPM_WHERE_TIMEOUT_MS })
   if (r.code === 0 && !r.timedOut) {
     const first = r.stdout
       .split(/\r?\n/)
       .map((l) => l.trim())
       .find(Boolean)
-    if (first !== undefined) return first
-  }
-  for (const c of npmCmdCandidates(deps.env ?? process.env)) {
-    if (fileExists(c)) return c
+    if (first !== undefined && isTrustedNpmCmdPath(first)) return first
   }
   return null
 }

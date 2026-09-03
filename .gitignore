@@ -17,3 +17,6 @@ android/.kotlin/
 
 # 证据日志例外：acceptance 下的 .log 是交付证据，必须追踪
 !acceptance/**/*.log
+
+# 生成物：mcp-acceptance 每次运行刷新（时间戳在内），追踪会弄脏工作树并使 A12 干净树断言自反
+acceptance/mcp-scenario-report.json
