@@ -8573,5 +8573,52 @@ if (isEntrypoint()) {
     }
   })
 
+  // ------------------------------------------------------------------
+  // AC9 退出滞留修复：quitGuarantee 状态机（electron-free 纯逻辑，直载）——
+  // teardown 完成/硬上限后必须再次 quit + 挂退出看门狗；看门狗到点进程仍未退
+  // 必须 force-exit（app.exit(0) 兜底），杜绝主进程+GPU+网络服务滞留；
+  // 二次 before-quit 放行、重复触发幂等。
+  // ------------------------------------------------------------------
+  registerCase('ac9-exit-fix: quitGuarantee state machine converges to guaranteed app.exit(0) after teardown (or hard cap); idempotent on repeats', async () => {
+    const qg = await import(new URL('../src/main/core/quitGuarantee.ts', import.meta.url).href)
+    // 1) 首次 before-quit：preventDefault + 挂硬上限 → tearing-down（不发 quit）
+    const first = qg.quitTransition('idle', 'first-before-quit')
+    assert.equal(first.preventDefault, true, 'first before-quit must preventDefault for ordered teardown')
+    assert.equal(first.armHardCap, true, 'hard cap must be armed together with teardown')
+    assert.equal(first.quitAgain, false, 'no re-quit while ordered teardown is running')
+    assert.equal(first.forceExit, false)
+    assert.equal(first.nextStage, 'tearing-down', 'stage must move to tearing-down')
+    // 2) teardown 完成：清硬上限 + 再次 quit + 挂退出看门狗 → quitting
+    const done = qg.quitTransition(first.nextStage, 'teardown-completed')
+    assert.equal(done.clearHardCap, true, 'hard cap cleared once teardown settles')
+    assert.equal(done.quitAgain, true, 'teardown completion must re-issue app.quit()')
+    assert.equal(done.armWatchdog, true, 'exit watchdog must be armed once teardown settles')
+    assert.equal(done.forceExit, false)
+    assert.equal(done.nextStage, 'quitting', 'stage must move to quitting')
+    // 3) 看门狗到点进程仍在：必须 force-exit（退出保证，杜绝滞留）
+    const wd = qg.quitTransition(done.nextStage, 'watchdog-elapsed')
+    assert.equal(wd.forceExit, true, 'watchdog elapsed must converge to forced exit (app.exit(0))')
+    assert.equal(wd.quitAgain, false, 'no graceful re-quit at watchdog time — force only')
+    assert.equal(wd.nextStage, 'force-exit')
+    // 4) 硬上限路径（收尾挂死）：同样 quit + 看门狗 → force-exit 收敛
+    const cap = qg.quitTransition('tearing-down', 'hard-cap-elapsed')
+    assert.equal(cap.quitAgain, true, 'hard cap must force the quit to proceed')
+    assert.equal(cap.armWatchdog, true, 'hard cap path must also arm the exit watchdog')
+    assert.equal(cap.nextStage, 'quitting')
+    const capWd = qg.quitTransition(cap.nextStage, 'watchdog-elapsed')
+    assert.equal(capWd.forceExit, true, 'hard cap path converges to forced exit too')
+    // 5) 幂等/放行：二次 before-quit 不再拦截；重复触发不重复动作
+    const secondQuit = qg.quitTransition('quitting', 'first-before-quit')
+    assert.equal(secondQuit.preventDefault, false, 'second before-quit must let quit proceed')
+    const repeatDone = qg.quitTransition('quitting', 'teardown-completed')
+    assert.equal(repeatDone.quitAgain, false, 'repeated teardown-completed is a no-op')
+    assert.equal(repeatDone.armWatchdog, false, 'watchdog armed at most once')
+    const repeatWd = qg.quitTransition('force-exit', 'watchdog-elapsed')
+    assert.equal(repeatWd.forceExit, false, 'force-exit is terminal')
+    // 常量契约：5s 硬上限守收尾、3s 看门狗守最终退出
+    assert.equal(qg.QUIT_TEARDOWN_HARD_CAP_MS, 5000, 'teardown hard cap stays 5s')
+    assert.equal(qg.QUIT_EXIT_WATCHDOG_MS, 3000, 'exit watchdog grace stays 3s')
+  })
+
   await run()
 }

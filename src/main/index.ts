@@ -12,25 +12,33 @@
  * 退出唯一入口（托盘「退出 DevHub」/ before-quit）按收尾顺序：
  * cancelAll 监控 → [关 WS → 关 Gateway（AC6 预留位）] → 托管子进程收尾
  * （provider.dispose）→ closeDatabase（WAL 落盘）→ app.quit()。
+ * 退出保证（AC9 退出滞留修复）：teardown 前先撤 UI 常驻句柄（destroyTray + 清
+ * 2s 刷新 interval——ref'd 定时器会让主进程事件循环永不枯竭而滞留）；teardown
+ * 完成（或 5s 硬上限到）后 quit，若宽限期到进程仍未退则 app.exit(0) 强退，
+ * 杜绝主进程+GPU+网络服务滞留（状态机见 core/quitGuarantee.ts，smoke 可测）。
  */
 
 import { join } from 'node:path'
 import { app, BrowserWindow, Menu } from 'electron'
 import { logger } from './core/logger.ts'
+import {
+  quitTransition,
+  QUIT_TEARDOWN_HARD_CAP_MS,
+  QUIT_EXIT_WATCHDOG_MS,
+  type QuitAction,
+  type QuitStage,
+} from './core/quitGuarantee.ts'
 import { closeDatabase, getDatabase } from './db/index.ts'
 import { createSafeStorageKeyCrypto } from './keyStoreWire.ts'
 import { registerGateway } from './ipc/gateway.ts'
 import { setKeyCrypto } from './services/apihub/keyStore.ts'
 import { injectAutoStart } from './autostartWire.ts'
-import { initTray, refreshTraySummary } from './trayWire.ts'
+import { initTray, refreshTraySummary, destroyTray } from './trayWire.ts'
 import type { TrayDeps } from './trayWire.ts'
 import { shutdownAgentControlRuntime } from './services/agentControl/agentControlService.ts'
 
 /** Windows 通知/托盘归属前置（AC0 审计：现缺，docs/12 §10）。 */
 const APP_USER_MODEL_ID = 'com.devhub.app'
-
-/** 退出收尾硬上限：有序收尾超过该时限仍强制退出（防 provider 收尾挂死应用）。 */
-const QUIT_TEARDOWN_TIMEOUT_MS = 5000
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
@@ -45,7 +53,18 @@ function isDevMode(): boolean {
  * preventDefault（真退出放行），托盘「退出 DevHub」同样经 quitApp() 走该语义。
  */
 let isQuitting = false
-let quitTeardownStarted = false
+
+/**
+ * AC9 退出滞留修复：退出保证状态机阶段（idle → tearing-down → quitting →
+ * force-exit）。转换只由 core/quitGuarantee.ts 裁决，本文件负责副作用
+ * （preventDefault / 定时器 / app.quit / app.exit）。
+ */
+let quitStage: QuitStage = 'idle'
+let hardCapTimer: NodeJS.Timeout | null = null
+let exitWatchdog: NodeJS.Timeout | null = null
+
+/** 托盘 2s 摘要刷新 interval（退出路径必须清除，否则事件循环滞留，AC9）。 */
+let trayRefreshTimer: NodeJS.Timeout | null = null
 
 let mainWindow: BrowserWindow | null = null
 
@@ -137,10 +156,18 @@ function showMainWindowNavigateAgents(): void {
 
 /**
  * 退出收尾（docs/12 §10 收尾顺序，幂等且带硬上限）：
- * cancelAll 监控 → [关 WS → 关 Gateway（AC6 预留位）] → 托管子进程收尾
- * （provider.dispose）→ closeDatabase（WAL 落盘）。任一步失败不阻断后续步骤。
+ * 撤 UI 常驻句柄（AC9：托盘 destroy + 清 2s 刷新 interval——先于一切异步收尾，
+ * 防止 ref'd 定时器拖住主进程事件循环/惰性重开已关闭的 DB）→ cancelAll 监控 →
+ * [关 WS → 关 Gateway] → 托管子进程收尾（provider.dispose）→ closeDatabase
+ * （WAL 落盘）。任一步失败不阻断后续步骤。
  */
 async function runQuitTeardown(): Promise<void> {
+  if (trayRefreshTimer !== null) {
+    clearInterval(trayRefreshTimer)
+    trayRefreshTimer = null
+  }
+  destroyTray()
+  logger.info('quit teardown: tray destroyed + 2s refresh interval cleared (AC9 exit fix)')
   try {
     await shutdownAgentControlRuntime()
     logger.info('quit teardown: agent control runtime shut down (monitors cancelled, providers disposed)')
@@ -156,24 +183,55 @@ async function runQuitTeardown(): Promise<void> {
 }
 
 /**
- * before-quit 入口：首次进入 preventDefault 并执行有序收尾，收尾完成后二次
- * app.quit()；isQuitting 已置位 → close 事件放行 → quit 完成。硬上限兜底：
- * 收尾挂死超时后强制继续退出（绝不无限等待，docs/00 约束 #9 精神）。
+ * 执行状态机指令（副作用收口）：清/挂定时器、再次 quit、强退兜底。
+ * 看门狗 unref：quit 正常完成时它不得反过来拖住事件循环；只有进程真的滞留时
+ * 它才会到点触发 app.exit(0)。
+ */
+function applyQuitAction(action: QuitAction): void {
+  quitStage = action.nextStage
+  if (action.clearHardCap && hardCapTimer !== null) {
+    clearTimeout(hardCapTimer)
+    hardCapTimer = null
+  }
+  if (action.armWatchdog && exitWatchdog === null) {
+    const timer = setTimeout(() => {
+      exitWatchdog = null
+      applyQuitAction(quitTransition(quitStage, 'watchdog-elapsed'))
+    }, QUIT_EXIT_WATCHDOG_MS)
+    timer.unref()
+    exitWatchdog = timer
+  }
+  if (action.quitAgain) app.quit()
+  if (action.forceExit) {
+    logger.warn(
+      `quit exit guarantee: process still alive after quit — forcing app.exit(0) (AC9 lingering-process fix, watchdog=${QUIT_EXIT_WATCHDOG_MS}ms)`,
+    )
+    destroyTray()
+    app.exit(0)
+  }
+}
+
+/**
+ * before-quit 入口（状态机接线）：首次进入 preventDefault 并执行有序收尾（UI
+ * 常驻句柄先撤），收尾完成后再次 app.quit() 并挂退出看门狗；isQuitting 已置位 →
+ * close 事件放行 → quit 完成。双守卫：5s 硬上限守收尾（挂死照常发起 quit）、
+ * 3s 看门狗守最终退出（宽限期到进程仍在 → app.exit(0) 强退，杜绝滞留）。
  */
 function requestQuit(event: Electron.Event): void {
   isQuitting = true
-  if (quitTeardownStarted) return
-  quitTeardownStarted = true
+  const action = quitTransition(quitStage, 'first-before-quit')
+  if (!action.preventDefault) return // 已在退出流程：本次 quit 放行
   event.preventDefault()
-  const timeout = setTimeout(() => {
-    logger.warn('quit teardown timed out — forcing quit')
-    app.quit()
-  }, QUIT_TEARDOWN_TIMEOUT_MS)
+  applyQuitAction(action) // → tearing-down
+  hardCapTimer = setTimeout(() => {
+    hardCapTimer = null
+    logger.warn('quit teardown timed out — forcing quit (hard cap)')
+    applyQuitAction(quitTransition(quitStage, 'hard-cap-elapsed'))
+  }, QUIT_TEARDOWN_HARD_CAP_MS)
   void runQuitTeardown()
     .catch((err) => logger.warn(`quit teardown rejected: ${errorMessage(err)}`))
     .then(() => {
-      clearTimeout(timeout)
-      app.quit()
+      applyQuitAction(quitTransition(quitStage, 'teardown-completed'))
     })
 }
 
@@ -241,7 +299,8 @@ function bootstrapMainProcess(): void {
         quitApp: () => app.quit(), // before-quit → requestQuit（有序收尾）
       }
       initTray(trayDeps)
-      setInterval(() => refreshTraySummary(trayDeps), 2000)
+      // 句柄必须可清（AC9 滞留根因之一）：退出路径 runQuitTeardown 里 clearInterval
+      trayRefreshTimer = setInterval(() => refreshTraySummary(trayDeps), 2000)
     })
     .catch((err) => {
       logger.error(`startup failed: ${errorMessage(err)}`)

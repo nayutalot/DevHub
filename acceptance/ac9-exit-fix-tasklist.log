@@ -1,0 +1,44 @@
+# AC9 exit-fix verification — electron.exe process census after quit (CDP Browser.close, AC9 repro)
+# date: 2026-09-03T19:44:08Z  host: win32  repo HEAD: 2835589 (fix stashed for baseline section)
+# method: electron.exe . --remote-debugging-port=9222 ; wait ready ; node acceptance/ac9-cdp-browser-close.mjs ; sleep 8 ; tasklist
+
+=== BASELINE (pre-fix, HEAD 2835589) run 1 ===
+--- teardown log tail (baseline run 1) ---
+2026-09-03T19:44:13.688Z [INFO ] quit teardown: database closed (WAL checkpointed)
+2026-09-03T19:44:13.696Z [INFO ] window-all-closed: staying resident in tray (docs/12 §10)
+--- tasklist after sleep 8 ---
+"electron.exe","6520","Console","1","144,752 K"
+"electron.exe","28456","Console","1","100,516 K"
+"electron.exe","32328","Console","1","48,160 K"
+electron process count: 3
+
+=== BASELINE (pre-fix, HEAD 2835589) run 2 ===
+--- teardown log tail (baseline run 2) ---
+2026-09-03T19:44:44.955Z [INFO ] quit teardown: database closed (WAL checkpointed)
+2026-09-03T19:44:44.963Z [INFO ] window-all-closed: staying resident in tray (docs/12 §10)
+--- tasklist after sleep 8 ---
+"electron.exe","24208","Console","1","145,000 K"
+"electron.exe","12208","Console","1","100,492 K"
+"electron.exe","28400","Console","1","47,984 K"
+electron process count: 3
+
+=== FIXED run 1 ===
+--- teardown log tail (fixed run 1) ---
+2026-09-03T19:45:18.182Z [INFO ] quit teardown: agent control runtime shut down (monitors cancelled, providers disposed)
+2026-09-03T19:45:18.184Z [INFO ] quit teardown: database closed (WAL checkpointed)
+2026-09-03T19:45:18.193Z [INFO ] window-all-closed: staying resident in tray (docs/12 §10)
+2026-09-03T19:45:21.185Z [WARN ] quit exit guarantee: process still alive after quit — forcing app.exit(0) (AC9 lingering-process fix, watchdog=3000ms)
+--- tasklist after sleep 8 ---
+electron process count: 0
+
+=== FIXED run 2 ===
+--- teardown log tail (fixed run 2) ---
+2026-09-03T19:45:48.710Z [INFO ] quit teardown: agent control runtime shut down (monitors cancelled, providers disposed)
+2026-09-03T19:45:48.713Z [INFO ] quit teardown: database closed (WAL checkpointed)
+2026-09-03T19:45:48.721Z [INFO ] window-all-closed: staying resident in tray (docs/12 §10)
+2026-09-03T19:45:51.715Z [WARN ] quit exit guarantee: process still alive after quit — forcing app.exit(0) (AC9 lingering-process fix, watchdog=3000ms)
+--- tasklist after sleep 8 ---
+electron process count: 0
+
+# verdict: baseline 2/2 runs = 3 lingering electron processes (main + GPU + network service);
+# fixed 2/2 runs = 0 lingering (watchdog app.exit(0) at +3s guarantees exit; teardown logs complete in all runs).
