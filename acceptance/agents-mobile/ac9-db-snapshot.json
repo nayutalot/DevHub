@@ -1,0 +1,92 @@
+{
+  "snapshotAt": "2026-09-03T17:36:16.956Z",
+  "source": "copy of %APPDATA%/devhub/devhub.db (+wal/shm), SELECT-only (zero write SQL)",
+  "agent_providers": [
+    {
+      "provider": "codex",
+      "installed": true,
+      "version": "0.153.0-alpha.5",
+      "health": "ok",
+      "mode": "managed",
+      "granted": [
+        "reply",
+        "pause",
+        "resume"
+      ]
+    },
+    {
+      "provider": "claude-code",
+      "installed": true,
+      "version": "2.1.150",
+      "health": "ok",
+      "mode": "observed",
+      "granted": []
+    },
+    {
+      "provider": "kimi",
+      "installed": true,
+      "version": "0.36.0",
+      "health": "ok",
+      "mode": "observed",
+      "granted": []
+    },
+    {
+      "provider": "zcode",
+      "installed": true,
+      "version": null,
+      "health": "ok",
+      "mode": "observed",
+      "granted": []
+    },
+    {
+      "provider": "deepseek",
+      "installed": true,
+      "version": "0.1.0-rc.5",
+      "health": "ok",
+      "mode": "observed",
+      "granted": []
+    }
+  ],
+  "counts": {
+    "agent_sessions": 337,
+    "agent_events": 14871,
+    "agent_messages": 14140,
+    "remote_devices": 4,
+    "event_deliveries": 1849,
+    "security_audit_logs": 33
+  },
+  "settings": [
+    {
+      "key": "agents_monitor_enabled",
+      "value": "1"
+    },
+    {
+      "key": "archive_dest_root",
+      "value": "G:\\__zk-dep-test\\archived"
+    },
+    {
+      "key": "gateway_enabled",
+      "value": "1"
+    },
+    {
+      "key": "gateway_port",
+      "value": "8750"
+    },
+    {
+      "key": "login_autostart",
+      "value": "0"
+    },
+    {
+      "key": "scan_root",
+      "value": "F:\\Active_Project"
+    },
+    {
+      "key": "theme",
+      "value": "dark"
+    },
+    {
+      "key": "vault_path",
+      "value": "C:\\Users\\sakuya\\SkillVault"
+    }
+  ]
+}
