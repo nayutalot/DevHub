@@ -1,0 +1,862 @@
+{
+ "session": {
+  "id": 337,
+  "native_id": "01a0684e-42c2-7531-833c-a1b5b4f49e21",
+  "session_mode": "managed",
+  "status": "waiting_input",
+  "status_detail": "turn 01a06857 ended; awaiting next user input",
+  "started_at": 1788456354,
+  "created_at": 1788456354,
+  "updated_at": 1788457165
+ },
+ "events": [
+  {
+   "id": 14853,
+   "event_type": "session.started",
+   "event_id": "codex:01a0684e-42c2-7531-833c-a1b5b4f49e21:session.started:c91342a67a84fbdb",
+   "summary": "01a0684e-42c2-7531-833c-a1b5b4f49e21",
+   "delivery_state": "pending",
+   "created_at": 1788456354
+  },
+  {
+   "id": 14854,
+   "event_type": "session.status_changed",
+   "event_id": "codex:01a0684e-42c2-7531-833c-a1b5b4f49e21:session.status_changed:69c6ffd8a6b14b14",
+   "summary": "session running",
+   "delivery_state": "pending",
+   "created_at": 1788456356
+  },
+  {
+   "id": 14855,
+   "event_type": "message.appended",
+   "event_id": "codex:01a0684e-42c2-7531-833c-a1b5b4f49e21:message.appended:e204968ff98bb7b1",
+   "summary": "## Memory\r\n\r\nYou have access to a memory folder with guidance from prior runs. It can save\r\ntime and help you stay consi",
+   "delivery_state": "pending",
+   "created_at": 1788456356
+  },
+  {
+   "id": 14856,
+   "event_type": "message.appended",
+   "event_id": "codex:01a0684e-42c2-7531-833c-a1b5b4f49e21:message.appended:e9241f10ee79fdbc",
+   "summary": "You are `/root`, the primary agent in a team of agents collaborating to fulfill the user's goals.\n\nAt the start of your ",
+   "delivery_state": "pending",
+   "created_at": 1788456356
+  },
+  {
+   "id": 14857,
+   "event_type": "message.appended",
+   "event_id": "codex:01a0684e-42c2-7531-833c-a1b5b4f49e21:message.appended:800ddbde4017dc59",
+   "summary": "<multi_agent_mode>Any earlier instruction enabling proactive multi-agent delegation no longer applies. Do not spawn sub-",
+   "delivery_state": "pending",
+   "created_at": 1788456356
+  },
+  {
+   "id": 14858,
+   "event_type": "message.appended",
+   "event_id": "codex:01a0684e-42c2-7531-833c-a1b5b4f49e21:message.appended:40d0f3f1b5643276",
+   "summary": "<environment_context>\n  <cwd>F:\\Active_Project\\DevHub-wt1</cwd>\n  <shell>powershell</shell>\n  <current_date>2026-09-04</",
+   "delivery_state": "pending",
+   "created_at": 1788456356
+  },
+  {
+   "id": 14859,
+   "event_type": "message.appended",
+   "event_id": "codex:01a0684e-42c2-7531-833c-a1b5b4f49e21:message.appended:43609d3d3de75de9",
+   "summary": "Reply with exactly: OK. Then stop.",
+   "delivery_state": "pending",
+   "created_at": 1788456356
+  },
+  {
+   "id": 14860,
+   "event_type": "message.appended",
+   "event_id": "codex:01a0684e-42c2-7531-833c-a1b5b4f49e21:message.appended:645f5b7716c0d332",
+   "summary": "OK.",
+   "delivery_state": "pending",
+   "created_at": 1788456361
+  },
+  {
+   "id": 14861,
+   "event_type": "session.status_changed",
+   "event_id": "codex:01a0684e-42c2-7531-833c-a1b5b4f49e21:session.status_changed:6f9935e68b250634",
+   "summary": "session waiting_input",
+   "delivery_state": "pending",
+   "created_at": 1788456361
+  },
+  {
+   "id": 14862,
+   "event_type": "session.waiting_input",
+   "event_id": "codex:01a0684e-42c2-7531-833c-a1b5b4f49e21:session.waiting_input:4f1462f369bb893f",
+   "summary": "turn 01a0684e ended; awaiting next user input",
+   "delivery_state": "pending",
+   "created_at": 1788456361
+  },
+  {
+   "id": 14863,
+   "event_type": "session.status_changed",
+   "event_id": "codex:01a0684e-42c2-7531-833c-a1b5b4f49e21:session.status_changed:a842ce2ba90921b4",
+   "summary": "session running",
+   "delivery_state": "pending",
+   "created_at": 1788456803
+  },
+  {
+   "id": 14864,
+   "event_type": "command.result",
+   "event_id": "codex:01a0684e-42c2-7531-833c-a1b5b4f49e21:command.result:c234c4df0814a6f0",
+   "summary": null,
+   "delivery_state": "pending",
+   "created_at": 1788456803
+  },
+  {
+   "id": 14865,
+   "event_type": "message.appended",
+   "event_id": "codex:01a0684e-42c2-7531-833c-a1b5b4f49e21:message.appended:fffe9a16bd39ddc9",
+   "summary": "Thanks. Reply DONE and finish.",
+   "delivery_state": "pending",
+   "created_at": 1788456804
+  },
+  {
+   "id": 14866,
+   "event_type": "message.appended",
+   "event_id": "codex:01a0684e-42c2-7531-833c-a1b5b4f49e21:message.appended:b7d306ed78899da0",
+   "summary": "DONE",
+   "delivery_state": "pending",
+   "created_at": 1788456814
+  },
+  {
+   "id": 14867,
+   "event_type": "session.status_changed",
+   "event_id": "codex:01a0684e-42c2-7531-833c-a1b5b4f49e21:session.status_changed:9f104baeba534976",
+   "summary": "session waiting_input",
+   "delivery_state": "pending",
+   "created_at": 1788456814
+  },
+  {
+   "id": 14868,
+   "event_type": "session.waiting_input",
+   "event_id": "codex:01a0684e-42c2-7531-833c-a1b5b4f49e21:session.waiting_input:50187d367df7aaab",
+   "summary": "turn 01a06855 ended; awaiting next user input",
+   "delivery_state": "pending",
+   "created_at": 1788456814
+  },
+  {
+   "id": 14869,
+   "event_type": "session.status_changed",
+   "event_id": "codex:01a0684e-42c2-7531-833c-a1b5b4f49e21:session.status_changed:065f29fbbbf9565d",
+   "summary": "session running",
+   "delivery_state": "pending",
+   "created_at": 1788456971
+  },
+  {
+   "id": 14870,
+   "event_type": "command.result",
+   "event_id": "codex:01a0684e-42c2-7531-833c-a1b5b4f49e21:command.result:687d9ce2c812e34e",
+   "summary": null,
+   "delivery_state": "pending",
+   "created_at": 1788456971
+  },
+  {
+   "id": 14871,
+   "event_type": "message.appended",
+   "event_id": "codex:01a0684e-42c2-7531-833c-a1b5b4f49e21:message.appended:acfb09eecf3a2d35",
+   "summary": "Resume: reply with exactly: RESUMED. Then stop.",
+   "delivery_state": "pending",
+   "created_at": 1788456972
+  },
+  {
+   "id": 14872,
+   "event_type": "message.appended",
+   "event_id": "codex:01a0684e-42c2-7531-833c-a1b5b4f49e21:message.appended:dc158d8e3b4ff788",
+   "summary": "RESUMED.",
+   "delivery_state": "pending",
+   "created_at": 1788456977
+  },
+  {
+   "id": 14873,
+   "event_type": "session.status_changed",
+   "event_id": "codex:01a0684e-42c2-7531-833c-a1b5b4f49e21:session.status_changed:a6939b25affa26a7",
+   "summary": "session waiting_input",
+   "delivery_state": "pending",
+   "created_at": 1788456977
+  },
+  {
+   "id": 14874,
+   "event_type": "session.waiting_input",
+   "event_id": "codex:01a0684e-42c2-7531-833c-a1b5b4f49e21:session.waiting_input:731ac6918e220a53",
+   "summary": "turn 01a06857 ended; awaiting next user input",
+   "delivery_state": "pending",
+   "created_at": 1788456977
+  }
+ ],
+ "remote_commands": [
+  {
+   "command_id": "cmd-b975cbcf-092d-45e7-abb8-dcb713c25b99",
+   "device_id": 4,
+   "session_id": 337,
+   "action": "reply",
+   "status": "executed",
+   "error_code": null,
+   "created_at": 1788456802,
+   "executed_at": 1788456803,
+   "exec_lag_sec": 1
+  },
+  {
+   "command_id": "cmd-6fc4f4be-fea0-434c-b9ea-980a423e02c4",
+   "device_id": 4,
+   "session_id": 337,
+   "action": "resume",
+   "status": "executed",
+   "error_code": null,
+   "created_at": 1788456971,
+   "executed_at": 1788456971,
+   "exec_lag_sec": 0
+  }
+ ],
+ "deliveries": [
+  {
+   "event_id": 14853,
+   "device_id": 1,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14853,
+   "device_id": 2,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14853,
+   "device_id": 3,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14853,
+   "device_id": 4,
+   "status": "acked",
+   "delivered_at": 1788456354,
+   "acked_at": 1788456355
+  },
+  {
+   "event_id": 14854,
+   "device_id": 1,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14854,
+   "device_id": 2,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14854,
+   "device_id": 3,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14854,
+   "device_id": 4,
+   "status": "acked",
+   "delivered_at": 1788456356,
+   "acked_at": 1788456357
+  },
+  {
+   "event_id": 14855,
+   "device_id": 1,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14855,
+   "device_id": 2,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14855,
+   "device_id": 3,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14855,
+   "device_id": 4,
+   "status": "acked",
+   "delivered_at": 1788456356,
+   "acked_at": 1788456357
+  },
+  {
+   "event_id": 14856,
+   "device_id": 1,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14856,
+   "device_id": 2,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14856,
+   "device_id": 3,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14856,
+   "device_id": 4,
+   "status": "acked",
+   "delivered_at": 1788456356,
+   "acked_at": 1788456357
+  },
+  {
+   "event_id": 14857,
+   "device_id": 1,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14857,
+   "device_id": 2,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14857,
+   "device_id": 3,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14857,
+   "device_id": 4,
+   "status": "acked",
+   "delivered_at": 1788456356,
+   "acked_at": 1788456357
+  },
+  {
+   "event_id": 14858,
+   "device_id": 1,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14858,
+   "device_id": 2,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14858,
+   "device_id": 3,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14858,
+   "device_id": 4,
+   "status": "acked",
+   "delivered_at": 1788456356,
+   "acked_at": 1788456357
+  },
+  {
+   "event_id": 14859,
+   "device_id": 1,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14859,
+   "device_id": 2,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14859,
+   "device_id": 3,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14859,
+   "device_id": 4,
+   "status": "acked",
+   "delivered_at": 1788456356,
+   "acked_at": 1788456357
+  },
+  {
+   "event_id": 14860,
+   "device_id": 1,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14860,
+   "device_id": 2,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14860,
+   "device_id": 3,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14860,
+   "device_id": 4,
+   "status": "acked",
+   "delivered_at": 1788456361,
+   "acked_at": 1788456362
+  },
+  {
+   "event_id": 14861,
+   "device_id": 1,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14861,
+   "device_id": 2,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14861,
+   "device_id": 3,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14861,
+   "device_id": 4,
+   "status": "acked",
+   "delivered_at": 1788456361,
+   "acked_at": 1788456362
+  },
+  {
+   "event_id": 14862,
+   "device_id": 1,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14862,
+   "device_id": 2,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14862,
+   "device_id": 3,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14862,
+   "device_id": 4,
+   "status": "acked",
+   "delivered_at": 1788456361,
+   "acked_at": 1788456362
+  },
+  {
+   "event_id": 14863,
+   "device_id": 1,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14863,
+   "device_id": 2,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14863,
+   "device_id": 3,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14863,
+   "device_id": 4,
+   "status": "acked",
+   "delivered_at": 1788456803,
+   "acked_at": 1788456804
+  },
+  {
+   "event_id": 14864,
+   "device_id": 1,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14864,
+   "device_id": 2,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14864,
+   "device_id": 3,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14864,
+   "device_id": 4,
+   "status": "acked",
+   "delivered_at": 1788456803,
+   "acked_at": 1788456804
+  },
+  {
+   "event_id": 14865,
+   "device_id": 1,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14865,
+   "device_id": 2,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14865,
+   "device_id": 3,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14865,
+   "device_id": 4,
+   "status": "acked",
+   "delivered_at": 1788456804,
+   "acked_at": 1788456805
+  },
+  {
+   "event_id": 14866,
+   "device_id": 1,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14866,
+   "device_id": 2,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14866,
+   "device_id": 3,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14866,
+   "device_id": 4,
+   "status": "acked",
+   "delivered_at": 1788456814,
+   "acked_at": 1788456815
+  },
+  {
+   "event_id": 14867,
+   "device_id": 1,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14867,
+   "device_id": 2,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14867,
+   "device_id": 3,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14867,
+   "device_id": 4,
+   "status": "acked",
+   "delivered_at": 1788456814,
+   "acked_at": 1788456815
+  },
+  {
+   "event_id": 14868,
+   "device_id": 1,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14868,
+   "device_id": 2,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14868,
+   "device_id": 3,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14868,
+   "device_id": 4,
+   "status": "acked",
+   "delivered_at": 1788456814,
+   "acked_at": 1788456815
+  },
+  {
+   "event_id": 14869,
+   "device_id": 1,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14869,
+   "device_id": 2,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14869,
+   "device_id": 3,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14869,
+   "device_id": 4,
+   "status": "acked",
+   "delivered_at": 1788456971,
+   "acked_at": 1788456972
+  },
+  {
+   "event_id": 14870,
+   "device_id": 1,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14870,
+   "device_id": 2,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14870,
+   "device_id": 3,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14870,
+   "device_id": 4,
+   "status": "acked",
+   "delivered_at": 1788456971,
+   "acked_at": 1788456972
+  },
+  {
+   "event_id": 14871,
+   "device_id": 1,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14871,
+   "device_id": 2,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14871,
+   "device_id": 3,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14871,
+   "device_id": 4,
+   "status": "acked",
+   "delivered_at": 1788456972,
+   "acked_at": 1788456973
+  },
+  {
+   "event_id": 14872,
+   "device_id": 1,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14872,
+   "device_id": 2,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14872,
+   "device_id": 3,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14872,
+   "device_id": 4,
+   "status": "acked",
+   "delivered_at": 1788456977,
+   "acked_at": 1788456978
+  },
+  {
+   "event_id": 14873,
+   "device_id": 1,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14873,
+   "device_id": 2,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14873,
+   "device_id": 3,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14873,
+   "device_id": 4,
+   "status": "acked",
+   "delivered_at": 1788456977,
+   "acked_at": 1788456978
+  },
+  {
+   "event_id": 14874,
+   "device_id": 1,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14874,
+   "device_id": 2,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14874,
+   "device_id": 3,
+   "status": "pending",
+   "delivered_at": null,
+   "acked_at": null
+  },
+  {
+   "event_id": 14874,
+   "device_id": 4,
+   "status": "acked",
+   "delivered_at": 1788456977,
+   "acked_at": 1788456978
+  }
+ ],
+ "devices": [
+  {
+   "id": 1,
+   "device_name": "sdk_gphone64_x86_64",
+   "platform": "android",
+   "status": "active",
+   "last_seen_at": 1788443596
+  },
+  {
+   "id": 2,
+   "device_name": "ac7b-probe",
+   "platform": "android",
+   "status": "active",
+   "last_seen_at": 1788443221
+  },
+  {
+   "id": 3,
+   "device_name": "ac7b-probe2",
+   "platform": "android",
+   "status": "active",
+   "last_seen_at": null
+  },
+  {
+   "id": 4,
+   "device_name": "sdk_gphone64_x86_64",
+   "platform": "android",
+   "status": "active",
+   "last_seen_at": 1788457171
+  }
+ ]
+}

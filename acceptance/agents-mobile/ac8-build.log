@@ -1,0 +1,29 @@
+
+> devhub@0.1.0 build
+> electron-vite build
+
+[36mvite v7.3.6 [32mbuilding ssr environment for production...[36m[39m
+transforming...
+[32m✓[39m 77 modules transformed.
+rendering chunks...
+[33m[plugin vite:reporter] 
+(!) F:/Active_Project/DevHub-wt1/src/main/services/agentControl/agentControlService.ts is dynamically imported by F:/Active_Project/DevHub-wt1/src/main/ipc/handlers.ts but also statically imported by F:/Active_Project/DevHub-wt1/src/main/autostartWire.ts, F:/Active_Project/DevHub-wt1/src/main/index.ts, F:/Active_Project/DevHub-wt1/src/main/ipc/handlers.ts, F:/Active_Project/DevHub-wt1/src/main/services/agentControl/gateway/httpServer.ts, F:/Active_Project/DevHub-wt1/src/main/services/agentControl/gateway/pairing.ts, F:/Active_Project/DevHub-wt1/src/main/services/agentControl/gateway/ws.ts, F:/Active_Project/DevHub-wt1/src/main/trayWire.ts, dynamic import will not move module into another chunk.
+[39m
+[2mout/main/[22m[36mpairing-CWO2w_53.js     [39m[1m[2m 12.57 kB[22m[1m[22m
+[2mout/main/[22m[36mhttpServer-LpKY1M8D.js  [39m[1m[2m 36.70 kB[22m[1m[22m
+[2mout/main/[22m[36mindex.js                [39m[1m[33m501.40 kB[39m[22m
+[32m✓ built in 533ms[39m
+[36mvite v7.3.6 [32mbuilding ssr environment for production...[36m[39m
+transforming...
+[32m✓[39m 2 modules transformed.
+rendering chunks...
+[2mout/preload/[22m[36mindex.js  [39m[1m[2m0.51 kB[22m[1m[22m
+[32m✓ built in 7ms[39m
+[36mvite v7.3.6 [32mbuilding client environment for production...[36m[39m
+transforming...
+[32m✓[39m 49 modules transformed.
+rendering chunks...
+[2m../../out/renderer/[22m[32mindex.html                 [39m[1m[2m  0.46 kB[22m[1m[22m
+[2m../../out/renderer/[22m[35massets/index-DBarG1f7.css  [39m[1m[2m 30.76 kB[22m[1m[22m
+[2m../../out/renderer/[22m[36massets/index-CYAzXKhl.js   [39m[1m[33m763.59 kB[39m[22m
+[32m✓ built in 449ms[39m

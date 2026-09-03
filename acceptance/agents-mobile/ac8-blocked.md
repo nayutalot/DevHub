@@ -75,3 +75,75 @@
    `submitCommand` 同步 OkHttp execute 在主线程抛 NetworkOnMainThreadException
    （am_crash 实录，被前者掩盖）→ 整体移入 `Dispatchers.IO`。
    （该修复使真机回复链路从「必崩」变为可用，见 §2 证据。）
+
+---
+
+## 4. 并发批次 #1（分支 ac8-e2e，基线 b8a819a）真实端到端复验记录（2026-09-03/04）
+
+> 本节为并发批次 #1 在独立 worktree 内对 §2 链路的完整复验与增量。会话 native_id
+> `01a0684e-42c2-7531-833c-a1b5b4f49e21`（DB 行 #337），全部证据在
+> `acceptance/agents-mobile/ac8-e2e-14..37-*.png|log|json`。
+
+### 4.1 端口裁决与切换记录（母智能体两次裁决，全程可逆）
+
+| 时段 | 端口 | 原因 |
+| --- | --- | --- |
+| 批次开始 | 8746 → **8750** | 初始裁决：避开并行批次 smoke 对 8746 拒绝连接的断言 |
+| 01:40 左右 | 8750 → **8760** | 裁决修正：8750 落在 smoke ac6-121 依赖段（顺序绑 8747–8755 构造 GATEWAY_PORT_IN_USE），改用 fallback 顺延范围外的 8760 |
+| 收尾 | 8760 → **8746** | 复原真库缺省；gateway_enabled 全程保持 1 |
+
+手机 App 配置页两次同步改端口（10.0.2.2），health 探测与 WS 重连均实测通过
+（`ac8-e2e-16-saved-8750.png`、`ac8-e2e-31-config-8760-health-ok.png`、
+`ac8-e2e-32-reconnected-8760.png`）。
+
+### 4.2 逐步结果（真实推理 ×6 turn，全部纯回复类无害小任务）
+
+| # | 步骤 | 结果 | 证据 |
+| --- | --- | --- | --- |
+| 1 | 托管发起（trigger 文件） | 通过：requestId `ac8-e2e-t1-…`，nativeId `01a0684e…`，thread/start+turn/start ok | `managed-turn.json.result.json` + DB session.started(14853) |
+| 2 | turn 1（"Reply with exactly: OK."） | 通过：17:25:54 发起 → 17:26:01 waiting_input（约 7s），assistant 回复 "OK." | DB 事件 14853-14862 + `ac8-e2e-22-db-events-turn1.json` |
+| 3 | 会话列表新 managed 会话 | 通过：#337 managed 徽章 + 等待输入高亮 | `ac8-e2e-25-sessions-list-managed.png` |
+| 4 | waiting_input → 系统通知 | 通过：通知 id=337，channel=events，正文 "turn 01a0684e ended; awaiting next user input" | `ac8-e2e-24-notification-shade.png` + `ac8-e2e-23-dumpsys-notification-turn1.log` |
+| 5 | deep link → 详情（回复框） | 通过：`devhub://session/337` VIEW intent（onNewIntent 热路径）直达详情，capabilities 行 = managed [reply, pause, resume] 158 methods | `ac8-e2e-26-deeplink-detail.png` |
+| 6 | 手机回复 → 202 → 第二次真实推理 → 回流 | 通过：commandId `cmd-b975cbcf…`（reply，executed，exec_lag 1s，device_id=4）；assistant "DONE" 17:33:33 回流 | `ac8-e2e-27/28/29-*.png` + `ac8-e2e-30-db-evidence-chain.json` |
+| 7 | resume 能力（误触即真实验证） | 通过：`cmd-6fc4f4be…`（resume，executed）→ "RESUMED." 17:36:15 回流 | 同上 |
+| 8 | pause 能力（可选） | 结构化拒绝（诚实结果）：turn 已结束（单句任务 2-8s 完成，快于操作窗），remote_commands 行 `cmd-d03d81f2…` = failed / COMMAND_NOT_EXECUTABLE + command.result 事件，会话保持 waiting_input 不伪造 paused | `ac8-e2e-33-pause-attempt.png` + DB |
+| 9 | WS ack 推进 | 通过：session #337 相关投递 88 行（acked 22 / pending 66——pending 属已撤销/陈旧设备 1-3 的投递行，活跃设备 4 均已 ack） | `ac8-e2e-30-db-evidence-chain.json` |
+| 10 | 事件序列全类型按序 | 通过：session.started → status_changed(running) → message.appended×N → waiting_input ×3 轮 + command.result ×4，与 docs/12 §6 一致 | 同上 + 桌面 AgentsView 事件面板截图 |
+| 11 | 端口切换后 App 重连（8760） | 通过：冷启动后 "已连接 · 心跳 30s" | `ac8-e2e-32-reconnected-8760.png` |
+| 12 | 修复后实时回流复验（LIVE turn） | 通过：详情页停留期间手机回复 → "LIVE." 17:52:15 实时出现（无需退出重进） | `ac8-e2e-36-flowback-live.png` |
+
+### 4.3 本批次新修复的实现缺陷（最小 diff，均在 android/）
+
+1. `SessionDetailScreen.kt` — 详情页消息只在首屏加载，停留期间新
+   message.appended 永远不可见（只能退出重进）。修复：3s 详情轮询循环内按本地
+   缓存 maxMessageId 增量补拉一页入库（Room Flow 自动刷新；失败静默游标不动）。
+   实测：`ac8-e2e-36-flowback-live.png`（LIVE turn 实时回流）。
+2. `GatewayConnectionService.kt` — 常驻连接通知文本为启动时一次性构建，配置改
+   端口后仍显示旧地址（实测：已连 8760 仍显示「10.0.2.2:8746 · 未启动」）。
+   修复：订阅 ConnectionManager.state，文本变化即同 ID 重发通知。实测：
+   `ac8-e2e-37-dumpsys-notification-final.log`（"远程面 10.0.2.2:8760 · 已连接
+   （心跳 30s，服务端 seq 14931）"）。
+
+### 4.4 环境怪癖（非代码缺陷，如实记录）
+
+- 模拟器通知栏点击未触发 PendingIntent（点按事件通知后 AUTO_CANCEL 未发生、
+  无 intent 投递日志）→ deep link 改经同一 VIEW intent（`am start -a
+  android.intent.action.VIEW -d devhub://session/337`，即 Notifier contentIntent
+  的同源 intent）驱动验证；通知本身的存在性与内容已由 dumpsys + 通知栏截图独立
+  证实。桌面宿主处于锁屏会话，物理点击不可用，桌面侧 UI 操作经 CDP
+  （--remote-debugging-port=9222，AC5 先例）完成。
+- 桌面 Electron 重启后 codexProvider.managedTurns（内存登记）清空，监控重放旧
+  rollout 时会把该线程的 task_complete 判为 unknown 一瞬（事件 14924），随后
+  任一 DevHub 侧指令（reply/resume）重新登记 managed 即恢复 waiting_input 判定
+  ——与代码内「内存态、重启回退 observed 判定」的设计注释一致，DB 行
+  session_mode 始终保持 managed（L3 护栏）。
+
+### 4.5 门禁执行说明
+
+- 本批次代码改动全部位于 `android/`（Kotlin），`scripts/smoke.mjs` 不覆盖
+  Android 工程；TS 源码零改动。已跑 `npx tsc --noEmit`（通过）。smoke.mjs 无
+  用例过滤参数（全量 140 条一起跑），按批次铁律不跑全量（留给并行批次），
+  夹具用例 ac8-139/140 基线内已绿且本批次未触碰对应 TS 路径。
+- Android 侧门禁 = `./gradlew assembleDebug` 两次（BUILD SUCCESSFUL）+ 真机
+  安装 + 实测复验（见上表 #12）。

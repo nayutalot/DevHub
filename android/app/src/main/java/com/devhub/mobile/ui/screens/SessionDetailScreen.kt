@@ -86,6 +86,14 @@ fun SessionDetailScreen(sessionId: Long, onBack: () -> Unit) {
             } catch (err: IOException) {
                 detailError = "网络不可达"
             }
+            // 消息增量回流（AC8 真机 e2e 实测缺陷修复）：详情页停留期间，服务端新的
+            // message.appended 原本只能靠退出重进才能看到。每轮从本地缓存最大 id 之后
+            // 补拉一页入库（Room Flow 自动刷新 UI）；失败静默（loadMessages 保持游标），
+            // 下一轮重试。零新增权限/通道，复用既有 REST after 游标。
+            runCatching {
+                val after = withContext(Dispatchers.IO) { db.messageCacheDao().maxMessageId(sessionId) }
+                loadMessages(context, sessionId, after)
+            }
             delay(3000)
         }
     }

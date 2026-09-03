@@ -1,0 +1,110 @@
+[
+ {
+  "id": 14853,
+  "event_type": "session.started",
+  "summary": "01a0684e-42c2-7531-833c-a1b5b4f49e21",
+  "delivery_state": "pending",
+  "created_at": 1788456354
+ },
+ {
+  "id": 14854,
+  "event_type": "session.status_changed",
+  "summary": "session running",
+  "delivery_state": "pending",
+  "created_at": 1788456356
+ },
+ {
+  "id": 14855,
+  "event_type": "message.appended",
+  "summary": "## Memory\r\n\r\nYou have access to a memory folder with guidance from prior runs. It can save\r\ntime and help you stay consi",
+  "delivery_state": "pending",
+  "created_at": 1788456356
+ },
+ {
+  "id": 14856,
+  "event_type": "message.appended",
+  "summary": "You are `/root`, the primary agent in a team of agents collaborating to fulfill the user's goals.\n\nAt the start of your ",
+  "delivery_state": "pending",
+  "created_at": 1788456356
+ },
+ {
+  "id": 14857,
+  "event_type": "message.appended",
+  "summary": "<multi_agent_mode>Any earlier instruction enabling proactive multi-agent delegation no longer applies. Do not spawn sub-",
+  "delivery_state": "pending",
+  "created_at": 1788456356
+ },
+ {
+  "id": 14858,
+  "event_type": "message.appended",
+  "summary": "<environment_context>\n  <cwd>F:\\Active_Project\\DevHub-wt1</cwd>\n  <shell>powershell</shell>\n  <current_date>2026-09-04</",
+  "delivery_state": "pending",
+  "created_at": 1788456356
+ },
+ {
+  "id": 14859,
+  "event_type": "message.appended",
+  "summary": "Reply with exactly: OK. Then stop.",
+  "delivery_state": "pending",
+  "created_at": 1788456356
+ },
+ {
+  "id": 14860,
+  "event_type": "message.appended",
+  "summary": "OK.",
+  "delivery_state": "pending",
+  "created_at": 1788456361
+ },
+ {
+  "id": 14861,
+  "event_type": "session.status_changed",
+  "summary": "session waiting_input",
+  "delivery_state": "pending",
+  "created_at": 1788456361
+ },
+ {
+  "id": 14862,
+  "event_type": "session.waiting_input",
+  "summary": "turn 01a0684e ended; awaiting next user input",
+  "delivery_state": "pending",
+  "created_at": 1788456361
+ }
+]
+[
+ {
+  "id": 14132,
+  "role": "system",
+  "preview": "## Memory\r\n\r\nYou have access to a memory folder with guidance from prior runs. I",
+  "occurred_at": 1788456354
+ },
+ {
+  "id": 14133,
+  "role": "system",
+  "preview": "You are `/root`, the primary agent in a team of agents collaborating to fulfill ",
+  "occurred_at": 1788456354
+ },
+ {
+  "id": 14134,
+  "role": "system",
+  "preview": "<multi_agent_mode>Any earlier instruction enabling proactive multi-agent delegat",
+  "occurred_at": 1788456354
+ },
+ {
+  "id": 14135,
+  "role": "user",
+  "preview": "<environment_context>\n  <cwd>F:\\Active_Project\\DevHub-wt1</cwd>\n  <shell>powersh",
+  "occurred_at": 1788456354
+ },
+ {
+  "id": 14136,
+  "role": "user",
+  "preview": "Reply with exactly: OK. Then stop.",
+  "occurred_at": 1788456354
+ },
+ {
+  "id": 14137,
+  "role": "assistant",
+  "preview": "OK.",
+  "occurred_at": 1788456360
+ }
+]
