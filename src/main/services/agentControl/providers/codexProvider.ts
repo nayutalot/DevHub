@@ -45,7 +45,7 @@ import { open, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promis
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentCapabilitySet, SessionStatus } from '../../../../shared/types.ts'
-import { run, spawnManaged, type ManagedProcess } from '../../../core/exec.ts'
+import { run, spawnManaged, type ManagedExit, type ManagedProcess } from '../../../core/exec.ts'
 import { getDataDir } from '../../../core/paths.ts'
 import { nowSec } from '../../internal.ts'
 import {
@@ -161,6 +161,53 @@ interface JsonRpcError {
 interface PendingRequest {
   resolve: (response: { id: number; result?: unknown; error?: JsonRpcError } | null) => void
   timer: NodeJS.Timeout
+}
+
+/**
+ * 进程退出收敛的有限等待（ac3-97 稳定化）：`proc.exited` 只在子进程 'close'
+ * 事件上收敛——若 killTree 后进程仍存活（taskkill 温和段对控制台进程无效、
+ * 强制段在高负载下超时），无限 `await proc.exited` 会挂死整条调用链，而
+ * smoke 无逐用例 watchdog，一次挂起即卡死整轮。此处一切等待都有上限：
+ * exited 与 timeoutMs 竞速；超时补一次树杀再宽限 5s；仍未退出 → 返回
+ * observed:false + 结构化 detail（调用方决定抛错），绝不无限等待。
+ */
+async function waitForProcExit(
+  proc: ManagedProcess,
+  what: string,
+  timeoutMs = 30_000,
+): Promise<{ observed: boolean; exit: ManagedExit | null; detail: string }> {
+  const raceExit = (ms: number): Promise<ManagedExit | 'timeout'> => {
+    let timer: NodeJS.Timeout | null = null
+    const timeoutP = new Promise<ManagedExit | 'timeout'>((resolve) => {
+      timer = setTimeout(() => resolve('timeout'), ms)
+    })
+    return Promise.race([
+      proc.exited.then((exit) => {
+        if (timer !== null) clearTimeout(timer)
+        return exit
+      }),
+      timeoutP,
+    ])
+  }
+  const first = await raceExit(timeoutMs)
+  if (first !== 'timeout') {
+    return { observed: true, exit: first, detail: `${what}: exit observed (${first.reason}, ${first.durationMs}ms)` }
+  }
+  // 超时兜底：再补一次树杀（幂等，procGuard 语义在 exec.spawnManaged 内部），宽限短等
+  try {
+    await proc.killTree()
+  } catch {
+    /* 已退出等幂等场景 */
+  }
+  const second = await raceExit(5_000)
+  if (second !== 'timeout') {
+    return { observed: true, exit: second, detail: `${what}: exit observed after re-kill (${second.reason})` }
+  }
+  return {
+    observed: false,
+    exit: null,
+    detail: `${what}: child exit not observed within ${timeoutMs}ms (+5s after re-kill); pid=${proc.pid} may be lingering`,
+  }
 }
 
 export function createCodexProvider(options: CodexProviderOptions = {}): AgentProvider {
@@ -536,6 +583,16 @@ export function createCodexProvider(options: CodexProviderOptions = {}): AgentPr
         return resp.result
       },
     }
+    // ac3-97 稳定化：进程收敛（exit/idle/lifetime/spawn-error）后未决请求永无
+    // 响应——立即以结构化 null 收敛（错误文案不变），不等各请求自己的计时器。
+    // crash 夹具即发即退场景因此瞬时失败，不再烧满 requestTimeoutMs。
+    void proc.exited.then(() => {
+      for (const [id, entry] of pending) {
+        pending.delete(id)
+        clearTimeout(entry.timer)
+        entry.resolve(null)
+      }
+    })
     return { proc, rpc }
   }
 
@@ -560,7 +617,9 @@ export function createCodexProvider(options: CodexProviderOptions = {}): AgentPr
       } catch {
         /* 已退出等幂等场景 */
       }
-      await proc.exited.catch(() => {})
+      // ac3-97 稳定化：退出等待有上限；未见退出 → 原错误附带结构化收尾失败信息
+      const exitInfo = await waitForProcExit(proc, 'app-server handshake failure teardown')
+      if (!exitInfo.observed) throw new Error(`${err instanceof Error ? err.message : String(err)}; ${exitInfo.detail}`)
       throw err
     }
     return { proc, rpc }
@@ -571,13 +630,16 @@ export function createCodexProvider(options: CodexProviderOptions = {}): AgentPr
     try {
       return await fn(rpc)
     } finally {
-      // 用后 killTree 收尾，绝不留活进程（docs/12 §8.1 / 批次铁律）
+      // 用后 killTree 收尾，绝不留活进程（docs/12 §8.1 / 批次铁律）；
+      // ac3-97 稳定化：退出等待有上限——killTree 后进程仍不退出的病态场景下
+      // 结构化抛错（上层 getCapabilities 折叠为 observed），绝不无限挂起。
       try {
         await proc.killTree()
       } catch {
         /* 已退出等幂等场景 */
       }
-      await proc.exited.catch(() => {})
+      const exitInfo = await waitForProcExit(proc, 'withAppServer teardown')
+      if (!exitInfo.observed) throw new Error(exitInfo.detail)
     }
   }
 
@@ -1033,7 +1095,10 @@ export function createCodexProvider(options: CodexProviderOptions = {}): AgentPr
       } catch {
         /* 已退出等幂等场景 */
       }
-      await conn.proc.exited.catch(() => {})
+      // ac3-97 稳定化：退出等待有上限；未见退出 → 结构化抛错（调用方
+      // shutdownAgentControlRuntime 已按单 provider 失败不阻断收尾处理）
+      const exitInfo = await waitForProcExit(conn.proc, 'dispose teardown')
+      if (!exitInfo.observed) throw new Error(exitInfo.detail)
     }
   }
 

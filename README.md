@@ -121,7 +121,7 @@ args = ["F:/Active_Project/DevHub/scripts/run-mcp.mjs"]
 
 > 设计文档是唯一权威：修改行为前先改 docs/，见 `docs/00-execution-constraints.md`。
 
-## Phase 2/3（进行中）：Agent Control / Mobile
+## Phase 2/3（已落地）：Agent Control / Mobile
 
 把 DevHub 扩展为「开发控制平面 + 本机 AI Agent 统一监控与受限遥控面」：五家本机 Agent
 （Codex / Claude Code / Kimi / ZCode / DeepSeek Harness）的会话与事件真实汇聚到新增的
@@ -132,3 +132,9 @@ Kotlin + Compose + Room + OkHttp + Keystore，第一版无 FCM），实现 waiti
 （ZCode 首版全部 observed 全禁）；MCP 本期零改动。设计权威：需求 `docs/11`、
 架构 `docs/12`、数据库（migration 004）`docs/13`、API `docs/14`、安全 `docs/15`、
 批次计划 `docs/16`。
+
+已落地：五家 Provider 适配（`src/main/services/agentControl/providers/`，健康探测 +
+会话/事件汇聚 + reply/pause/resume 受控执行）、托盘常驻摘要（`traySummary.ts`）、
+Agents 视图、Remote Gateway（`agentControl/gateway/`，配对 + 事件投递）、
+Android App（`android/`）、NatPierce 配置面（`natpierce.ts` 外置配置投影）；
+文档索引 `docs/11`–`docs/16`。

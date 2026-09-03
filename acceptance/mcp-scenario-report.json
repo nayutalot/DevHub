@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-03T17:02:23.990Z",
+  "generatedAt": "2026-09-03T17:58:40.301Z",
   "server": {
     "name": "devhub",
     "version": "0.1.0"
@@ -17,7 +17,7 @@
             "name": "windows",
             "kind": "windows",
             "osVersion": "10.0.26200",
-            "detectedAt": 1788454783,
+            "detectedAt": 1788458163,
             "tools": [
               {
                 "tool": "clang",
@@ -92,7 +92,7 @@
             "id": 2,
             "name": "wsl:Ubuntu",
             "kind": "wsl",
-            "detectedAt": 1788454783,
+            "detectedAt": 1788458163,
             "tools": [
               {
                 "tool": "cmake",
@@ -145,7 +145,7 @@
           }
         ]
       },
-      "summaryText": "Detected 2 environment(s).\n- windows: 9 installed tools (snapshot at 1788454783): cmake 4.4.2, docker 29.7.2, git 2.54.0, node 24.15.0, npm 11.12.1, pnpm 11.24.0, python 3.9.13, python 3.13.5\n- wsl:Ubuntu: 6 installed tools (snapshot at 1788454783): cmake 3.28.3, gcc 13.3.0, git 2.43.0, node 18.19.1, npm 9.2.0, python3 3.12.3"
+      "summaryText": "Detected 2 environment(s).\n- windows: 9 installed tools (snapshot at 1788458163): cmake 4.4.2, docker 29.7.2, git 2.54.0, node 24.15.0, npm 11.12.1, pnpm 11.24.0, python 3.9.13, python 3.13.5\n- wsl:Ubuntu: 6 installed tools (snapshot at 1788458163): cmake 3.28.3, gcc 13.3.0, git 2.43.0, node 18.19.1, npm 9.2.0, python3 3.12.3"
     },
     "devhub.environment.doctor": {
       "structuredContent": {
@@ -199,13 +199,149 @@
       "structuredContent": {
         "services": [
           {
+            "id": 208,
+            "port": 9222,
+            "protocol": "tcp",
+            "pid": 8220,
+            "processName": "electron.exe",
+            "commandLine": "F:\\Active_Project\\DevHub-wt1\\node_modules\\electron\\dist\\electron.exe . --remote-debugging-port=9222",
+            "origin": "windows",
+            "projectId": 1,
+            "projectName": "DevHub",
+            "lastSeenAt": 1788457240,
+            "project": "DevHub"
+          },
+          {
+            "id": 207,
+            "port": 8760,
+            "protocol": "tcp",
+            "pid": 8220,
+            "processName": "electron.exe",
+            "commandLine": "F:\\Active_Project\\DevHub-wt1\\node_modules\\electron\\dist\\electron.exe . --remote-debugging-port=9222",
+            "origin": "windows",
+            "projectId": 1,
+            "projectName": "DevHub",
+            "lastSeenAt": 1788457240,
+            "project": "DevHub"
+          },
+          {
+            "id": 206,
+            "port": 57703,
+            "protocol": "tcp",
+            "pid": 8296,
+            "processName": "netsimd.exe",
+            "commandLine": "C:\\Users\\sakuya\\AppData\\Local\\Android\\Sdk\\emulator\\netsimd.exe --host-dns=192.168.31.1",
+            "origin": "windows",
+            "lastSeenAt": 1788457240,
+            "project": "unknown"
+          },
+          {
+            "id": 205,
+            "port": 57690,
+            "protocol": "tcp",
+            "pid": 24504,
+            "processName": "qemu-system-x86_64.exe",
+            "commandLine": "C:\\Users\\sakuya\\AppData\\Local\\Android\\Sdk\\emulator\\qemu\\windows-x86_64\\qemu-system-x86_64.exe -avd DevHub_API_35 -no-snapshot-save -no-boot-anim",
+            "origin": "windows",
+            "lastSeenAt": 1788457240,
+            "project": "unknown"
+          },
+          {
+            "id": 197,
+            "port": 8554,
+            "protocol": "tcp",
+            "pid": 24504,
+            "processName": "qemu-system-x86_64.exe",
+            "commandLine": "C:\\Users\\sakuya\\AppData\\Local\\Android\\Sdk\\emulator\\qemu\\windows-x86_64\\qemu-system-x86_64.exe -avd DevHub_API_35 -no-snapshot-save -no-boot-anim",
+            "origin": "windows",
+            "lastSeenAt": 1788457240,
+            "project": "unknown"
+          },
+          {
+            "id": 196,
+            "port": 6402,
+            "protocol": "tcp",
+            "pid": 8296,
+            "processName": "netsimd.exe",
+            "commandLine": "C:\\Users\\sakuya\\AppData\\Local\\Android\\Sdk\\emulator\\netsimd.exe --host-dns=192.168.31.1",
+            "origin": "windows",
+            "lastSeenAt": 1788457240,
+            "project": "unknown"
+          },
+          {
+            "id": 195,
+            "port": 5555,
+            "protocol": "tcp",
+            "pid": 24504,
+            "processName": "qemu-system-x86_64.exe",
+            "commandLine": "C:\\Users\\sakuya\\AppData\\Local\\Android\\Sdk\\emulator\\qemu\\windows-x86_64\\qemu-system-x86_64.exe -avd DevHub_API_35 -no-snapshot-save -no-boot-anim",
+            "origin": "windows",
+            "lastSeenAt": 1788457240,
+            "project": "unknown"
+          },
+          {
+            "id": 194,
+            "port": 5554,
+            "protocol": "tcp",
+            "pid": 24504,
+            "processName": "qemu-system-x86_64.exe",
+            "commandLine": "C:\\Users\\sakuya\\AppData\\Local\\Android\\Sdk\\emulator\\qemu\\windows-x86_64\\qemu-system-x86_64.exe -avd DevHub_API_35 -no-snapshot-save -no-boot-anim",
+            "origin": "windows",
+            "lastSeenAt": 1788457240,
+            "project": "unknown"
+          },
+          {
+            "id": 193,
+            "port": 57407,
+            "protocol": "tcp",
+            "pid": 36520,
+            "processName": "java.exe",
+            "commandLine": "\"D:\\Apps\\JetBrains\\IntelliJ IDEA 2026.1\\jbr\\bin\\java.exe\" --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.invoke=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.prefs/java.util.prefs=ALL-UNNAMED --add-exports=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED --add-exports=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.prefs/java.util.prefs=ALL-UNNAMED --add-opens=java.base/java.ni…",
+            "origin": "windows",
+            "lastSeenAt": 1788457240,
+            "project": "unknown"
+          },
+          {
+            "id": 192,
+            "port": 57370,
+            "protocol": "tcp",
+            "pid": 36520,
+            "processName": "java.exe",
+            "commandLine": "\"D:\\Apps\\JetBrains\\IntelliJ IDEA 2026.1\\jbr\\bin\\java.exe\" --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.invoke=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.prefs/java.util.prefs=ALL-UNNAMED --add-exports=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED --add-exports=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.prefs/java.util.prefs=ALL-UNNAMED --add-opens=java.base/java.ni…",
+            "origin": "windows",
+            "lastSeenAt": 1788457240,
+            "project": "unknown"
+          },
+          {
+            "id": 191,
+            "port": 17822,
+            "protocol": "tcp",
+            "pid": 36328,
+            "processName": "java.exe",
+            "commandLine": "\"D:\\Apps\\JetBrains\\IntelliJ IDEA 2026.1\\jbr\\bin\\java\" -cp C:\\Users\\sakuya\\.gradle\\caches\\modules-2\\files-2.1\\org.jetbrains.kotlin\\kotlin-compiler-embeddable\\2.2.0\\8cfa2b049a4006d94474296df4abd9b50f288821\\kotlin-compiler-embeddable-2.2.0.jar;C:\\Users\\sakuya\\.gradle\\caches\\modules-2\\files-2.1\\org.jetbrains.kotlin\\kotlin-stdlib\\2.2.0\\fdfc65fbc42fda253a26f61dac3c0aca335fae96\\kotlin-stdlib-2.2.0.jar;C:\\Users\\sakuya\\.gradle\\caches\\modules-2\\files-2.1\\org.jetbrains.kotlin\\kotlin-script-runtime\\2.2.0\\8…",
+            "origin": "windows",
+            "lastSeenAt": 1788457240,
+            "project": "unknown"
+          },
+          {
+            "id": 189,
+            "port": 5037,
+            "protocol": "tcp",
+            "pid": 16516,
+            "processName": "adb.exe",
+            "commandLine": "adb -L tcp:5037 fork-server server --reply-fd 724",
+            "origin": "windows",
+            "lastSeenAt": 1788457240,
+            "project": "unknown"
+          },
+          {
             "id": 188,
             "port": 53005,
             "protocol": "tcp",
             "pid": 12528,
             "processName": "ADU.exe",
             "origin": "windows",
-            "lastSeenAt": 1788450946,
+            "lastSeenAt": 1788457240,
             "project": "unknown"
           },
           {
@@ -215,7 +351,7 @@
             "pid": 12528,
             "processName": "ADU.exe",
             "origin": "windows",
-            "lastSeenAt": 1788450946,
+            "lastSeenAt": 1788457240,
             "project": "unknown"
           },
           {
@@ -225,7 +361,7 @@
             "pid": 20588,
             "processName": "ArmouryCrate.UserSessionHelper.exe",
             "origin": "windows",
-            "lastSeenAt": 1788450946,
+            "lastSeenAt": 1788457240,
             "project": "unknown"
           },
           {
@@ -235,7 +371,7 @@
             "pid": 3484,
             "processName": "HipsDaemon.exe",
             "origin": "windows",
-            "lastSeenAt": 1788450946,
+            "lastSeenAt": 1788457240,
             "project": "unknown"
           },
           {
@@ -245,7 +381,7 @@
             "pid": 6444,
             "processName": "ArmouryCrate.Service.exe",
             "origin": "windows",
-            "lastSeenAt": 1788450946,
+            "lastSeenAt": 1788457240,
             "project": "unknown"
           },
           {
@@ -255,7 +391,7 @@
             "pid": 6496,
             "processName": "AweSun.exe",
             "origin": "windows",
-            "lastSeenAt": 1788450946,
+            "lastSeenAt": 1788457240,
             "project": "unknown"
           },
           {
@@ -265,7 +401,7 @@
             "pid": 6496,
             "processName": "AweSun.exe",
             "origin": "windows",
-            "lastSeenAt": 1788450946,
+            "lastSeenAt": 1788457240,
             "project": "unknown"
           },
           {
@@ -276,141 +412,151 @@
             "processName": "clash-verge.exe",
             "commandLine": "\"D:\\Apps\\Clash Verge\\clash-verge.exe\"",
             "origin": "windows",
-            "lastSeenAt": 1788450946,
-            "project": "unknown"
-          },
-          {
-            "id": 180,
-            "port": 22112,
-            "protocol": "tcp",
-            "pid": 6932,
-            "processName": "ROGLiveService.exe",
-            "origin": "windows",
-            "lastSeenAt": 1788450946,
-            "project": "unknown"
-          },
-          {
-            "id": 179,
-            "port": 15721,
-            "protocol": "tcp",
-            "pid": 19612,
-            "processName": "cc-switch.exe",
-            "commandLine": "\"C:\\Users\\sakuya\\AppData\\Local\\Programs\\CC Switch\\cc-switch.exe\" ",
-            "origin": "windows",
-            "lastSeenAt": 1788450946,
-            "project": "unknown"
-          },
-          {
-            "id": 178,
-            "port": 14023,
-            "protocol": "tcp",
-            "pid": 27712,
-            "processName": "Weixin.exe",
-            "commandLine": "\"D:\\Apps\\Weixin\\Weixin.exe\" ",
-            "origin": "windows",
-            "lastSeenAt": 1788450946,
-            "project": "unknown"
-          },
-          {
-            "id": 177,
-            "port": 14022,
-            "protocol": "tcp",
-            "pid": 27712,
-            "processName": "Weixin.exe",
-            "commandLine": "\"D:\\Apps\\Weixin\\Weixin.exe\" ",
-            "origin": "windows",
-            "lastSeenAt": 1788450946,
-            "project": "unknown"
-          },
-          {
-            "id": 176,
-            "port": 14019,
-            "protocol": "tcp",
-            "pid": 27712,
-            "processName": "Weixin.exe",
-            "commandLine": "\"D:\\Apps\\Weixin\\Weixin.exe\" ",
-            "origin": "windows",
-            "lastSeenAt": 1788450946,
-            "project": "unknown"
-          },
-          {
-            "id": 175,
-            "port": 14016,
-            "protocol": "tcp",
-            "pid": 27712,
-            "processName": "Weixin.exe",
-            "commandLine": "\"D:\\Apps\\Weixin\\Weixin.exe\" ",
-            "origin": "windows",
-            "lastSeenAt": 1788450946,
-            "project": "unknown"
-          },
-          {
-            "id": 174,
-            "port": 14013,
-            "protocol": "tcp",
-            "pid": 27712,
-            "processName": "Weixin.exe",
-            "commandLine": "\"D:\\Apps\\Weixin\\Weixin.exe\" ",
-            "origin": "windows",
-            "lastSeenAt": 1788450946,
-            "project": "unknown"
-          },
-          {
-            "id": 173,
-            "port": 13032,
-            "protocol": "tcp",
-            "pid": 6444,
-            "processName": "ArmouryCrate.Service.exe",
-            "origin": "windows",
-            "lastSeenAt": 1788450946,
-            "project": "unknown"
-          },
-          {
-            "id": 172,
-            "port": 13031,
-            "protocol": "tcp",
-            "pid": 6444,
-            "processName": "ArmouryCrate.Service.exe",
-            "origin": "windows",
-            "lastSeenAt": 1788450946,
-            "project": "unknown"
-          },
-          {
-            "id": 171,
-            "port": 13030,
-            "protocol": "tcp",
-            "pid": 6932,
-            "processName": "ROGLiveService.exe",
-            "origin": "windows",
-            "lastSeenAt": 1788450946,
-            "project": "unknown"
-          },
-          {
-            "id": 170,
-            "port": 12390,
-            "protocol": "tcp",
-            "pid": 3224,
-            "processName": "natpierce.exe",
-            "origin": "windows",
-            "lastSeenAt": 1788450946,
-            "project": "unknown"
-          },
-          {
-            "id": 169,
-            "port": 9996,
-            "protocol": "tcp",
-            "pid": 7516,
-            "processName": "vivoSyncService.exe",
-            "origin": "windows",
-            "lastSeenAt": 1788450946,
+            "lastSeenAt": 1788457240,
             "project": "unknown"
           }
         ],
-        "count": 188,
+        "count": 208,
         "note": "services truncated to the first 20 rows per the M3 scenario-report spec"
       },
-      "summaryText": "188 service row(s) in the last snapshot.\n- :53005 ADU.exe (windows, pid 12528) → project: unknown, last seen 1h ago\n- :53000 ADU.exe (windows, pid 12528) → project: unknown, last seen 1h ago\n- :51100 ArmouryCrate.UserSessionHelper.exe (windows, pid 20588) → project: unknown, last seen 1h ago\n- :51050 HipsDaemon.exe (windows, pid 3484) → project: unknown, last seen 1h ago\n- :50100 ArmouryCrate.Service.exe (windows, pid 6444) → project: unknown, last seen 1h ago\n- :49672 AweSun.exe (windows, pid 6496) → project: unknown, last seen 1h ago\n- :49671 AweSun.exe (windows, pid 6496) → project: unknown, last seen 1h ago\n- :33331 clash-verge.exe (windows, pid 12784) → project: unknown, last seen 1h ago\n- :22112 ROGLiveService.exe (windows, pid 6932) → project: unknown, last seen 1h ago\n- :15721 cc-switch.exe (windows, pid 19612) → project: unknown, last seen 1h ago\n- :14023 Weixin.exe (windows, pid 27712) → project: unknown, last seen 1h ago\n- :14022 Weixin.exe (windows, pid 27712) → project: unknown, last seen 1h ago\n- :14019 Weixin.exe (windows, pid 27712) → project: unknown, last seen 1h ago\n- :14016 Weixin.exe (windows, pid 27712) → project: unknown, last seen 1h ago\n- :14013 Weixin.exe (windows, pid 27712) → project: unknown, last seen 1h ago\n- :13032 ArmouryCrate.Service.exe (windows, pid 6444) → project: unknown, last seen 1h ago\n- :13031 ArmouryCrate.Service.exe (windows, pid 6444) → project: unknown, last seen 1h ago\n- :13030 ROGLiveService.exe (windows, pid 6932) → project: unknown, last seen 1h ago\n- :12390 natpierce.exe (windows, pid 3224) → project: unknown, last seen 1h ago\n- :9996 vivoSyncService.exe (windows, pid 7516) → project: unknown, last seen 1h ago\n- … 168 more row(s)",
+      "summaryText": "208 service row(s) in the last snapshot.\n- :9222 electron.exe (windows, pid 8220) → project: DevHub, last seen 15m ago\n- :8760 electron.exe (windows, pid 8220) → project: DevHub, last seen 15m ago\n- :57703 netsimd.exe (windows, pid 8296) → project: unknown, last seen 15m ago\n- :57690 qemu-system-x86_64.exe (windows, pid 24504) → project: unknown, last seen 15m ago\n- :8554 qemu-system-x86_64.exe (windows, pid 24504) → project: unknown, last seen 15m ago\n- :6402 netsimd.exe (windows, pid 8296) → project: unknown, last seen 15m ago\n- :5555 qemu-system-x86_64.exe (windows, pid 24504) → project: unknown, last seen 15m ago\n- :5554 qemu-system-x86_64.exe (windows, pid 24504) → project: unknown, last seen 15m ago\n- :57407 java.exe (windows, pid 36520) → project: unknown, last seen 15m ago\n- :57370 java.exe (windows, pid 36520) → project: unknown, last seen 15m ago\n- :17822 java.exe (windows, pid 36328) → project: unknown, last seen 15m ago\n- :5037 adb.exe (windows, pid 16516) → project: unknown, last seen 15m ago\n- :53005 ADU.exe (windows, pid 12528) → project: unknown, last seen 15m ago\n- :53000 ADU.exe (windows, pid 12528) → project: unknown, last seen 15m ago\n- :51100 ArmouryCrate.UserSessionHelper.exe (windows, pid 20588) → project: unknown, last seen 15m ago\n- :51050 HipsDaemon.exe (windows, pid 3484) → project: unknown, last seen 15m ago\n- :50100 ArmouryCrate.Service.exe (windows, pid 6444) → project: unknown, last seen 15m ago\n- :49672 AweSun.exe (windows, pid 6496) → project: unknown, last seen 15m ago\n- :49671 AweSun.exe (windows, pid 6496) → project: unknown, last seen 15m ago\n- :33331 clash-verge.exe (windows, pid 12784) → project: unknown, last seen 15m ago\n- … 188 more row(s)",
       "_fullServices": [
+        {
+          "id": 208,
+          "port": 9222,
+          "protocol": "tcp",
+          "pid": 8220,
+          "processName": "electron.exe",
+          "commandLine": "F:\\Active_Project\\DevHub-wt1\\node_modules\\electron\\dist\\electron.exe . --remote-debugging-port=9222",
+          "origin": "windows",
+          "projectId": 1,
+          "projectName": "DevHub",
+          "lastSeenAt": 1788457240,
+          "project": "DevHub"
+        },
+        {
+          "id": 207,
+          "port": 8760,
+          "protocol": "tcp",
+          "pid": 8220,
+          "processName": "electron.exe",
+          "commandLine": "F:\\Active_Project\\DevHub-wt1\\node_modules\\electron\\dist\\electron.exe . --remote-debugging-port=9222",
+          "origin": "windows",
+          "projectId": 1,
+          "projectName": "DevHub",
+          "lastSeenAt": 1788457240,
+          "project": "DevHub"
+        },
+        {
+          "id": 206,
+          "port": 57703,
+          "protocol": "tcp",
+          "pid": 8296,
+          "processName": "netsimd.exe",
+          "commandLine": "C:\\Users\\sakuya\\AppData\\Local\\Android\\Sdk\\emulator\\netsimd.exe --host-dns=192.168.31.1",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 205,
+          "port": 57690,
+          "protocol": "tcp",
+          "pid": 24504,
+          "processName": "qemu-system-x86_64.exe",
+          "commandLine": "C:\\Users\\sakuya\\AppData\\Local\\Android\\Sdk\\emulator\\qemu\\windows-x86_64\\qemu-system-x86_64.exe -avd DevHub_API_35 -no-snapshot-save -no-boot-anim",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 197,
+          "port": 8554,
+          "protocol": "tcp",
+          "pid": 24504,
+          "processName": "qemu-system-x86_64.exe",
+          "commandLine": "C:\\Users\\sakuya\\AppData\\Local\\Android\\Sdk\\emulator\\qemu\\windows-x86_64\\qemu-system-x86_64.exe -avd DevHub_API_35 -no-snapshot-save -no-boot-anim",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 196,
+          "port": 6402,
+          "protocol": "tcp",
+          "pid": 8296,
+          "processName": "netsimd.exe",
+          "commandLine": "C:\\Users\\sakuya\\AppData\\Local\\Android\\Sdk\\emulator\\netsimd.exe --host-dns=192.168.31.1",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 195,
+          "port": 5555,
+          "protocol": "tcp",
+          "pid": 24504,
+          "processName": "qemu-system-x86_64.exe",
+          "commandLine": "C:\\Users\\sakuya\\AppData\\Local\\Android\\Sdk\\emulator\\qemu\\windows-x86_64\\qemu-system-x86_64.exe -avd DevHub_API_35 -no-snapshot-save -no-boot-anim",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 194,
+          "port": 5554,
+          "protocol": "tcp",
+          "pid": 24504,
+          "processName": "qemu-system-x86_64.exe",
+          "commandLine": "C:\\Users\\sakuya\\AppData\\Local\\Android\\Sdk\\emulator\\qemu\\windows-x86_64\\qemu-system-x86_64.exe -avd DevHub_API_35 -no-snapshot-save -no-boot-anim",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 193,
+          "port": 57407,
+          "protocol": "tcp",
+          "pid": 36520,
+          "processName": "java.exe",
+          "commandLine": "\"D:\\Apps\\JetBrains\\IntelliJ IDEA 2026.1\\jbr\\bin\\java.exe\" --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.invoke=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.prefs/java.util.prefs=ALL-UNNAMED --add-exports=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED --add-exports=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.prefs/java.util.prefs=ALL-UNNAMED --add-opens=java.base/java.ni…",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 192,
+          "port": 57370,
+          "protocol": "tcp",
+          "pid": 36520,
+          "processName": "java.exe",
+          "commandLine": "\"D:\\Apps\\JetBrains\\IntelliJ IDEA 2026.1\\jbr\\bin\\java.exe\" --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.invoke=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.prefs/java.util.prefs=ALL-UNNAMED --add-exports=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED --add-exports=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.prefs/java.util.prefs=ALL-UNNAMED --add-opens=java.base/java.ni…",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 191,
+          "port": 17822,
+          "protocol": "tcp",
+          "pid": 36328,
+          "processName": "java.exe",
+          "commandLine": "\"D:\\Apps\\JetBrains\\IntelliJ IDEA 2026.1\\jbr\\bin\\java\" -cp C:\\Users\\sakuya\\.gradle\\caches\\modules-2\\files-2.1\\org.jetbrains.kotlin\\kotlin-compiler-embeddable\\2.2.0\\8cfa2b049a4006d94474296df4abd9b50f288821\\kotlin-compiler-embeddable-2.2.0.jar;C:\\Users\\sakuya\\.gradle\\caches\\modules-2\\files-2.1\\org.jetbrains.kotlin\\kotlin-stdlib\\2.2.0\\fdfc65fbc42fda253a26f61dac3c0aca335fae96\\kotlin-stdlib-2.2.0.jar;C:\\Users\\sakuya\\.gradle\\caches\\modules-2\\files-2.1\\org.jetbrains.kotlin\\kotlin-script-runtime\\2.2.0\\8…",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 189,
+          "port": 5037,
+          "protocol": "tcp",
+          "pid": 16516,
+          "processName": "adb.exe",
+          "commandLine": "adb -L tcp:5037 fork-server server --reply-fd 724",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
         {
           "id": 188,
           "port": 53005,
@@ -418,7 +564,7 @@
           "pid": 12528,
           "processName": "ADU.exe",
           "origin": "windows",
-          "lastSeenAt": 1788450946,
+          "lastSeenAt": 1788457240,
           "project": "unknown"
         },
         {
@@ -428,7 +574,7 @@
           "pid": 12528,
           "processName": "ADU.exe",
           "origin": "windows",
-          "lastSeenAt": 1788450946,
+          "lastSeenAt": 1788457240,
           "project": "unknown"
         },
         {
@@ -438,7 +584,7 @@
           "pid": 20588,
           "processName": "ArmouryCrate.UserSessionHelper.exe",
           "origin": "windows",
-          "lastSeenAt": 1788450946,
+          "lastSeenAt": 1788457240,
           "project": "unknown"
         },
         {
@@ -448,7 +594,7 @@
           "pid": 3484,
           "processName": "HipsDaemon.exe",
           "origin": "windows",
-          "lastSeenAt": 1788450946,
+          "lastSeenAt": 1788457240,
           "project": "unknown"
         },
         {
@@ -458,7 +604,7 @@
           "pid": 6444,
           "processName": "ArmouryCrate.Service.exe",
           "origin": "windows",
-          "lastSeenAt": 1788450946,
+          "lastSeenAt": 1788457240,
           "project": "unknown"
         },
         {
@@ -468,7 +614,7 @@
           "pid": 6496,
           "processName": "AweSun.exe",
           "origin": "windows",
-          "lastSeenAt": 1788450946,
+          "lastSeenAt": 1788457240,
           "project": "unknown"
         },
         {
@@ -478,7 +624,7 @@
           "pid": 6496,
           "processName": "AweSun.exe",
           "origin": "windows",
-          "lastSeenAt": 1788450946,
+          "lastSeenAt": 1788457240,
           "project": "unknown"
         },
         {
@@ -489,7 +635,7 @@
           "processName": "clash-verge.exe",
           "commandLine": "\"D:\\Apps\\Clash Verge\\clash-verge.exe\"",
           "origin": "windows",
-          "lastSeenAt": 1788450946,
+          "lastSeenAt": 1788457240,
           "project": "unknown"
         },
         {
@@ -499,7 +645,7 @@
           "pid": 6932,
           "processName": "ROGLiveService.exe",
           "origin": "windows",
-          "lastSeenAt": 1788450946,
+          "lastSeenAt": 1788457240,
           "project": "unknown"
         },
         {
@@ -510,7 +656,7 @@
           "processName": "cc-switch.exe",
           "commandLine": "\"C:\\Users\\sakuya\\AppData\\Local\\Programs\\CC Switch\\cc-switch.exe\" ",
           "origin": "windows",
-          "lastSeenAt": 1788450946,
+          "lastSeenAt": 1788457240,
           "project": "unknown"
         },
         {
@@ -521,7 +667,7 @@
           "processName": "Weixin.exe",
           "commandLine": "\"D:\\Apps\\Weixin\\Weixin.exe\" ",
           "origin": "windows",
-          "lastSeenAt": 1788450946,
+          "lastSeenAt": 1788457240,
           "project": "unknown"
         },
         {
@@ -532,7 +678,7 @@
           "processName": "Weixin.exe",
           "commandLine": "\"D:\\Apps\\Weixin\\Weixin.exe\" ",
           "origin": "windows",
-          "lastSeenAt": 1788450946,
+          "lastSeenAt": 1788457240,
           "project": "unknown"
         },
         {
@@ -543,7 +689,7 @@
           "processName": "Weixin.exe",
           "commandLine": "\"D:\\Apps\\Weixin\\Weixin.exe\" ",
           "origin": "windows",
-          "lastSeenAt": 1788450946,
+          "lastSeenAt": 1788457240,
           "project": "unknown"
         },
         {
@@ -554,7 +700,7 @@
           "processName": "Weixin.exe",
           "commandLine": "\"D:\\Apps\\Weixin\\Weixin.exe\" ",
           "origin": "windows",
-          "lastSeenAt": 1788450946,
+          "lastSeenAt": 1788457240,
           "project": "unknown"
         },
         {
@@ -565,7 +711,7 @@
           "processName": "Weixin.exe",
           "commandLine": "\"D:\\Apps\\Weixin\\Weixin.exe\" ",
           "origin": "windows",
-          "lastSeenAt": 1788450946,
+          "lastSeenAt": 1788457240,
           "project": "unknown"
         },
         {
@@ -575,7 +721,7 @@
           "pid": 6444,
           "processName": "ArmouryCrate.Service.exe",
           "origin": "windows",
-          "lastSeenAt": 1788450946,
+          "lastSeenAt": 1788457240,
           "project": "unknown"
         },
         {
@@ -585,7 +731,7 @@
           "pid": 6444,
           "processName": "ArmouryCrate.Service.exe",
           "origin": "windows",
-          "lastSeenAt": 1788450946,
+          "lastSeenAt": 1788457240,
           "project": "unknown"
         },
         {
@@ -595,7 +741,7 @@
           "pid": 6932,
           "processName": "ROGLiveService.exe",
           "origin": "windows",
-          "lastSeenAt": 1788450946,
+          "lastSeenAt": 1788457240,
           "project": "unknown"
         },
         {
@@ -605,7 +751,7 @@
           "pid": 3224,
           "processName": "natpierce.exe",
           "origin": "windows",
-          "lastSeenAt": 1788450946,
+          "lastSeenAt": 1788457240,
           "project": "unknown"
         },
         {
@@ -615,7 +761,7 @@
           "pid": 7516,
           "processName": "vivoSyncService.exe",
           "origin": "windows",
-          "lastSeenAt": 1788450946,
+          "lastSeenAt": 1788457240,
           "project": "unknown"
         },
         {
@@ -625,7 +771,7 @@
           "pid": 7036,
           "processName": "vivoesService_x64.exe",
           "origin": "windows",
-          "lastSeenAt": 1788450946,
+          "lastSeenAt": 1788457240,
           "project": "unknown"
         },
         {
@@ -635,7 +781,7 @@
           "pid": 21484,
           "processName": "ArmouryHtmlDebugServer.exe",
           "origin": "windows",
-          "lastSeenAt": 1788450946,
+          "lastSeenAt": 1788457240,
           "project": "unknown"
         },
         {
@@ -645,7 +791,7 @@
           "pid": 20676,
           "processName": "ArmourySocketServer.exe",
           "origin": "windows",
-          "lastSeenAt": 1788450946,
+          "lastSeenAt": 1788457240,
           "project": "unknown"
         },
         {
@@ -655,8 +801,412 @@
           "pid": 20676,
           "processName": "ArmourySocketServer.exe",
           "origin": "windows",
-          "lastSeenAt": 1788450946,
+          "lastSeenAt": 1788457240,
           "project": "unknown"
+        },
+        {
+          "id": 163,
+          "port": 7897,
+          "protocol": "tcp",
+          "pid": 18660,
+          "processName": "verge-mihomo.exe",
+          "commandLine": "\"\\\\?\\D:\\Apps\\Clash Verge\\verge-mihomo.exe\" -d C:\\Users\\sakuya\\AppData\\Roaming\\io.github.clash-verge-rev.clash-verge-rev -f C:\\Users\\sakuya\\AppData\\Roaming\\io.github.clash-verge-rev.clash-verge-rev\\clash-verge.yaml -ext-ctl-pipe \\\\.\\pipe\\verge-mihomo",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 162,
+          "port": 5283,
+          "protocol": "tcp",
+          "pid": 20088,
+          "processName": "SGTool.exe",
+          "commandLine": "\"D:\\Apps\\SogouInput\\16.6.0.4777\\SGTool.exe\" -daemon",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 161,
+          "port": 1042,
+          "protocol": "tcp",
+          "pid": 8848,
+          "processName": "asus_framework.exe",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 160,
+          "port": 57205,
+          "protocol": "tcp",
+          "pid": 25768,
+          "processName": "sqlservr.exe",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 159,
+          "port": 49699,
+          "protocol": "tcp",
+          "pid": 14660,
+          "processName": "sw_d.exe",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 158,
+          "port": 49698,
+          "protocol": "tcp",
+          "pid": 1804,
+          "processName": "services.exe",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 157,
+          "port": 49668,
+          "protocol": "tcp",
+          "pid": 5832,
+          "processName": "spoolsv.exe",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 156,
+          "port": 49667,
+          "protocol": "tcp",
+          "pid": 4128,
+          "processName": "svchost.exe",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 155,
+          "port": 49666,
+          "protocol": "tcp",
+          "pid": 2708,
+          "processName": "svchost.exe",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 154,
+          "port": 48010,
+          "protocol": "tcp",
+          "pid": 14692,
+          "processName": "sunshine.exe",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 153,
+          "port": 47990,
+          "protocol": "tcp",
+          "pid": 14692,
+          "processName": "sunshine.exe",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 152,
+          "port": 47989,
+          "protocol": "tcp",
+          "pid": 14692,
+          "processName": "sunshine.exe",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 151,
+          "port": 47984,
+          "protocol": "tcp",
+          "pid": 14692,
+          "processName": "sunshine.exe",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 150,
+          "port": 33272,
+          "protocol": "tcp",
+          "pid": 3224,
+          "processName": "natpierce.exe",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 149,
+          "port": 30950,
+          "protocol": "tcp",
+          "pid": 7776,
+          "processName": "dispatcher.exe",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 148,
+          "port": 26666,
+          "protocol": "tcp",
+          "pid": 6428,
+          "processName": "EwServer.exe",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 147,
+          "port": 25734,
+          "protocol": "tcp",
+          "pid": 14516,
+          "processName": "lmgrd.exe",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 146,
+          "port": 7680,
+          "protocol": "tcp",
+          "pid": 4240,
+          "processName": "svchost.exe",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 145,
+          "port": 5040,
+          "protocol": "tcp",
+          "pid": 13236,
+          "processName": "svchost.exe",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 144,
+          "port": 2179,
+          "protocol": "tcp",
+          "pid": 3776,
+          "processName": "vmms.exe",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 143,
+          "port": 1236,
+          "protocol": "tcp",
+          "pid": 6400,
+          "processName": "AsusUpdateCheck.exe",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 142,
+          "port": 135,
+          "protocol": "tcp",
+          "pid": 1096,
+          "processName": "svchost.exe",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 56,
+          "port": 53,
+          "protocol": "tcp",
+          "pid": 115,
+          "processName": "systemd-resolve",
+          "origin": "wsl",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 55,
+          "port": 53,
+          "protocol": "tcp",
+          "origin": "wsl",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 43,
+          "port": 27339,
+          "protocol": "tcp",
+          "pid": 4,
+          "processName": "System",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 18,
+          "port": 49665,
+          "protocol": "tcp",
+          "pid": 1724,
+          "processName": "wininit.exe",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 17,
+          "port": 49664,
+          "protocol": "tcp",
+          "pid": 1864,
+          "processName": "lsass.exe",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 8,
+          "port": 9032,
+          "protocol": "tcp",
+          "pid": 4,
+          "processName": "System",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 7,
+          "port": 8032,
+          "protocol": "tcp",
+          "pid": 4,
+          "processName": "System",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 2,
+          "port": 445,
+          "protocol": "tcp",
+          "pid": 4,
+          "processName": "System",
+          "origin": "windows",
+          "lastSeenAt": 1788457240,
+          "project": "unknown"
+        },
+        {
+          "id": 204,
+          "port": 9222,
+          "protocol": "tcp",
+          "pid": 26228,
+          "processName": "electron.exe",
+          "commandLine": "F:\\Active_Project\\DevHub-wt1\\node_modules\\electron\\dist\\electron.exe . --remote-debugging-port=9222",
+          "origin": "windows",
+          "projectId": 1,
+          "projectName": "DevHub",
+          "lastSeenAt": 1788456214,
+          "project": "DevHub"
+        },
+        {
+          "id": 203,
+          "port": 8751,
+          "protocol": "tcp",
+          "pid": 30488,
+          "processName": "node.exe",
+          "commandLine": "\"C:\\Program Files\\nodejs\\node.exe\" scripts/smoke.mjs",
+          "origin": "windows",
+          "lastSeenAt": 1788456214,
+          "project": "unknown"
+        },
+        {
+          "id": 202,
+          "port": 8750,
+          "protocol": "tcp",
+          "pid": 26228,
+          "processName": "electron.exe",
+          "commandLine": "F:\\Active_Project\\DevHub-wt1\\node_modules\\electron\\dist\\electron.exe . --remote-debugging-port=9222",
+          "origin": "windows",
+          "projectId": 1,
+          "projectName": "DevHub",
+          "lastSeenAt": 1788456214,
+          "project": "DevHub"
+        },
+        {
+          "id": 201,
+          "port": 8749,
+          "protocol": "tcp",
+          "pid": 30488,
+          "processName": "node.exe",
+          "commandLine": "\"C:\\Program Files\\nodejs\\node.exe\" scripts/smoke.mjs",
+          "origin": "windows",
+          "lastSeenAt": 1788456214,
+          "project": "unknown"
+        },
+        {
+          "id": 200,
+          "port": 8748,
+          "protocol": "tcp",
+          "pid": 30488,
+          "processName": "node.exe",
+          "commandLine": "\"C:\\Program Files\\nodejs\\node.exe\" scripts/smoke.mjs",
+          "origin": "windows",
+          "lastSeenAt": 1788456214,
+          "project": "unknown"
+        },
+        {
+          "id": 199,
+          "port": 8747,
+          "protocol": "tcp",
+          "pid": 30488,
+          "processName": "node.exe",
+          "commandLine": "\"C:\\Program Files\\nodejs\\node.exe\" scripts/smoke.mjs",
+          "origin": "windows",
+          "lastSeenAt": 1788456214,
+          "project": "unknown"
+        },
+        {
+          "id": 198,
+          "port": 8746,
+          "protocol": "tcp",
+          "pid": 30488,
+          "processName": "node.exe",
+          "commandLine": "\"C:\\Program Files\\nodejs\\node.exe\" scripts/smoke.mjs",
+          "origin": "windows",
+          "lastSeenAt": 1788456214,
+          "project": "unknown"
+        },
+        {
+          "id": 108,
+          "port": 53,
+          "protocol": "tcp",
+          "pid": 116,
+          "processName": "systemd-resolve",
+          "origin": "wsl",
+          "lastSeenAt": 1788456214,
+          "project": "unknown"
+        },
+        {
+          "id": 190,
+          "port": 8746,
+          "protocol": "tcp",
+          "pid": 36656,
+          "processName": "electron.exe",
+          "commandLine": "F:\\Active_Project\\DevHub\\node_modules\\electron\\dist\\electron.exe .",
+          "origin": "windows",
+          "projectId": 1,
+          "projectName": "DevHub",
+          "lastSeenAt": 1788454868,
+          "project": "DevHub"
         },
         {
           "id": 164,
@@ -670,306 +1220,6 @@
           "projectName": "DevHub",
           "lastSeenAt": 1788450946,
           "project": "DevHub"
-        },
-        {
-          "id": 163,
-          "port": 7897,
-          "protocol": "tcp",
-          "pid": 18660,
-          "processName": "verge-mihomo.exe",
-          "commandLine": "\"\\\\?\\D:\\Apps\\Clash Verge\\verge-mihomo.exe\" -d C:\\Users\\sakuya\\AppData\\Roaming\\io.github.clash-verge-rev.clash-verge-rev -f C:\\Users\\sakuya\\AppData\\Roaming\\io.github.clash-verge-rev.clash-verge-rev\\clash-verge.yaml -ext-ctl-pipe \\\\.\\pipe\\verge-mihomo",
-          "origin": "windows",
-          "lastSeenAt": 1788450946,
-          "project": "unknown"
-        },
-        {
-          "id": 162,
-          "port": 5283,
-          "protocol": "tcp",
-          "pid": 20088,
-          "processName": "SGTool.exe",
-          "commandLine": "\"D:\\Apps\\SogouInput\\16.6.0.4777\\SGTool.exe\" -daemon",
-          "origin": "windows",
-          "lastSeenAt": 1788450946,
-          "project": "unknown"
-        },
-        {
-          "id": 161,
-          "port": 1042,
-          "protocol": "tcp",
-          "pid": 8848,
-          "processName": "asus_framework.exe",
-          "origin": "windows",
-          "lastSeenAt": 1788450946,
-          "project": "unknown"
-        },
-        {
-          "id": 160,
-          "port": 57205,
-          "protocol": "tcp",
-          "pid": 25768,
-          "processName": "sqlservr.exe",
-          "origin": "windows",
-          "lastSeenAt": 1788450946,
-          "project": "unknown"
-        },
-        {
-          "id": 159,
-          "port": 49699,
-          "protocol": "tcp",
-          "pid": 14660,
-          "processName": "sw_d.exe",
-          "origin": "windows",
-          "lastSeenAt": 1788450946,
-          "project": "unknown"
-        },
-        {
-          "id": 158,
-          "port": 49698,
-          "protocol": "tcp",
-          "pid": 1804,
-          "processName": "services.exe",
-          "origin": "windows",
-          "lastSeenAt": 1788450946,
-          "project": "unknown"
-        },
-        {
-          "id": 157,
-          "port": 49668,
-          "protocol": "tcp",
-          "pid": 5832,
-          "processName": "spoolsv.exe",
-          "origin": "windows",
-          "lastSeenAt": 1788450946,
-          "project": "unknown"
-        },
-        {
-          "id": 156,
-          "port": 49667,
-          "protocol": "tcp",
-          "pid": 4128,
-          "processName": "svchost.exe",
-          "origin": "windows",
-          "lastSeenAt": 1788450946,
-          "project": "unknown"
-        },
-        {
-          "id": 155,
-          "port": 49666,
-          "protocol": "tcp",
-          "pid": 2708,
-          "processName": "svchost.exe",
-          "origin": "windows",
-          "lastSeenAt": 1788450946,
-          "project": "unknown"
-        },
-        {
-          "id": 154,
-          "port": 48010,
-          "protocol": "tcp",
-          "pid": 14692,
-          "processName": "sunshine.exe",
-          "origin": "windows",
-          "lastSeenAt": 1788450946,
-          "project": "unknown"
-        },
-        {
-          "id": 153,
-          "port": 47990,
-          "protocol": "tcp",
-          "pid": 14692,
-          "processName": "sunshine.exe",
-          "origin": "windows",
-          "lastSeenAt": 1788450946,
-          "project": "unknown"
-        },
-        {
-          "id": 152,
-          "port": 47989,
-          "protocol": "tcp",
-          "pid": 14692,
-          "processName": "sunshine.exe",
-          "origin": "windows",
-          "lastSeenAt": 1788450946,
-          "project": "unknown"
-        },
-        {
-          "id": 151,
-          "port": 47984,
-          "protocol": "tcp",
-          "pid": 14692,
-          "processName": "sunshine.exe",
-          "origin": "windows",
-          "lastSeenAt": 1788450946,
-          "project": "unknown"
-        },
-        {
-          "id": 150,
-          "port": 33272,
-          "protocol": "tcp",
-          "pid": 3224,
-          "processName": "natpierce.exe",
-          "origin": "windows",
-          "lastSeenAt": 1788450946,
-          "project": "unknown"
-        },
-        {
-          "id": 149,
-          "port": 30950,
-          "protocol": "tcp",
-          "pid": 7776,
-          "processName": "dispatcher.exe",
-          "origin": "windows",
-          "lastSeenAt": 1788450946,
-          "project": "unknown"
-        },
-        {
-          "id": 148,
-          "port": 26666,
-          "protocol": "tcp",
-          "pid": 6428,
-          "processName": "EwServer.exe",
-          "origin": "windows",
-          "lastSeenAt": 1788450946,
-          "project": "unknown"
-        },
-        {
-          "id": 147,
-          "port": 25734,
-          "protocol": "tcp",
-          "pid": 14516,
-          "processName": "lmgrd.exe",
-          "origin": "windows",
-          "lastSeenAt": 1788450946,
-          "project": "unknown"
-        },
-        {
-          "id": 146,
-          "port": 7680,
-          "protocol": "tcp",
-          "pid": 4240,
-          "processName": "svchost.exe",
-          "origin": "windows",
-          "lastSeenAt": 1788450946,
-          "project": "unknown"
-        },
-        {
-          "id": 145,
-          "port": 5040,
-          "protocol": "tcp",
-          "pid": 13236,
-          "processName": "svchost.exe",
-          "origin": "windows",
-          "lastSeenAt": 1788450946,
-          "project": "unknown"
-        },
-        {
-          "id": 144,
-          "port": 2179,
-          "protocol": "tcp",
-          "pid": 3776,
-          "processName": "vmms.exe",
-          "origin": "windows",
-          "lastSeenAt": 1788450946,
-          "project": "unknown"
-        },
-        {
-          "id": 143,
-          "port": 1236,
-          "protocol": "tcp",
-          "pid": 6400,
-          "processName": "AsusUpdateCheck.exe",
-          "origin": "windows",
-          "lastSeenAt": 1788450946,
-          "project": "unknown"
-        },
-        {
-          "id": 142,
-          "port": 135,
-          "protocol": "tcp",
-          "pid": 1096,
-          "processName": "svchost.exe",
-          "origin": "windows",
-          "lastSeenAt": 1788450946,
-          "project": "unknown"
-        },
-        {
-          "id": 108,
-          "port": 53,
-          "protocol": "tcp",
-          "pid": 116,
-          "processName": "systemd-resolve",
-          "origin": "wsl",
-          "lastSeenAt": 1788450946,
-          "project": "unknown"
-        },
-        {
-          "id": 55,
-          "port": 53,
-          "protocol": "tcp",
-          "origin": "wsl",
-          "lastSeenAt": 1788450946,
-          "project": "unknown"
-        },
-        {
-          "id": 43,
-          "port": 27339,
-          "protocol": "tcp",
-          "pid": 4,
-          "processName": "System",
-          "origin": "windows",
-          "lastSeenAt": 1788450946,
-          "project": "unknown"
-        },
-        {
-          "id": 18,
-          "port": 49665,
-          "protocol": "tcp",
-          "pid": 1724,
-          "processName": "wininit.exe",
-          "origin": "windows",
-          "lastSeenAt": 1788450946,
-          "project": "unknown"
-        },
-        {
-          "id": 17,
-          "port": 49664,
-          "protocol": "tcp",
-          "pid": 1864,
-          "processName": "lsass.exe",
-          "origin": "windows",
-          "lastSeenAt": 1788450946,
-          "project": "unknown"
-        },
-        {
-          "id": 8,
-          "port": 9032,
-          "protocol": "tcp",
-          "pid": 4,
-          "processName": "System",
-          "origin": "windows",
-          "lastSeenAt": 1788450946,
-          "project": "unknown"
-        },
-        {
-          "id": 7,
-          "port": 8032,
-          "protocol": "tcp",
-          "pid": 4,
-          "processName": "System",
-          "origin": "windows",
-          "lastSeenAt": 1788450946,
-          "project": "unknown"
-        },
-        {
-          "id": 2,
-          "port": 445,
-          "protocol": "tcp",
-          "pid": 4,
-          "processName": "System",
-          "origin": "windows",
-          "lastSeenAt": 1788450946,
-          "project": "unknown"
         },
         {
           "id": 141,
@@ -1832,16 +2082,6 @@
           "project": "unknown"
         },
         {
-          "id": 56,
-          "port": 53,
-          "protocol": "tcp",
-          "pid": 115,
-          "processName": "systemd-resolve",
-          "origin": "wsl",
-          "lastSeenAt": 1788373821,
-          "project": "unknown"
-        },
-        {
           "id": 104,
           "port": 56240,
           "protocol": "tcp",
@@ -2376,8 +2616,10 @@
     }
   },
   "acceptance": {
-    "passed": 22,
+    "passed": 21,
     "total": 22,
-    "failed": []
+    "failed": [
+      "A12"
+    ]
   }
 }

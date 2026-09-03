@@ -5235,9 +5235,12 @@ if (isEntrypoint()) {
     const base = {
       exePath: process.execPath,
       appServerArgs: [script],
-      requestTimeoutMs: 3000,
-      managedIdleTimeoutMs: 4000,
-      managedLifetimeTimeoutMs: 15000,
+      // ac3-97 稳定化（超时加固，断言/用例名不变）：负载下 node 子进程冷启动
+      // 可达数秒——3s 请求超时会把 ok 路径误折叠为 observed；idle 必须宽于
+      // 单请求上限（否则静默期 idle 树杀误杀），lifetime 为整进程天花板。
+      requestTimeoutMs: 8000,
+      managedIdleTimeoutMs: 15000,
+      managedLifetimeTimeoutMs: 45000,
     }
     const ref = { providerId: 'codex', nativeId: 'fixture-thread-1' }
 
