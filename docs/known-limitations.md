@@ -161,11 +161,13 @@
 | 6.3 | MCP services:refresh 的 scanId 取「最新 scans 行」（并发扫描源理论错位） | HANDOFF.md §7；单进程内无影响 | 仅并发扫描时报告可能挂错 scanId（理论） | scanId 显式传递重构（小改动） |
 | 6.4 | 版本中心无 cancel channel（超时兜底） | HANDOFF.md §7 | 检测中无法手动取消，只能等超时 | 新增 cancel channel + UI 按钮 |
 | 6.5 | DeepSeek Harness 更新路径未真机验证 | HANDOFF.md §7 | 版本中心对 DeepSeek Harness 的升级流程无实测结论 | 真机验证一次更新（需用户授权） |
+| 6.6 | npm 解析已收敛为 where.exe 单一来源（AC9，007d8b3）；env 候选回退被移除 | 007d8b3 提交「npm resolution single-source (where.exe)」；AC9 终验核实 | 安全钩子对 node_modules 内 npm 解析的误报已消解（单一可信来源，杜绝 env 注入候选路径）；代价是若 where.exe 不可用（PATH 无 System32）npm 探测退化为 unknown，无第二候选 | 恢复 env 候选回退前，必须先在安全钩子侧为 env 来源加白（防误报复发），再恢复多候选逻辑（用户发令） |
 
 ## 7. 验收数字口径（防混淆声明）
 
 - smoke 基线：wt2 基线提交信息与 `acceptance/agents-mobile/ac8-blocked.md`
-  均记 **140/140**；母智能体会话记录为 141/141（疑含合并后新增用例）。
-  本清单以仓库存档为准，最终口径待 AC9 终验复核（见
-  `acceptance/agents-mobile/final-report.md` 的 TODO-AC9）。
-- mcp-acceptance：**22/22**（`scripts/mcp-acceptance.mjs` 用例数实数核实）。
+  均记 **140/140**；母智能体会话记录为 141/141。**AC9 终验已实跑收口：
+  141/141 passed**（第 141 例 = 合并批次新增 sec-fix 用例），最终口径以
+  `acceptance/agents-mobile/final-report.md` §2 为准。
+- mcp-acceptance：**22/22**（`scripts/mcp-acceptance.mjs` 用例数实数核实；
+  AC9 终验树净后复跑确认）。

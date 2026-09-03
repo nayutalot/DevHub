@@ -1,0 +1,13 @@
+
+
+DevTools listening on ws://127.0.0.1:9222/devtools/browser/55ed9fa7-712f-4b4e-a79f-9692d2cc9496
+2026-09-03T18:40:51.871Z [INFO ] apihub key crypto: electron safeStorage injected
+2026-09-03T18:40:51.873Z [INFO ] autostart applied from settings login_autostart=0
+2026-09-03T18:40:51.874Z [INFO ] gateway registered on "devhub:invoke" with 68 channels
+2026-09-03T18:40:51.914Z [INFO ] tray icon loaded: F:\Active_Project\DevHub\resources\tray.png
+2026-09-03T18:40:51.926Z [INFO ] tray created (resident mode: closing the window hides it, docs/12 §10)
+2026-09-03T18:40:51.943Z [INFO ] gateway: listening on 127.0.0.1:8746 (settings gateway_port=8746)
+2026-09-03T18:57:21.938Z [INFO ] gateway: listener closed (app quit teardown (docs/12 §10 order: WS close -> listener close))
+2026-09-03T18:57:21.943Z [INFO ] quit teardown: agent control runtime shut down (monitors cancelled, providers disposed)
+2026-09-03T18:57:21.947Z [INFO ] quit teardown: database closed (WAL checkpointed)
+2026-09-03T18:57:21.961Z [INFO ] window-all-closed: staying resident in tray (docs/12 §10)

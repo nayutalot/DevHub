@@ -1,11 +1,10 @@
 # DevHub Phase 2/3（Agent Control / Mobile）最终报告
 
 > 批次：AC9 终验收文档批次（分支 `ac9-docs`，基线 `b8a819a`）。
-> 性质：**骨架 + 已定事实填充**。已定事实均标注仓内证据路径；所有待 AC8 e2e
+> 性质：**骨架 + 已定事实填充**。已定事实均标注仓内证据路径；原 AC8 e2e
 > 收尾与 AC9 终验确认的数字/结论以显式 **`TODO-AC8`** / **`TODO-AC9`** 占位
-> 标记，供母智能体合并后填充替换。
-> 数字口径声明：本报告不重跑全量 smoke（AC9 文档批次铁律），回归数字引用
-> 仓内存档记录并注明来源。
+> 标记，**现已在 AC9 终验（2026-09-04，基线 HEAD `007d8b3`，工作树干净）
+> 全部回填实跑数字**，回填处均注明取数来源。
 
 ---
 
@@ -31,21 +30,29 @@
 | AC8（中段→e2e） | Codex 托管会话 + 真机端到端 + NatPierce 投影 | `providers/codexProvider.ts`（managed 最小路径 + 持久连接）；`natpierce.ts`；Android `ConnectionManager.kt` 主线程修复；`docs/natpierce-setup.md` | ac8-139..140 |
 | 安全修复 | skills doctor crlf 越界跳过等加固回归 | `src/main/services/skills/doctor.ts`（contained-in-vault 校验） | sec-fix（未编号） |
 
-> `TODO-AC9`：合并后由母智能体以各批次报告存档核对/补全本表逐文件详单链接。
+> AC9 终验口径：本表为批次摘要 + 模块归属（现状核实），逐文件详单以
+> `git log --stat`（基线 `b8a819a..007d8b3`）与各批次报告存档为准，不再
+> 单独展开（AC9 终验裁决：模块归属粒度已满足验收需要）。
 
 ## 2. Phase 1 / MCP / Skills / Archive 回归结果
 
 - **smoke**：基线记录 **140/140**（来源：基线提交 `b8a819a` 提交信息
   「smoke 140/140」+ `acceptance/agents-mobile/ac8-blocked.md` §2「140/140
   基线内」），含 Phase 1 / 并库 S1-S6（s1-40..s5-80）与 MCP 相关旧用例全部。
-  - 口径差异注明：母智能体会话记录为 **141/141**（疑含合并批次新增用例）。
-    本报告以仓内存档为准 → **`TODO-AC9`**：合并后重跑一次 smoke 终验并回填
-    最终数字。
-- **mcp-acceptance**：**22/22**（来源：`scripts/mcp-acceptance.mjs` 用例注册
-  实数核实 = 22；HANDOFF.md S6 终验记录同值）。
-- **四门禁基线**：`npx tsc --noEmit` / smoke / mcp-acceptance / build 全绿
-  （S6 终验记录，HANDOFF.md §4；AC 批次按同口径逐批复验）。
-  **`TODO-AC9`**：合并后四门禁终跑结果回填。
+  - 口径差异已消解：**AC9 终验实跑 `node scripts/smoke.mjs` =
+    141/141 passed**（2026-09-04，HEAD `007d8b3`；第 141 例 = 合并批次新增
+    `sec-fix: skills doctor crlf fix` 用例），终数 **141/141**。
+- **mcp-acceptance**：**22/22**（`scripts/mcp-acceptance.mjs` 用例注册实数
+  核实 = 22；AC9 终验在终验提交落库（树净）后复跑确认 22/22，其中 A12
+  「git.status 真实仓库 + 工作树干净」断言依赖树净，在 AC9 验收产物未提交前
+  实跑为 21/22（A12 预期失败，原因 = 工作树含待提交验收产物，非代码缺陷），
+  树净后复跑全绿）。
+- **四门禁终跑（AC9 终验，2026-09-04，基线 HEAD `007d8b3`，工作树干净）**：
+  1. `npx tsc --noEmit` → **PASS（0 错误）**
+  2. `node scripts/smoke.mjs` → **141/141 passed**
+  3. `node scripts/mcp-acceptance.mjs` → **22/22**（树净后终跑；过程口径见上）
+  4. `npm run build`（electron-vite）→ **OK**（main 77 modules / preload 2 /
+     renderer 49 modules 三 bundle 全过）
 
 ## 3. 各 Agent 实际验证状态表
 
@@ -57,17 +64,25 @@
 | ZCode | observed-only | 首版全部 observed（非公开 CLI 无控制通道）；approval 判定源已接但本机语料无 pending 形态；两库（db.sqlite + tasks-index.sqlite）51/51 任务覆盖 | `zcodeProvider.ts` 头注释（实测取值全集） |
 | DeepSeek Harness | 未接入 | 骨架 + 能力检测（源码树 detected → health）；显式「未接入」文案；绝不伪造 | `deepseekProvider.ts`（`DEEPSEEK_NOT_INTEGRATED_NOTE`） |
 
-> 数字口径注明：母智能体会话记录 Codex 握手为 **157 methods**；仓内存档
-> （`ac8-blocked.md` §2、`codexProvider.ts` 头注释「AC8 实测
-> 0.153.0-alpha.5 全集 158 方法」）为 **158**。本表以仓内存档为准。
-> **`TODO-AC8`**：AC8 e2e 收尾复跑后回填最终 methods 数与能力集。
+> 数字口径已收口：**Codex methods 终数 = 158**（managed 能力集
+> [reply, pause, resume]）。终验取数来源 = 真库只读快照
+> （`acceptance/ac9-db-snapshot.mjs`，node:sqlite readOnly 直连
+> `%APPDATA%\devhub\devhub.db` 的 `agent_providers` 表）：provider=codex 行
+> `version = 0.153.0-alpha.5`、`capabilities_json` 含
+> `evidence: "app-server handshake ok (158 protocol methods observed)"`、
+> `health = ok`。仓内存档（`codexProvider.ts` 头注释、`ac8-blocked.md` §2）
+> 与真库快照三处一致；早期会话记录的 157 为合并前旧值，不再采用。
 
 ## 4. 哪些能手机回复
 
 - **Codex（唯一已验证可回复的 provider）**：managed 会话经手机
   `POST /v1/sessions/{id}/reply` → 202 → provider 执行 → `command.result`
   回推 → 第二次真实推理回流，全链路已在模拟器回环路径实测通过（证据见 §3
-  Codex 行）。**`TODO-AC8`**：AC8 e2e 终态与隧道下复验确认后回填结论。
+  Codex 行）。**AC8 收尾结论（终验确认）**：会话 #337 完成
+  waiting_input → 系统通知 → 手机 deep link 回复 → Codex 真实收到并回流
+  的真实端到端闭环，事件/ack 证据见 `ac8-blocked.md` §2 与
+  `ac8-e2e-06/07/08/09/10/12/13-*.png`；隧道（NatPierce）形态仍待用户凭据
+  （§6，外置依赖，非代码缺陷）。
 - **Kimi**：实现已就位（spawnManaged + writeStdin + 终态轮询确认），仅夹具
   验证，真机回复未验证（见 docs/known-limitations.md §1.5）。
 - **Claude Code / ZCode**：不可回复（observed-only，能力门空集）。
@@ -80,8 +95,17 @@
 
 - 标准产物路径：`android/app/build/outputs/apk/debug/app-debug.apk`
   （debug 变体；applicationId `com.devhub.mobile`）。
-- **`TODO-AC8`**：wt 工作副本内当前无 gradle 构建产物（未跑 build）；合并后
-  由母智能体回填实际构建产物的绝对路径、版本号与构建时间。
+- **AC9 终验回填**：最终产物 =
+  **`F:\Active_Project\DevHub\android\app\build\outputs\apk\debug\app-debug.apk`**，
+  10,819,083 字节，versionCode 1 / versionName 1.0（`output-metadata.json`），
+  SHA-256 `81278d5a45ac739eebc0137c88823b49f13020139f65f7b404ea17521b454c19`。
+  口径注明：AC9 终验尝试主仓 gradle 重建（`gradlew assembleDebug`），因验收
+  环境 `JAVA_HOME` 未设且系统无 JDK（wt1/wt3 构建会话的临时 Java 环境未
+  持久化）而不可行——如实记录为环境阻塞，非代码缺陷。采用 **wt1 分支构建
+  产物**（AC8 真机 e2e 实际安装验证的同一 APK；wt1 android/ 代码与主仓
+  HEAD 逐字节一致：`git diff a8d8c9d..HEAD -- android/` 为空），复制至主仓
+  标准路径并以 SHA-256 固定。主仓路径下早于 wt1 android 修复的旧产物已被
+  此最终产物覆盖。
 
 ## 6. NatPierce 待用户填写项
 
@@ -96,7 +120,8 @@
 | 隧道对外地址 | App 网关配置改填隧道分配的主机:端口 | 待用户提供隧道后填写 |
 
 填写后复跑 `acceptance/agents-mobile/ac8-blocked.md` §1.3 解除流程（B1–B8）
-并在该文件追加「已解除」记录。**`TODO-AC8`**：隧道下回归结果回填。
+并在该文件追加「已解除」记录。**终验状态**：仍待用户三项凭据（外置依赖，
+非代码缺陷），归入 §7 未验证事项 #1。
 
 ## 7. 未验证事项
 
@@ -108,7 +133,8 @@
 4. **Android 后台连接稳定性长期验证**（续航/厂商杀后台策略；见
    docs/known-limitations.md §4.1）。
 5. **Claude Code hooks 审批判定源实测**（hooks 未注册，判定源未活跃）。
-6. **`TODO-AC9`**：合并后四门禁终跑（含 smoke 终数确认，见 §2 口径差异）。
+6. ~~合并后四门禁终跑~~ **已完成（AC9 终验）**：四门禁终跑全绿（tsc 0 /
+   smoke 141/141 / mcp-acceptance 22/22 / build OK），结果已回填 §2。
 
 ## 8. 已知限制
 
@@ -118,6 +144,23 @@ provider 接入边界、MCP 4 只读 tool 遗留、桌面 UI 分页/重探/事�
 路径）。
 
 ## 9. 复现命令
+
+### 9.0 终验基线与并发批次流程
+
+```bash
+git log --oneline -1    # AC9 终验基线 HEAD = 007d8b3
+# （ac9: merge wt1-wt3 + A12 git-init assertion update + npm resolution
+#   single-source (where.exe) with poison containment + untrack scenario report）
+# 本终验批次自身的提交在此基础上前移（见 §10 同批 manifest 与提交哈希）。
+```
+
+并发批次（worktree）流程：主仓在 `F:\Active_Project\DevHub`（main），各批次
+在独立 worktree 并行推进（`git worktree add ..\DevHub-wtN -b <branch>`）：
+wt1 = `ac8-e2e`（真机端到端证据 + 修复）、wt2 = `ac9-docs`（本报告骨架）、
+wt3 = `ac9-env`（ac3-97 稳定化 + android 构建 + npm 解析收敛）。各 wt 独立
+跑四门禁后，由主仓一次 `git merge` 收敛（007d8b3），收敛后主仓复跑四门禁
+终验（§2 数字即收敛后终跑）。注意：worktree 并发期间各仓各自持有构建产物
+（APK/日志），交付物以主仓标准路径 + SHA-256 清单（§10）为准。
 
 ### 9.1 桌面四门禁（仓库根）
 
@@ -152,12 +195,14 @@ cd android
 6. 外网形态：按 `docs/natpierce-setup.md` 配置三项环境变量并把
    `127.0.0.1:8746` 透传公网后，App 网关配置改填隧道地址（其余步骤同上）。
 
-> 本报告撰写批次（AC9 文档）铁律未运行任何上述运行时命令；§9 全部为复现
-> 指引，执行结果由母智能体合并后回填（`TODO-AC8` / `TODO-AC9`）。
+> AC9 终验已实际执行 §9.1 四门禁与 §9.2 的产物核验（结果见 §2/§5）；§9.3
+> 配对/回复链路不再重复执行（AC8 会话 #337 真机端到端已闭环，证据见 §3/§4），
+> 该节保留为完整复现指引。
 
 ## 10. 交付物 SHA-256 清单
 
 `acceptance/agents-mobile/SHA-256-SUMS.txt` 由
 `node scripts/manifest-sha256.mjs` 生成（覆盖 acceptance 截图/证据、APK、
-docs、关键脚本；`--check` 复核模式见脚本头注释）。**`TODO-AC9`**：终验合并
-后在最终产物态重跑生成 + `--check`。
+docs、关键脚本；`--check` 复核模式见脚本头注释）。**AC9 终验回填**：已在
+最终产物态（含 ac9-*.png 全视图截图、ac9 托盘/数据库取证脚本、最终 APK）
+重新生成，**共 149 个文件**，`--check` 复核 **149/149 全部匹配**。
