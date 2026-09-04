@@ -8678,6 +8678,9 @@ if (isEntrypoint()) {
     insMsg.run('msg_main_1', 'sess_main_completed', JSON.stringify({ role: 'user', time: { created: nowMs } }), 0, nowMs)
     insMsg.run('msg_child_1', 'sess_subagent_agent_child', JSON.stringify({ role: 'user', time: { created: nowMs + 10 } }), 0, nowMs + 10)
     insMsg.run('msg_child_2', 'sess_subagent_agent_notype', JSON.stringify({ role: 'user', time: { created: nowMs + 20 } }), 0, nowMs + 20)
+    // 主会话消息正文在 part 表（真实 ZCode 形态）：缺 part 行的空正文消息会被
+    // projectMessageRow 按设计跳过（绝不造内容）——夹具必须带正文来源
+    fdb.prepare("INSERT INTO part (id, message_id, data, sequence) VALUES ('part_main_1', 'msg_main_1', ?, 0)").run(JSON.stringify({ type: 'text', text: 'main message body' }))
     fdb.prepare("INSERT INTO tool_usage (id, session_id, tool_name, approval_status, status, started_at, completed_at) VALUES ('tu_child', 'sess_subagent_agent_child', 'Bash', 'pending', 'running', ?, NULL)").run(nowMs)
     fdb.close()
 
