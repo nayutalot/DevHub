@@ -1130,5 +1130,8 @@ export function createCodexProvider(options: CodexProviderOptions = {}): AgentPr
     startMonitor,
     dispose,
     describeDiagnostics,
+    // R6（ux 批 A）：远程/桌面「启动托管会话」共用 AC8 的 thread/start + turn/start
+    // 托管路径（spawnManaged 双上限子进程；快照以 mode:'managed' 经 sink 落库）。
+    startManagedSession: (task, sink) => startManagedTurn(task, sink),
   }
 }

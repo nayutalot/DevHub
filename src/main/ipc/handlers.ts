@@ -726,6 +726,9 @@ export function createHandlerRegistry(deps: HandlerDeps): HandlerRegistry {
         projectId: optionalPositiveInt('agents:sessions', p, 'projectId'),
         status: optionalSessionStatus('agents:sessions', p),
         limit: optionalListLimit('agents:sessions', p),
+        // ux 批 A（R2/R3）：parentId 子会话页；includeArchived 归档可见
+        parentId: optionalPositiveInt('agents:sessions', p, 'parentId'),
+        includeArchived: optionalBoolean('agents:sessions', p, 'includeArchived'),
       })
     },
     'agents:sessionDetail': async (payload) => {
@@ -737,6 +740,9 @@ export function createHandlerRegistry(deps: HandlerDeps): HandlerRegistry {
       return listAgentMessages({
         sessionId: requireId('agents:messages', p, 'sessionId'),
         after: optionalPositiveInt('agents:messages', p, 'after'),
+        // ux 批 A（R10）：尾部取数（last/before + prevAfter）；与 after 互斥在 L3 校验
+        before: optionalPositiveInt('agents:messages', p, 'before'),
+        last: optionalPositiveInt('agents:messages', p, 'last'),
         limit: optionalListLimit('agents:messages', p),
       })
     },

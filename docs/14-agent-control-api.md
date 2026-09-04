@@ -19,9 +19,9 @@ Agents 视图按 2s 间隔轮询 `agents:events` / `agents:sessions`（`archive:
 | # | channel | payload | result data |
 | --- | --- | --- | --- |
 | 1 | `agents:providers` | `{}` | `{ providers: [{ id, displayName, installed, version?, exePath?, health: 'ok'\|'degraded'\|'unavailable'\|'unknown', healthDetail?, capabilities: { mode, granted[], verifiedAt, evidence }, enabled, lastProbeAt }], monitorEnabled, probedAt }` |
-| 2 | `agents:sessions` | `{ providerId?, projectId?, status?, limit? }`（limit 正整数 ≤200，缺省 100） | `{ sessions: [{ id, providerId, nativeId, sessionMode, projectId?, title?, status, statusDetail?, startedAt?, lastActivityAt?, endedAt?, stale }] }`（status 九值 = 用户锁定 7 态 + stopped/unknown 辅助态，docs/12 §4；stale = 数据源过期标注，绝不猜实时态） |
-| 3 | `agents:sessionDetail` | `{ sessionId }` | `{ session: SessionView, capabilities: CapabilitySet, counts: { messages, events } }` |
-| 4 | `agents:messages` | `{ sessionId, after?, limit? }`（after = 消息游标 id；limit ≤200） | `{ items: [{ id, role, contentRedacted, occurredAt, sourceRef? }], nextAfter? }`（contentRedacted 为脱敏投影；完整上下文按需加载，docs/15 §6） |
+| 2 | `agents:sessions` | `{ providerId?, projectId?, status?, parentId?, includeArchived?, limit? }`（limit 正整数 ≤200，缺省 100；parentId = 子会话页（ux 批 A R2，含已结束）；includeArchived = 归档可见（ux 批 A R3）） | `{ sessions: [{ id, providerId, nativeId, sessionMode, projectId?, title?, status, statusDetail?, startedAt?, lastActivityAt?, endedAt?, stale, providerKey?, providerLabel?, archivedAt? }] }`（status 九值 = 用户锁定 7 态 + stopped/unknown 辅助态，docs/12 §4；stale = 数据源过期标注，绝不猜实时态。ux 批 A 过滤语义：缺省 = 主会话（parent_session_id IS NULL，保留 8442e9d 意图）× 未归档（archived_at IS NULL）；`parentId=` 指向子会话页（含已结束/归档，不做二次隐藏）；`includeArchived=1` 归档可见。providerKey/providerLabel（ux 批 A R4）投影自 agent_providers.provider/display_name（如 'zcode'/'ZCode'），附加字段向后兼容；archivedAt = 归档时刻（unix 秒，未归档缺省）） |
+| 3 | `agents:sessionDetail` | `{ sessionId }` | `{ session: SessionView, capabilities: CapabilitySet, counts: { messages, events } }`（ux 批 A R2/R4：detail 的 SessionView 附加 `providerKey`/`providerLabel`/`archivedAt?` 与 `childSessions?: SessionView[]`——子会话全量（含已结束/归档），带状态/时间/标题，可再下钻；无子会话缺省该字段。REST `/v1/sessions/{id}` 响应顶层形状不变（childSessions 在 session 视图内）） |
+| 4 | `agents:messages` | `{ sessionId, after?, before?, last?, limit? }`（after = 消息游标 id；before/last = 尾部取数（ux 批 A R10，三者互斥）；limit ≤200） | `{ items: [{ id, role, contentRedacted, occurredAt?, sourceRef?, segments?: [{kind:'text'\|'thinking'\|'toolInvocation', label?, content}] }], nextAfter?, prevAfter? }`（contentRedacted 为脱敏投影；完整上下文按需加载，docs/15 §6。segments 为**可选**结构化分段投影（ux 批 A R1/R8）：仅转录源有明确结构时产生（zcode part.type=text/reasoning/tool、claude content[].type=text/thinking/tool_use 实测映射），无结构缺省 → 展示整段 text，绝不猜；segments 内 plugin://、skill://、mcp:// 已替换为 `[插件] X` 式短标签，原始 URI 只保留在 contentRedacted 兼容字段。`last=<n>` 返回最新 n 条（ASC）+ `prevAfter` 游标（仍有更早消息时 = 本页最早一条 id）；`before=<prevAfter>` 续拉更早页（ASC）；`after` 正向语义不变（页满 → nextAfter）。after/last/before 互斥 → BAD_PAYLOAD；last 页大小 ≤200（与 limit 同给取小）） |
 | 5 | `agents:events` | `{ after?, providerId?, sessionId?, limit? }`（after = sequence 游标；limit ≤200） | `{ events: [{ id, eventId, eventType, providerId?, sessionId?, summary, payload, deliveryState, createdAt }], nextAfter? }` |
 | 6 | `agents:sessionAction` | `{ sessionId, action: 'reply'\|'pause'\|'resume', text?, confirmed? }`（reply 必带 text 非空 ≤4000 字符） | 直执行（用户显式输入，不经 CONFIRM_REQUIRED）：`{ commandId, status: 'accepted'\|'executed'\|'rejected', error? }`；能力未验证 → `AGENT_CAPABILITY_MISSING`；observed → `COMMAND_NOT_EXECUTABLE`（服务端能力门，docs/12 §5） |
 | 7 | `agents:pairingCreate` | `{ deviceName? }` | `{ pairingId, code, expiresAt }`（code 8 位 Crockford Base32，TTL 300s，一次性；明文只在本次返回中出现，docs/15 §2） |
@@ -62,7 +62,18 @@ Agents 视图按 2s 间隔轮询 `agents:events` / `agents:sessions`（`archive:
 `gateway_enabled=0`（默认）时零监听。鉴权（除注明外）= `Authorization: Bearer <deviceToken>`。
 统一错误结构 `{ "error": { "code": "…", "message": "…" } }`（Part C + HTTP 状态映射）。
 
-### B.1 REST 端点表（13 端点）
+### B.1 REST 端点表（13 端点 + ux 批 A 增补 4 端点）
+
+> **ux 整改批 A 增补（2026-09-04，docs/17 §2 R2/R3/R6/R10 裁决落地）**：
+> 新增 4 端点（`/v1/sessions/{id}/archive`、`/v1/sessions/{id}/unarchive`、
+> `DELETE /v1/sessions/{id}`、`POST /v1/providers/{providerId}/sessions`），
+> 并对 sessions/messages 两端点扩展**可选**查询参数与响应字段（全部向后兼容，
+> 既有客户端零破坏）。新端点沿用 Bearer + 防重放 + 限流四件套；归档/取消归档为
+> 状态置位语义天然幂等；删除为一次性操作（重删 404）；spawn 以 `idempotencyKey`
+> 走 §B.5 幂等语义。删除/归档**只动 DevHub 本地投影行**（源文件零触碰）；
+> 事件管线「未确认事件绝不删除」不变式在运行期路径不变，用户显式删除的会话域
+> 事件/deliveries 级联清理属 §2 R3 明文裁决例外（sessionLifecycle.ts 承载，
+> 形态对齐 cleanup-zcode-subagent-sessions.mjs 先例）。
 
 | 端点 | 方法 | 鉴权 | 请求 JSON | 响应 JSON（成功） |
 | --- | --- | --- | --- | --- |
@@ -73,15 +84,21 @@ Agents 视图按 2s 间隔轮询 `agents:events` / `agents:sessions`（`archive:
 | `/v1/devices` | GET | Bearer | — | `200 { devices: [{ id, deviceName, platform, status, pairedAt, lastSeenAt?, tokenVersion }] }` |
 | `/v1/devices/{id}` | DELETE | Bearer；**仅可撤销自身**（撤销他设备 → 403 `DEVICE_FORBIDDEN`，必须走桌面 `agents:deviceRevoke`） | — | `200 { revoked: true }`（自身撤销：Token 即拒 + WS 断开 + 审计） |
 | `/v1/agents` | GET | Bearer | — | `200 { providers: [{ id, displayName, health, capabilities }] }` |
-| `/v1/sessions` | GET | Bearer；query `providerId? / status? / limit?` | — | `200 { sessions: [SessionView] }` |
-| `/v1/sessions/{id}` | GET | Bearer | — | `200 { session: SessionView, capabilities: CapabilitySet }` |
-| `/v1/sessions/{id}/messages` | GET | Bearer；query `after?（消息游标）/ limit?` | — | `200 { items: [{ id, role, contentRedacted, occurredAt }], nextAfter? }` |
+| `/v1/sessions` | GET | Bearer；query `providerId? / status? / limit? / parentId?（ux A R2）/ includeArchived?（ux A R3：1 可见归档）`；缺省 = 主会话 × 未归档 | — | `200 { sessions: [SessionView] }`（SessionView 附加 providerKey/providerLabel/archivedAt，ux A R4） |
+| `/v1/sessions/{id}` | GET | Bearer | — | `200 { session: SessionView, capabilities: CapabilitySet }`（ux A R2：session.childSessions? = 子会话全量，含已结束） |
+| `/v1/sessions/{id}/messages` | GET | Bearer；query `after?（正向游标）/ last?（ux A R10 尾部取数）/ before?（ux A R10 向旧翻页，值 = prevAfter）/ limit?`；after/last/before 互斥 → 400 | — | `200 { items: [{ id, role, contentRedacted, occurredAt?, segments? }], nextAfter?, prevAfter? }`（segments 可选（ux A R1/R8，展示投影已标签化，原始 URI 只在 contentRedacted）；绝无 sourceRef） |
+| `/v1/sessions/{id}/archive` | POST | Bearer；防重放；幂等（重复归档不刷新 archivedAt） | `{}` | `200 { sessionId, archived: true, archivedAt }`（只动本地投影行，源文件零触碰） |
+| `/v1/sessions/{id}/unarchive` | POST | Bearer；防重放；幂等 | `{}` | `200 { sessionId, archived: false }` |
+| `/v1/sessions/{id}` | DELETE | Bearer；防重放；重删 → 404 | — | `200 { sessionId, deleted: true, removed: { sessions, messages, events, deliveries, resources, relationships } }`（含子会话链级联清理；只动本地投影） |
+| `/v1/providers/{providerId}/sessions` | POST | Bearer + 防重放 + 限流 + 幂等（`idempotencyKey`，§B.5 同语义）；**能力门：仅 caps.mode='managed' 且验证新鲜（≤300s）的 provider 开放**，observed/未实现 → 403 `COMMAND_NOT_EXECUTABLE`，未验证/过期 → 403 `AGENT_CAPABILITY_MISSING`；providerId 受理数字 id 或业务键 | `{ task, idempotencyKey? }`（task 非空 ≤4000；400 BAD_PAYLOAD） | `202 { commandId, status: 'executed', sessionId?, nativeId? }`（内部走 provider 托管通道（exec.spawnManaged 双上限）；同 key 重试返回原结果；未知 provider 404；无 Token 401；command.result 事件 + 审计落库） |
 | `/v1/sessions/{id}/reply` | POST | Bearer；能力门（reply ∈ granted） | `{ text, idempotencyKey? }`（text 非空 ≤4000） | `202 { commandId, status: 'accepted' }` |
 | `/v1/sessions/{id}/actions` | POST | Bearer；能力门（pause/resume ∈ granted；observed 全禁） | `{ action: 'pause'\|'resume', idempotencyKey? }` | `202 { commandId, status: 'accepted' }` |
 | `/v1/events/{id}/ack` | POST | Bearer；`{id}` 为事件 sequence | `{}` | `200 { acked: true }`（delivery_state → acked，只前进不回退） |
 
 SessionView（REST 与 IPC 同构）：`{ id, providerId, nativeId, sessionMode, projectId?,
-title?, status, statusDetail?, startedAt?, lastActivityAt?, endedAt?, stale }`。
+title?, status, statusDetail?, startedAt?, lastActivityAt?, endedAt?, stale }`；
+ux 批 A 起可选附加：`providerKey?` / `providerLabel?`（R4）/ `archivedAt?`（R3）/
+`childSessions?: SessionView[]`（R2，仅 sessionDetail 响应填充，列表行缺省）。
 
 > **实现注记（AC7b 裁决，上表 `/v1/pairing/claim` 行）**：`pairingId` 可选；code-only
 > claim 依赖同时仅 1 活跃码的唯一定位语义；两者同给必须全匹配。响应/审计/限流/TTL/

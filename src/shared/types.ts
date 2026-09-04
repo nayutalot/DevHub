@@ -1480,7 +1480,10 @@ export interface AgentProvidersResult {
 
 // --- agents:sessions ---
 
-/** 会话视图（docs/14 §A.1 #2 SessionView；REST /v1/sessions 同构）。 */
+/** 会话视图（docs/14 §A.1 #2 SessionView；REST /v1/sessions 同构）。
+ *  ux 批 A 起可选附加字段（全部向后兼容，缺省零变化）：providerKey/providerLabel
+ *  （R4 识别 Agent）/ archivedAt（R3 归档时间戳）/ childSessions（R2，仅
+ *  sessionDetail 投影填充，列表行恒缺省）。 */
 export interface AgentSessionView {
   id: number
   providerId: number
@@ -1496,6 +1499,14 @@ export interface AgentSessionView {
   endedAt?: number
   /** 数据源过期标注，绝不猜实时态（docs/14 §A.1 #2）。 */
   stale: boolean
+  /** provider 业务键（'codex' | 'claude-code' | ...，R4；投影自 agent_providers.provider）。 */
+  providerKey?: string
+  /** provider 展示名（'Codex' / 'Claude Code' / ...，R4；投影自 agent_providers.display_name）。 */
+  providerLabel?: string
+  /** 归档时刻（unix 秒；R3；未归档缺省）。 */
+  archivedAt?: number
+  /** 子会话（R2；含已结束；仅 sessionDetail 响应的 session 视图填充，列表行缺省）。 */
+  childSessions?: AgentSessionView[]
 }
 
 export interface AgentSessionsPayload {
@@ -1504,6 +1515,10 @@ export interface AgentSessionsPayload {
   status?: SessionStatus
   /** 正整数 ≤200，缺省 100。 */
   limit?: number
+  /** 父会话 id（R2）：给定时返回其子会话（含已结束）；缺省只返回主会话（parent IS NULL）。 */
+  parentId?: number
+  /** R3：'1' 时归档会话可见；缺省隐藏归档。 */
+  includeArchived?: boolean
 }
 export interface AgentSessionsResult {
   sessions: AgentSessionView[]
@@ -1525,6 +1540,16 @@ export interface AgentSessionDetailResult {
 
 // --- agents:messages ---
 
+/** 消息分段（R1/R8）：只在转录源有明确结构时产生（无结构 = 整段 text，绝不猜）。
+ *  content 为脱敏投影，且 text/thinking 段内 plugin://、skill://、mcp:// 引用已
+ *  替换为短标签（原始 URI 只保留在 contentRedacted 兼容字段，绝不出网）。 */
+export interface AgentMessageSegment {
+  kind: 'text' | 'thinking' | 'toolInvocation'
+  /** 结构化标签（如 toolInvocation 的工具名）。 */
+  label?: string
+  content: string
+}
+
 /** agents:messages 行（contentRedacted 为脱敏投影；完整上下文按需加载，docs/15 §6）。 */
 export interface AgentMessageView {
   id: number
@@ -1532,19 +1557,27 @@ export interface AgentMessageView {
   contentRedacted: string
   occurredAt?: number
   sourceRef?: string
+  /** R1 可选分段投影（源无结构 → 缺省，展示按整段 text）。 */
+  segments?: AgentMessageSegment[]
 }
 
 export interface AgentMessagesPayload {
   sessionId: number
-  /** 消息游标 id（返回 id 大于 after 的消息）。 */
+  /** 消息游标 id（返回 id 大于 after 的消息）。与 before/last 互斥。 */
   after?: number
+  /** R10 尾部取数：返回 id 小于 before 的最新一页（ASC）。与 after/last 互斥。 */
+  before?: number
+  /** R10 尾部取数：返回最新 last 条（ASC）。与 after/before 互斥。 */
+  last?: number
   /** ≤200。 */
   limit?: number
 }
 export interface AgentMessagesResult {
   items: AgentMessageView[]
-  /** 还有下一页时为最后一条的 id。 */
+  /** 还有下一页时为最后一条的 id（after 正向分页语义不变）。 */
   nextAfter?: number
+  /** R10：仍有更早消息时为「本页最早一条」的 id（向旧翻页：before=prevAfter 续拉）。 */
+  prevAfter?: number
 }
 
 // --- agents:events ---

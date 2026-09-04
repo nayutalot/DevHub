@@ -48,6 +48,7 @@ import {
   type MonitorCancelToken,
 } from '../monitorRegistry.ts'
 import { redactText } from '../redact.ts'
+import { buildSegments, type RawSegmentBlock } from '../messageSegments.ts'
 import type {
   AgentProvider,
   CommandOutcome,
@@ -567,6 +568,15 @@ export function createClaudeProvider(options: ClaudeProviderOptions = {}): Agent
     return snapshots
   }
 
+  /**
+   * 转录行投影。ux 批 A（R1）：content 数组有明确类型结构时构造 segments——
+   * text → text 段；thinking → thinking 段（真机转录实测块形
+   * {type:'thinking',thinking:string}）；tool_use → toolInvocation 段
+   * （label = name，既有投影已验证该字段；content = input 紧凑 JSON）。
+   * tool_result 维持既有语义（role 折叠为 tool，不进 segments）。
+   * 分段经 messageSegments.buildSegments 统一脱敏 + R8 标签化；无结构/无有效段
+   * → 不带 segments（整段 contentRedacted，绝不猜）。contentRedacted 语义零变化。
+   */
   function projectTranscriptLine(o: Record<string, unknown>, file: string, byteOffset: number): RedactedMessage | null {
     const type = o['type']
     if (type !== 'user' && type !== 'assistant') return null
@@ -575,17 +585,28 @@ export function createClaudeProvider(options: ClaudeProviderOptions = {}): Agent
     const m = message as { role?: unknown; content?: unknown }
     let text = ''
     let role = type === 'user' ? 'user' : 'assistant'
+    const blocks: RawSegmentBlock[] = []
     if (typeof m.content === 'string') {
       text = m.content
+      blocks.push({ kind: 'text', content: text })
     } else if (Array.isArray(m.content)) {
       const parts: string[] = []
       let toolResult = false
       for (const item of m.content) {
         if (item === null || typeof item !== 'object') continue
-        const c = item as { type?: unknown; text?: unknown; name?: unknown }
-        if (c.type === 'text' && typeof c.text === 'string') parts.push(c.text)
-        else if (c.type === 'tool_result') toolResult = true
-        else if (c.type === 'tool_use' && typeof c.name === 'string') parts.push(`[tool_use ${c.name}]`)
+        const c = item as { type?: unknown; text?: unknown; thinking?: unknown; name?: unknown; input?: unknown }
+        if (c.type === 'text' && typeof c.text === 'string') {
+          parts.push(c.text)
+          if (c.text.length > 0) blocks.push({ kind: 'text', content: c.text })
+        } else if (c.type === 'thinking' && typeof c.thinking === 'string' && c.thinking.length > 0) {
+          blocks.push({ kind: 'thinking', content: c.thinking })
+        } else if (c.type === 'tool_use' && typeof c.name === 'string') {
+          parts.push(`[tool_use ${c.name}]`)
+          const inputJson = c.input !== null && typeof c.input === 'object' ? safeCompactJson(c.input) : undefined
+          blocks.push({ kind: 'toolInvocation', label: c.name, ...(inputJson !== undefined ? { content: inputJson } : { content: `[tool_use ${c.name}]` }) })
+        } else if (c.type === 'tool_result') {
+          toolResult = true
+        }
       }
       text = parts.join('\n')
       if (text.length === 0 && toolResult && type === 'user') {
@@ -594,6 +615,7 @@ export function createClaudeProvider(options: ClaudeProviderOptions = {}): Agent
       }
     }
     if (text.length === 0) return null
+    const segments = buildSegments(blocks, messageTextCap)
     const uuid = typeof o['uuid'] === 'string' ? o['uuid'] : `line:${byteOffset}`
     const ts = typeof o['timestamp'] === 'string' ? Date.parse(o['timestamp']) : Number.NaN
     return {
@@ -601,7 +623,18 @@ export function createClaudeProvider(options: ClaudeProviderOptions = {}): Agent
       contentRedacted: redactText(text).slice(0, messageTextCap),
       nativeMsgId: uuid,
       ...(Number.isFinite(ts) ? { occurredAt: Math.floor(ts / 1000) } : {}),
+      ...(segments !== undefined ? { segments } : {}),
       sourceRef: `${file}#offset=${byteOffset}`,
+    }
+  }
+
+  /** 紧凑 JSON（tool_use input 投影用；失败返回 undefined——绝不中断投影）。 */
+  function safeCompactJson(value: unknown): string | undefined {
+    try {
+      const json = JSON.stringify(value)
+      return typeof json === 'string' && json.length > 0 && json !== '{}' ? json : undefined
+    } catch {
+      return undefined
     }
   }
 

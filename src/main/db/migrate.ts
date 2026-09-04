@@ -64,6 +64,9 @@ export function setUserVersionLiteral(db: DatabaseSync, version: number): void {
     case 4:
       db.exec('PRAGMA user_version = 4') // ← 004 批次（AC2）新增
       return
+    case 5:
+      db.exec('PRAGMA user_version = 5') // ← 005 批次（ux 整改批 A）新增
+      return
     default:
       throw new Error(`no literal user_version statement registered for migration version ${version}`)
   }

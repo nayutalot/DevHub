@@ -18,6 +18,7 @@
 import type {
   AgentCapabilitySet,
   AgentHealth,
+  AgentMessageSegment,
   AgentProviderId,
   SessionMode,
   SessionStatus,
@@ -94,6 +95,12 @@ export interface SessionSnapshot {
    * 可选字段：既有五家 provider 构造的快照零改动。
    */
   mode?: SessionMode
+  /**
+   * R2（ux 批 A）：provider 已确知的父会话原生 ID（仅子会话携带；zcode 转录
+   * parent_id 列实测证据）。L3 upsert 在父行存在时落 parent_session_id；父行
+   * 未知时不落子行（绝不猜父、绝不造父行）。
+   */
+  parentNativeSessionId?: string
 }
 
 /** 脱敏后消息投影（完整内容绝不落库；contentRedacted 经 redact.ts）。 */
@@ -106,6 +113,11 @@ export interface RedactedMessage {
   seqInSession?: number
   /** 源指针（文件路径+offset 等，指向 provider 原始数据而非本库副本）。 */
   sourceRef: string
+  /**
+   * R1（ux 批 A）：结构化分段投影（已脱敏 + R8 URI 标签化，经 messageSegments.ts
+   * 构造）。仅在转录源有明确结构时携带；缺省 = 无结构 → 投影整段 text（绝不猜）。
+   */
+  segments?: AgentMessageSegment[]
 }
 
 export interface MessagePage {
@@ -180,6 +192,13 @@ export interface AgentProvider {
   dispose(): Promise<void>
   /** 可选：诊断投影（agents:diagnostics 数据源/控制通道真实形态）。 */
   describeDiagnostics?(): ProviderDiagnosticsInfo
+  /**
+   * R6（ux 批 A）：启动一个 DevHub 托管会话（内部走 exec.spawnManaged 双上限的
+   * provider 托管通道，如 codex thread/start + turn/start）。可选方法：未实现的
+   * provider 一律不支持远程托管启动（L3 折叠为 COMMAND_NOT_EXECUTABLE，绝不降级
+   * 安全标准）。返回 ok=false 时 detail 携带结构化原因。
+   */
+  startManagedSession?(task: string, sink: EventSink): Promise<{ ok: boolean; nativeId?: string; detail?: string }>
 }
 
 // ---------------------------------------------------------------------------

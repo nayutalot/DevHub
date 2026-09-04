@@ -63,6 +63,7 @@ import { getDataDir } from '../../../core/paths.ts'
 import { nowSec } from '../../internal.ts'
 import { ReadFailureTracker, cancellableSleep, startMonitorTask, type MonitorCancelToken } from '../monitorRegistry.ts'
 import { redactText } from '../redact.ts'
+import { buildSegments, type RawSegmentBlock } from '../messageSegments.ts'
 import type {
   AgentProvider,
   CommandOutcome,
@@ -131,6 +132,15 @@ export const ZCODE_TASKS_REQUIRED_SCHEMA: Readonly<Record<string, readonly strin
  */
 export const ZCODE_DB_TASK_TYPE_OPTIONAL_SCHEMA: Readonly<Record<string, readonly string[]>> = {
   session: ['task_type'],
+} as const
+
+/**
+ * parent_id 可选列白名单（ux 批 A R2：父子链）。
+ * 真库只读复核（2026-09-04）：session.parent_id 存在，158/158 子会话均携带且
+ * 父行全部存在。列缺失（降级库）→ 子会话保持排除（父不可解析，绝不猜父）。
+ */
+export const ZCODE_DB_PARENT_ID_OPTIONAL_SCHEMA: Readonly<Record<string, readonly string[]>> = {
+  session: ['parent_id'],
 } as const
 
 /** 子会话显式 task_type 标记（真库实测取值；与 id 前缀判据 100% 重合，仍双保险都判）。 */
@@ -509,7 +519,11 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
   }
 
   // -------------------------------------------------------------------------
-  // 九方法 2：listSessions（全量快照；upsert 语义归 L3）
+  // 九方法 2：listSessions（全量快照；upsert 语义归 L3）。
+  // ux 批 A（R2）：子会话不再无条件丢弃——task_type/前缀命中且 parent_id 可解析
+  // 的子会话以 parentNativeSessionId 快照上抛（L3 在父行存在时落 parent_session_id；
+  // 父行未知由 L3 拒绝落子行）；父不可解析（列缺失/NULL/空）的子会话仍排除
+  // （绝不猜父）。主会话语义零变化。
   // -------------------------------------------------------------------------
 
   async function listSessions(): Promise<SessionSnapshot[]> {
@@ -519,19 +533,15 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
         stats.lastSchemaProblems = check.problems
         return [] // schema 不匹配：绝不猜字段，返回空快照（health 呈现 unavailable）
       }
-      // 子会话过滤（用户需求：只抓主智能体会话）：task_type 列可用 → SQL 下推双条件
-      // （前缀 NOT LIKE + task_type <> 'subagent_child'），列缺失降级 → 仅前缀条件兜底。
       const taskTypeAvailable = checkSchema(conn.db, ZCODE_DB_TASK_TYPE_OPTIONAL_SCHEMA).ok
-      const sql = taskTypeAvailable
-        ? 'SELECT rowid, id, directory, title, time_created, time_updated, task_type FROM session WHERE id NOT LIKE ? ESCAPE \'\\\' AND (task_type IS NULL OR task_type <> ?) ORDER BY rowid LIMIT ?'
-        : 'SELECT rowid, id, directory, title, time_created, time_updated FROM session WHERE id NOT LIKE ? ESCAPE \'\\\' ORDER BY rowid LIMIT ?'
+      const parentIdAvailable = checkSchema(conn.db, ZCODE_DB_PARENT_ID_OPTIONAL_SCHEMA).ok
+      const cols = 'rowid, id, directory, title, time_created, time_updated'
+        + (taskTypeAvailable ? ', task_type' : '')
+        + (parentIdAvailable ? ', parent_id' : '')
+      const sql = `SELECT ${cols} FROM session ORDER BY rowid LIMIT ?`
       const rows = conn.db
         .prepare(sql)
-        .all(
-          ZCODE_SUBAGENT_ID_LIKE_PATTERN,
-          ...(taskTypeAvailable ? [ZCODE_SUBAGENT_TASK_TYPE] : []),
-          batchRows * 4,
-        ) as unknown as Array<{
+        .all(batchRows * 4) as unknown as Array<{
         rowid: number
         id: string
         directory: string | null
@@ -539,17 +549,33 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
         time_created: number | null
         time_updated: number | null
         task_type?: string | null
+        parent_id?: string | null
       }>
-      // JS 层双保险复判（SQL WHERE 之外的第二道滤网；两者都判）
-      return rows
-        .filter((row) => !isZcodeSubagentSession(String(row.id), taskTypeAvailable ? (row.task_type ?? null) : undefined))
-        .map((row) => ({
-          nativeId: String(row.id),
+      const snapshots: SessionSnapshot[] = []
+      for (const row of rows) {
+        const id = String(row.id)
+        const taskType = taskTypeAvailable ? (row.task_type ?? null) : undefined
+        const base = {
+          nativeId: id,
           ...(row.directory !== null && row.directory.length > 0 ? { workdir: row.directory } : {}),
           ...(row.title !== null && row.title.length > 0 ? { title: row.title } : {}),
           ...(row.time_created !== null && row.time_created > 0 ? { startedAt: Math.floor(row.time_created / 1000) } : {}),
           ...(row.time_updated !== null && row.time_updated > 0 ? { lastActivityAt: Math.floor(row.time_updated / 1000) } : {}),
-        }))
+        }
+        if (!isZcodeSubagentSession(id, taskType)) {
+          snapshots.push(base)
+          continue
+        }
+        // 子会话：parent_id 可解析才上抛（本表无 parent_id 列 → 该列查询返回 undefined）
+        const rawParent = (row as Record<string, unknown>)['parent_id']
+        const parentId =
+          parentIdAvailable && rawParent !== null && rawParent !== undefined && String(rawParent).length > 0
+            ? String(rawParent)
+            : undefined
+        if (parentId === undefined) continue
+        snapshots.push({ ...base, parentNativeSessionId: parentId })
+      }
+      return snapshots
     })) ?? []
   }
 
@@ -557,6 +583,17 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
   // 消息投影（data JSON 脱敏；part 表存在才取正文）
   // -------------------------------------------------------------------------
 
+  /**
+   * 消息投影（data JSON 脱敏；part 表存在才取正文）。
+   * ux 批 A（R1）：part.type 有明确结构映射时构造 segments（真库只读复核
+   * 2026-09-04，part.type 实测全集 = text/reasoning/tool/step-start/step-finish/
+   * timeline）——text → text 段、reasoning → thinking 段、tool → toolInvocation 段
+   * （label = title/tool，content = description 或 input 紧凑 JSON）；step-start/
+   * step-finish/timeline 无展示语义保持丢弃（与既有投影一致）。分段经
+   * messageSegments.buildSegments 统一脱敏 + R8 标签化；无 part 结构/无有效段
+   * → 不带 segments（整段 contentRedacted，绝不猜）。
+   * contentRedacted 语义零变化（仍只聚合 type='text' 正文——向后兼容）。
+   */
   function projectMessageRow(row: ZcodeMessageRow, partAvailable: boolean, conn: ZcodeReadConnection): RedactedMessage | null {
     let data: Record<string, unknown>
     try {
@@ -576,6 +613,7 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
     }
     const role = typeof data['role'] === 'string' && data['role'].length > 0 ? data['role'] : 'user'
     let text = ''
+    const blocks: RawSegmentBlock[] = []
     if (partAvailable) {
       try {
         const parts = conn.db
@@ -585,7 +623,28 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
         for (const p of parts) {
           try {
             const po = JSON.parse(p.data) as Record<string, unknown>
-            if (po['type'] === 'text' && typeof po['text'] === 'string' && po['text'].length > 0) texts.push(po['text'])
+            const type = typeof po['type'] === 'string' ? po['type'] : undefined
+            if (type === 'text' && typeof po['text'] === 'string' && po['text'].length > 0) {
+              texts.push(po['text'])
+              blocks.push({ kind: 'text', content: po['text'] })
+            } else if (type === 'reasoning' && typeof po['text'] === 'string' && po['text'].length > 0) {
+              blocks.push({ kind: 'thinking', content: po['text'] })
+            } else if (type === 'tool') {
+              const label =
+                typeof po['title'] === 'string' && po['title'].length > 0
+                  ? po['title']
+                  : typeof po['tool'] === 'string' && po['tool'].length > 0
+                    ? po['tool']
+                    : undefined
+              const state = po['state'] !== null && typeof po['state'] === 'object' && !Array.isArray(po['state'])
+                ? (po['state'] as Record<string, unknown>)
+                : undefined
+              const description = typeof state?.['description'] === 'string' && state['description'].length > 0 ? state['description'] : undefined
+              const input = state !== undefined && state['input'] !== undefined ? safeCompactJson(state['input']) : undefined
+              const content = description ?? input ?? ''
+              if (content.length > 0) blocks.push({ kind: 'toolInvocation', ...(label !== undefined ? { label } : {}), content })
+            }
+            // step-start/step-finish/timeline：无展示语义（真库实测形态），不投影
           } catch {
             stats.parseFailures += 1
           }
@@ -601,6 +660,7 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
       if (typeof direct === 'string') text = direct
     }
     if (text.length === 0) return null
+    const segments = buildSegments(blocks, messageTextCap)
     const time = data['time']
     let occurredAt: number | undefined
     if (time !== null && typeof time === 'object' && !Array.isArray(time)) {
@@ -616,7 +676,18 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
       nativeMsgId: String(row.id),
       seqInSession: row.sequence ?? undefined,
       ...(occurredAt !== undefined ? { occurredAt } : {}),
+      ...(segments !== undefined ? { segments } : {}),
       sourceRef: `db.sqlite#message_rowid=${row.rowid}`,
+    }
+  }
+
+  /** 紧凑 JSON（tool input 投影用；失败返回 undefined——绝不抛出中断投影）。 */
+  function safeCompactJson(value: unknown): string | undefined {
+    try {
+      const json = JSON.stringify(value)
+      return typeof json === 'string' && json.length > 0 && json !== '{}' ? json : undefined
+    } catch {
+      return undefined
     }
   }
 
@@ -713,7 +784,7 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
     /** 会话 → 最近一次判定状态（变化沿才上抛）。 */
     const lastStatus = new Map<string, SessionStatus | null>()
     /** 会话 → 最近快照（变更沿才重发 discovered）。 */
-    const knownSessions = new Map<string, { timeUpdated: number; directory: string | null; title: string | null }>()
+    const knownSessions = new Map<string, { timeUpdated: number; directory: string | null; title: string | null; parentId?: string }>()
     /** 会话 → tasks.task_status 原值缓存。 */
     const taskStatusCache = new Map<string, string>()
     const tracker = new ReadFailureTracker()
@@ -750,6 +821,35 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
     }
   }
 
+  /**
+   * 会话发现（变更沿才重发；ux 批 A R2：parentNativeSessionId 可选随快照上抛，
+   * 变更检测键含父 id——父链变化视为新发现）。known 缓存跨 tick 复用。
+   */
+  function emitSessionDiscovered(
+    sink: EventSink,
+    knownSessions: Map<string, { timeUpdated: number; directory: string | null; title: string | null; parentId?: string }>,
+    id: string,
+    directory: string | null,
+    title: string | null,
+    timeCreated: number | null,
+    timeUpdated: number | null,
+    parentId: string | undefined,
+  ): void {
+    const updated = timeUpdated ?? 0
+    const known = knownSessions.get(id)
+    if (known !== undefined && known.timeUpdated >= updated && known.parentId === parentId) return
+    knownSessions.set(id, { timeUpdated: updated, directory, title, ...(parentId !== undefined ? { parentId } : {}) })
+    const snapshot: SessionSnapshot = {
+      nativeId: id,
+      ...(directory !== null && directory.length > 0 ? { workdir: directory } : {}),
+      ...(title !== null && title.length > 0 ? { title } : {}),
+      ...(timeCreated !== null && timeCreated > 0 ? { startedAt: Math.floor(timeCreated / 1000) } : {}),
+      ...(updated > 0 ? { lastActivityAt: Math.floor(updated / 1000) } : {}),
+      ...(parentId !== undefined ? { parentNativeSessionId: parentId } : {}),
+    }
+    sink.onSessionDiscovered?.('zcode', snapshot)
+  }
+
   /** 单轮监控：null = 本轮不可用（读失败/schema 失配）。直连优先，失败才快照。 */
   async function monitorTick(
     sink: EventSink,
@@ -757,7 +857,7 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
     cursors: MonitorCursors,
     pendingApprovals: Map<string, Set<number>>,
     lastStatus: Map<string, SessionStatus | null>,
-    knownSessions: Map<string, { timeUpdated: number; directory: string | null; title: string | null }>,
+    knownSessions: Map<string, { timeUpdated: number; directory: string | null; title: string | null; parentId?: string }>,
     taskStatusCache: Map<string, string>,
   ): Promise<'ok' | null> {
     // 1) 直连 readOnly 优先（活跃 WAL 真库的常规路径；零写入）
@@ -821,7 +921,7 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
     cursors: MonitorCursors,
     pendingApprovals: Map<string, Set<number>>,
     lastStatus: Map<string, SessionStatus | null>,
-    knownSessions: Map<string, { timeUpdated: number; directory: string | null; title: string | null }>,
+    knownSessions: Map<string, { timeUpdated: number; directory: string | null; title: string | null; parentId?: string }>,
     taskStatusCache: Map<string, string>,
   ): Promise<'ok' | null> {
     const conn: ZcodeReadConnection = {
@@ -842,28 +942,30 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
         return null
       }
       const partAvailable = checkSchema(db, ZCODE_DB_OPTIONAL_SCHEMA).ok
-      // 子会话过滤（用户需求：只抓主智能体会话）：task_type 列可用 → SQL 下推双条件，
-      // 列缺失降级 → 仅前缀兜底；JS 层对全窗口行复判，命中集合供后续消息/审批/任务
-      // 路径共用（这些路径漏滤会被 L3 ensureSessionRow 反向建行重新污染）。
+      // 子会话处理（ux 批 A R2：子会话不再一律丢弃）：task_type 列可用 → 双保险判据；
+      // parent_id 列可用且非空 → 子会话以 parentNativeSessionId 快照上抛（includedChildIds，
+      // 其消息/审批/任务状态照常投影）；父不可解析（列缺失/NULL/空）→ 仍排除
+      // （subagentIds，绝不猜父）。JS 层对全窗口行复判，命中集合供后续路径共用
+      // （排除集漏滤会被 L3 ensureSessionRow 反向建行重新污染）。
       const taskTypeAvailable = checkSchema(db, ZCODE_DB_TASK_TYPE_OPTIONAL_SCHEMA).ok
+      const parentIdAvailable = checkSchema(db, ZCODE_DB_PARENT_ID_OPTIONAL_SCHEMA).ok
       const subagentIds = new Set<string>()
+      const includedChildIds = new Set<string>()
       const tasks = readTaskStatusMap()
       if (tasks === null) {
         stats.lastSchemaProblems = ['tasks-index read failed']
         // tasks-index 读失败不否决整轮：db 侧继续（任务级状态暂缺）
       }
 
-      // 1) sessions：新行 + 变更行（time_updated 水位）；子会话不过 sink、不入 known
-      const sessionSql = taskTypeAvailable
-        ? 'SELECT rowid, id, directory, title, time_created, time_updated, task_type FROM session WHERE id NOT LIKE ? ESCAPE \'\\\' AND (task_type IS NULL OR task_type <> ?) ORDER BY rowid LIMIT ?'
-        : 'SELECT rowid, id, directory, title, time_created, time_updated FROM session WHERE id NOT LIKE ? ESCAPE \'\\\' ORDER BY rowid LIMIT ?'
+      // 1) sessions：新行 + 变更行（time_updated 水位）；主会话与父可解析的子会话
+      //    过 sink；父不可解析的子会话进排除集
+      const sessionCols = 'rowid, id, directory, title, time_created, time_updated'
+        + (taskTypeAvailable ? ', task_type' : '')
+        + (parentIdAvailable ? ', parent_id' : '')
+      const sessionSql = `SELECT ${sessionCols} FROM session ORDER BY rowid LIMIT ?`
       const sessions = db
         .prepare(sessionSql)
-        .all(
-          ZCODE_SUBAGENT_ID_LIKE_PATTERN,
-          ...(taskTypeAvailable ? [ZCODE_SUBAGENT_TASK_TYPE] : []),
-          batchRows * 4,
-        ) as unknown as Array<{
+        .all(batchRows * 4) as unknown as Array<{
         rowid: number
         id: string
         directory: string | null
@@ -871,29 +973,30 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
         time_created: number | null
         time_updated: number | null
         task_type?: string | null
+        parent_id?: string | null
       }>
       for (const row of sessions) {
         if (token.cancelled) return 'ok'
         const id = String(row.id)
-        if (isZcodeSubagentSession(id, taskTypeAvailable ? (row.task_type ?? null) : undefined)) {
-          subagentIds.add(id) // 双保险兜底（SQL 已滤时不应到达；防御性收集）
+        const taskType = taskTypeAvailable ? (row.task_type ?? null) : undefined
+        if (!isZcodeSubagentSession(id, taskType)) {
+          emitSessionDiscovered(sink, knownSessions, id, row.directory, row.title, row.time_created, row.time_updated, undefined)
           continue
         }
-        const timeUpdated = row.time_updated ?? 0
-        const known = knownSessions.get(id)
-        if (known !== undefined && known.timeUpdated >= timeUpdated) continue
-        knownSessions.set(id, { timeUpdated, directory: row.directory, title: row.title })
-        const snapshot: SessionSnapshot = {
-          nativeId: id,
-          ...(row.directory !== null && row.directory.length > 0 ? { workdir: row.directory } : {}),
-          ...(row.title !== null && row.title.length > 0 ? { title: row.title } : {}),
-          ...(row.time_created !== null && row.time_created > 0 ? { startedAt: Math.floor(row.time_created / 1000) } : {}),
-          ...(timeUpdated > 0 ? { lastActivityAt: Math.floor(timeUpdated / 1000) } : {}),
+        const rawParent = (row as Record<string, unknown>)['parent_id']
+        const parentId =
+          parentIdAvailable && rawParent !== null && rawParent !== undefined && String(rawParent).length > 0
+            ? String(rawParent)
+            : undefined
+        if (parentId === undefined) {
+          subagentIds.add(id) // 父不可解析：排除集（防御性收集；漏滤即重新污染）
+          continue
         }
-        sink.onSessionDiscovered?.('zcode', snapshot)
+        includedChildIds.add(id)
+        emitSessionDiscovered(sink, knownSessions, id, row.directory, row.title, row.time_created, row.time_updated, parentId)
       }
 
-      // 2) messages：rowid 游标增量投影
+      // 2) messages：rowid 游标增量投影（主会话 + 已纳管子会话；排除集成员不投影）
       while (!token.cancelled) {
         const rows = db
           .prepare('SELECT rowid, id, session_id, data, sequence, time_created FROM message WHERE rowid > ? ORDER BY rowid LIMIT ?')
@@ -909,16 +1012,17 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
         for (const row of rows) {
           cursors.message = Math.max(cursors.message, Number(row.rowid))
           const msgSessionId = String(row.session_id)
-          // 子会话消息不投影（persistMessage 会反向建行；前缀判据对无 task_type 的
-          // message 行独立成立——一切会话发现路径都不得吃子会话）
-          if (subagentIds.has(msgSessionId) || isZcodeSubagentSession(msgSessionId, undefined)) continue
+          // 子会话消息：仅父可解析的已纳管子会话投影（persistMessage 反向建行风险
+          // 只存在于排除集成员——前缀判据对无 task_type 的 message 行独立成立）
+          if (subagentIds.has(msgSessionId)) continue
+          if (isZcodeSubagentSession(msgSessionId, undefined) && !includedChildIds.has(msgSessionId)) continue
           const msg = projectMessageRow(row as ZcodeMessageRow, partAvailable, conn)
           if (msg !== null) sink.onMessageAppended?.({ providerId: 'zcode', nativeId: msgSessionId }, msg)
         }
         if (rows.length < batchRows) break
       }
 
-      // 3) tool_usage：新行 → 审批追踪
+      // 3) tool_usage：新行 → 审批追踪（排除集成员跳过——applySessionStatus 会反向建行）
       while (!token.cancelled) {
         const rows = db
           .prepare('SELECT rowid, session_id, approval_status FROM tool_usage WHERE rowid > ? ORDER BY rowid LIMIT ?')
@@ -927,8 +1031,8 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
         for (const row of rows) {
           cursors.toolUsage = Math.max(cursors.toolUsage, Number(row.rowid))
           const sid = String(row.session_id)
-          // 子会话审批不追踪（applySessionStatus 会反向建行）
-          if (subagentIds.has(sid) || isZcodeSubagentSession(sid, undefined)) continue
+          if (subagentIds.has(sid)) continue
+          if (isZcodeSubagentSession(sid, undefined) && !includedChildIds.has(sid)) continue
           if (evalZcodeApprovalStatus(row.approval_status)) {
             let set = pendingApprovals.get(sid)
             if (set === undefined) {
@@ -961,11 +1065,12 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
         emitStatus(sid, pendingApprovals, taskStatusCache, lastStatus, sink)
       }
 
-      // 5) task_status 复核（UPDATE 不 bump rowid → 每轮全量小表重读）；子会话任务
-      //    状态不上抛（同上：applySessionStatus 反向建行）
+      // 5) task_status 复核（UPDATE 不 bump rowid → 每轮全量小表重读）；排除集
+      //    成员（父不可解析的子会话）任务状态不上抛（同上：applySessionStatus 反向建行）
       if (tasks !== null) {
         for (const [taskId, raw] of tasks) {
-          if (subagentIds.has(taskId) || isZcodeSubagentSession(taskId, undefined)) continue
+          if (subagentIds.has(taskId)) continue
+          if (isZcodeSubagentSession(taskId, undefined) && !includedChildIds.has(taskId)) continue
           if (taskStatusCache.get(taskId) !== raw) {
             taskStatusCache.set(taskId, raw)
             emitStatus(taskId, pendingApprovals, taskStatusCache, lastStatus, sink)

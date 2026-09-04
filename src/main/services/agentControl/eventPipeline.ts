@@ -32,6 +32,7 @@ import type { AgentEventTypeWaitStatus } from './providerRegistry.ts'
 import type { EventDeliveryState } from '../../../shared/types.ts'
 import { ServiceError, dbVal, nowSec } from '../internal.ts'
 import { redactText, redactValueDeep } from './redact.ts'
+import { recordLatencySample } from './latencyStats.ts'
 
 /** 7 event_type 全集（docs/12 §6）。 */
 export const AGENT_EVENT_TYPES = [
@@ -170,8 +171,10 @@ export function recordEvent(input: EventRecordInput): EventRecordResult {
       }
     }
     db.exec('COMMIT')
-    // COMMIT 后才投递（docs/12 §6 语义 1）；投递失败不回滚 DB
+    // COMMIT 后才投递（docs/12 §6 语义 1）；投递失败不回滚 DB。
+    // R5.1（ux 批 A）：db-to-ws 分段打点（agent_events.created_at → WS 投递回调触发）。
     if (deliverySink !== null) {
+      recordLatencySample('db-to-ws', Date.now() - now * 1000)
       try {
         deliverySink({
           sequence,

@@ -7,7 +7,7 @@
  * 全占 → 结构化 GATEWAY_PORT_IN_USE（gatewayStatus.lastError 同步承载）；
  * gateway_enabled=0 → 零监听（start 幂等；stop 关 WS → 关监听，docs/12 §10 顺序）。
  *
- * 端点（docs/14 §B.1，13 条；鉴权/请求校验/响应/错误结构逐条对齐）：
+ * 端点（docs/14 §B.1，13 + 4 条；鉴权/请求校验/响应/错误结构逐条对齐）：
  *   POST   /v1/pairing/create        仅回环（GATEWAY_LOCAL_ONLY）；防重放必带；201
  *   POST   /v1/pairing/claim         无 Token（一次性码 + claim 限流）；防重放豁免
  *   GET    /v1/health                无鉴权活性；防重放豁免
@@ -15,11 +15,19 @@
  *   GET    /v1/devices               Bearer；绝无 Token 明文/哈希
  *   DELETE /v1/devices/{id}          Bearer；仅自撤销（他设备 403 DEVICE_FORBIDDEN）
  *   GET    /v1/agents                Bearer；providers 受限投影
- *   GET    /v1/sessions              Bearer；query providerId/status/limit
- *   GET    /v1/sessions/{id}         Bearer；{ session, capabilities }
- *   GET    /v1/sessions/{id}/messages Bearer；after 游标分页（脱敏同源，无 sourceRef）
+ *   GET    /v1/sessions              Bearer；query providerId/status/limit/parentId(R2)/
+ *                                    includeArchived(R3)；默认主会话 + 非归档
+ *   GET    /v1/sessions/{id}         Bearer；{ session(含 childSessions/providerKey/
+ *                                    providerLabel), capabilities }
+ *   GET    /v1/sessions/{id}/messages Bearer；after 正向 / last|before 尾部取数
+ *                                    (R10, prevAfter 游标)；items 可选 segments(R1/R8)
  *   POST   /v1/sessions/{id}/reply   Bearer；能力门；202 { commandId, status }
  *   POST   /v1/sessions/{id}/actions Bearer；能力门（observed 全禁/attached 无 pause）；202
+ *   POST   /v1/sessions/{id}/archive Bearer；R3 幂等归档（只动本地投影）
+ *   POST   /v1/sessions/{id}/unarchive Bearer；R3 幂等取消归档
+ *   DELETE /v1/sessions/{id}         Bearer；R3 删除（本地投影级联清理，源文件零触碰）
+ *   POST   /v1/providers/{providerId}/sessions Bearer；R6 启动托管会话（managed
+ *                                    能力门；四件套；202 { commandId, sessionId?, nativeId? }）
  *   POST   /v1/events/{id}/ack       Bearer；delivery_state → acked（只前进）
  *   WS     /v1/events                upgrade 挂载（ws.ts，docs/14 §B.2 协议）
  *
@@ -49,13 +57,16 @@ import {
   listAgentProviders,
   listAgentSessions,
   listDevices,
+  MANAGED_SESSION_TASK_MAX_CHARS,
   recordSecurityAudit,
   revokeDevice,
   setDeviceRevokedListener,
   setGatewayRuntimeProbe,
+  startProviderManagedSession,
   submitRemoteCommand,
   touchDeviceLastSeen,
 } from '../agentControlService.ts'
+import { archiveSession, deleteSession, unarchiveSession } from '../sessionLifecycle.ts'
 import { markEventAcked, setEventDeliverySink } from '../eventPipeline.ts'
 import {
   authenticateBearerToken,
@@ -469,6 +480,14 @@ function optionalStatusFilter(value: string | null): string | undefined {
   return value
 }
 
+/** R3：includeArchived=1 时归档会话可见（其余取值视为缺省隐藏）。 */
+function optionalIncludeArchived(value: string | null): boolean | undefined {
+  if (value === null || value.length === 0) return undefined
+  if (value === '1' || value === 'true') return true
+  if (value === '0' || value === 'false') return false
+  throw new ServiceError('BAD_PAYLOAD', 'gateway: query includeArchived must be one of: 1 | 0 | true | false')
+}
+
 function requireStringField(
   body: Record<string, unknown>,
   field: string,
@@ -676,6 +695,8 @@ async function route(
   }
 
   // --- GET /v1/sessions ------------------------------------------------------
+  // ux 批 A：默认过滤 = 主会话（parent IS NULL，R2 语义）+ 未归档（R3）；
+  // parentId= 指向子会话页（含已结束/归档）；includeArchived=1 归档可见
   if (method === 'GET' && pathname === '/v1/sessions') {
     requireDevice(req, sourceKey)
     const url = new URL(req.url ?? '/', 'http://gateway.internal')
@@ -684,8 +705,38 @@ async function route(
       providerId: optionalPositiveInt(url.searchParams.get('providerId'), 'providerId'),
       ...(statusFilter !== undefined ? { status: statusFilter as SessionStatus } : {}),
       limit: optionalListLimit(url.searchParams.get('limit')),
+      parentId: optionalPositiveInt(url.searchParams.get('parentId'), 'parentId'),
+      includeArchived: optionalIncludeArchived(url.searchParams.get('includeArchived')),
     })
     sendJson(res, 200, result)
+    return 200
+  }
+
+  // --- POST /v1/sessions/{id}/archive | /unarchive（R3；Bearer+防重放+限流；
+  //     幂等 = 状态置位语义天然幂等；只动 DevHub 本地投影，源文件零触碰） --------
+  if (method === 'POST' && segments.length === 4 && segments[0] === 'v1' && segments[1] === 'sessions' && (segments[3] === 'archive' || segments[3] === 'unarchive')) {
+    requireDevice(req, sourceKey)
+    const sessionId = Number.parseInt(segments[2], 10)
+    if (!Number.isSafeInteger(sessionId) || sessionId <= 0) {
+      throw new ServiceError('NOT_FOUND', `gateway: no route for ${pathname}`)
+    }
+    if (segments[3] === 'archive') {
+      sendJson(res, 200, archiveSession(sessionId))
+    } else {
+      sendJson(res, 200, unarchiveSession(sessionId))
+    }
+    return 200
+  }
+
+  // --- DELETE /v1/sessions/{id}（R3；只删 DevHub 本地投影行（含子会话链级联清理
+  //     消息/事件/deliveries/资源边），源文件零触碰；重删 → NOT_FOUND） -------------
+  if (method === 'DELETE' && segments.length === 3 && segments[0] === 'v1' && segments[1] === 'sessions') {
+    requireDevice(req, sourceKey)
+    const sessionId = Number.parseInt(segments[2], 10)
+    if (!Number.isSafeInteger(sessionId) || sessionId <= 0) {
+      throw new ServiceError('NOT_FOUND', `gateway: no route for ${pathname}`)
+    }
+    sendJson(res, 200, deleteSession(sessionId))
     return 200
   }
 
@@ -698,29 +749,60 @@ async function route(
     }
     if (segments.length === 3) {
       const detail = getAgentSessionDetail(sessionId)
+      // R2：session 视图附 childSessions（含已结束）；R4：providerKey/providerLabel 同视图
       sendJson(res, 200, { session: detail.session, capabilities: detail.capabilities })
       return 200
     }
     if (segments.length === 4 && segments[3] === 'messages') {
       const url = new URL(req.url ?? '/', 'http://gateway.internal')
+      // R10：last/before 尾部取数 + prevAfter 游标（与 after/limit 组合互斥 → BAD_PAYLOAD）
+      const lastRaw = optionalPositiveInt(url.searchParams.get('last'), 'last')
+      const before = optionalPositiveInt(url.searchParams.get('before'), 'before')
       const page = listAgentMessages({
         sessionId,
         after: optionalPositiveInt(url.searchParams.get('after'), 'after'),
+        ...(before !== undefined ? { before } : {}),
+        ...(lastRaw !== undefined ? { last: Math.min(lastRaw, AGENT_LIST_LIMIT_MAX) } : {}),
         limit: optionalListLimit(url.searchParams.get('limit')),
       })
       // 远程投影（docs/14 §B.1）：contentRedacted 脱敏同源；绝不携带 sourceRef
-      // （本地源指针不出本机，docs/15 §6）
+      // （本地源指针不出本机，docs/15 §6）；segments 为展示投影（R8 标签化后，
+      // 原始 plugin:// 等 URI 只保留在 contentRedacted 兼容字段）
       sendJson(res, 200, {
         items: page.items.map((m) => ({
           id: m.id,
           role: m.role,
           contentRedacted: m.contentRedacted,
           ...(m.occurredAt !== undefined ? { occurredAt: m.occurredAt } : {}),
+          ...(m.segments !== undefined ? { segments: m.segments } : {}),
         })),
         ...(page.nextAfter !== undefined ? { nextAfter: page.nextAfter } : {}),
+        ...(page.prevAfter !== undefined ? { prevAfter: page.prevAfter } : {}),
       })
       return 200
     }
+  }
+
+  // --- POST /v1/providers/{providerId}/sessions（R6 启动托管会话；四件套；
+  //     仅 capabilities 已授予 managed 的 provider 开放，其余 403
+  //     COMMAND_NOT_EXECUTABLE；providerId 受理数字 id 或业务键） ------------------
+  if (method === 'POST' && segments.length === 4 && segments[0] === 'v1' && segments[1] === 'providers' && segments[3] === 'sessions') {
+    const device = requireDevice(req, sourceKey)
+    let providerRef = segments[2]
+    try {
+      providerRef = decodeURIComponent(providerRef)
+    } catch {
+      throw new ServiceError('BAD_PAYLOAD', 'gateway: providerId path segment is not a valid URI component')
+    }
+    if (providerRef.length === 0 || providerRef.length > 64) {
+      throw new ServiceError('NOT_FOUND', `gateway: no route for ${pathname}`)
+    }
+    const body = (await readJsonBody(req)) ?? {}
+    const idempotencyKey = optionalStringField(body, 'idempotencyKey', 128)
+    const task = requireStringField(body, 'task', MANAGED_SESSION_TASK_MAX_CHARS)
+    const started = await startProviderManagedSession({ deviceId: device.id, provider: providerRef, task, idempotencyKey })
+    sendJson(res, 202, started)
+    return 202
   }
 
   // --- POST /v1/sessions/{id}/reply | /actions（指令链；202 accepted） --------

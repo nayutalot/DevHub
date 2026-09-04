@@ -53,6 +53,8 @@ import { getSetting, setSetting } from '../settingsService.ts'
 import { registerResource, relate } from '../resourceGraph.ts'
 import { cancelAllMonitorTasks, getMonitorTask } from './monitorRegistry.ts'
 import { redactText } from './redact.ts'
+import { parseSegmentsJson } from './messageSegments.ts'
+import { recordLatencySample } from './latencyStats.ts'
 import {
   FINISHED_STATUSES,
   recordCommandResult,
@@ -139,6 +141,9 @@ interface SessionRow {
   started_at: number | null
   last_activity_at: number | null
   ended_at: number | null
+  /** 005 起可选列（R2 父子链 / R3 归档）。 */
+  parent_session_id: number | null
+  archived_at: number | null
   created_at: number
   updated_at: number
 }
@@ -152,6 +157,8 @@ interface MessageRow {
   source_ref: string | null
   seq_in_session: number | null
   occurred_at: number | null
+  /** 005 起可选列（R1 分段投影 JSON；NULL = 无结构 → 整段 text）。 */
+  segments_json: string | null
   created_at: number
 }
 
@@ -302,8 +309,15 @@ function asDeliveryState(value: string): EventDeliveryState {
  * stale 判定（docs/14 §A.1 #2：数据源过期标注，绝不猜实时态）：
  * AC2 无监控管线、无探测（health 恒 unknown）→ 一律 stale:true（诚实标注
  * 「当前无新鲜数据源」）；AC3 接线 monitorRegistry/探测后按真实数据源刷新。
+ * ux 批 A（R4/R3/R2）：可选附加 providerKey/providerLabel/archivedAt；
+ * childSessions 仅 sessionDetail 投影按需填充（见 getAgentSessionDetail）。
  */
-function sessionView(row: SessionRow, providerHealth: string, monitorEnabled: boolean): AgentSessionView {
+function sessionView(
+  row: SessionRow,
+  providerHealth: string,
+  monitorEnabled: boolean,
+  providerIdentity?: { key: string; label: string },
+): AgentSessionView {
   return {
     id: row.id,
     providerId: row.provider_id,
@@ -317,6 +331,8 @@ function sessionView(row: SessionRow, providerHealth: string, monitorEnabled: bo
     ...(row.last_activity_at !== null ? { lastActivityAt: row.last_activity_at } : {}),
     ...(row.ended_at !== null ? { endedAt: row.ended_at } : {}),
     stale: !(monitorEnabled && providerHealth === 'ok'),
+    ...(providerIdentity !== undefined ? { providerKey: providerIdentity.key, providerLabel: providerIdentity.label } : {}),
+    ...(row.archived_at !== null ? { archivedAt: row.archived_at } : {}),
   }
 }
 
@@ -441,13 +457,32 @@ export interface AgentSessionsFilter {
   projectId?: number
   status?: SessionStatus
   limit?: number
+  /** R2：给定时返回其子会话（含已结束）；缺省只返回主会话（parent_session_id IS NULL）。 */
+  parentId?: number
+  /** R3：true 时归档会话可见；缺省隐藏归档（archived_at IS NULL）。 */
+  includeArchived?: boolean
 }
 
-/** agents:sessions（docs/14 §A.1 #2；filters 全参数绑定）。 */
+/**
+ * agents:sessions（docs/14 §A.1 #2；filters 全参数绑定）。
+ * ux 批 A：默认过滤 = 主会话（parent IS NULL，保留 8442e9d 意图）+ 未归档
+ * （R3）；parentId= 指定时返回该会话的子会话（含已结束/归档——子会话页是
+ * 明确指向性的浏览，不做二次隐藏）；includeArchived=1 时归档可见（R4
+ * providerKey/providerLabel 随 JOIN 投影）。
+ */
 export function listAgentSessions(filter: AgentSessionsFilter = {}): AgentSessionsResult {
   const monitorEnabled = monitorEnabledSetting()
   const conditions: string[] = []
   const params: (number | string)[] = []
+  if (filter.parentId !== undefined) {
+    conditions.push('s.parent_session_id = ?')
+    params.push(filter.parentId)
+  } else {
+    conditions.push('s.parent_session_id IS NULL')
+  }
+  if (filter.includeArchived !== true) {
+    conditions.push('s.archived_at IS NULL')
+  }
   if (filter.providerId !== undefined) {
     conditions.push('s.provider_id = ?')
     params.push(filter.providerId)
@@ -462,23 +497,34 @@ export function listAgentSessions(filter: AgentSessionsFilter = {}): AgentSessio
   }
   const whereSql = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : ''
   const limit = effectiveLimit(filter.limit)
-  // provider health 经 LEFT JOIN 带出（stale 标注用）；provider 行缺失（不应发生，
-  // FK 保证）按 unknown 处理。
+  // provider health/identity 经 LEFT JOIN 带出（stale 标注 + R4 识别列）；
+  // provider 行缺失（不应发生，FK 保证）按 unknown 处理。
   const sessions = getDatabase()
     .prepare(
-      `SELECT s.*, p.health AS provider_health FROM agent_sessions s
+      `SELECT s.*, p.health AS provider_health, p.provider AS provider_key, p.display_name AS provider_label FROM agent_sessions s
        LEFT JOIN agent_providers p ON p.id = s.provider_id${whereSql}
        ORDER BY s.id DESC LIMIT ?`,
     )
-    .all(...params, limit) as unknown as (SessionRow & { provider_health: string | null })[]
+    .all(...params, limit) as unknown as (SessionRow & { provider_health: string | null; provider_key: string | null; provider_label: string | null })[]
   return {
     sessions: sessions.map((row) =>
-      sessionView(row, row.provider_health ?? 'unknown', monitorEnabled),
+      sessionView(
+        row,
+        row.provider_health ?? 'unknown',
+        monitorEnabled,
+        row.provider_key !== null && row.provider_label !== null
+          ? { key: row.provider_key, label: row.provider_label }
+          : undefined,
+      ),
     ),
   }
 }
 
-/** agents:sessionDetail（docs/14 §A.1 #3；capabilities 取 provider 投影，docs/12 §5）。 */
+/**
+ * agents:sessionDetail（docs/14 §A.1 #3；capabilities 取 provider 投影，docs/12 §5）。
+ * ux 批 A（R2/R4）：session 视图附 childSessions（含已结束，带状态/时间/标题，
+ * 可再下钻——子会话 detail 同样返回其 childSessions）与 providerKey/providerLabel。
+ */
 export function getAgentSessionDetail(sessionId: number): {
   session: AgentSessionView
   capabilities: AgentCapabilitySet
@@ -493,8 +539,24 @@ export function getAgentSessionDetail(sessionId: number): {
   const events = Number(
     (db.prepare('SELECT COUNT(*) AS c FROM agent_events WHERE session_id = ?').get(sessionId) as { c: number }).c,
   )
+  const monitorEnabled = monitorEnabledSetting()
+  const identity =
+    provider !== undefined ? { key: provider.provider, label: provider.display_name } : undefined
+  const view = sessionView(session, provider?.health ?? 'unknown', monitorEnabled, identity)
+  const childRows = db
+    .prepare(
+      `SELECT s.*, p.health AS provider_health FROM agent_sessions s
+       LEFT JOIN agent_providers p ON p.id = s.provider_id
+       WHERE s.parent_session_id = ? ORDER BY s.id ASC`,
+    )
+    .all(sessionId) as unknown as (SessionRow & { provider_health: string | null })[]
+  if (childRows.length > 0) {
+    view.childSessions = childRows.map((row) =>
+      sessionView(row, row.provider_health ?? 'unknown', monitorEnabled, identity),
+    )
+  }
   return {
-    session: sessionView(session, provider?.health ?? 'unknown', monitorEnabledSetting()),
+    session: view,
     capabilities: parseCapabilitySet(provider?.capabilities_json ?? null),
     counts: { messages, events },
   }
@@ -502,34 +564,86 @@ export function getAgentSessionDetail(sessionId: number): {
 
 export interface AgentMessagesQuery {
   sessionId: number
+  /** 正向游标（id > after；语义不变）。与 before/last 互斥。 */
   after?: number
+  /** R10 尾部取数：id < before 的最新一页（ASC 返回）。与 after/last 互斥。 */
+  before?: number
+  /** R10 尾部取数：最新 last 条（ASC 返回）。与 after/before 互斥。 */
+  last?: number
   limit?: number
 }
 
-/** agents:messages（docs/14 §A.1 #4；contentRedacted 为已脱敏投影）。 */
+/**
+ * agents:messages（docs/14 §A.1 #4；contentRedacted 为已脱敏投影）。
+ * ux 批 A：R10 尾部取数（last/before + prevAfter 游标，after 正向语义零变化）
+ * 与 R1 可选 segments 投影（源无结构 → 缺省，展示按整段 text，绝不猜）。
+ */
 export function listAgentMessages(query: AgentMessagesQuery): AgentMessagesResult {
   readSessionRow(query.sessionId) // 会话存在性 → NOT_FOUND
+  if (query.after !== undefined && query.before !== undefined) {
+    throw new ServiceError('BAD_PAYLOAD', 'agents:messages: after and before are mutually exclusive')
+  }
+  if (query.after !== undefined && query.last !== undefined) {
+    throw new ServiceError('BAD_PAYLOAD', 'agents:messages: after and last are mutually exclusive')
+  }
+  if (query.before !== undefined && query.last !== undefined) {
+    throw new ServiceError('BAD_PAYLOAD', 'agents:messages: before and last are mutually exclusive')
+  }
   const limit = effectiveLimit(query.limit)
-  const after = query.after
+  // R10：last 尾取条数自身封顶 ≤200（limit 同时给定时二者取小——页大小明确化）
+  const tailSize = query.last !== undefined ? Math.min(query.last, AGENT_LIST_LIMIT_MAX, limit) : limit
+  const db = getDatabase()
+
+  // after 正向分页（语义零变化）：页满 → nextAfter
+  if (query.after !== undefined || (query.before === undefined && query.last === undefined)) {
+    const after = query.after
+    const rows = (
+      after !== undefined
+        ? db
+            .prepare('SELECT * FROM agent_messages WHERE session_id = ? AND id > ? ORDER BY id ASC LIMIT ?')
+            .all(query.sessionId, after, limit)
+        : db
+            .prepare('SELECT * FROM agent_messages WHERE session_id = ? ORDER BY id ASC LIMIT ?')
+            .all(query.sessionId, limit)
+    ) as unknown as MessageRow[]
+    const items = rows.map(projectMessageRow)
+    return {
+      items,
+      ...(items.length === limit ? { nextAfter: items[items.length - 1].id } : {}),
+    }
+  }
+
+  // R10 尾部取数（last / before）：DESC 取 tailSize+1 探测更早窗口，ASC 返回；
+  // 有更早消息 → prevAfter = 本页最早一条 id（客户端 before=prevAfter 续拉）
+  const anchor = query.before
   const rows = (
-    after !== undefined
-      ? getDatabase()
-          .prepare('SELECT * FROM agent_messages WHERE session_id = ? AND id > ? ORDER BY id ASC LIMIT ?')
-          .all(query.sessionId, after, limit)
-      : getDatabase()
-          .prepare('SELECT * FROM agent_messages WHERE session_id = ? ORDER BY id ASC LIMIT ?')
-          .all(query.sessionId, limit)
+    anchor !== undefined
+      ? db
+          .prepare('SELECT * FROM agent_messages WHERE session_id = ? AND id < ? ORDER BY id DESC LIMIT ?')
+          .all(query.sessionId, anchor, tailSize + 1)
+      : db
+          .prepare('SELECT * FROM agent_messages WHERE session_id = ? ORDER BY id DESC LIMIT ?')
+          .all(query.sessionId, tailSize + 1)
   ) as unknown as MessageRow[]
-  const items: AgentMessageView[] = rows.map((row) => ({
+  const hasOlder = rows.length > tailSize
+  const page = (hasOlder ? rows.slice(0, tailSize) : rows).map(projectMessageRow)
+  page.reverse() // ASC 返回（与既有投影顺序一致）
+  return {
+    items: page,
+    ...(hasOlder ? { prevAfter: page[0].id } : {}),
+  }
+}
+
+/** 行 → 投影（segments_json 损坏/缺列 → 缺省 segments，绝不猜）。 */
+function projectMessageRow(row: MessageRow): AgentMessageView {
+  const segments = parseSegmentsJson(row.segments_json)
+  return {
     id: row.id,
     role: row.role,
     contentRedacted: row.content_redacted,
     ...(row.occurred_at !== null ? { occurredAt: row.occurred_at } : {}),
     ...(row.source_ref !== null ? { sourceRef: row.source_ref } : {}),
-  }))
-  return {
-    items,
-    ...(items.length === limit ? { nextAfter: items[items.length - 1].id } : {}),
+    ...(segments !== undefined ? { segments } : {}),
   }
 }
 
@@ -1109,6 +1223,181 @@ async function executeRemoteCommand(input: {
   }
 }
 
+// ---------------------------------------------------------------------------
+// R6 — 托管会话启动（ux 批 A：REST POST /v1/providers/{providerId}/sessions 的
+// L3 落点；内部经 provider 托管通道（exec.spawnManaged 双上限），仅 capabilities
+// 已授予 managed 的 provider 开放；幂等四件套对齐 docs/14 §B.5）
+// ---------------------------------------------------------------------------
+
+/** 托管启动任务文本上限（与 codex MANAGED_TASK_MAX_CHARS / reply 4000 同量级）。 */
+export const MANAGED_SESSION_TASK_MAX_CHARS = 4_000
+
+export interface ManagedSessionStartInput {
+  /** 发起设备（remote_devices.id；审计与 remote_commands.device_id 归因）。 */
+  deviceId: number
+  /** provider 业务键（'codex'）或 agent_providers 行数字 id（两者都受理）。 */
+  provider: string
+  /** 托管任务文本（非空 ≤4000 字符；BAD_PAYLOAD）。 */
+  task: string
+  /** 客户端幂等键（docs/14 §B.5 语义同 reply/actions）。 */
+  idempotencyKey?: string
+}
+
+export interface ManagedSessionStartResult {
+  commandId: string
+  status: 'accepted' | 'executed' | 'rejected'
+  /** 执行成功时解析出的本地会话行 id（App 跳转会话详情用）。 */
+  sessionId?: number
+  nativeId?: string
+}
+
+/** spawn 幂等行的 result_json 形态（重试原结果还原 sessionId/nativeId）。 */
+interface ManagedSpawnResultJson {
+  status: 'accepted' | 'executed' | 'rejected'
+  nativeId?: string
+  sessionId?: number
+}
+
+/**
+ * 启动托管会话（同步执行；docs/14 §B.5 幂等语义同 reply/actions）：
+ * 1. provider 解析（业务键或数字 id）→ NOT_FOUND；
+ * 2. 门：能力未验证/过期 → AGENT_CAPABILITY_MISSING；caps.mode ≠ 'managed' 或
+ *    provider 未实现 startManagedSession → COMMAND_NOT_EXECUTABLE（任务书 R6：
+ *    仅 managed provider 开放，其余 403，绝不降安全标准）；
+ * 3. 幂等：remote_commands(action='spawn', session_id NULL) 同 key 同 payload →
+ *    原命令原结果；同 key 异 payload → COMMAND_KEY_CONFLICT；过期 → COMMAND_EXPIRED；
+ * 4. 执行：provider.startManagedSession(task, sink)（sink = 监控 sink，快照/事件
+ *    经 L3 落库）→ 行终态 + command.result 事件 + 审计。
+ */
+export async function startProviderManagedSession(input: ManagedSessionStartInput): Promise<ManagedSessionStartResult> {
+  const db = getDatabase()
+  if (input.task.trim().length === 0 || input.task.length > MANAGED_SESSION_TASK_MAX_CHARS) {
+    throw new ServiceError('BAD_PAYLOAD', `managed session: task must be a non-empty string of 1..${MANAGED_SESSION_TASK_MAX_CHARS} chars`)
+  }
+  // provider 解析：数字 id 或业务键（/v1/agents 投影给 App 的是数字 id，业务键
+  // 更稳定可读——两种形态都受理，docs/14 §B.1 注明）
+  const numericId = /^\d+$/.test(input.provider) ? Number.parseInt(input.provider, 10) : null
+  const providerRow = (
+    numericId !== null
+      ? (db.prepare('SELECT * FROM agent_providers WHERE id = ?').get(numericId) as ProviderRow | undefined)
+      : (db.prepare('SELECT * FROM agent_providers WHERE provider = ?').get(input.provider) as ProviderRow | undefined)
+  )
+  if (providerRow === undefined) {
+    throw new ServiceError('NOT_FOUND', `agent provider "${input.provider}" not found`)
+  }
+  const providerKey = providerRow.provider
+
+  // 幂等键查重（先于门：重试不重复执行；同 key 异 payload 拒绝）
+  const key = input.idempotencyKey ?? `auto-${randomUUID()}`
+  const payloadJson = JSON.stringify({ task: redactText(input.task) })
+  const now = nowSec()
+  const existing = db.prepare('SELECT * FROM remote_commands WHERE idempotency_key = ?').get(key) as
+    | RemoteCommandRow
+    | undefined
+  if (existing !== undefined) {
+    const samePayload = existing.action === 'spawn' && (existing.payload_json ?? '{}') === payloadJson
+    if (!samePayload) {
+      throw new ServiceError('COMMAND_KEY_CONFLICT', 'managed session: idempotency key already used with a different payload (docs/14 B.5)')
+    }
+    if (existing.status === 'expired') {
+      throw new ServiceError('COMMAND_EXPIRED', 'managed session: command expired (idempotent retry on expired command, docs/14 B.5)')
+    }
+    const terminal = existing.status === 'executed' || existing.status === 'rejected' || existing.status === 'failed'
+    if (now > existing.expires_at && !terminal && !inFlightRemoteCommands.has(existing.command_id)) {
+      db.prepare("UPDATE remote_commands SET status = 'expired', error_code = 'COMMAND_EXPIRED', executed_at = ? WHERE id = ?").run(now, existing.id)
+      recordCommandResult({ providerKey, commandId: existing.command_id, action: 'spawn', status: 'expired', errorCode: 'COMMAND_EXPIRED' })
+      throw new ServiceError('COMMAND_EXPIRED', 'managed session: command expired (docs/14 B.5)')
+    }
+    // 同 key 重试：原命令原结果（含 sessionId/nativeId 还原）
+    let prior: ManagedSpawnResultJson = { status: commandRowStatusToResult(existing.status) }
+    try {
+      const parsed = JSON.parse(existing.result_json ?? '{}') as Partial<ManagedSpawnResultJson>
+      prior = {
+        status: commandRowStatusToResult(existing.status),
+        ...(parsed.nativeId !== undefined ? { nativeId: parsed.nativeId } : {}),
+        ...(parsed.sessionId !== undefined ? { sessionId: parsed.sessionId } : {}),
+      }
+    } catch {
+      /* result_json 缺失/损坏 → 仅返回状态 */
+    }
+    return {
+      commandId: existing.command_id,
+      status: prior.status,
+      ...(prior.nativeId !== undefined ? { nativeId: prior.nativeId } : {}),
+      ...(prior.sessionId !== undefined ? { sessionId: prior.sessionId } : {}),
+    }
+  }
+
+  // 门（能力验证 + managed 授权）先于落库：拒绝的指令不产生流水行
+  const caps = parseCapabilitySet(providerRow.capabilities_json)
+  const verifiedFresh = caps.verifiedAt > 0 && nowSec() - caps.verifiedAt <= CAPABILITY_TTL_SEC
+  if (!verifiedFresh) {
+    throw new ServiceError('AGENT_CAPABILITY_MISSING', `managed session: capabilities for provider "${providerKey}" are not verified or stale (>300s), re-probe required`)
+  }
+  if (caps.mode !== 'managed') {
+    throw new ServiceError('COMMAND_NOT_EXECUTABLE', `managed session: provider "${providerKey}" is not granted managed capabilities (mode=${caps.mode}; docs/12 §5)`)
+  }
+  const instance = getProviderInstance(providerKey as AgentProviderId)
+  if (instance === undefined) {
+    throw new ServiceError('AGENT_PROVIDER_UNAVAILABLE', `managed session: provider "${providerKey}" is not wired in this build`)
+  }
+  if (instance.startManagedSession === undefined) {
+    throw new ServiceError('COMMAND_NOT_EXECUTABLE', `managed session: provider "${providerKey}" does not implement managed session start`)
+  }
+
+  const commandId = `cmd-${randomUUID()}`
+  db.prepare(
+    "INSERT INTO remote_commands (command_id, idempotency_key, device_id, session_id, action, payload_json, status, expires_at, created_at) VALUES (?, ?, ?, NULL, 'spawn', ?, 'accepted', ?, ?)",
+  ).run(commandId, key, dbVal(input.deviceId), payloadJson, now + REMOTE_COMMAND_TTL_SEC, now)
+  insertSecurityAudit(
+    'command',
+    'command_accepted',
+    input.deviceId,
+    'success',
+    JSON.stringify({ commandId, provider: providerKey, action: 'spawn', source: 'rest' }),
+  )
+
+  inFlightRemoteCommands.add(commandId)
+  try {
+    // sink = 监控 sink：托管快照（mode:'managed'）经 L3 upsert 落库 + session.started
+    const sink = buildMonitorSink(providerKey)
+    const outcome = await instance.startManagedSession(input.task, sink)
+    if (!outcome.ok || outcome.nativeId === undefined) {
+      const detail = outcome.detail ?? 'managed session start failed'
+      db.prepare("UPDATE remote_commands SET status = 'failed', error_code = 'COMMAND_NOT_EXECUTABLE', result_json = ?, executed_at = ? WHERE command_id = ?").run(
+        JSON.stringify({ status: 'failed', detail: detail.slice(0, 200) }),
+        nowSec(),
+        commandId,
+      )
+      insertSecurityAudit('command', 'command_rejected', input.deviceId, 'error', JSON.stringify({ commandId, action: 'spawn', errorCode: 'COMMAND_NOT_EXECUTABLE' }))
+      recordCommandResult({ providerKey, commandId, action: 'spawn', status: 'failed', errorCode: 'COMMAND_NOT_EXECUTABLE' })
+      throw new ServiceError('COMMAND_NOT_EXECUTABLE', `managed session: ${detail.slice(0, 200)}`)
+    }
+    const nativeId = outcome.nativeId
+    const sessionRow = db
+      .prepare('SELECT id FROM agent_sessions WHERE provider_id = ? AND native_id = ?')
+      .get(providerRow.id, nativeId) as { id: number } | undefined
+    const sessionId = sessionRow?.id
+    db.prepare("UPDATE remote_commands SET status = 'executed', result_json = ?, executed_at = ? WHERE command_id = ?").run(
+      JSON.stringify({ status: 'executed', nativeId, ...(sessionId !== undefined ? { sessionId } : {}) } satisfies ManagedSpawnResultJson),
+      nowSec(),
+      commandId,
+    )
+    insertSecurityAudit('command', 'command_executed', input.deviceId, 'success', JSON.stringify({ commandId, action: 'spawn', provider: providerKey }))
+    // 托管 turn 已真实发起 → running（随后由监控管线按 rollout 观察收敛）
+    applySessionStatus(providerKey, nativeId, 'running', 'managed session started (DevHub-initiated)')
+    recordCommandResult({ providerKey, ...(sessionId !== undefined ? { sessionId } : {}), nativeId, commandId, action: 'spawn', status: 'executed' })
+    return { commandId, status: 'executed', nativeId, ...(sessionId !== undefined ? { sessionId } : {}) }
+  } catch (err) {
+    if (err instanceof ServiceError) throw err
+    db.prepare("UPDATE remote_commands SET status = 'failed', error_code = 'COMMAND_NOT_EXECUTABLE', executed_at = ? WHERE command_id = ?").run(nowSec(), commandId)
+    recordCommandResult({ providerKey, commandId, action: 'spawn', status: 'failed', errorCode: 'COMMAND_NOT_EXECUTABLE' })
+    throw new ServiceError('COMMAND_NOT_EXECUTABLE', `managed session: ${err instanceof Error ? err.message : String(err)}`.slice(0, 220))
+  } finally {
+    inFlightRemoteCommands.delete(commandId)
+  }
+}
+
 /**
  * claim 成功的设备落库（gateway/pairing 经此写入——写库经 L3 函数，裁决；
  * Token 明文绝不入参：只收 tokenHash，docs/15 §3）。
@@ -1148,11 +1437,45 @@ export function touchDeviceLastSeen(deviceId: number): void {
 const PROBE_MIN_INTERVAL_SEC = 60
 /** 能力重验最小间隔（docs/12 §5：verifiedAt > 300s 过期 → 240s 时主动重验）。 */
 const CAPABILITY_REVERIFY_MIN_SEC = 240
-/** 全量会话快照刷新最小间隔（monitor 发现新会话实时落库；此处是全量兜底）。 */
-const SESSIONS_REFRESH_MIN_INTERVAL_SEC = 15
+
+// ---------------------------------------------------------------------------
+// R5（ux 批 A）：全量会话快照刷新自适应节流。
+// 「活跃 provider」（其任一会话的 last_activity_at 距今 ≤ 活跃窗口）快刷（3s，
+//  任务书允许 2–5s）；空闲保持 15s。读失败降级（monitorRegistry SLOW_POLL_MS=15s
+//  的 provider 监控轮询）逻辑不动——本节流只约束 L3 全量兜底刷新。
+// ---------------------------------------------------------------------------
+
+/** 活跃 provider 快刷间隔（秒；任务书 §2 R5：2–5s 区间取 3s）。 */
+export const SESSIONS_REFRESH_ACTIVE_SEC = 3
+/** 空闲 provider 刷新间隔（秒；原 SESSIONS_REFRESH_MIN_INTERVAL_SEC 固定值）。 */
+export const SESSIONS_REFRESH_IDLE_SEC = 15
+/** provider 活跃判定窗口（秒；近 5 分钟有会话活动视为活跃）。 */
+export const PROVIDER_ACTIVE_WINDOW_SEC = 300
+
+/**
+ * 自适应刷新间隔纯函数（smoke 直测）：
+ * 活跃（lastActivityAt 距 now ≤ 窗口且非空）→ ACTIVE(3s)；否则 → IDLE(15s)。
+ */
+export function sessionsRefreshIntervalSec(now: number, latestActivityAt: number | null | undefined): number {
+  if (latestActivityAt !== null && latestActivityAt !== undefined && latestActivityAt > 0 && now - latestActivityAt <= PROVIDER_ACTIVE_WINDOW_SEC) {
+    return SESSIONS_REFRESH_ACTIVE_SEC
+  }
+  return SESSIONS_REFRESH_IDLE_SEC
+}
 
 /** provider 快照刷新节流表（内存态；探测节流以 DB last_probe_at 为准）。 */
 const sessionsThrottle = new Map<string, number>()
+
+/** 该 provider 全部会话的最新活动时刻（无会话/无活动 → null；JOIN 经 provider 业务键）。 */
+function latestProviderActivityAt(providerKey: string): number | null {
+  const row = getDatabase()
+    .prepare(
+      `SELECT MAX(s.last_activity_at) AS m FROM agent_sessions s
+       JOIN agent_providers p ON p.id = s.provider_id WHERE p.provider = ?`,
+    )
+    .get(providerKey) as { m: number | null }
+  return row.m === null ? null : Number(row.m)
+}
 
 /** catalog → agent_providers 行 ensure（docs/13 §4.1；WHERE NOT EXISTS 参数绑定）。 */
 export function ensureAgentProviderRows(): void {
@@ -1216,6 +1539,10 @@ function registerProviderResource(providerRowId: number, displayName: string): v
  * 返回会话行 id 与是否新建；新建时登记资源边并返回 created=true（供 session.started）。
  * 显式 mode 双向换边语义保持 docs/13 §5（ac3-102 锁定）；扫描路径的 mode 保持见
  * scanAwareSessionMode。
+ * ux 批 A（R2）：快照携带 parentNativeSessionId 时——父行存在 → 落/回填
+ * parent_session_id；父行未知 → 不落子行（返回 null，绝不猜父、绝不造父行）。
+ * 同轮全量发现按源 rowid 序先父后子（zcode 实测父子创建序），监控增量路径
+ * 天然满足；父行缺失的子快照等下一轮父行就位后再落。
  */
 export function upsertSessionSnapshot(
   providerKey: string,
@@ -1225,17 +1552,26 @@ export function upsertSessionSnapshot(
   const provider = readProviderRowByKey(providerKey)
   if (provider === undefined) return null
   const db = getDatabase()
+  // R2：父行解析（快照声明父子关系时）——父行不存在则拒绝落子行
+  let parentRowId: number | null = null
+  if (snapshot.parentNativeSessionId !== undefined) {
+    const parentRow = db
+      .prepare('SELECT id FROM agent_sessions WHERE provider_id = ? AND native_id = ?')
+      .get(provider.id, snapshot.parentNativeSessionId) as { id: number } | undefined
+    if (parentRow === undefined) return null
+    parentRowId = parentRow.id
+  }
   const existing = db
-    .prepare('SELECT id, session_mode, project_id, workdir, title, started_at, last_activity_at FROM agent_sessions WHERE provider_id = ? AND native_id = ?')
+    .prepare('SELECT id, session_mode, project_id, workdir, title, started_at, last_activity_at, parent_session_id FROM agent_sessions WHERE provider_id = ? AND native_id = ?')
     .get(provider.id, snapshot.nativeId) as
-    | { id: number; session_mode: string; project_id: number | null; workdir: string | null; title: string | null; started_at: number | null; last_activity_at: number | null }
+    | { id: number; session_mode: string; project_id: number | null; workdir: string | null; title: string | null; started_at: number | null; last_activity_at: number | null; parent_session_id: number | null }
     | undefined
   const projectId = matchProjectByWorkdir(snapshot.workdir)
   const now = nowSec()
   if (existing === undefined) {
     const info = db
       .prepare(
-        'INSERT INTO agent_sessions (provider_id, native_id, session_mode, project_id, workdir, title, status, started_at, last_activity_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO agent_sessions (provider_id, native_id, session_mode, project_id, workdir, title, status, started_at, last_activity_at, parent_session_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       )
       .run(
         provider.id,
@@ -1247,6 +1583,7 @@ export function upsertSessionSnapshot(
         'unknown',
         dbVal(snapshot.startedAt ?? null),
         dbVal(snapshot.lastActivityAt ?? null),
+        dbVal(parentRowId),
         now,
         now,
       )
@@ -1285,6 +1622,12 @@ export function upsertSessionSnapshot(
     // session_mode 变化与换边同事务语义（docs/13 §5）；列更新在此，边切换见下方
     updates.push('session_mode = ?')
     params.push(mode)
+  }
+  if (parentRowId !== null && existing.parent_session_id === null) {
+    // R2 回填：先到的子快照（父行当时未知被拒）不适用——本支路只在父行已存在时
+    // 到达；此处处理「子行先以无父语义落库（历史行/旧版本），父快照后补」的形态
+    updates.push('parent_session_id = ?')
+    params.push(parentRowId)
   }
   db.prepare(`UPDATE agent_sessions SET ${updates.join(', ')} WHERE id = ?`).run(...params, existing.id)
   if (modeChanged) registerSessionResources(provider.id, providerKey, existing.id, snapshot.nativeId, mode)
@@ -1386,7 +1729,9 @@ export function applySessionStatus(providerKey: string, nativeId: string, to: Se
   return sessionId
 }
 
-/** 消息投影落库（content_redacted 经 redact；source_ref 指向源文件+offset；UNIQUE 幂等）。 */
+/** 消息投影落库（content_redacted 经 redact；source_ref 指向源文件+offset；UNIQUE 幂等）。
+ *  ux 批 A：segments（R1，provider 有明确转录结构时携带）落 segments_json；
+ *  R5.1 source-to-db 打点（源 occurredAt → 入库）。 */
 export function persistMessage(providerKey: string, nativeId: string, message: RedactedMessage): { sessionId: number | null; recorded: boolean } {
   const sessionId = ensureSessionRow(providerKey, nativeId)
   if (sessionId === null) return { sessionId: null, recorded: false }
@@ -1394,7 +1739,7 @@ export function persistMessage(providerKey: string, nativeId: string, message: R
   const now = nowSec()
   const info = db
     .prepare(
-      'INSERT OR IGNORE INTO agent_messages (session_id, native_msg_id, role, content_redacted, source_ref, seq_in_session, occurred_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT OR IGNORE INTO agent_messages (session_id, native_msg_id, role, content_redacted, source_ref, seq_in_session, occurred_at, segments_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
     )
     .run(
       sessionId,
@@ -1404,11 +1749,14 @@ export function persistMessage(providerKey: string, nativeId: string, message: R
       message.sourceRef,
       dbVal(message.seqInSession ?? null),
       dbVal(message.occurredAt ?? null),
+      dbVal(message.segments !== undefined ? JSON.stringify(message.segments) : null),
       now,
     )
   const recorded = Number(info.changes) > 0
   if (recorded) {
     if (message.occurredAt !== undefined) {
+      // R5.1：源落盘（occurredAt）→ 入库 分段耗时（服务端可测段；批次 C 出对比表）
+      recordLatencySample('source-to-db', Date.now() - message.occurredAt * 1000)
       db.prepare('UPDATE agent_sessions SET last_activity_at = MAX(COALESCE(last_activity_at, 0), ?), updated_at = ? WHERE id = ?').run(
         message.occurredAt,
         now,
@@ -1492,13 +1840,15 @@ export function refreshConnectionLostSessions(providerKey: string): void {
   }
 }
 
-/** 全量会话快照刷新（listSessions → upsert；节流由调用方控制）。 */
+/** 全量会话快照刷新（listSessions → upsert；节流由调用方控制）。
+ *  ux 批 A（R5）：节流间隔自适应——活跃 provider 快刷 3s，空闲 15s（sessionsRefreshIntervalSec）。 */
 export async function refreshProviderSessions(providerKey: string, force = false): Promise<number> {
   const provider = getProviderInstance(providerKey as AgentProviderId)
   if (provider === undefined) return 0
   const now = nowSec()
   const last = sessionsThrottle.get(providerKey) ?? 0
-  if (!force && now - last < SESSIONS_REFRESH_MIN_INTERVAL_SEC) return 0
+  const interval = sessionsRefreshIntervalSec(now, latestProviderActivityAt(providerKey))
+  if (!force && now - last < interval) return 0
   sessionsThrottle.set(providerKey, now)
   const snapshots = await provider.listSessions()
   let created = 0
