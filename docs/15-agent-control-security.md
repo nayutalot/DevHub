@@ -82,6 +82,13 @@ ZCode 首版全部 observed（裁决 4）→ 对 ZCode 会话的 reply/pause/res
 5. 触碰 MCP 通道（MCP 与远程面无任何共享代码路径，§7）；
 6. 撤销其他设备 / 管理他人 Token / 创建配对码（配对签发仅桌面 IPC，隧道侧 `pairing/create` 仅限回环诊断用，docs/14 §B.1）。
 
+> **实现注记（UX 批次 A 增补，2026-09-05）**：禁止项 #1 的"任意进程启动"不覆盖
+> `POST /v1/providers/{providerId}/sessions`——该端点仅对 capabilities 已验证为
+> managed 的 provider 开放（其余 403 COMMAND_NOT_EXECUTABLE），启动的是该 provider
+> 自身的托管会话通道（spawnManaged 双上限，AC8 已验证形态），不是任意命令；
+> 语义等同「远程发起一次托管 Agent 会话」，与 reply/pause/resume 同受四件套
+> 鉴权与幂等约束。若未来出现任意参数透传形态，则回落 #1 禁止。
+
 ## 6. 数据红线（约束 #13 的 AC 具体化，全通道一致）
 
 - **不落**：任何密钥 / Token / Cookie / 完整认证头 / 密码 / 环境变量值 / 认证缓存
