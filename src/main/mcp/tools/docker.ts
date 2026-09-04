@@ -1,8 +1,9 @@
 /**
- * tools/docker.ts — devhub.docker.status / devhub.docker.containers（docs/08 §6.7/§6.8）。
+ * tools/docker.ts — devhub.docker.status / devhub.docker.containers（docs/08 §6.7/§6.8）
+ *                    + devhub.docker.images（docs/09 §10 MCP 只读扩展）。
  */
 
-import { dockerContainers, dockerStatus } from '../../services/dockerService.ts'
+import { dockerContainers, dockerImages, dockerStatus } from '../../services/dockerService.ts'
 import { defineNoArgTool } from '../toolkit.ts'
 import type { ToolDefinition } from '../toolkit.ts'
 
@@ -36,4 +37,20 @@ const containers: ToolDefinition = defineNoArgTool(
   },
 )
 
-export const dockerTools: ToolDefinition[] = [status, containers]
+const images: ToolDefinition = defineNoArgTool(
+  'devhub.docker.images',
+  'List Docker images (live read-only probe) with repository, tag, id, size and creation time, plus total and dangling-image counts. Daemon unavailability is a structured result (available:false + reason, empty list) — never an error, and the engine is never started by this tool.',
+  async () => {
+    const info = await dockerImages()
+    const lines = info.images.map(
+      (image) => `- ${image.repository}:${image.tag} (${image.imageId}) — ${image.size}, created ${image.createdAt}`,
+    )
+    const summary =
+      info.available === false
+        ? `Docker unavailable — ${info.reason ?? 'unknown reason'}; image list empty.`
+        : `${info.count} image(s), ${info.danglingCount} dangling.\n${lines.join('\n')}`
+    return { data: info, summary }
+  },
+)
+
+export const dockerTools: ToolDefinition[] = [status, containers, images]
