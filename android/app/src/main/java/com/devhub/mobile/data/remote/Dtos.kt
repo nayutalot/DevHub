@@ -56,18 +56,37 @@ data class SessionDto(
     val lastActivityAtSec: Long?,
     val endedAtSec: Long?,
     val stale: Boolean,
+    // —— 体验整改批附加字段（可选，向后兼容；字段名 = docs/17 §2 契约，批次 A 同名实现）——
+    val providerKey: String? = null,
+    val providerLabel: String? = null,
+    val archived: Boolean = false,
+    val parentSessionId: Long? = null,
 )
 
-data class SessionDetailDto(val session: SessionDto, val capabilities: CapabilitiesDto)
+data class SessionDetailDto(
+    val session: SessionDto,
+    val capabilities: CapabilitiesDto,
+    /** R2：子智能体会话（含已结束；旧端点无此字段 → 空列表，入口隐藏）。 */
+    val childSessions: List<SessionDto> = emptyList(),
+)
+
+/** R1 消息分段（任务书 §2：kind='text'|'thinking'|'toolInvocation', label?, content）。 */
+data class SegmentDto(val kind: String, val label: String?, val content: String)
 
 data class MessageDto(
     val id: Long,
     val role: String,
     val contentRedacted: String,
     val occurredAtSec: Long?,
+    val segments: List<SegmentDto>? = null,
 )
 
-data class MessagesPage(val items: List<MessageDto>, val nextAfter: Long?)
+data class MessagesPage(
+    val items: List<MessageDto>,
+    val nextAfter: Long?,
+    /** R10：向旧翻页游标（last=<n> 尾部取数时返回；after 正向语义不变）。 */
+    val prevAfter: Long? = null,
+)
 
 data class DeviceDto(
     val id: Long,
@@ -149,6 +168,11 @@ object Dtos {
         lastActivityAtSec = o.optLong("lastActivityAt", -1).takeIf { it > 0 },
         endedAtSec = o.optLong("endedAt", -1).takeIf { it > 0 },
         stale = o.optBoolean("stale", false),
+        // R4/R2/R3 附加字段（旧端点缺失 → null/false，UI 回退不回归）
+        providerKey = o.optString("providerKey").takeIf { it.isNotEmpty() },
+        providerLabel = o.optString("providerLabel").takeIf { it.isNotEmpty() },
+        archived = o.optBoolean("archived", false),
+        parentSessionId = o.optLong("parentSessionId", -1).takeIf { it > 0 },
     )
 
     fun parseSessions(body: JSONObject): List<SessionDto> =
@@ -157,7 +181,19 @@ object Dtos {
     fun parseSessionDetail(body: JSONObject): SessionDetailDto = SessionDetailDto(
         session = parseSession(body.getJSONObject("session")),
         capabilities = parseCapabilities(body.getJSONObject("capabilities")),
+        childSessions = body.optJSONArray("childSessions")?.mapObjects { raw -> parseSession(JSONObject(raw)) }
+            ?: emptyList(),
     )
+
+    /** R1 segments：字段级 opt 容忍（label/content 缺失 → null），数组缺失 → null（App 回退整段纯文本）。 */
+    fun parseSegments(arr: org.json.JSONArray?): List<SegmentDto>? = arr?.mapObjects { raw ->
+        val o = JSONObject(raw)
+        SegmentDto(
+            kind = o.optString("kind"),
+            label = o.optString("label").takeIf { it.isNotEmpty() },
+            content = o.optString("content"),
+        )
+    }
 
     fun parseMessages(body: JSONObject): MessagesPage = MessagesPage(
         items = body.getJSONArray("items").mapObjects { raw ->
@@ -167,9 +203,11 @@ object Dtos {
                 role = o.getString("role"),
                 contentRedacted = o.getString("contentRedacted"),
                 occurredAtSec = o.optLong("occurredAt", -1).takeIf { it > 0 },
+                segments = parseSegments(o.optJSONArray("segments")),
             )
         },
         nextAfter = body.optLong("nextAfter", -1).takeIf { it > 0 },
+        prevAfter = body.optLong("prevAfter", -1).takeIf { it > 0 },
     )
 
     fun parseDevices(body: JSONObject): List<DeviceDto> = body.getJSONArray("devices").mapObjects { raw ->

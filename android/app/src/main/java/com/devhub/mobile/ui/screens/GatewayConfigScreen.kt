@@ -28,6 +28,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.devhub.mobile.connect.ConnectionManager
+import com.devhub.mobile.data.FixtureMode
 import com.devhub.mobile.data.db.DevHubDb
 import com.devhub.mobile.data.db.GatewayConfigEntity
 import com.devhub.mobile.data.remote.ApiError
@@ -40,11 +41,13 @@ import java.io.IOException
 /**
  * 页面 1：Gateway 配置页（docs/11 §7）。
  * host:port 输入（默认 10.0.2.2:8746 = 模拟器回环映射）+ 连接测试（GET /v1/health）+ 诊断入口。
+ * 演示模式入口（体验整改批 B）：夹具数据联调用，显式开关、全界面显著标注"演示数据"。
  */
 @Composable
 fun GatewayConfigScreen(
     onConfigured: () -> Unit,
     onDiagnostics: () -> Unit,
+    onDemoMode: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val db = remember { DevHubDb.get(context) }
@@ -159,5 +162,17 @@ fun GatewayConfigScreen(
 
         Spacer(Modifier.height(4.dp))
         TextButton(onClick = onDiagnostics) { Text("打开连接诊断") }
+        // 体验整改批 B：夹具联调入口（显式进入，绝无自动回退；所有界面标注"演示数据"）
+        TextButton(onClick = {
+            FixtureMode.setEnabled(context, true)
+            scope.launch {
+                withContext(Dispatchers.IO) {
+                    if (db.gatewayConfigDao().get() == null) {
+                        db.gatewayConfigDao().upsert(GatewayConfigEntity(host = host.trim(), port = port.toIntOrNull() ?: 8746))
+                    }
+                }
+                onDemoMode()
+            }
+        }) { Text("进入演示模式（夹具数据 · 非真实 Gateway）") }
     }
 }

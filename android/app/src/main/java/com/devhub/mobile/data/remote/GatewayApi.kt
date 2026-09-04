@@ -37,6 +37,31 @@ class ProtocolHeadersInterceptor(
 }
 
 /**
+ * 只读投影面（体验整改批抽取的接口）：GatewayApi 真实实现；夹具联调用 FixtureProjection 实现同签名。
+ * 控制类端点（reply/actions/claim）刻意不在接口内——夹具绝不伪造控制通道（红线）。
+ */
+interface ProjectionApi {
+    fun agents(): List<AgentDto>
+
+    fun sessions(limit: Int = 200, includeArchived: Boolean = false, parentId: Long? = null): List<SessionDto>
+
+    fun sessionDetail(sessionId: Long): SessionDetailDto
+
+    /**
+     * R10 契约：last=<n> 尾部取数（返回 prevAfter 游标）；after 正向语义保持（增量回流用）；
+     * before=<prevAfter> 向旧翻页（prevAfter 游标回传参数名，客户端侧实现约定）。
+     */
+    fun messages(sessionId: Long, after: Long? = null, last: Int? = null, before: Long? = null, limit: Int = 200): MessagesPage
+
+    /** R3 归档/删除：只动 DevHub 本地投影。 */
+    fun archive(sessionId: Long)
+
+    fun unarchive(sessionId: Long)
+
+    fun deleteSession(sessionId: Long)
+}
+
+/**
  * Gateway REST 客户端（docs/14 §B.1 13 端点的 Android 面）。
  * 同步执行（调用方负责切 Dispatchers.IO）；网络失败以 IOException 上抛
  * （离线队列按 QueueReplayPlanner 分类）；结构化错误统一 ApiError。
@@ -44,7 +69,7 @@ class ProtocolHeadersInterceptor(
 class GatewayApi(
     private val baseUrlProvider: () -> String,
     private val tokenProvider: () -> String?,
-) {
+) : ProjectionApi {
     val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -103,27 +128,51 @@ class GatewayApi(
     }
 
     /** GET /v1/agents。 */
-    fun agents(): List<AgentDto> = Dtos.parseAgents(get("/v1/agents"))
+    override fun agents(): List<AgentDto> = Dtos.parseAgents(get("/v1/agents"))
 
-    /** GET /v1/sessions?limit。 */
-    fun sessions(limit: Int = 200): List<SessionDto> = Dtos.parseSessions(get("/v1/sessions?limit=$limit"))
+    /** GET /v1/sessions?limit（R3 includeArchived / R2 parentId 契约参数，批次 A 同名实现）。 */
+    override fun sessions(limit: Int, includeArchived: Boolean, parentId: Long?): List<SessionDto> =
+        Dtos.parseSessions(get(com.devhub.mobile.core.SessionListOps.sessionsQuery(limit, includeArchived, parentId)))
 
-    /** GET /v1/sessions/{id}。 */
-    fun sessionDetail(sessionId: Long): SessionDetailDto = Dtos.parseSessionDetail(get("/v1/sessions/$sessionId"))
+    /** GET /v1/sessions/{id}（R2：childSessions 可选附加）。 */
+    override fun sessionDetail(sessionId: Long): SessionDetailDto = Dtos.parseSessionDetail(get("/v1/sessions/$sessionId"))
 
-    /** GET /v1/sessions/{id}/messages?after（游标分页）。 */
-    fun messages(sessionId: Long, after: Long?, limit: Int = 200): MessagesPage {
+    /** GET /v1/sessions/{id}/messages?after|last|before（游标分页；R10 尾部取数 last=<n> → prevAfter）。 */
+    override fun messages(sessionId: Long, after: Long?, last: Int?, before: Long?, limit: Int): MessagesPage {
         val query = buildString {
             append("/v1/sessions/")
             append(sessionId)
             append("/messages?limit=")
             append(limit)
+            if (last != null) {
+                append("&last=")
+                append(last)
+            }
             if (after != null) {
                 append("&after=")
                 append(after)
             }
+            if (before != null) {
+                append("&before=")
+                append(before)
+            }
         }
         return Dtos.parseMessages(get(query))
+    }
+
+    /** POST /v1/sessions/{id}/archive（R3：只动本地投影）。 */
+    override fun archive(sessionId: Long) {
+        post("/v1/sessions/$sessionId/archive", JSONObject())
+    }
+
+    /** POST /v1/sessions/{id}/unarchive。 */
+    override fun unarchive(sessionId: Long) {
+        post("/v1/sessions/$sessionId/unarchive", JSONObject())
+    }
+
+    /** DELETE /v1/sessions/{id}（R3：仅移除 DevHub 记录，绝不触碰源文件）。 */
+    override fun deleteSession(sessionId: Long) {
+        delete("/v1/sessions/$sessionId")
     }
 
     /** POST /v1/sessions/{id}/reply（能力门：reply ∈ granted；202 accepted）。 */

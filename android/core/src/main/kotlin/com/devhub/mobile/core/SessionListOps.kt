@@ -1,0 +1,65 @@
+package com.devhub.mobile.core
+
+/**
+ * 会话列表操作纯逻辑（R3 归档/删除 + R4 provider 过滤 + R2 子会话排序 + 查询参数契约）。
+ *
+ * 端点契约（任务书 §2，批次 A 同名实现）：
+ * - GET /v1/sessions 默认过滤 archived；includeArchived=1 时归档可见；
+ * - GET /v1/sessions?parentId= 过滤子会话；
+ * - POST /v1/sessions/{id}/archive、POST /v1/sessions/{id}/unarchive、DELETE /v1/sessions/{id}。
+ * 红线：删除/归档只动 DevHub 本地投影，绝不触碰源文件（UI 文案必须写明"仅移除 DevHub 记录"）。
+ */
+object SessionListOps {
+
+    /** 列表可见性：默认隐藏归档；开关打开时全部可见。 */
+    fun isVisible(archived: Boolean, includeArchived: Boolean): Boolean = includeArchived || !archived
+
+    /** provider 过滤：null = 全部；否则只留该 provider 的会话（按 providerId 归属）。 */
+    fun matchesProvider(providerId: Long, selectedProviderId: Long?): Boolean =
+        selectedProviderId == null || providerId == selectedProviderId
+
+    data class RowActions(val archive: Boolean, val unarchive: Boolean, val delete: Boolean)
+
+    /** 长按菜单动作集：未归档行 → 归档/删除；已归档行 → 取消归档/删除。删除永远可点（带二次确认）。 */
+    fun rowActions(archived: Boolean): RowActions =
+        if (archived) RowActions(archive = false, unarchive = true, delete = true)
+        else RowActions(archive = true, unarchive = false, delete = true)
+
+    /** 删除二次确认文案（红线：写明仅移除 DevHub 记录）。 */
+    fun deleteConfirmText(title: String?): String =
+        "「${title ?: "该会话"}」将从 DevHub 中删除：仅移除 DevHub 记录，不会改动你电脑上的任何源文件。此操作不可撤销。"
+
+    /** GET /v1/sessions 查询串（契约参数名：limit / includeArchived / parentId）。 */
+    fun sessionsQuery(limit: Int, includeArchived: Boolean, parentId: Long?): String = buildString {
+        append("/v1/sessions?limit=")
+        append(limit)
+        if (includeArchived) append("&includeArchived=1")
+        if (parentId != null) append("&parentId=").append(parentId)
+    }
+
+    /**
+     * 子会话排序（R2 子会话列表页）：运行中 > 等待 > 其他活跃态 > 已结束；
+     * 同组按 lastActivity 降序。返回排序后的升序下标序列。
+     */
+    fun <T> sortChildren(
+        children: List<T>,
+        statusOf: (T) -> String,
+        lastActivityOf: (T) -> Long?,
+    ): List<Int> {
+        data class Key(val group: Int, val activity: Long, val index: Int)
+
+        fun groupOf(status: String): Int = when (status) {
+            "waiting_input", "approval_required" -> 0
+            "running" -> 1
+            "paused" -> 2
+            else -> 3 // completed / failed / stopped / unknown / connection_lost
+        }
+        return children
+            .mapIndexed { i, c -> Key(groupOf(statusOf(c)), lastActivityOf(c) ?: 0L, i) }
+            .sortedWith(compareBy({ it.group }, { -it.activity }))
+            .map { it.index }
+    }
+
+    /** 子会话行层级标注：level 从 1 开始（父会话的子 = L1，孙 = L2…）。 */
+    fun childLevelLabel(level: Int): String = "L$level 子会话"
+}

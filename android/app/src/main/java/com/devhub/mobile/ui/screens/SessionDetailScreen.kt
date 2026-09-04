@@ -1,6 +1,9 @@
 package com.devhub.mobile.ui.screens
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -10,18 +13,22 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,74 +43,142 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.devhub.mobile.connect.ConnectionManager
 import com.devhub.mobile.connect.SubmitResult
+import com.devhub.mobile.core.ProviderPalette
+import com.devhub.mobile.core.ScrubberMath
 import com.devhub.mobile.data.ApiProvider
+import com.devhub.mobile.data.FixtureMode
 import com.devhub.mobile.data.db.DevHubDb
 import com.devhub.mobile.data.db.MessageCacheEntity
 import com.devhub.mobile.data.remote.ApiError
+import com.devhub.mobile.data.remote.SegmentDto
 import com.devhub.mobile.data.remote.SessionDetailDto
 import com.devhub.mobile.ui.components.ModeBadge
+import com.devhub.mobile.ui.components.MessageBubble
+import com.devhub.mobile.ui.components.ProviderAvatarFor
 import com.devhub.mobile.ui.components.StatusBadge
+import com.devhub.mobile.ui.components.TimeFmt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+
+/** R10：进会话即请求最新 200 条（last=200 尾部取数 + prevAfter 向旧翻页）。 */
+private const val TAIL_PAGE = 200
 
 /**
- * 页面 5：会话详情（GET /v1/sessions/{id} + 消息 after 游标分页，docs/14 §B.1）。
- * - 显示 capabilities（mode + granted + evidence，未验证能力绝不显示为可用）；
- * - 控制按钮（回复输入框 / pause / resume）仅当服务端 CapabilitySet.granted 包含对应能力
- *   且 mode ≠ observed 才显示（UI 第一道门，ControlGate 纯逻辑；服务端 L3 二次校验）；
- * - 回复 POST reply {text, idempotencyKey=UUID}；断网自动入离线队列（结构化提示）；
- * - observed 会话：整页标注只读、零控制按钮。
+ * 页面 5：会话详情（GET /v1/sessions/{id} + 消息分页，docs/14 §B.1；体验整改批 B 增强）。
+ * - R10：进会话 last=200 取最新 → LazyColumn reverseLayout（最新在底部、初始停底部）；
+ *   上滑到窗口边缘自动按 prevAfter 加载更早消息（替换"加载更多"按钮）；
+ * - R9：底部拖动 scrubber（映射已加载窗口索引；拖动显示邻近时间戳气泡；未加载区间按锚点翻页，
+ *   预算 ScrubberMath.maxPagingStepsPerDrag ≤2 页）+「⏬ 跳到最新」FAB；
+ * - R11：气泡对话流 + R1 思维链折叠 + R8 迷你渲染（MessageBubble 组件）；
+ * - R2：存在子会话时显示「🤖 子智能体会话 (N)」入口；
+ * - capabilities / ControlGate 控制门语义保持现状（observed 零控件；本批不动）。
  */
 @Composable
-fun SessionDetailScreen(sessionId: Long, onBack: () -> Unit) {
+fun SessionDetailScreen(
+    sessionId: Long,
+    onBack: () -> Unit,
+    onOpenChildren: (Long) -> Unit = {},
+) {
     val context = LocalContext.current
     val db = remember { DevHubDb.get(context) }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+    val nowSec = remember { System.currentTimeMillis() / 1000 }
+    val fixtureOn = remember { FixtureMode.enabled(context) }
 
     var detail by remember { mutableStateOf<SessionDetailDto?>(null) }
     var detailError by remember { mutableStateOf<String?>(null) }
-    var nextAfter by remember { mutableStateOf<Long?>(null) }
-    var loadingMessages by remember { mutableStateOf(false) }
+    var prevAfter by remember { mutableStateOf<Long?>(null) } // R10 向旧翻页游标（null = 已到最早）
+    var loadingOlder by remember { mutableStateOf(false) }
     var replyText by remember { mutableStateOf("") }
     var submitStatus by remember { mutableStateOf<String?>(null) }
+    var scrubFraction by remember { mutableStateOf<Float?>(null) }
 
-    // 详情轮询（3s）：status / capabilities 真值
+    /** 消息分页入库（脱敏投影；segments 序列化为 JSON 供 UI 解析）。 */
+    suspend fun insertPage(page: com.devhub.mobile.data.remote.MessagesPage) {
+        if (page.items.isEmpty()) return
+        withContext(Dispatchers.IO) {
+            db.messageCacheDao().insertAll(
+                page.items.map { m ->
+                    MessageCacheEntity(
+                        sessionId = sessionId,
+                        messageId = m.id,
+                        role = m.role,
+                        contentRedacted = m.contentRedacted,
+                        occurredAtSec = m.occurredAtSec,
+                        segmentsJson = segmentsToJson(m.segments),
+                    )
+                },
+            )
+        }
+    }
+
+    /** R10 向旧翻页：prevAfter → before=<prevAfter>。 */
+    suspend fun loadOlder() {
+        val pa = prevAfter ?: return
+        if (loadingOlder) return
+        loadingOlder = true
+        try {
+            val page = withContext(Dispatchers.IO) {
+                ApiProvider.projection(context).messages(sessionId, before = pa, limit = TAIL_PAGE)
+            }
+            insertPage(page)
+            prevAfter = page.prevAfter
+        } catch (_: Exception) {
+            // 保持游标不动，滚动边缘触发时重试
+        } finally {
+            loadingOlder = false
+        }
+    }
+
+    // —— 首屏（R10 尾部取数）+ 详情/增量轮询（3s，现状节奏）——
     LaunchedEffect(sessionId) {
+        runCatching {
+            val page = withContext(Dispatchers.IO) {
+                ApiProvider.projection(context).messages(sessionId, last = TAIL_PAGE)
+            }
+            insertPage(page)
+            prevAfter = page.prevAfter
+        }
         while (isActive) {
             try {
-                detail = withContext(Dispatchers.IO) { ApiProvider.rest(context).sessionDetail(sessionId) }
+                detail = withContext(Dispatchers.IO) { ApiProvider.projection(context).sessionDetail(sessionId) }
                 detailError = null
             } catch (err: ApiError) {
                 detailError = "[${err.code}] ${err.message}"
             } catch (err: IOException) {
                 detailError = "网络不可达"
             }
-            // 消息增量回流（AC8 真机 e2e 实测缺陷修复）：详情页停留期间，服务端新的
-            // message.appended 原本只能靠退出重进才能看到。每轮从本地缓存最大 id 之后
-            // 补拉一页入库（Room Flow 自动刷新 UI）；失败静默（loadMessages 保持游标），
-            // 下一轮重试。零新增权限/通道，复用既有 REST after 游标。
+            // 新消息增量回流（after 正向游标；消息指纹去重语义在服务端，Room upsert 幂等）
             runCatching {
                 val after = withContext(Dispatchers.IO) { db.messageCacheDao().maxMessageId(sessionId) }
-                loadMessages(context, sessionId, after)
+                if (after != null) {
+                    val page = withContext(Dispatchers.IO) {
+                        ApiProvider.projection(context).messages(sessionId, after = after, limit = TAIL_PAGE)
+                    }
+                    insertPage(page)
+                }
             }
             delay(3000)
         }
     }
 
-    // 消息缓存流（脱敏投影；分页加载入库后 UI 自动更新）
     val messages by db.messageCacheDao().observeMessages(sessionId).collectAsState(initial = emptyList())
 
-    // 首屏消息加载
-    LaunchedEffect(sessionId) {
-        loadMessages(context, sessionId, after = null) { next -> nextAfter = next }
+    // R9/R10：上滑到已加载窗口顶部边缘 → 自动按 prevAfter 加载更早消息
+    val atOlderEdge by remember {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: 0
+            info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 4
+        }
+    }
+    LaunchedEffect(atOlderEdge, prevAfter) {
+        if (atOlderEdge && prevAfter != null && !loadingOlder) loadOlder()
     }
 
     val d = detail
@@ -111,12 +186,26 @@ fun SessionDetailScreen(sessionId: Long, onBack: () -> Unit) {
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) { Text("< 返回") }
+            val spec = ProviderPalette.resolve(d?.session?.providerKey, d?.session?.providerLabel)
+            ProviderAvatarFor(providerKey = d?.session?.providerKey, providerLabel = d?.session?.providerLabel, size = 24.dp, fontSize = 11)
+            Spacer(Modifier.width(6.dp))
             Text(
                 d?.session?.title ?: "会话 #$sessionId",
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 15.sp,
                 modifier = Modifier.weight(1f),
                 maxLines = 1,
+            )
+        }
+        if (fixtureOn) {
+            Text(
+                "演示数据（夹具）· 非真实 Gateway — 端到端验收归批次 C",
+                fontSize = 10.sp,
+                color = Color(0xFF7A4F00),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFFFF8E1))
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
             )
         }
 
@@ -142,7 +231,34 @@ fun SessionDetailScreen(sessionId: Long, onBack: () -> Unit) {
             color = Color(0xFF555555),
         )
 
-        // —— 控制区（UI 门：ControlGate）——
+        // —— R2 子智能体会话入口 ——
+        if (d.childSessions.isNotEmpty()) {
+            Surface(
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp)
+                    .clickable { onOpenChildren(sessionId) },
+            ) {
+                Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "🤖 子智能体会话 (${d.childSessions.size})",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        "点入查看层级与状态 ▸",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
+                }
+            }
+        }
+
+        // —— 控制区（UI 门：ControlGate；observed 零控件现状保持）——
         val controls = ConnectionManager.visibleControls(
             capsMode = d.capabilities.mode,
             sessionMode = d.session.sessionMode,
@@ -207,69 +323,142 @@ fun SessionDetailScreen(sessionId: Long, onBack: () -> Unit) {
         }
         submitStatus?.let { Text(it, fontSize = 12.sp) }
 
-        // —— 消息（脱敏投影，after 游标分页）——
-        Text("消息（脱敏投影）", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
-        LazyColumn(state = listState, modifier = Modifier.weight(1f)) {
-            items(messages, key = { it.messageId }) { message ->
-                Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                    Text(
-                        "${message.role}  " + (message.occurredAtSec?.let { formatTime(it) } ?: ""),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color(0xFF757575),
+        // —— 消息（R11 气泡流；R10 逆序布局：最新在底部、初始停底部）——
+        Box(Modifier.weight(1f).fillMaxWidth().padding(top = 4.dp)) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), reverseLayout = true) {
+                val count = messages.size
+                items(
+                    count = count,
+                    key = { idx -> messages[count - 1 - idx].messageId },
+                ) { idx ->
+                    val i = count - 1 - idx
+                    MessageBubble(
+                        message = messages[i],
+                        providerKey = d.session.providerKey,
+                        providerLabel = d.session.providerLabel,
+                        prevOccurredAtSec = if (i > 0) messages[i - 1].occurredAtSec else null,
+                        nowSec = nowSec,
                     )
-                    Text(message.contentRedacted, fontSize = 13.sp)
+                }
+            }
+            // R9 「跳到最新」FAB（不在底部时显示）
+            val showJumpToLatest by remember {
+                derivedStateOf { listState.firstVisibleItemIndex > 2 }
+            }
+            if (showJumpToLatest) {
+                ExtendedFloatingActionButton(
+                    onClick = { scope.launch { listState.animateScrollToItem(0) } },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(12.dp),
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                ) {
+                    Text("⏬ 跳到最新", fontSize = 12.sp)
                 }
             }
         }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (nextAfter != null) {
-                Button(
-                    onClick = {
-                        scope.launch {
-                            val after = nextAfter
-                            loadingMessages = true
-                            nextAfter = loadMessages(context, sessionId, after)
-                            loadingMessages = false
-                        }
-                    },
-                    enabled = !loadingMessages,
-                ) { Text(if (loadingMessages) "加载中…" else "加载更多") }
-            } else {
-                Text("（已加载全部消息）", fontSize = 11.sp, color = Color(0xFF757575))
-            }
-        }
-    }
-}
 
-/** 消息分页：after=服务端游标；入 Room 缓存；返回 nextAfter（null = 无更多）。 */
-private suspend fun loadMessages(
-    context: android.content.Context,
-    sessionId: Long,
-    after: Long?,
-    onFirstPage: (Long?) -> Unit = {},
-): Long? = withContext(Dispatchers.IO) {
-    try {
-        val page = ApiProvider.rest(context).messages(sessionId, after = after, limit = 200)
-        val db = com.devhub.mobile.data.db.DevHubDb.get(context)
-        if (page.items.isNotEmpty()) {
-            db.messageCacheDao().insertAll(
-                page.items.map { m ->
-                    MessageCacheEntity(
-                        sessionId = sessionId,
-                        messageId = m.id,
-                        role = m.role,
-                        contentRedacted = m.contentRedacted,
-                        occurredAtSec = m.occurredAtSec,
-                    )
+        // —— R9 scrubber：映射已加载窗口；拖动显示邻近时间戳；释放跳转；边缘按锚点翻页 ——
+        if (messages.size > 1) {
+            ScrubberBar(
+                count = messages.size,
+                hasOlder = prevAfter != null,
+                loadingOlder = loadingOlder,
+                listState = listState,
+                messages = messages,
+                scrubFraction = scrubFraction,
+                onScrub = { scrubFraction = it },
+                onJump = { fraction ->
+                    scope.launch {
+                        var steps = ScrubberMath.maxPagingStepsPerDrag()
+                        if (ScrubberMath.needsOlderPage(fraction, messages.size, prevAfter != null)) {
+                            while (steps-- > 0 && prevAfter != null) {
+                                loadOlder()
+                            }
+                        }
+                        val total = listState.layoutInfo.totalItemsCount
+                        val target = if (fraction >= 0.99f) {
+                            total - 1 // 拖到最旧端：翻页后跳到新窗口顶部
+                        } else {
+                            ScrubberMath.reversedIndexForFraction(fraction, total)
+                        }
+                        if (total > 0) listState.scrollToItem(target.coerceIn(0, total - 1))
+                    }
                 },
             )
         }
-        page.nextAfter
-    } catch (err: Exception) {
-        after // 失败保持游标不动（下次重试）
     }
 }
 
-private fun formatTime(sec: Long): String =
-    SimpleDateFormat("MM-dd HH:mm:ss", Locale.US).format(Date(sec * 1000))
+/** R9 底部拖动条：0 = 最新（底），1 = 最旧（顶）。拖动显示邻近消息时间戳气泡。 */
+@Composable
+private fun ScrubberBar(
+    count: Int,
+    hasOlder: Boolean,
+    loadingOlder: Boolean,
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    messages: List<MessageCacheEntity>,
+    scrubFraction: Float?,
+    onScrub: (Float?) -> Unit,
+    onJump: (Float) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+        // 拖动时间戳气泡（邻近消息时间；未加载区间显示翻页提示）
+        scrubFraction?.let { f ->
+            val target = ScrubberMath.indexForFraction(f, count)
+            val anchorText = if (ScrubberMath.needsOlderPage(f, count, hasOlder)) {
+                if (loadingOlder) "更早…（加载中）" else "更早…（释放自动翻页）"
+            } else {
+                messages.getOrNull(target)?.occurredAtSec?.let { TimeFmt.full(it) } ?: "更早…"
+            }
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Surface(
+                    color = MaterialTheme.colorScheme.inverseSurface,
+                    shape = RoundedCornerShape(8.dp),
+                ) {
+                    Text(
+                        anchorText,
+                        color = MaterialTheme.colorScheme.inverseOnSurface,
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    )
+                }
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("最新", fontSize = 10.sp, color = Color(0xFF757575))
+            val restFraction = ScrubberMath.fractionForIndex(
+                index = (count - 1 - (listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0))
+                    .coerceIn(0, count - 1),
+                count = count,
+            )
+            Slider(
+                value = scrubFraction ?: restFraction,
+                onValueChange = { onScrub(it) },
+                onValueChangeFinished = {
+                    val f = scrubFraction
+                    onScrub(null)
+                    if (f != null) onJump(f)
+                },
+                modifier = Modifier.weight(1f),
+            )
+            Text("最旧", fontSize = 10.sp, color = Color(0xFF757575))
+        }
+    }
+}
+
+/** segments → JSON（Room 存储形态；解析端 parseSegments 容忍失败回退纯文本）。 */
+private fun segmentsToJson(segments: List<SegmentDto>?): String? {
+    if (segments.isNullOrEmpty()) return null
+    return runCatching {
+        val arr = org.json.JSONArray()
+        for (s in segments) {
+            val o = org.json.JSONObject()
+            o.put("kind", s.kind)
+            if (s.label != null) o.put("label", s.label)
+            o.put("content", s.content)
+            arr.put(o)
+        }
+        arr.toString()
+    }.getOrNull()
+}
