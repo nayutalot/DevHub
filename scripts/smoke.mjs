@@ -4509,7 +4509,7 @@ if (isEntrypoint()) {
   })
 
   // 84. agents 13 条 channel：白名单尾部按 docs/14 §A.1 顺序逐字存在 + 注册表覆盖
-  registerCase('ac2-84: agents channels (13) — whitelist tail in docs/14 §A.1 order, registry handlers, compile-time contract assertion holds', async () => {
+  registerCase('ac2-84: agents channels (14, 夜间#1 就地更新 13→14) — whitelist tail in docs/14 §A.1 order, registry handlers, compile-time contract assertion holds', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
@@ -4527,9 +4527,10 @@ if (isEntrypoint()) {
       'agents:gatewayRestart',
       'agents:setAutoStart',
       'agents:diagnostics',
+      'agents:probeProvider',
     ]
-    assert.equal(channels.IPC_CHANNELS.length, 68, 'whitelist 55 → 68 (docs/14 §A.2)')
-    assert.deepEqual([...channels.IPC_CHANNELS.slice(-13)], expectedAgents, '13 agents channels appended verbatim in docs/14 §A.1 order')
+    assert.equal(channels.IPC_CHANNELS.length, 70, 'whitelist 55 → 70 (docs/14 §A.2; 夜间#1 就地更新 68→70)')
+    assert.deepEqual([...channels.IPC_CHANNELS.slice(-14)], expectedAgents, '14 agents channels appended verbatim in docs/14 §A.1 order (夜间#1 就地更新 13→14)')
 
     const registry = handlers.createHandlerRegistry({ appVersion: 'ac2-smoke' })
     for (const ch of expectedAgents) {
@@ -6778,15 +6779,16 @@ if (isEntrypoint()) {
 
       // 13 条 agents channel 全清单（与白名单一致，防漏）
       const agentsChannels = channelsMod.IPC_CHANNELS.filter((c) => c.startsWith('agents:'))
-      assert.equal(agentsChannels.length, 13, 'exactly 13 agents channels in the whitelist')
+      assert.equal(agentsChannels.length, 14, 'exactly 14 agents channels in the whitelist (夜间#1 就地更新 13→14)')
       assert.deepEqual(
         agentsChannels,
         [
           'agents:providers', 'agents:sessions', 'agents:sessionDetail', 'agents:messages', 'agents:events',
           'agents:sessionAction', 'agents:pairingCreate', 'agents:devices', 'agents:deviceRevoke',
           'agents:gatewayStatus', 'agents:gatewayRestart', 'agents:setAutoStart', 'agents:diagnostics',
+          'agents:probeProvider',
         ],
-        'agents channel set matches docs/14 §A.1',
+        'agents channel set matches docs/14 §A.1 (夜间#1 就地更新 +probeProvider)',
       )
 
       const registry = handlersMod.createHandlerRegistry({ appVersion: 'ac5-smoke' })
