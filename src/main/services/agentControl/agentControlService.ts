@@ -36,6 +36,7 @@ import type {
   AgentHealth,
   AgentMessageView,
   AgentPairingCreateResult,
+  AgentProbeProviderResult,
   AgentProvidersResult,
   AgentProviderView,
   AgentSessionActionResult,
@@ -2079,6 +2080,76 @@ export async function probeWiredProviders(force = false): Promise<void> {
     }
     await refreshProviderSessions(id)
   }
+}
+
+/**
+ * agents:probeProvider（夜间#1 批次，UX 验收 backlog：per-provider 单独重探，
+ * known-limitations §3.2）：对单家 provider 立即 probeHealth + 落库（force 语义，
+ * 绕过 60s 全局探测节流）+ 能力过期重验 + 该家会话快照强刷（force）。
+ * 返回重探后该家投影；未注册 providerId / 非 wired provider → NOT_FOUND。
+ * 探测失败语义与全局探测一致：probeHealth 自身结构化（installed/health/detail），
+ * 不因单家失败拖垮其他 provider（这里单家即全部，失败照实落库）。
+ */
+export async function probeProviderById(providerId: number): Promise<AgentProbeProviderResult> {
+  ensureAgentProviderRows()
+  const row = readProviderRow(providerId)
+  if (row === undefined) {
+    throw new ServiceError('NOT_FOUND', `agent provider ${providerId} not found (registered: ${WIRED_PROVIDER_IDS.join(', ')})`)
+  }
+  const key = row.provider as AgentProviderId
+  if ((WIRED_PROVIDER_IDS as readonly string[]).includes(key) === false) {
+    throw new ServiceError('NOT_FOUND', `agent provider ${providerId} (${key}) is not a wired provider`)
+  }
+  const provider = getProviderInstance(key)
+  if (provider === undefined) {
+    throw new ServiceError('NOT_FOUND', `agent provider ${key} has no runtime instance`)
+  }
+
+  const db = getDatabase()
+  const now = nowSec()
+  const health = await provider.probeHealth()
+  const from = row.health
+  const to = health.health
+  db.prepare(
+    'UPDATE agent_providers SET installed = ?, version = ?, exe_path = ?, health = ?, health_detail = ?, last_probe_at = ?, updated_at = ? WHERE id = ?',
+  ).run(
+    health.installed ? 1 : 0,
+    dbVal(health.version ?? null),
+    dbVal(health.exePath ?? null),
+    to,
+    dbVal(health.healthDetail ?? null),
+    now,
+    now,
+    row.id,
+  )
+  registerProviderResource(row.id, row.display_name)
+  let healthChanged = false
+  if (from !== to) {
+    healthChanged = true
+    recordEvent({
+      eventType: 'provider.health_changed',
+      providerKey: key,
+      payload: { providerId: key, from, to, ...(health.healthDetail !== undefined ? { detail: health.healthDetail } : {}) },
+      summary: `${key}: ${from} -> ${to}`,
+      fingerprint: `${key}:${from}:${to}:${now}`,
+    })
+  }
+  // 能力重验（过期才验，与全局探测同一 240s 阈值；显式重探不做无谓开销）
+  const caps = parseCapabilitySet(row.capabilities_json)
+  const stale = caps.verifiedAt === 0 || now - caps.verifiedAt > CAPABILITY_REVERIFY_MIN_SEC
+  if (stale) {
+    const verified = await provider.getCapabilities({ providerId: key, nativeId: '-' })
+    db.prepare('UPDATE agent_providers SET capabilities_json = ?, updated_at = ? WHERE id = ?').run(
+      JSON.stringify(verified),
+      nowSec(),
+      row.id,
+    )
+  }
+  // 该家会话快照强刷（force = 绕过会话节流；探测 → 落库 → 刷新为一次完整重探语义）
+  await refreshProviderSessions(key, true)
+
+  const fresh = readProviderRow(providerId)
+  return { provider: providerView(fresh !== undefined ? fresh : row), healthChanged }
 }
 
 /** 供 smoke 断言节流态清理（进程内多次 makeTempHome 场景）。 */

@@ -87,13 +87,13 @@ S2/S3 条目的 payload/result 契约见 docs/09 §9；S4 条目如下；S5 条�
 | --- | --- | --- |
 | `docker:overview` | `{}` | info + containers + images 三合一：`{ status: { available, cliAvailable, daemonAvailable, clientVersion?, serverVersion?, reason? }, containers: [{ dockerId, name, image?, state?, ports[], project }], images: { available, reason?, images: [{ repository, tag, imageId, size, createdAt }], count, danglingCount } }`。daemon 不可用 → `available:false` + 空容器表 + images 结构化降级（常态而非异常，docs/02 §4） |
 | `docker:logs` | `{ name, tail?, since? }`（name 为容器名/ID，白名单字符集 `[A-Za-z0-9][A-Za-z0-9_.-]{0,127}`；tail 非负整数、>500 截到 500、负数/非整数 BAD_PAYLOAD；since 为秒） | `{ ok, name, tail, text, truncated?, error? }`：只读拉取，stdout/stderr 合并，超 64KB 截断并置 `truncated:true`；daemon 不可用 → `{ ok:false, text:'', error: reason }` |
-| `docker:action` | `{ name, action: 'start'\|'stop'\|'restart', confirmed? }`（action 枚举之外 BAD_PAYLOAD；docs/09 §8.3 CONFIRM_REQUIRED；remove 强确认留待后续批次） | 未带 confirmed → `{ confirmRequired: true, impacts: { name, image?, state?, ports[], project?, note? } }`；confirmed → `{ ok, name, action, detail?, error?, degraded? }`（成功后刷新 containers 缓存；daemon 不可用 → `ok:false + degraded:true`） |
+| `docker:action` | `{ name, action: 'start'\|'stop'\|'restart'\|'remove', confirmed? }`（action 枚举之外 BAD_PAYLOAD；docs/09 §8.3 CONFIRM_REQUIRED；夜间#1 批次落地 remove：DOUBLE_CONFIRM 档，UI 确认步要求输入容器名精确匹配，docs/09 §8.1） | 未带 confirmed → `{ confirmRequired: true, impacts: { name, image?, state?, ports[], project?, note? } }`（remove 分支 ports 恒空、note 声明数据面影响）；confirmed → `{ ok, name, action, detail?, error?, degraded? }`（成功后刷新 containers 缓存；remove 映射 `docker rm` 字面量、不带 -f —— running 容器由 daemon 拒绝；daemon 不可用 → `ok:false + degraded:true`） |
 
 ### WSL（S4，docs/09 §8.2/§9 授权随 Environment 扩展批次并入）
 
 | channel | payload | result data |
 | --- | --- | --- |
-| `wsl:action` | `{ distro, action: 'terminate'\|'boot', confirmed? }`（distro 白名单 = 已知发行版列表，非白名单 BAD_PAYLOAD；shutdownAll 留待后续批次） | terminate 未带 confirmed → `{ confirmRequired: true, impacts: { distro, state, listeningPorts: [{ port, address, pid, processName }], note? } }`（绝不执行）；confirmed → `{ ok, distro, action, detail?, error? }`。boot 无害幂等（`wsl.exe -d <distro> -e true`），直接执行返回 `{ ok, distro, action, detail?, error? }` |
+| `wsl:action` | `{ distro?, action: 'terminate'\|'boot'\|'shutdownAll', confirmed? }`（terminate/boot 的 distro 白名单 = 已知发行版列表，非白名单 BAD_PAYLOAD；夜间#1 批次落地 shutdownAll：CONFIRM_REQUIRED + 二次确认文案，全停语义、不接受 distro 参数，传了即 BAD_PAYLOAD） | terminate 未带 confirmed → `{ confirmRequired: true, impacts: { distro, state, listeningPorts: [{ port, address, pid, processName }], note? } }`（绝不执行）；confirmed → `{ ok, distro, action, detail?, error? }`。boot 无害幂等（`wsl.exe -d <distro> -e true`），直接执行返回 `{ ok, distro, action, detail?, error? }`。shutdownAll 未带 confirmed → `{ confirmRequired: true, impacts: { distros: [{ name, state }], dockerDesktopDistros[], note? } }`（将停的全部发行版清单，绝不执行）；confirmed → `wsl.exe --shutdown` → `{ ok, action: 'shutdownAll', runningBefore, totalBefore, detail?, error? }`（列表探测只读，绝不唤醒已停发行版） |
 | `wsl:distroStats` | `{ distro? }`（缺省 = 全部发行版概要；有值 = 单发行版，须在已知列表内） | `{ available, reason?, sampledAt, distros: [{ name, state, version, isDefault?, managedByDocker?, stats, reason? }] }`：stats 为一次 /proc 复合读取 `{ memTotalKb, memFreeKb, memAvailKb, load1, diskTotal, diskUsed, diskAvail, diskPct, uptimeSec }`（取不到的字段 null，绝不硬造）；**仅对 Running 且非 docker-desktop 系探测，绝不为了取数而启动已停止的发行版**（docs/09 §8.2） |
 
 ### Archive（S5，docs/10 全文权威；实现注记见 docs/10 §11）
@@ -106,4 +106,13 @@ S2/S3 条目的 payload/result 契约见 docs/09 §9；S4 条目如下；S5 条�
 | `archive:history` | `{ limit? }`（正整数，≤100） | `{ runs: [{ id, projectId(可空), projectName, oldPath, newPath, status: 'running'\|'done'\|'failed'\|'rolled-back', fixedFiles, externalFiles, residualHits, strippedDirs, startedAt, finishedAt, undoEntries(可空) }] }`（archive_runs 按 id 倒序，默认与上限均 100） |
 | `archive:rollback` | `{ runId, confirmed? }`（runId 为 archive_runs 行 id） | 未带 confirmed → `{ confirmRequired: true, impacts: { runId, projectName, oldPath, newPath, undoEntries, fixedFiles, note } }`；confirmed → 内容还原（undo 备份逐条 copyFile 覆写，幂等）+ 目录移回原位 + projects.win_path 还原，返回 `{ runId, restored, undoEntries, movedBack, projectsRestored, status: 'rolled-back', note }`；仅 `done` 状态可回滚 |
 
-合计（Phase 1 + S2 + S3 + S4 + S5）= 3+6+4+2+2+4 + 14 + 6+4 + 3+2 + 5 = **55 条**。
+合计（Phase 1 + S2 + S3 + S4 + S5）= 3+6+4+2+2+4 + 14 + 6+4 + 3+2 + 5 = **55 条**；
+AC2 批次 agents 13 条并入（55→68，docs/14 §A.1 权威，本文件未逐行展开）；
+夜间#1 批次（服务端积压补齐）追加 2 条（68→**70**，见下）。
+
+### 夜间#1 追加（服务端积压补齐批次；主控任务书授权的同一追加模式）
+
+| channel | payload | result data |
+| --- | --- | --- |
+| `versions:cancel` | `{ jobId? }`（缺省 = 取消当前唯一活跃任务；多个活跃时不指定 jobId → BAD_PAYLOAD 消歧） | running job → killTree（github 重建为流水线步间合作式取消）+ `{ cancelled: true, jobId, entryId, status: 'cancelled' }`；无活跃任务 → `{ cancelled: false, note }`（结构化空操作）；未知 jobId → `NOT_FOUND`；已结束 → `{ cancelled: false, status, note }`（docs/09 §7.2 cancelled 分支的主动取消，超时兜底之外的真中断） |
+| `agents:probeProvider` | `{ providerId }`（正整数；未注册 → `NOT_FOUND`） | 单家 provider 立即重探（force 语义，绕过 60s 节流）：probeHealth + agent_providers 落库 + 过期能力重验 + 该家会话快照强刷，返回 `{ provider: AgentProviderView, healthChanged }`（known-limitations §3.2 遗留的 per-provider 单独重探） |

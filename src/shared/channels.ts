@@ -29,6 +29,9 @@ export const IPC_GATEWAY = 'devhub:invoke' as const
  * （providers/sessions/sessionDetail/messages/events/sessionAction/pairingCreate/
  * devices/deviceRevoke/gatewayStatus/gatewayRestart/setAutoStart/diagnostics；
  * 全部为轮询模式，无广播 channel，docs/14 §A.3）。
+ * 夜间#1 批次 note（主控任务书授权的同一模式就地更新）：versions:cancel（docs/09
+ * §7.2 cancelled 分支主动取消）+ agents:probeProvider（UX 验收 backlog，
+ * known-limitations §3.2 per-provider 单独重探）并入，68 → 70。
  */
 export const IPC_CHANNELS = [
   // scan
@@ -82,11 +85,14 @@ export const IPC_CHANNELS = [
   'apihub:saveProfile',
   'apihub:deleteProfile',
   'apihub:switch',
-  // versions（S3 批次，docs/09 §9 versions 条目；job 快照经 versions:job 轮询）
+  // versions（S3 批次，docs/09 §9 versions 条目；job 快照经 versions:job 轮询。
+  // versions:cancel 为夜间#1 批次追加：docs/09 §7.2 cancelled 分支的主动取消，
+  // 缺省 jobId = 取消当前唯一活跃任务，无活跃任务 → 结构化空操作）
   'versions:list',
   'versions:check',
   'versions:update',
   'versions:job',
+  'versions:cancel',
   // docker（S4 批次，docs/09 §9 docker 条目按文档命名：overview/logs/action；
   // 变更动作 action 的 CONFIRM_REQUIRED 两段式语义在 service 层落地）
   'docker:overview',
@@ -120,6 +126,9 @@ export const IPC_CHANNELS = [
   'agents:gatewayRestart',
   'agents:setAutoStart',
   'agents:diagnostics',
+  // 夜间#1 批次：per-provider 单独重探（UX 验收 backlog，known-limitations §3.2；
+  // 轮询模式不变，docs/14 §A.3 授权的同一追加模式）
+  'agents:probeProvider',
 ] as const
 
 /** Compile-time whitelist: a handler map must be keyed by IpcChannel. */

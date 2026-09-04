@@ -40,6 +40,7 @@ import {
   listAgentProviders,
   listAgentSessions,
   listDevices,
+  probeProviderById,
   restartGateway,
   revokeDevice,
   setAutoStart,
@@ -53,7 +54,14 @@ import {
   switchProfile,
 } from '../services/apihub/apihubService.ts'
 import { isAdapterId } from '../services/apihub/adapters.ts'
-import { checkAll, checkOneById, jobSnapshot, listTargets, requestUpdate } from '../services/versionCenter/versionService.ts'
+import {
+  cancelUpdateJob,
+  checkAll,
+  checkOneById,
+  jobSnapshot,
+  listTargets,
+  requestUpdate,
+} from '../services/versionCenter/versionService.ts'
 import { findCatalogEntry } from '../services/versionCenter/catalog.ts'
 import { dashboardSummary } from '../services/dashboardService.ts'
 import { detectEnvironment, runDoctor } from '../services/environmentService.ts'
@@ -91,7 +99,7 @@ import {
   dockerOverview,
   DOCKER_LOGS_TAIL_MAX,
 } from '../services/dockerService.ts'
-import { knownDistroNames, wslAction, wslDistroStatsSummary } from '../services/wslService.ts'
+import { knownDistroNames, wslAction, wslDistroStatsSummary, wslShutdownAll } from '../services/wslService.ts'
 import {
   ARCHIVE_HISTORY_LIMIT,
   archiveHistory,
@@ -279,8 +287,8 @@ export const contractCoversWhitelist: AssertContractCoversWhitelist = true
  * channel → handler 注册表。键类型为 IpcChannel（编译期强制白名单 channel
  * 全覆盖：缺一条 / 多一条都是类型错误，权威清单见 shared/channels.ts ——
  * Phase 1 21 条 + S2 skills 14 条 = 35 + S3 apihub 6 条 + versions 4 条 = 45
- * + S4 docker 3 条 + wsl 2 条 = 50 + S5 archive 5 条 = 55
- * + AC2 agents 13 条 = 68）。
+ * + S4 docker 3 条 + wsl 2 条 = 50 + S5 archive 5 条 = 55 + AC2 agents 13 条 = 68
+ * + 夜间#1 versions:cancel / agents:probeProvider = 70）。
  */
 export type HandlerRegistry = Record<IpcChannel, ChannelHandler>
 
@@ -632,9 +640,20 @@ export function createHandlerRegistry(deps: HandlerDeps): HandlerRegistry {
       const p = asPayloadObject('versions:job', payload)
       return jobSnapshot(requireNonEmptyString('versions:job', p, 'jobId'))
     },
+    // 夜间#1 批次：versions:cancel（docs/09 §7.2 cancelled 分支主动取消；缺省 jobId =
+    // 取消当前唯一活跃任务——多活跃时不指定 jobId 在 service 侧 BAD_PAYLOAD 消歧）
+    'versions:cancel': async (payload) => {
+      const p = asPayloadObject('versions:cancel', payload)
+      const jobId = optionalString('versions:cancel', p, 'jobId')
+      if (jobId !== undefined && jobId.trim().length === 0) {
+        throw badPayload('versions:cancel', 'jobId must be a non-empty string when present')
+      }
+      return cancelUpdateJob(jobId)
+    },
 
     // --- docker（S4 批次，docs/09 §9 按文档命名 overview/logs/action；daemon 不可用
-    // 一律结构化降级；action 为 CONFIRM_REQUIRED 两段式，name 白名单字符集校验） ---
+    // 一律结构化降级；action 为 CONFIRM_REQUIRED 两段式，name 白名单字符集校验；
+    // remove 为夜间#1 批次追加（docs/09 §8.3 DOUBLE_CONFIRM 档，UI 侧名称匹配）） ---
     'docker:overview': async () => dockerOverview(),
     'docker:logs': async (payload) => {
       const p = asPayloadObject('docker:logs', payload)
@@ -648,21 +667,29 @@ export function createHandlerRegistry(deps: HandlerDeps): HandlerRegistry {
     'docker:action': async (payload) => {
       const p = asPayloadObject('docker:action', payload)
       const action = p.action
-      if (action !== 'start' && action !== 'stop' && action !== 'restart') {
-        throw badPayload('docker:action', 'action must be one of: start | stop | restart')
+      if (action !== 'start' && action !== 'stop' && action !== 'restart' && action !== 'remove') {
+        throw badPayload('docker:action', 'action must be one of: start | stop | restart | remove')
       }
       return containerAction(requireContainerName('docker:action', p), action, optionalBoolean('docker:action', p, 'confirmed'))
     },
 
     // --- wsl（S4 批次，docs/09 §8.2/§9；distro 白名单 = 已知发行版列表；terminate
-    // 为 CONFIRM_REQUIRED 两段式，boot 无害直接执行） ---
+    // 为 CONFIRM_REQUIRED 两段式，boot 无害直接执行；shutdownAll 为夜间#1 批次追加
+    // （docs/09 §8.2 二次确认文案，全停语义，无 distro 参数）） ---
     'wsl:action': async (payload) => {
       const p = asPayloadObject('wsl:action', payload)
-      const distro = await requireKnownDistro('wsl:action', requireNonEmptyString('wsl:action', p, 'distro'))
       const action = p.action
-      if (action !== 'terminate' && action !== 'boot') {
-        throw badPayload('wsl:action', 'action must be one of: terminate | boot')
+      if (action !== 'terminate' && action !== 'boot' && action !== 'shutdownAll') {
+        throw badPayload('wsl:action', 'action must be one of: terminate | boot | shutdownAll')
       }
+      if (action === 'shutdownAll') {
+        // 全停语义：不接受 distro 参数（防止"看起来像单发行版关停"的误导）
+        if (p.distro !== undefined) {
+          throw badPayload('wsl:action', 'shutdownAll stops every distro and takes no distro parameter')
+        }
+        return wslShutdownAll(optionalBoolean('wsl:action', p, 'confirmed'))
+      }
+      const distro = await requireKnownDistro('wsl:action', requireNonEmptyString('wsl:action', p, 'distro'))
       return wslAction(distro, action, optionalBoolean('wsl:action', p, 'confirmed'))
     },
     'wsl:distroStats': async (payload) => {
@@ -789,6 +816,12 @@ export function createHandlerRegistry(deps: HandlerDeps): HandlerRegistry {
       return setAutoStart(enabled)
     },
     'agents:diagnostics': async () => getDiagnostics(),
+    // 夜间#1 批次：per-provider 单独重探（UX 验收 backlog，known-limitations §3.2；
+    // force 语义：绕过 60s 节流，probeHealth+落库+该家会话快照强刷；未注册 → NOT_FOUND）
+    'agents:probeProvider': async (payload) => {
+      const p = asPayloadObject('agents:probeProvider', payload)
+      return probeProviderById(requireId('agents:probeProvider', p, 'providerId'))
+    },
   }
 }
 

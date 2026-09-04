@@ -171,11 +171,19 @@ export class GatewayWsConnection {
     void heartbeatIntervalMs
   }
 
-  /** 服务端文本帧（JSON 协议帧）。写失败返回 false，不抛（投递失败不回滚 DB）。 */
+  /**
+   * 服务端文本帧（JSON 协议帧）。写失败（连接已关闭 / write 抛异常）返回 false，不抛
+   * （投递失败不回滚 DB）。夜间#1 修复（ux-final-report §4.3/§8）：socket.write 返回
+   * false 表示数据已接受进用户态缓冲、随后必然冲刷（TCP 背压），并非失败 —— 旧实现
+   * 把 false 当"未发出"会漏掉 markEventDelivered（慢链路/隧道场景投递标记缺失）。
+   * 现在「写调用未抛异常」即视为已发出（docs/12 §6「event 帧写 socket 成功 →
+   * markEventDelivered」语义）。
+   */
   sendFrame(frame: ServerFrame): boolean {
     if (this.closed) return false
     try {
-      return this.socket.write(encodeServerFrame(OPCODE_TEXT, Buffer.from(JSON.stringify(frame), 'utf8')))
+      this.socket.write(encodeServerFrame(OPCODE_TEXT, Buffer.from(JSON.stringify(frame), 'utf8')))
+      return true
     } catch {
       return false
     }

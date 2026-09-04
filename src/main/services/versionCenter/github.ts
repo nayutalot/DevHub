@@ -255,6 +255,8 @@ export interface GithubUpdateDeps {
   tmpDir?: string
   /** 每步进度回调（空行不回调） */
   onLine?: (line: string) => void
+  /** 合作式取消旗标（夜间#1：versions:cancel；每个流水线步开始前检查，真值即中止） */
+  shouldAbort?: () => boolean
 }
 
 export interface GithubUpdateOutcome {
@@ -276,8 +278,11 @@ function compactTs(ms: number): string {
  */
 export async function runGithubUpdate(installRoot: string, deps: GithubUpdateDeps = {}): Promise<GithubUpdateOutcome> {
   const emit = (line: string): void => deps.onLine?.(line)
+  /** 步间合作式取消检查（夜间#1 versions:cancel）：真值 → 结构化中止，绝不继续下一步。 */
+  const aborted = (): boolean => deps.shouldAbort?.() === true
   let staging = ''
   try {
+    if (aborted()) return { ok: false, error: '更新已被用户取消（第一步前中止）' }
     emit('[1/6] 查询 GitHub Releases（' + GITHUB_REPO + '）…')
     const rel = await fetchLatestRelease()
     if (!rel.ok) return { ok: false, error: rel.error }
@@ -292,15 +297,18 @@ export async function runGithubUpdate(installRoot: string, deps: GithubUpdateDep
     staging = installRoot + '.update-' + ts
     const bak = installRoot + '.bak-' + ts
 
+    if (aborted()) return { ok: false, error: '更新已被用户取消（下载前中止；安装目录未做任何改动）' }
     emit('[2/6] 下载源码包 dsh-' + rel.tag + '.tar.gz …')
     const dl = await downloadReleaseTarball(rel.tag, { tmpDir: deps.tmpDir })
     if (!dl.ok) return { ok: false, error: dl.error }
     emit('    已下载 ' + dl.path)
 
+    if (aborted()) return { ok: false, error: '更新已被用户取消（解包前中止；安装目录未做任何改动）' }
     emit('[3/6] 解包到 ' + staging)
     const ex = await extractTarball(dl.path, staging)
     if (!ex.ok) return { ok: false, error: ex.error }
 
+    if (aborted()) return { ok: false, error: '更新已被用户取消（重建前中止；staging 保留，安装目录未做任何改动）' }
     emit('[4/6] npm install --no-audit --no-fund（staging 内重建依赖，约需数分钟）')
     const npmPath = await resolveNpmCmdPath()
     if (npmPath === null) {
@@ -333,6 +341,8 @@ export async function runGithubUpdate(installRoot: string, deps: GithubUpdateDep
       }
     }
 
+    // 换目录是不可逆原子段：取消检查只放到它之前（一旦开始必须完成或回滚，绝不中断半途）
+    if (aborted()) return { ok: false, error: '更新已被用户取消（换目录前中止；staging 保留，安装目录未做任何改动）' }
     emit('[5/6] 换目录：旧目录备份为 ' + bak + '（数据目录 ~/.dsh 不受影响）')
     try {
       fs.renameSync(installRoot, bak)

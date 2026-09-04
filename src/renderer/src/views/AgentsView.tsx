@@ -315,6 +315,27 @@ function ProvidersPanel({ providers, monitorEnabled, loading, error, onRefresh }
   onRefresh: () => void
 }) {
   const state = resolvePanelState(providers, loading, error)
+  // 夜间#1 批次：per-provider 单独重探（agents:probeProvider）。四态：idle →
+  // probing（按钮内 spinner）→ ok/err（toast 结构化），错误含 {code,message}。
+  const { toast, show } = useToast()
+  const [probingId, setProbingId] = useState<number | null>(null)
+
+  async function reprobe(providerId: number, displayName: string): Promise<void> {
+    setProbingId(providerId)
+    try {
+      const r = await call('agents:probeProvider', { providerId })
+      show(
+        `${displayName}: re-probe done — health ${r.provider.health}${r.healthChanged ? ` (changed, event recorded)` : ' (unchanged)'}`,
+      )
+      onRefresh()
+    } catch (err) {
+      const code = (err as { code?: string } | null)?.code
+      show(`${displayName}: re-probe failed${code !== undefined ? ` [${code}]` : ''} — ${err instanceof Error ? err.message : String(err)}`, 'err')
+    } finally {
+      setProbingId(null)
+    }
+  }
+
   if (state.phase === 'loading') return <Loading label="Probing agent providers (real filesystem / process detection)…" />
   if (state.phase === 'error') return <ErrorState error={error as AsyncError} onRetry={onRefresh} />
   if (state.phase === 'empty') {
@@ -346,6 +367,18 @@ function ProvidersPanel({ providers, monitorEnabled, loading, error, onRefresh }
               <span className="agents-card-name">{p.displayName}</span>
               <Badge tone={p.installed ? 'ok' : 'err'}>{p.installed ? 'installed' : 'not installed'}</Badge>
               <Badge tone={healthTone(p.health)} title={p.healthDetail ?? p.health}>{p.health}</Badge>
+              <button
+                type="button"
+                className="btn btn-small"
+                disabled={probingId !== null}
+                title={`re-probe ${p.displayName} now (bypasses the 60s throttle; refreshes this provider's sessions)`}
+                onClick={() => {
+                  void reprobe(p.id, p.displayName)
+                }}
+              >
+                {probingId === p.id ? <Spinner /> : null}
+                re-probe
+              </button>
             </div>
             <div className="agents-card-line mono" title={p.exePath ?? ''}>
               {p.version !== undefined ? `v${p.version}` : 'version unknown'}
@@ -362,6 +395,7 @@ function ProvidersPanel({ providers, monitorEnabled, loading, error, onRefresh }
           </div>
         ))}
       </div>
+      <Toast toast={toast} />
     </>
   )
 }

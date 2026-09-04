@@ -329,9 +329,10 @@ function WslDistroCards() {
   async function terminate(distro: string): Promise<void> {
     setBusy(distro)
     try {
-      // 第一段：confirmRequired + impacts（该发行版当前监听端口）
+      // 第一段：confirmRequired + impacts（该发行版当前监听端口）。
+      // `in` 判别：impacts 带 distros 清单的是 shutdownAll 段（本调用不可能），防御性排除。
       const first = await call('wsl:action', { distro, action: 'terminate' })
-      if (first.confirmRequired === true) {
+      if (first.confirmRequired === true && !('distros' in first.impacts)) {
         const imp = first.impacts
         const ports = imp.listeningPorts
           .map((p) => `${p.port}${p.processName !== null ? ` (${p.processName})` : ''}`)
@@ -341,6 +342,7 @@ function WslDistroCards() {
         if (window.confirm(lines.join('\n'))) {
           const done = await call('wsl:action', { distro, action: 'terminate', confirmed: true })
           if (done.confirmRequired === true) return
+          if (!('distro' in done)) return
           if (done.ok) {
             show(`${done.distro}: terminated${done.detail !== undefined ? ` — ${done.detail}` : ''}`)
             stats.refresh()
@@ -350,6 +352,7 @@ function WslDistroCards() {
         }
         return
       }
+      if (!('distro' in first)) return
       show(`${first.distro}: terminated`)
       stats.refresh()
     } catch (err) {
@@ -364,6 +367,7 @@ function WslDistroCards() {
     try {
       const done = await call('wsl:action', { distro, action: 'boot' })
       if (done.confirmRequired === true) return
+      if (!('distro' in done)) return
       if (done.ok) {
         show(`${done.distro}: running`)
         stats.refresh()
@@ -377,9 +381,65 @@ function WslDistroCards() {
     }
   }
 
+  /** shutdownAll 两段式（夜间#1 批次，docs/09 §8.2 二次确认文案）：第一段返回将停的
+   *  全部发行版清单，确认弹窗逐行展示 + VM 级关停警告，confirmed 才执行。 */
+  async function shutdownAll(): Promise<void> {
+    setBusy('shutdownAll')
+    try {
+      const first = await call('wsl:action', { action: 'shutdownAll' })
+      if (first.confirmRequired === true) {
+        if (!('distros' in first.impacts)) return
+        const imp = first.impacts
+        const lines = [
+          `Shutdown the whole WSL VM? ${imp.distros.length} distro(s) will stop (${imp.distros.filter((d) => d.state.toLowerCase() === 'running').length} running):`,
+          ...imp.distros.map((d) => `  - ${d.name} (${d.state})`),
+        ]
+        if (imp.dockerDesktopDistros.length > 0) {
+          lines.push(`docker-desktop managed: ${imp.dockerDesktopDistros.join(', ')}`)
+        }
+        if (imp.note !== undefined) lines.push(imp.note)
+        if (window.confirm(lines.join('\n'))) {
+          const done = await call('wsl:action', { action: 'shutdownAll', confirmed: true })
+          if (done.confirmRequired === true) return
+          if (!('runningBefore' in done)) return
+          if (done.ok) {
+            show(`WSL shut down — ${done.runningBefore} running distro(s) stopped`)
+            stats.refresh()
+          } else {
+            show(`shutdown failed — ${done.error ?? 'unknown error'}`, 'err')
+          }
+        }
+        return
+      }
+      // 无 confirmed 之外的直接结果只可能是降级失败（service 层保证）
+      show(`shutdown failed — ${first.error ?? 'unknown error'}`, 'err')
+    } catch (err) {
+      show(err instanceof Error ? err.message : String(err), 'err')
+    } finally {
+      setBusy(null)
+    }
+  }
+
   return (
     <div className="section">
       <h3 className="section-title">WSL distributions</h3>
+      <div className="agents-poll-line">
+        <span className="td-dim">
+          shutdown all stops the whole WSL VM (every distro, incl. docker-desktop) — double confirm with the full distro list
+        </span>
+        <button
+          type="button"
+          className="btn btn-small btn-danger"
+          disabled={busy !== null || stats.data?.available !== true}
+          title="wsl.exe --shutdown (asks for confirmation with the full distro list)"
+          onClick={() => {
+            void shutdownAll()
+          }}
+        >
+          {busy === 'shutdownAll' ? <Spinner /> : null}
+          Shutdown all
+        </button>
+      </div>
       {stats.loading ? (
         <Loading label="Probing WSL distributions (no stopped distro is started)…" />
       ) : stats.error !== null ? (

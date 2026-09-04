@@ -12,6 +12,9 @@
  * Running 且非 docker-desktop 系探测；terminate 为 CONFIRM_REQUIRED 两段式
  * （impacts = 该发行版当前监听 TCP 端口，复用 adapter.wslListeningSockets）；
  * boot 无害直接执行（`wsl.exe -d <distro> -e true` 幂等唤醒，distro 走 args 数组）。
+ * 夜间#1 批次：shutdownAll 两段式（docs/09 §8.2 CONFIRM_REQUIRED + 二次确认文案；
+ * `wsl.exe --shutdown` VM 级全停，impacts = 全部发行版清单；列表探测只读，
+ * 绝不唤醒已停发行版）。
  */
 
 import { run } from '../core/exec.ts'
@@ -31,6 +34,9 @@ import type {
   WslDistroStatView,
   WslDistroStatsResult,
   WslPortEntry,
+  WslShutdownAllImpacts,
+  WslShutdownAllResult,
+  WslShutdownAllStart,
   WslStatus,
 } from '../../shared/types.ts'
 import { getDatabase } from '../db/index.ts'
@@ -240,6 +246,80 @@ async function terminateImpacts(distro: WslDistro): Promise<WslActionImpacts> {
     }
   }
   return { distro: distro.name, state: distro.state, listeningPorts, note }
+}
+
+/**
+ * shutdownAll 参数构造（纯函数，smoke 断言 argv；夜间#1 批次，docs/09 §8.2）。
+ * `wsl.exe --shutdown` = 整个 WSL VM 级关停：全部发行版（含 docker-desktop 系）一并停止。
+ */
+export function shutdownAllArgs(): string[] {
+  return ['--shutdown']
+}
+
+/**
+ * shutdownAll 两段式（docs/09 §8.2 CONFIRM_REQUIRED + 二次确认文案，夜间#1 批次）：
+ *  - 未带 confirmed → { confirmRequired, impacts }（将停的全部发行版清单 + docker-desktop
+ *    系单列 + VM 级关停 note），绝不执行；
+ *  - confirmed → `wsl.exe --shutdown`（exec 字面量 args）；
+ *  - 语义 = 全停：只读列表探测（`wsl.exe -l -v` 不启动任何发行版），绝不唤醒已停发行版；
+ *  - wsl.exe 不可达 → { ok:false, error: reason } 结构化降级，绝不 throw。
+ */
+export async function wslShutdownAll(confirmed?: boolean): Promise<WslShutdownAllStart | WslShutdownAllResult> {
+  let all: WslDistro[]
+  try {
+    all = await listDistros()
+  } catch (err) {
+    return {
+      ok: false,
+      action: 'shutdownAll',
+      runningBefore: 0,
+      totalBefore: 0,
+      error: `wsl.exe could not be probed: ${errorMessage(err)}`,
+    }
+  }
+
+  const runningBefore = all.filter((d) => d.state.toLowerCase() === 'running').length
+  if (confirmed !== true) {
+    const dockerDesktopDistros = all.filter((d) => isDockerDesktopDistro(d.name)).map((d) => d.name)
+    const impacts: WslShutdownAllImpacts = {
+      distros: all.map((d) => ({ name: d.name, state: d.state })),
+      dockerDesktopDistros,
+      note:
+        `wsl.exe --shutdown stops the whole WSL VM: all ${all.length} distro(s) listed above (${runningBefore} running)` +
+        (dockerDesktopDistros.length > 0
+          ? `, including docker-desktop distro(s) ${dockerDesktopDistros.join(', ')} managed by Docker Desktop`
+          : '') +
+        '; stopped distros are NOT booted by this action',
+    }
+    return { confirmRequired: true, action: 'shutdownAll' as const, impacts }
+  }
+
+  const res = await run('wsl.exe', shutdownAllArgs(), {
+    timeoutMs: WSL_ACTION_TIMEOUT_MS,
+    env: { ...process.env, WSL_UTF8: '1' },
+  })
+  const detail = (res.stderr || res.stdout || '').replace(/\u0000/g, '').trim().slice(0, 300)
+  if (res.code !== 0 || res.timedOut) {
+    return {
+      ok: false,
+      action: 'shutdownAll',
+      runningBefore,
+      totalBefore: all.length,
+      error:
+        detail.length > 0
+          ? detail
+          : res.timedOut
+            ? `wsl --shutdown timed out after ${WSL_ACTION_TIMEOUT_MS}ms`
+            : `wsl --shutdown exited with ${res.code}`,
+    }
+  }
+  return {
+    ok: true,
+    action: 'shutdownAll',
+    runningBefore,
+    totalBefore: all.length,
+    detail: detail.length > 0 ? detail : `WSL shut down (${runningBefore} running distro(s) stopped)`,
+  }
 }
 
 /**

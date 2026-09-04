@@ -6,6 +6,9 @@
  * S4 变更编排（docs/09 §8.1「同一 service 扩展动作函数与镜像列表」）：containerAction
  * （CONFIRM_REQUIRED 两段式，exec 经 core/exec.run 字面量 args）+ containerLogs
  * （只读拉取，tail ≤500 / 文本 64KB 截断）+ dockerOverview（单次探测三合一投影）。
+ * 夜间#1 批次：action 扩 'remove'（docs/09 §8.3 DOUBLE_CONFIRM 档；CLI 字面量
+ * `docker rm`，不带 -f —— running 容器由 daemon 拒绝，绝不静默强杀；无 confirmed
+ * 段 impacts.note 声明数据面影响，UI 确认步追加名称匹配输入，docs/09 §8.1）。
  * "daemon 不可用"是常态而非异常（docs/02 §4）：一律结构化降级，不 throw（约束 #25/#26）。
  */
 
@@ -117,7 +120,9 @@ export const DOCKER_LOGS_TAIL_DEFAULT = 200
 /** logs 文本上限：超限截断并置 truncated=true（提示调小 tail）。 */
 export const DOCKER_LOGS_TEXT_LIMIT = 64 * 1024
 
-/** 容器动作参数构造（纯函数，smoke 断言 argv；动作名由类型/网关枚举收口，绝不拼 shell）。 */
+/** 容器动作参数构造（纯函数，smoke 断言 argv；动作名由类型/网关枚举收口，绝不拼 shell）。
+ *  remove 映射 docker CLI 字面量 `rm`（docs/09 §8.3 DOUBLE_CONFIRM 档，夜间#1 落地）；
+ *  不带 -f：running 容器由 daemon 拒绝（结构化失败），绝不静默强杀。 */
 export function containerActionArgs(action: DockerActionName, name: string): string[] {
   switch (action) {
     case 'start':
@@ -126,6 +131,8 @@ export function containerActionArgs(action: DockerActionName, name: string): str
       return ['stop', name]
     case 'restart':
       return ['restart', name]
+    case 'remove':
+      return ['rm', name]
   }
 }
 
@@ -240,10 +247,11 @@ function findContainer<T extends { name: string; dockerId: string }>(rows: reado
 }
 
 /**
- * 容器动作（start/stop/restart，docs/09 §8.1/§8.3 CONFIRM_REQUIRED）：
+ * 容器动作（start/stop/restart/remove，docs/09 §8.1/§8.3）：
  *  - daemon 不可用 → { ok:false, degraded:true, error: reason } 结构化降级，绝不 throw；
  *  - 容器不存在 → ServiceError('NOT_FOUND')（网关折叠为 error envelope）；
- *  - 未带 confirmed → { confirmRequired:true, impacts }（容器现状 + 发布端口 + 关联项目）；
+ *  - 未带 confirmed → { confirmRequired:true, impacts }（容器现状 + 发布端口 + 关联项目；
+ *    remove 为 DOUBLE_CONFIRM 档：note 声明删除数据面影响，UI 侧追加名称匹配输入）；
  *  - confirmed 执行（exec 字面量 args）→ 成功后刷新 containers 缓存（scanService.upsertContainer）。
  */
 export async function containerAction(
@@ -273,6 +281,21 @@ export async function containerAction(
   if (confirmed !== true) {
     const projectRows = db.prepare('SELECT id, name FROM projects').all() as { id: number; name: string }[]
     const match = matchProjectForContainer(hit, projectRows)
+    if (action === 'remove') {
+      return {
+        confirmRequired: true,
+        impacts: {
+          name: hit.name,
+          image: hit.image,
+          state: hit.state,
+          ports: [],
+          project: match !== null ? match.name : undefined,
+          note:
+            `removing deletes container ${hit.name} (${hit.state ?? 'unknown state'}); ` +
+            'writable-layer data is lost (named volumes survive), a running container is refused by the daemon',
+        },
+      }
+    }
     const ports: ContainerPortMapping[] = hit.ports
     const note =
       action === 'start'
@@ -317,7 +340,8 @@ export async function containerAction(
     // 缓存刷新失败仅跳过（约束 #25），下次全量扫描会再对齐
   }
 
-  return { ok: true, name: hit.name, action, detail: detail.length > 0 ? detail : `container ${hit.name} ${action}ed` }
+  const verb = action === 'remove' ? 'removed' : `${action}ed`
+  return { ok: true, name: hit.name, action, detail: detail.length > 0 ? detail : `container ${hit.name} ${verb}` }
 }
 
 /**

@@ -1047,13 +1047,31 @@ export interface VersionJobSnapshot {
   after?: VersionStatus
 }
 
+/** 夜间#1 批次（docs/09 §7.2 cancelled 分支的主动取消落地）：缺省 jobId = 取消当前
+ *  唯一活跃 job；多个活跃 job 时不指定 jobId → BAD_PAYLOAD（消除按 id 取消假象）。 */
+export interface VersionsCancelPayload {
+  jobId?: string
+}
+export interface VersionsCancelResult {
+  /** true = 本次调用真实把 running job 置为 cancelled（killTree 收尾）。 */
+  cancelled: boolean
+  jobId?: string
+  entryId?: string
+  /** 目标 job 调用后状态（cancelled / done / failed / running）；无活跃 job 时缺省。 */
+  status?: 'running' | 'done' | 'failed' | 'cancelled'
+  /** 结构化说明（no-op 原因等）。 */
+  note?: string
+}
+
 // ---------------------------------------------------------------------------
 // 6e. Docker（S4 批次，docs/09 §8.1/§9）。daemon 不可用是常态而非异常：
 // 三个 channel 全部结构化降级（available:false / ok:false + reason），绝不 throw。
 // 变更动作 action 为 CONFIRM_REQUIRED 两段式（start/stop/restart；docs/09 §8.3）。
+// 夜间#1 批次：action 扩 'remove'（docs/09 §8.3 DOUBLE_CONFIRM 档 —— wire 契约仍为
+// confirmed 两段式；额外名称匹配在 UI 确认步落地，docs/09 §8.1「输入容器名匹配」）。
 // ---------------------------------------------------------------------------
 
-export type DockerActionName = 'start' | 'stop' | 'restart'
+export type DockerActionName = 'start' | 'stop' | 'restart' | 'remove'
 
 export interface DockerOverviewPayload extends EmptyPayload {}
 
@@ -1110,7 +1128,8 @@ export interface DockerLogsResult {
   error?: string
 }
 
-/** 动作影响面（confirmRequired 段展示）：容器现状 + 发布端口 + 关联项目。 */
+/** 动作影响面（confirmRequired 段展示）：容器现状 + 发布端口 + 关联项目。
+ *  remove 分支 ports 恒为空数组（删除语义无关端口），note 说明数据面影响。 */
 export interface DockerActionImpacts {
   name: string
   image?: string
@@ -1149,6 +1168,8 @@ export interface DockerActionResult {
 // 6f. WSL（S4 批次，docs/09 §8.2/§9）。铁律：绝不为了取数而启动已停止的发行版；
 // terminate 为 CONFIRM_REQUIRED 两段式（impacts = 该发行版当前监听端口），
 // boot 无害直接执行（wsl -d <distro> -e true 幂等唤醒）。
+// 夜间#1 批次：action 扩 'shutdownAll'（docs/09 §8.2 CONFIRM_REQUIRED + 二次确认
+// 文案；impacts = 将停的全部发行版清单；语义 = 全停，绝不唤醒任何已停发行版）。
 // ---------------------------------------------------------------------------
 
 /** 单发行版概要视图：stats 仅对 Running 且非 docker-desktop 系探测；取不到为 null。 */
@@ -1176,7 +1197,7 @@ export interface WslDistroStatsResult {
   distros: WslDistroStatView[]
 }
 
-export type WslActionName = 'terminate' | 'boot'
+export type WslActionName = 'terminate' | 'boot' | 'shutdownAll'
 
 /** terminate 影响面：该发行版当前监听的 TCP 端口（复用 wslListeningSockets 数据）。 */
 export interface WslActionImpacts {
@@ -1186,13 +1207,32 @@ export interface WslActionImpacts {
   note?: string
 }
 
+/** shutdownAll 影响面：`wsl.exe --shutdown` 将停掉的全部发行版清单（语义 = 全停，
+ *  含 docker-desktop 系 —— 由 VM 级关停一并带走，note 显式标注，docs/09 §8.2）。 */
+export interface WslShutdownAllImpacts {
+  distros: Array<{ name: string; state: string }>
+  /** 将被一并停掉的 docker-desktop 系发行版名（空数组 = 无）。 */
+  dockerDesktopDistros: string[]
+  note?: string
+}
+
 export interface WslActionStart {
   confirmRequired: true
+  /** 判别字段（Start 分支之间互斥：shutdownAll 段见 WslShutdownAllStart）。 */
+  action?: 'terminate'
   impacts: WslActionImpacts
 }
 
+export interface WslShutdownAllStart {
+  confirmRequired: true
+  /** 判别字段（UI 依赖它与 terminate 段互斥收窄）。 */
+  action: 'shutdownAll'
+  impacts: WslShutdownAllImpacts
+}
+
 export interface WslActionPayload {
-  distro: string
+  /** terminate/boot 必填（网关按 action 分支校验）；shutdownAll 不需要（全停语义）。 */
+  distro?: string
   action: WslActionName
   confirmed?: boolean
 }
@@ -1204,6 +1244,18 @@ export interface WslActionResult {
   distro: string
   action: WslActionName
   /** wsl.exe 输出摘要（截断）。 */
+  detail?: string
+  error?: string
+}
+
+export interface WslShutdownAllResult {
+  confirmRequired?: undefined
+  ok: boolean
+  action: 'shutdownAll'
+  /** 执行前观测到的 Running 发行版数（0 = 结构化 no-op）。 */
+  runningBefore: number
+  /** 执行前观测到的发行版总数。 */
+  totalBefore: number
   detail?: string
   error?: string
 }
@@ -1476,6 +1528,18 @@ export interface AgentProvidersResult {
   monitorEnabled: boolean
   /** 本批探测时刻（unix 秒）；无探测数据为 null。 */
   probedAt: number | null
+}
+
+/** 夜间#1 批次（UX 验收 backlog：per-provider 单独重探，known-limitations §3.2）。
+ *  force 语义：绕过 60s 探测节流，立即 probeHealth + 落库 + 该家会话快照强刷。 */
+export interface AgentProbeProviderPayload {
+  providerId: number
+}
+export interface AgentProbeProviderResult {
+  /** 重探落库后该家投影（agent_providers 行视图）。 */
+  provider: AgentProviderView
+  /** 本次重探是否引起 health 变化（true = 落了一条 provider.health_changed 事件）。 */
+  healthChanged: boolean
 }
 
 // --- agents:sessions ---
@@ -1834,12 +1898,14 @@ export interface ChannelContract {
   'versions:check': [VersionsCheckPayload, VersionsCheckResult]
   'versions:update': [VersionsUpdatePayload, VersionsUpdateResult]
   'versions:job': [VersionsJobPayload, VersionJobSnapshot]
+  // 夜间#1 批次：docs/09 §7.2 cancelled 分支主动取消（job 快照轮询不变）
+  'versions:cancel': [VersionsCancelPayload, VersionsCancelResult]
   // --- docker (S4 batch, docs/09 §9, 按文档命名 overview/logs/action) ---
   'docker:overview': [DockerOverviewPayload, DockerOverviewResult]
   'docker:logs': [DockerLogsPayload, DockerLogsResult]
   'docker:action': [DockerActionPayload, DockerActionStart | DockerActionResult]
   // --- wsl (S4 batch, docs/09 §8.2/§9 授权并入的 2 条) ---
-  'wsl:action': [WslActionPayload, WslActionStart | WslActionResult]
+  'wsl:action': [WslActionPayload, WslActionStart | WslActionResult | WslShutdownAllStart | WslShutdownAllResult]
   'wsl:distroStats': [WslDistroStatsPayload, WslDistroStatsResult]
   // --- archive (S5 batch, docs/10 §11；run 为 CONFIRM_REQUIRED 两段式，
   //     且必须携带 preview 签发的 previewId——强制 dry-run，安全规则 1) ---
@@ -1863,6 +1929,8 @@ export interface ChannelContract {
   'agents:gatewayRestart': [AgentGatewayRestartPayload, AgentGatewayRestartStart | AgentGatewayRestartResult]
   'agents:setAutoStart': [AgentSetAutoStartPayload, AgentSetAutoStartResult]
   'agents:diagnostics': [AgentDiagnosticsPayload, AgentDiagnosticsResult]
+  // 夜间#1 批次：per-provider 单独重探（UX 验收 backlog，known-limitations §3.2）
+  'agents:probeProvider': [AgentProbeProviderPayload, AgentProbeProviderResult]
 }
 
 /** Compile-time assertion that ChannelContract covers exactly the whitelist. */

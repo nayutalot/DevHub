@@ -12,11 +12,12 @@
  * - 绝不自动启动更新、绝不在应用启动时跑 update。
  * 测试 seam：updateCommandOverride（夹具假命令 node -e 注入，smoke 用例 59 状态机验证用）。
  */
-import { run } from '../../core/exec.ts'
+import { run, spawnManaged, type ManagedProcess } from '../../core/exec.ts'
 import { getDatabase } from '../../db/index.ts'
 import type { CatalogEntry } from './catalog.ts'
 import { VERSION_CATALOG, findCatalogEntry } from './catalog.ts'
 import type {
+  VersionsCancelResult,
   VersionJobSnapshot,
   VersionStatus,
   VersionTargetKind,
@@ -278,6 +279,10 @@ interface UpdateJob {
   after?: VersionStatus
   startedAt: number
   finishedAt?: number
+  /** 夜间#1 批次：进行中更新命令的 spawnManaged 句柄（versions:cancel → killTree）。 */
+  handle?: ManagedProcess
+  /** github 流水线（内部多步 run()，无单一句柄）的合作式取消旗标（步间生效）。 */
+  cancelRequested?: boolean
 }
 
 const jobs = new Map<string, UpdateJob>()
@@ -350,11 +355,14 @@ function resolveUpdateCommand(e: CatalogEntry, deps: VcDeps | undefined): { comm
 
 async function runUpdateJobBody(e: CatalogEntry, job: UpdateJob, deps: VcDeps | undefined): Promise<void> {
   if (e.kind === 'github') {
-    // DeepSeek Harness 源码重建：多步流水线（每步超时内建于 github.ts），进度进日志
+    // DeepSeek Harness 源码重建：多步流水线（每步超时内建于 github.ts），进度进日志。
+    // 夜间#1：versions:cancel 为合作式取消（shouldAbort 步间生效），无单一句柄可 killTree。
     job.log.push(`$ ${GITHUB_UPDATE_COMMAND_TEXT}`)
     const outcome = await runGithubUpdate(deepseekRoot(deps), {
       onLine: (line) => job.log.push(line),
+      shouldAbort: () => job.cancelRequested === true,
     })
+    if (job.status !== 'running') return // cancelled 期间收尾：终态保持 cancelled
     if (!outcome.ok) {
       job.status = 'failed'
       job.error = (outcome.error ?? '无输出').slice(-1500)
@@ -365,17 +373,43 @@ async function runUpdateJobBody(e: CatalogEntry, job: UpdateJob, deps: VcDeps | 
   } else {
     const cmd = resolveUpdateCommand(e, deps)
     job.log.push(`$ ${cmd.text}`)
-    const r = await run(cmd.command, [...cmd.args], { timeoutMs: cmd.timeoutMs })
-    if (r.timedOut) {
+    // 夜间#1：更新命令改走 spawnManaged（受控长驻契约，docs/12 §3）——句柄挂 job，
+    // versions:cancel 经 killTree 真实中断（旧 run() 无 kill 缝，只能等超时兜底）。
+    // 心跳空闲上限与生命周期上限同值（更新命令静默期可达数分钟，防误杀），
+    // 总时长天花板 = 各通道文档超时（npm/winget 20min，native 自带更新器同前值）。
+    const lines: string[] = []
+    const proc = spawnManaged(cmd.command, [...cmd.args], {
+      lifetimeTimeoutMs: cmd.timeoutMs,
+      idleTimeoutMs: cmd.timeoutMs,
+      onStdout: (line) => {
+        lines.push(line)
+        job.log.push(line)
+      },
+      onStderr: (line) => {
+        lines.push(line)
+        job.log.push(line)
+      },
+    })
+    job.handle = proc
+    const exit = await proc.exited
+    job.handle = undefined
+    if (job.status !== 'running') return // cancelled 期间收尾：终态保持 cancelled
+    if (exit.reason === 'idle-timeout' || exit.reason === 'lifetime-timeout') {
       job.status = 'failed'
       job.error = `更新命令超时（${cmd.timeoutMs}ms），已终止`
       job.log.push(`✗ ${job.error}`)
       return
     }
-    if (r.code !== 0) {
+    if (exit.reason === 'spawn-error') {
       job.status = 'failed'
-      job.error = (r.stderr || r.stdout || '无输出').trim().slice(-1500)
-      job.log.push(`✗ 更新命令失败（退出码 ${r.code}）`)
+      job.error = exit.stderrTail.trim().slice(-1500) || 'spawn failed'
+      job.log.push(`✗ 更新命令无法启动：${job.error}`)
+      return
+    }
+    if (exit.code !== 0) {
+      job.status = 'failed'
+      job.error = (exit.stderrTail || lines.join('\n') || '无输出').trim().slice(-1500)
+      job.log.push(`✗ 更新命令失败（退出码 ${exit.code ?? -1}）`)
       if (e.kind === 'winget' && e.storeFallback === true) {
         job.log.push('ⓘ 商店系应用：可打开 Microsoft Store 手动更新')
       }
@@ -384,8 +418,11 @@ async function runUpdateJobBody(e: CatalogEntry, job: UpdateJob, deps: VcDeps | 
     job.log.push('✓ 更新命令执行成功，正在重新检查版本…')
   }
 
+  if (job.status !== 'running') return // cancelled 期间收尾：终态保持 cancelled
+
   // done 后自动重查一次（独立一轮检查，快照回写 version_targets）
   const after = await checkOneSafe(e, deps)
+  if (job.status !== 'running') return // 重查期间被取消：丢弃重查结果
   if (after.state !== 'check-failed') upsertStatusRow(after)
   job.after = after
   job.log.push(`✓ 更新完成：当前 ${after.installed ?? '?'}${after.latest !== null ? `（最新 ${after.latest}）` : ''}`)
@@ -418,6 +455,64 @@ export function startUpdateJob(e: CatalogEntry, deps?: VcDeps): VersionJobSnapsh
       job.finishedAt = job.finishedAt ?? nowSec()
     })
   return snapshot(job)
+}
+
+/**
+ * versions:cancel（夜间#1 批次，docs/09 §7.2 cancelled 分支的主动取消落地）：
+ *  - jobId 缺省：取消当前唯一活跃 job；零活跃 → 结构化空操作（不抛）；多个活跃 →
+ *    BAD_PAYLOAD 要求携带 jobId（消除"取消哪个"的歧义）；
+ *  - jobId 给定：不存在/已被清理 → NOT_FOUND（与 versions:job 同语义）；
+ *  - running → killTree（npm/winget/native：spawnManaged 句柄；github：合作式旗标，
+ *    流水线步间生效）+ 状态置 cancelled（终态，job body 的 running 守卫不会覆盖）；
+ *  - 已结束 → { cancelled:false, status, note } 结构化空操作。
+ */
+export async function cancelUpdateJob(jobId?: string): Promise<VersionsCancelResult> {
+  let target: UpdateJob | undefined
+  if (jobId !== undefined) {
+    target = jobs.get(jobId)
+    if (target === undefined) {
+      throw new ServiceError('NOT_FOUND', `更新任务不存在或已被清理: ${jobId}`)
+    }
+  } else {
+    const running = [...jobs.values()].filter((j) => j.status === 'running')
+    if (running.length === 0) {
+      return { cancelled: false, note: 'no active update job (structured no-op)' }
+    }
+    if (running.length > 1) {
+      const ids = running.map((j) => `${j.entryId}=${j.jobId}`).join(', ')
+      throw new ServiceError('BAD_PAYLOAD', `${running.length} update jobs are running; pass jobId explicitly (${ids})`)
+    }
+    target = running[0]
+  }
+
+  if (target.status !== 'running') {
+    return {
+      cancelled: false,
+      jobId: target.jobId,
+      entryId: target.entryId,
+      status: target.status,
+      note: 'job already finished; nothing to cancel',
+    }
+  }
+
+  target.cancelRequested = true
+  target.status = 'cancelled'
+  target.finishedAt = nowSec()
+  const handle = target.handle
+  if (handle !== undefined) {
+    target.log.push('✗ 已被用户取消（versions:cancel → killTree）')
+    await handle.killTree()
+    return { cancelled: true, jobId: target.jobId, entryId: target.entryId, status: 'cancelled' }
+  }
+  // github 流水线：无单一句柄，合作式取消（shouldAbort 在下一流水线步边界生效）
+  target.log.push('✗ 已被用户取消（versions:cancel；重建流水线于下一步边界收尾）')
+  return {
+    cancelled: true,
+    jobId: target.jobId,
+    entryId: target.entryId,
+    status: 'cancelled',
+    note: 'github rebuild pipeline cancelled cooperatively (takes effect at the next step boundary)',
+  }
 }
 
 // ---------------------------------------------------------------------------

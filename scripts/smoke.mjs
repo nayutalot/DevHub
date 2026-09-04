@@ -67,8 +67,11 @@ if (isEntrypoint()) {
   // （占用扫描即预览影响面）；archive:settings 不设专用 channel——dest_root 读写由
   // settings:get/set（key=archive_dest_root，003 种子已覆盖）承担。
   // AC2 批次 note（docs/14 §A.1 授权的同一模式就地更新）：agents 13 条并入，55 → 68。
+  // 夜间#1 批次 note（主控任务书授权的同一模式就地更新）：versions:cancel +
+  // agents:probeProvider 并入，68 → 70（docker:action 枚举扩 remove / wsl:action 扩
+  // shutdownAll 为既有 channel 的 payload 扩容，不新增白名单行）。
   // ------------------------------------------------------------------
-  registerCase('step1: channels whitelist has exactly 68 entries (AC2 就地更新 55→68) and IPC_GATEWAY', async () => {
+  registerCase('step1: channels whitelist has exactly 70 entries (夜间#1 就地更新 68→70) and IPC_GATEWAY', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     assert.equal(channels.IPC_GATEWAY, 'devhub:invoke', 'gateway channel')
     const expected = [
@@ -115,11 +118,12 @@ if (isEntrypoint()) {
       'apihub:saveProfile',
       'apihub:deleteProfile',
       'apihub:switch',
-      // S3 versions group (docs/09 §9)
+      // S3 versions group (docs/09 §9 + 夜间#1：cancel 主动取消)
       'versions:list',
       'versions:check',
       'versions:update',
       'versions:job',
+      'versions:cancel',
       // S4 docker group (docs/09 §9，按文档命名 overview/logs/action)
       'docker:overview',
       'docker:logs',
@@ -147,10 +151,12 @@ if (isEntrypoint()) {
       'agents:gatewayRestart',
       'agents:setAutoStart',
       'agents:diagnostics',
+      // 夜间#1 批次（per-provider 单独重探，UX 验收 backlog）
+      'agents:probeProvider',
     ]
-    assert.equal(channels.IPC_CHANNELS.length, 68, `expected 68 channels, got ${channels.IPC_CHANNELS.length}`)
+    assert.equal(channels.IPC_CHANNELS.length, 70, `expected 70 channels, got ${channels.IPC_CHANNELS.length}`)
     assert.deepEqual([...channels.IPC_CHANNELS], expected, 'whitelist must match docs/04 + docs/09 §9 + docs/10 §11 + docs/14 §A.1 exactly')
-    assert.equal(new Set(channels.IPC_CHANNELS).size, 68, 'no duplicate channels')
+    assert.equal(new Set(channels.IPC_CHANNELS).size, 70, 'no duplicate channels')
   })
 
   // ------------------------------------------------------------------
@@ -880,14 +886,14 @@ if (isEntrypoint()) {
   // CHANNEL_NOT_ALLOWED（文档权威原则，约束 #6）。
   // ------------------------------------------------------------------
   registerCase(
-    'step6: handler registry keys equal the 68-channel whitelist (AC2 就地更新 55→68); app:version returns injected value; unknown channel folds to CHANNEL_NOT_ALLOWED envelope',
+    'step6: handler registry keys equal the 70-channel whitelist (夜间#1 就地更新 68→70); app:version returns injected value; unknown channel folds to CHANNEL_NOT_ALLOWED envelope',
     async () => {
       const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
       const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
       const registry = handlers.createHandlerRegistry({ appVersion: '0.1.0-smoke' })
       const keys = Object.keys(registry).sort()
-      assert.equal(keys.length, 68, `registry must hold exactly 68 handlers, got ${keys.length}`)
+      assert.equal(keys.length, 70, `registry must hold exactly 70 handlers, got ${keys.length}`)
       assert.deepEqual(keys, [...channels.IPC_CHANNELS].sort(), 'registry keys must equal IPC_CHANNELS (no more, no less)')
 
       const version = await registry['app:version']({})
@@ -2970,7 +2976,8 @@ if (isEntrypoint()) {
 
     const registry = handlers.createHandlerRegistry({ appVersion: 's3-smoke' })
     const newChannels = channels.IPC_CHANNELS.filter((c) => c.startsWith('apihub:') || c.startsWith('versions:'))
-    assert.equal(newChannels.length, 10, `10 new channels whitelisted, got ${JSON.stringify(newChannels)}`)
+    // 夜间#1 就地更新：versions:cancel 并入，10 → 11（主控任务书授权的同一模式）
+    assert.equal(newChannels.length, 11, `11 apihub/versions channels whitelisted, got ${JSON.stringify(newChannels)}`)
     for (const ch of newChannels) {
       assert.ok(typeof registry[ch] === 'function', `${ch} has a registered handler`)
     }
@@ -3099,8 +3106,9 @@ if (isEntrypoint()) {
     assert.equal(Array.isArray(overview.data.containers), true, 'containers array present')
     assert.equal(typeof overview.data.images.count, 'number', 'images stats present')
 
-    // 非法 action 枚举 → BAD_PAYLOAD
-    for (const action of ['pause', 'rm', 'remove', 'start; reboot', 'STOP', '']) {
+    // 非法 action 枚举 → BAD_PAYLOAD（夜间#1 就地更新：remove 已是合法动作
+    // （docs/09 §8.3 DOUBLE_CONFIRM 落地），从非法清单移出，正反断言见 nb1-150）
+    for (const action of ['pause', 'rm', 'start; reboot', 'STOP', '']) {
       const rejected = await handlers.dispatchGatewayRequest(registry, { channel: 'docker:action', payload: { name: 'web-1', action } })
       assert.equal(rejected.ok, false, `action ${JSON.stringify(action)} must be rejected`)
       assert.equal(rejected.error.code, 'BAD_PAYLOAD', `invalid action enum folds to BAD_PAYLOAD (got ${JSON.stringify(action)})`)
@@ -3363,14 +3371,15 @@ if (isEntrypoint()) {
   })
 
   // 68. handlers 编译期白名单覆盖断言更新（45→50，S5 就地更新 50→55，
-  //  docs/10 §11 授权的同一模式；AC2 就地更新 55→68，docs/14 §A.1 授权同一模式）：
+  //  docs/10 §11 授权的同一模式；AC2 就地更新 55→68，docs/14 §A.1 授权同一模式；
+  //  夜间#1 就地更新 68→70，主控任务书授权）：
   //  registry 键集 = 白名单 = 契约覆盖
-  registerCase('s4-68: whitelist 45→50 (S5 就地更新为 55，AC2 就地更新 55→68) — registry keys equal the whitelist and the compile-time contract assertion holds', async () => {
+  registerCase('s4-68: whitelist 45→50 (S5 就地更新为 55，AC2 就地更新 55→68，夜间#1 就地更新 68→70) — registry keys equal the whitelist and the compile-time contract assertion holds', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
-    assert.equal(channels.IPC_CHANNELS.length, 68, 'whitelist extended 45 → 50 (S4), 50 → 55 (S5 archive), 55 → 68 (AC2 agents, docs/14 §A.1)')
-    assert.equal(new Set(channels.IPC_CHANNELS).size, 68, 'no duplicates after extension')
+    assert.equal(channels.IPC_CHANNELS.length, 70, 'whitelist extended 45 → 50 (S4), 50 → 55 (S5 archive), 55 → 68 (AC2 agents), 68 → 70 (夜间#1 versions:cancel + agents:probeProvider)')
+    assert.equal(new Set(channels.IPC_CHANNELS).size, 70, 'no duplicates after extension')
     // 编译期断言 AssertContractCoversWhitelist 的解析产物（ChannelContract 恰好覆盖白名单）
     assert.equal(handlers.contractCoversWhitelist, true, 'ChannelContract covers exactly the whitelist (compile-time, observed at runtime)')
 
@@ -9411,6 +9420,329 @@ if (isEntrypoint()) {
     assert.ok(snap['db-to-ws'].p50Ms > 400, 'ring keeps only the latest window (p50=' + snap['db-to-ws'].p50Ms + ')')
     lat.resetLatencyStats()
     assert.equal(lat.latencySnapshot()['source-to-db'].count, 0, 'reset clears everything')
+  })
+
+  // ==================================================================
+  // 夜间#1 批次（服务端积压补齐，主控任务书授权）：nb1-150…nb1-154 追加。
+  //  - nb1-150 docker:action remove（docs/09 §8.3 DOUBLE_CONFIRM 落地）
+  //  - nb1-151 wsl:action shutdownAll（docs/09 §8.2 CONFIRM_REQUIRED + 二次确认文案）
+  //  - nb1-152 versions:cancel（docs/09 §7.2 cancelled 分支主动取消）
+  //  - nb1-153 agents:probeProvider（per-provider 单独重探正反，known-limitations §3.2）
+  //  - nb1-154 WS delivery 修复（设备投递行 upsert + sendFrame 缓冲写语义）
+  // 铁律：夹具化（makeTempHome / withIsolatedHome 同源模式）；绝不真删用户容器、
+  // 绝不真停宿主 WSL（confirmed 段只做 argv 纯度 + 结构化断言，破坏性执行不进 smoke）。
+  // ==================================================================
+
+  // 150. docker remove：argv 纯度（rm 字面量、不带 -f）；枚举正反；daemon down 结构化降级；
+  //      daemon up 时容器不存在 → NOT_FOUND（存在性先于确认门）；两段式 dry 门（绝不真删）
+  registerCase('nb1-150: docker remove — argv purity (rm literal, no -f), enum round-trip, daemon-down degrade, NOT_FOUND before the gate, two-phase dry gate never deletes', async () => {
+    const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
+    const dockerService = await import(new URL('../src/main/services/dockerService.ts', import.meta.url).href)
+    const dockerAdapter = await import(new URL('../src/main/adapters/docker.ts', import.meta.url).href)
+
+    // 纯函数：remove 映射 docker CLI 字面量 `rm`，单参数数组、无 shell、无 -f（绝不静默强杀）
+    assert.deepEqual(dockerService.containerActionArgs('remove', 'web'), ['rm', 'web'], 'remove argv is the rm literal')
+    assert.deepEqual(dockerService.containerActionArgs('remove', 'abc123'), ['rm', 'abc123'], 'no shell, no flag injection surface')
+
+    const registry = handlers.createHandlerRegistry({ appVersion: 'nb1-smoke' })
+    // 反向：remove + 注入样式 name 仍走同一 BAD_PAYLOAD 校验
+    for (const name of ['a; rm -rf /', '$(id)', '-9sh']) {
+      const rejected = await handlers.dispatchGatewayRequest(registry, { channel: 'docker:action', payload: { name, action: 'remove' } })
+      assert.equal(rejected.ok, false, `injection-style name ${JSON.stringify(name)} must be rejected for remove`)
+      assert.equal(rejected.error.code, 'BAD_PAYLOAD')
+    }
+    // 正向：remove 进枚举（s4-62 非法清单已按夜间#1 就地更新移出 remove）
+    const info = await dockerAdapter.dockerInfo()
+
+    const dryProbe = await handlers.dispatchGatewayRequest(registry, { channel: 'docker:action', payload: { name: 'no-such-container-zz', action: 'remove' } })
+    if (!info.daemonAvailable) {
+      // daemon down → 结构化降级（envelope ok，未执行）
+      assert.equal(dryProbe.ok, true, 'daemon down: remove degrades in-band')
+      assert.equal(dryProbe.data.ok, false)
+      assert.equal(dryProbe.data.degraded, true)
+      envSkipNote('docker daemon down at run time: remove verified down to the degrade boundary only')
+      return
+    }
+    // daemon up：容器不存在 → NOT_FOUND（存在性校验先于确认门，绝不泄露确认面）
+    assert.equal(dryProbe.ok, false, 'daemon up + unknown container folds to NOT_FOUND')
+    assert.equal(dryProbe.error.code, 'NOT_FOUND')
+
+    const containers = await dockerAdapter.listContainers()
+    if (containers.length === 0) {
+      envSkipNote('no containers at run time: two-phase dry gate on a real container skipped')
+      return
+    }
+    const target = containers[0]
+    // 两段式 dry：不带 confirmed → confirmRequired + impacts（名/镜像/状态/note，ports 恒空），
+    // 绝不执行删除 —— 绝不带 confirmed 重发（真删不进 smoke）
+    const gate = await handlers.dispatchGatewayRequest(registry, { channel: 'docker:action', payload: { name: target.name, action: 'remove' } })
+    assert.equal(gate.ok, true, `remove gate dispatches, error=${gate.ok ? '' : gate.error.message}`)
+    assert.equal(gate.data.confirmRequired, true, 'two-phase gate returned')
+    assert.equal(gate.data.impacts.name, target.name, 'impacts name')
+    assert.equal(gate.data.impacts.image, target.image ?? undefined, 'impacts image')
+    assert.deepEqual(gate.data.impacts.ports, [], 'remove impacts carry no ports (deletion is port-irrelevant)')
+    assert.ok(gate.data.impacts.note !== undefined && gate.data.impacts.note.length > 0, 'remove impacts carry the data-impact note')
+    const after = await dockerAdapter.listContainers()
+    assert.ok(after.some((c) => c.dockerId === target.dockerId), 'dry gate must NOT delete the container (dry proof)')
+  })
+
+  // 151. wsl shutdownAll：argv 纯度（--shutdown 字面量）；payload 形状（带 distro → BAD_PAYLOAD；
+  //      旧非法字面量 shutdown 仍 BAD_PAYLOAD）；两段式 dry 门（清单 = 实时发行版全集）+
+  //      dry 证明（状态零变化）。绝不真停宿主 WSL —— confirmed 执行不进 smoke（破坏宿主 VM）
+  registerCase('nb1-151: wsl shutdownAll — argv purity, payload shape (no distro param), two-phase dry gate lists every distro, dry proof (zero state change)', async () => {
+    const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
+    const wslService = await import(new URL('../src/main/services/wslService.ts', import.meta.url).href)
+    const wslAdapter = await import(new URL('../src/main/adapters/wsl.ts', import.meta.url).href)
+
+    // 纯函数：VM 级全停 = 单一 --shutdown 字面量（参数数组经 exec，绝不拼 shell）
+    assert.deepEqual(wslService.shutdownAllArgs(), ['--shutdown'], 'shutdownAll argv is the --shutdown literal')
+
+    const registry = handlers.createHandlerRegistry({ appVersion: 'nb1-smoke' })
+    // 形状：shutdownAll 不接受 distro 参数（全停语义，防"单发行版关停"误导）
+    const withDistro = await handlers.dispatchGatewayRequest(registry, { channel: 'wsl:action', payload: { distro: 'Ubuntu', action: 'shutdownAll' } })
+    assert.equal(withDistro.ok, false, 'shutdownAll must reject a distro parameter')
+    assert.equal(withDistro.error.code, 'BAD_PAYLOAD')
+    // 旧非法字面量 shutdown 仍是 BAD_PAYLOAD（与 shutdownAll 严格区分）
+    const badLiteral = await handlers.dispatchGatewayRequest(registry, { channel: 'wsl:action', payload: { action: 'shutdown' } })
+    assert.equal(badLiteral.error.code, 'BAD_PAYLOAD', 'shutdown (without All) stays invalid')
+
+    const distros = await wslAdapter.listDistros()
+    if (distros.length === 0) {
+      envSkipNote('wsl.exe -l -v returned no distros at run time (transient host state)')
+      return
+    }
+    // 两段式 dry：confirmRequired + 全量清单 + docker-desktop 单列 + note；只读探测绝不唤醒已停发行版
+    const gate = await handlers.dispatchGatewayRequest(registry, { channel: 'wsl:action', payload: { action: 'shutdownAll' } })
+    assert.equal(gate.ok, true, `shutdownAll gate dispatches, error=${gate.ok ? '' : gate.error.message}`)
+    assert.equal(gate.data.confirmRequired, true, 'two-phase gate returned')
+    assert.equal(gate.data.impacts.distros.length, distros.length, 'impacts list every known distro (stop-all semantics)')
+    assert.deepEqual(
+      gate.data.impacts.distros.map((d) => d.name).sort(),
+      distros.map((d) => d.name).sort(),
+      'impacts names match the live list exactly',
+    )
+    assert.deepEqual(
+      gate.data.impacts.dockerDesktopDistros,
+      distros.filter((d) => d.name.toLowerCase().startsWith('docker-desktop')).map((d) => d.name),
+      'docker-desktop distros listed separately',
+    )
+    assert.ok(gate.data.impacts.note.includes('--shutdown'), 'note names the wsl.exe --shutdown action')
+    assert.ok(gate.data.impacts.note.toLowerCase().includes('not boot'), 'note states stopped distros are NOT booted')
+    // dry 证明：gate 前后发行版状态逐一相同（列表探测零副作用）
+    const after = await wslAdapter.listDistros()
+    assert.deepEqual(
+      after.map((d) => `${d.name}:${d.state}`).sort(),
+      distros.map((d) => `${d.name}:${d.state}`).sort(),
+      'dry gate must not change any distro state',
+    )
+    // confirmed 执行（wsl --shutdown 会停掉宿主整个 WSL VM）：绝不进 smoke，argv 纯度已断言
+  })
+
+  // 152. versions:cancel：无活跃任务 → 结构化空操作；长任务 killTree 中断 → cancelled 终态；
+  //      多活跃任务无 jobId → BAD_PAYLOAD 消歧；未知 jobId → NOT_FOUND；已结束 → no-op；
+  //      dispatch envelope 全链路
+  registerCase('nb1-152: versions:cancel — structured no-op with zero running jobs, killTree interrupts a long update job to terminal cancelled, multi-running BAD_PAYLOAD without jobId, unknown NOT_FOUND, finished no-op, dispatch envelope', async () => {
+    const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+    const catalog = await import(new URL('../src/main/services/versionCenter/catalog.ts', import.meta.url).href)
+    const svc = await import(new URL('../src/main/services/versionCenter/versionService.ts', import.meta.url).href)
+    const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
+
+    await makeTempHome('devhub-nb1-152-')
+    // 长任务夹具命令：60s 心跳 setInterval（绝不自然结束，等 cancel killTree 收尾）
+    const longArgs = ['-e', 'setInterval(() => {}, 60000)']
+    try {
+      // (a) 零活跃任务：结构化空操作（不抛）
+      const idle = await svc.cancelUpdateJob()
+      assert.equal(idle.cancelled, false, 'zero running jobs -> structured no-op')
+      assert.ok(idle.note !== undefined && idle.note.length > 0, 'no-op carries a structured note')
+
+      // (b) 长任务 → cancel(jobId) → killTree → cancelled 终态
+      const kimi = catalog.findCatalogEntry('kimi-cli')
+      const job = svc.startUpdateJob(kimi, { updateCommandOverride: { command: process.execPath, args: longArgs } })
+      assert.equal(job.status, 'running', 'long job starts running')
+      const stopped = await svc.cancelUpdateJob(job.jobId)
+      assert.equal(stopped.cancelled, true, 'cancel reports a real cancellation')
+      assert.equal(stopped.status, 'cancelled')
+      assert.equal(stopped.entryId, 'kimi-cli')
+      const snap = svc.jobSnapshot(job.jobId)
+      assert.equal(snap.status, 'cancelled', 'job snapshot reaches terminal cancelled')
+      assert.ok(snap.log.some((l) => l.includes('cancel')), 'job log records the cancellation')
+      await new Promise((r) => setTimeout(r, 800)) // killTree 树杀收尾余量（不留孤儿 node 进程）
+
+      // (c) 已取消任务再 cancel → no-op（终态不被改写）
+      const again = await svc.cancelUpdateJob(job.jobId)
+      assert.equal(again.cancelled, false, 're-cancel of a finished job is a no-op')
+      assert.equal(again.status, 'cancelled', 'terminal state preserved')
+
+      // (d) 未知 jobId → NOT_FOUND
+      let missing = null
+      try {
+        await svc.cancelUpdateJob('vc-nope')
+      } catch (err) {
+        missing = err
+      }
+      assert.equal(missing?.code, 'NOT_FOUND')
+
+      // (e) 双活跃任务 + 无 jobId → BAD_PAYLOAD 消歧（要求显式 jobId）
+      const grok = catalog.findCatalogEntry('grok-cli')
+      const j1 = svc.startUpdateJob(kimi, { updateCommandOverride: { command: process.execPath, args: longArgs } })
+      const j2 = svc.startUpdateJob(grok, { updateCommandOverride: { command: process.execPath, args: longArgs } })
+      let ambiguous = null
+      try {
+        await svc.cancelUpdateJob()
+      } catch (err) {
+        ambiguous = err
+      }
+      assert.equal(ambiguous?.code, 'BAD_PAYLOAD', 'multiple running jobs without jobId folds to BAD_PAYLOAD')
+      const c1 = await svc.cancelUpdateJob(j1.jobId)
+      const c2 = await svc.cancelUpdateJob(j2.jobId)
+      assert.equal(c1.cancelled && c2.cancelled, true, 'both jobs cancellable by explicit jobId')
+      await new Promise((r) => setTimeout(r, 800))
+
+      // (f) dispatch envelope：registry 全链路（空任务 no-op / 空 jobId BAD_PAYLOAD / 未知 NOT_FOUND）
+      const registry = handlers.createHandlerRegistry({ appVersion: 'nb1-smoke' })
+      const envIdle = await handlers.dispatchGatewayRequest(registry, { channel: 'versions:cancel', payload: {} })
+      assert.equal(envIdle.ok, true, 'versions:cancel dispatches')
+      assert.equal(envIdle.data.cancelled, false, 'envelope no-op with zero running jobs')
+      const envEmpty = await handlers.dispatchGatewayRequest(registry, { channel: 'versions:cancel', payload: { jobId: '' } })
+      assert.equal(envEmpty.error.code, 'BAD_PAYLOAD', 'empty jobId folds to BAD_PAYLOAD')
+      const envMissing = await handlers.dispatchGatewayRequest(registry, { channel: 'versions:cancel', payload: { jobId: 'vc-nope' } })
+      assert.equal(envMissing.error.code, 'NOT_FOUND', 'unknown jobId folds to NOT_FOUND')
+    } finally {
+      dbModule.closeDatabase()
+    }
+  })
+
+  // 153. agents:probeProvider：stub provider 单家重探（health 落库 + lastProbeAt 戳 +
+  //      health_changed 事件 + 该家会话快照强刷）；二次重探无变化 → healthChanged:false；
+  //      未注册 providerId → NOT_FOUND；形状非法 → BAD_PAYLOAD
+  registerCase('nb1-153: agents:probeProvider — single-provider force probe persists health + refreshes that provider sessions + health_changed on change, second probe healthChanged:false, unknown NOT_FOUND, malformed BAD_PAYLOAD', async () => {
+    const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+    const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
+    const svc = await import(new URL('../src/main/services/agentControl/agentControlService.ts', import.meta.url).href)
+
+    await makeTempHome('devhub-nb1-153-')
+    const registry = handlers.createHandlerRegistry({ appVersion: 'nb1-smoke' })
+    const dispatch = (channel, payload) => handlers.dispatchGatewayRequest(registry, { channel, payload })
+    try {
+      // 五家全部夹具化（hermetic：真机探测绝不进 smoke，ac2-87 先例）
+      svc.setProviderOverride('codex', stubAgentProvider('codex', { health: 'ok', installed: true, version: '1.2.3', sessions: [
+        { nativeId: 'nb1-probe-sess', title: 'nb1 probe session', lastActivityAt: Math.floor(Date.now() / 1000) },
+      ] }))
+      svc.setProviderOverride('claude-code', stubAgentProvider('claude-code'))
+      svc.setProviderOverride('kimi', stubAgentProvider('kimi'))
+      svc.setProviderOverride('zcode', stubAgentProvider('zcode'))
+      svc.setProviderOverride('deepseek', stubAgentProvider('deepseek'))
+
+      // catalog ensure（probeProviderById 内部也会 ensure，这里顺带拿 codex 行 id）
+      const providers = await dispatch('agents:providers', {})
+      assert.equal(providers.ok, true, 'providers list dispatches (catalog ensured)')
+      const codex = providers.data.providers.find((p) => p.displayName === 'Codex')
+      assert.ok(codex !== undefined, 'codex row present')
+
+      // 夹具态拨弄：list 轮询已触发过一次全量探测（unknown -> ok 已发事件），这里把
+      // codex 行 health 直拨 'degraded'，让显式重探的「变化沿」可观测
+      const db = dbModule.getDatabase()
+      db.prepare("UPDATE agent_providers SET health = 'degraded', health_detail = 'nb1 fixture flip' WHERE provider = 'codex'").run()
+
+      // 正向：单家重探 → 落库投影 + 会话强刷（stub listSessions 的快照落为会话行）
+      const probe = await dispatch('agents:probeProvider', { providerId: codex.id })
+      assert.equal(probe.ok, true, `probe dispatches, error=${probe.ok ? '' : probe.error.message}`)
+      assert.equal(probe.data.provider.health, 'ok', 'stub health persisted and projected')
+      assert.equal(probe.data.provider.version, '1.2.3', 'version persisted')
+      assert.ok(probe.data.provider.lastProbeAt !== null, 'lastProbeAt stamped by the force probe')
+      assert.equal(probe.data.healthChanged, true, 'degraded -> ok is a health change')
+      const sess = db.prepare("SELECT id FROM agent_sessions WHERE native_id = 'nb1-probe-sess'").get()
+      assert.ok(sess !== undefined, 'force probe refreshed that provider sessions (snapshot upserted)')
+      const ev = db.prepare("SELECT id FROM agent_events WHERE event_type = 'provider.health_changed' AND payload_json LIKE '%codex%'").get()
+      assert.ok(ev !== undefined, 'provider.health_changed event recorded on change')
+
+      // 二次重探：health 无变化 → healthChanged:false（不再重复发事件）
+      const probe2 = await dispatch('agents:probeProvider', { providerId: codex.id })
+      assert.equal(probe2.ok, true)
+      assert.equal(probe2.data.healthChanged, false, 'unchanged health records no event')
+
+      // 反向：未注册 providerId → NOT_FOUND；形状非法 → BAD_PAYLOAD
+      const unknown = await dispatch('agents:probeProvider', { providerId: 424242 })
+      assert.equal(unknown.ok, false, 'unregistered provider folds to NOT_FOUND')
+      assert.equal(unknown.error.code, 'NOT_FOUND')
+      for (const bad of [{ providerId: 0 }, { providerId: -1 }, { providerId: 'x' }, {}]) {
+        const rejected = await dispatch('agents:probeProvider', bad)
+        assert.equal(rejected.ok, false, `malformed payload ${JSON.stringify(bad)} rejected`)
+        assert.equal(rejected.error.code, 'BAD_PAYLOAD')
+      }
+    } finally {
+      svc.clearProviderOverrides()
+      svc.stopAllAgentControlRuntime()
+      dbModule.closeDatabase()
+    }
+  })
+
+  // 154. WS delivery 修复（ux-final-report §4.3/§8 遗留）：设备投递行 upsert ——
+  //      事件先于配对落库（零 deliveries 行）→ markEventDelivered 补建 delivered 行 +
+  //      聚合推进；markEventAcked 补建 acked 行（delivered_at 补齐）；只前进不回退；
+  //      ack 后移出补发集；sendFrame 把缓冲写（write=false）计为已发出
+  registerCase('nb1-154: ws delivery repair — late-paired device gets an INSERTed delivered row on markEventDelivered and the aggregate advances, markEventAcked upserts acked (delivered_at backfilled), forward-only preserved, acked leaves the replay set, sendFrame counts a buffered (false) write as sent', async () => {
+    const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+    const ep = await import(new URL('../src/main/services/agentControl/eventPipeline.ts', import.meta.url).href)
+    const wsMod = await import(new URL('../src/main/services/agentControl/gateway/ws.ts', import.meta.url).href)
+
+    await makeTempHome('devhub-nb1-154-')
+    const db = dbModule.getDatabase()
+    try {
+      const now = Math.floor(Date.now() / 1000)
+      // 事件先落库（此刻零活跃设备 → 零 deliveries 行），设备后配对（late-paired）
+      const rec1 = ep.recordEvent({ eventType: 'session.status_changed', providerKey: 'codex', nativeId: 'nb1-late', payload: { from: 'running', to: 'waiting_input' }, fingerprint: 'nb1-154-fp-1' })
+      assert.equal(rec1.recorded, true)
+      assert.equal(rec1.deliveries, 0, 'no active devices -> zero delivery rows at record time')
+      assert.equal(db.prepare('SELECT COUNT(*) c FROM event_deliveries WHERE event_id = ?').get(rec1.sequence).c, 0)
+
+      const devInfo = db
+        .prepare(
+          "INSERT INTO remote_devices (device_name, platform, token_hash, token_version, status, paired_at, created_at, updated_at) VALUES ('nb1-late-phone', 'android', 'nb1-154-token-hash', 1, 'active', ?, ?, ?)",
+        )
+        .run(now, now, now)
+      const deviceId = Number(devInfo.lastInsertRowid)
+
+      // WS push / sync 补发真实送达 → markEventDelivered：旧行为零更新 → 现在补建 delivered 行，
+      // 聚合不再恒 pending（修复点 1）
+      const delivered = ep.markEventDelivered(rec1.sequence, deviceId)
+      assert.equal(delivered.updated, true, 'delivery recorded for the late-paired device')
+      assert.equal(delivered.state, 'delivered', 'aggregate advances to delivered')
+      const dRow = db.prepare('SELECT status, delivered_at FROM event_deliveries WHERE event_id = ? AND device_id = ?').get(rec1.sequence, deviceId)
+      assert.equal(dRow.status, 'delivered', 'delivered row INSERTed (was missing entirely)')
+      assert.ok(dRow.delivered_at !== null, 'delivered_at stamped')
+
+      // ack：可跳过 delivered 直达；同样补建行语义（修复点 1 的 ack 面）
+      const rec2 = ep.recordEvent({ eventType: 'message.appended', providerKey: 'codex', nativeId: 'nb1-late', payload: { role: 'user' }, fingerprint: 'nb1-154-fp-2' })
+      const acked = ep.markEventAcked(rec2.sequence, deviceId)
+      assert.equal(acked.updated, true)
+      assert.equal(acked.state, 'acked', 'ack advances the aggregate (pending -> acked direct)')
+      const aRow = db.prepare('SELECT status, delivered_at, acked_at FROM event_deliveries WHERE event_id = ? AND device_id = ?').get(rec2.sequence, deviceId)
+      assert.equal(aRow.status, 'acked', 'acked row INSERTed')
+      assert.ok(aRow.delivered_at !== null && aRow.acked_at !== null, 'delivered_at backfilled on ack (semantic: delivered before acked)')
+
+      // rec1 推进到 acked 后：只前进（delivered 拒绝回退）
+      const acked1 = ep.markEventAcked(rec1.sequence, deviceId)
+      assert.equal(acked1.state, 'acked')
+      const regressed = ep.markEventDelivered(rec1.sequence, deviceId)
+      assert.equal(regressed.updated, false, 'delivered-after-acked stays a forward-only no-op')
+      assert.equal(regressed.state, 'acked', 'no regression')
+
+      // ack 后移出补发集（未确认不删，ack 即移出——重连补发窗口语义不变）
+      const page = ep.eventsSince(0, deviceId)
+      assert.ok(page.events.every((e) => e.sequence !== rec1.sequence && e.sequence !== rec2.sequence), 'acked events leave the replay set')
+
+      // 修复点 2：sendFrame 把「write 返回 false（已接受进缓冲，随后必然冲刷）」计为已发出，
+      // 不再漏掉 markEventDelivered（慢链路/隧道背压场景）
+      const fakeSocket = { write: () => false, on: () => {}, destroy: () => {} }
+      const conn = new wsMod.GatewayWsConnection(deviceId, 'nb1-probe', fakeSocket, { onText() {}, onClosed() {} }, 30000, 10000)
+      assert.equal(conn.sendFrame({ type: 'hello', sequence: 0, device: deviceId, heartbeatSec: 30 }), true, 'buffered write (write=false) counts as sent')
+      conn.closed = true
+      assert.equal(conn.sendFrame({ type: 'hello', sequence: 0, device: deviceId, heartbeatSec: 30 }), false, 'closed connection still reports not-sent')
+    } finally {
+      dbModule.closeDatabase()
+    }
   })
 
   await run()

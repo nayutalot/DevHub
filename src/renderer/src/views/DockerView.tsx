@@ -5,8 +5,9 @@
  * daemon 不可用是常态而非异常：横幅展示结构化 reason（可展开）+ 降级文案，
  * 容器/镜像区显示引导空态，绝不白屏（约束 #26）。
  * 动作：每行 Start/Stop/Restart（CONFIRM_REQUIRED 两段式 —— 第一段返回 impacts
- * （容器现状/发布端口/关联项目）经确认弹窗展示，确认后 confirmed 重发）+ Logs
- * （内联日志面板，tail 100/200/500 可选，>64KB 提示截断）。三态强制（约束 #24）。
+ * （容器现状/发布端口/关联项目）经确认弹窗展示，确认后 confirmed 重发）+ Remove
+ * （DOUBLE_CONFIRM：服务端两段式之上，确认弹窗要求输入容器名精确匹配，docs/09 §8.1）+
+ * Logs（内联日志面板，tail 100/200/500 可选，>64KB 提示截断）。三态强制（约束 #24）。
  */
 
 import { useState } from 'react'
@@ -43,19 +44,29 @@ export function DockerView() {
   async function runAction(name: string, action: DockerActionName): Promise<void> {
     setBusy(`${name}:${action}`)
     try {
-      // 第一段：confirmRequired + impacts（容器现状/发布端口/关联项目）
+      // 第一段：confirmRequired + impacts（容器现状/发布端口/关联项目；remove 另带
+      // 数据面影响 note —— docs/09 §8.3 DOUBLE_CONFIRM 档，夜间#1 批次落地）
       const first = await call('docker:action', { name, action })
       if (first.confirmRequired === true) {
-        if (window.confirm(buildConfirmText(action, first.impacts))) {
-          // 第二段：confirmed 执行
-          const done = await call('docker:action', { name, action, confirmed: true })
-          if (done.confirmRequired === true) return
-          if (done.ok) {
-            show(`${done.name}: ${done.action} ok${done.detail !== undefined ? ` — ${done.detail}` : ''}`)
-            overview.refresh()
-          } else {
-            show(`${done.name}: ${done.action} failed — ${done.error ?? 'unknown error'}`, 'err')
+        if (action === 'remove') {
+          // DOUBLE_CONFIRM：额外输入容器名匹配（docs/09 §8.1「输入容器名匹配」），
+          // 不匹配 / 取消 → 绝不发 confirmed
+          const typed = window.prompt(buildConfirmText(action, first.impacts) + `\n\nType the container name "${first.impacts.name}" to confirm removal:`)
+          if (typed === null || typed.trim() !== first.impacts.name) {
+            show('remove cancelled — name did not match', 'err')
+            return
           }
+        } else if (!window.confirm(buildConfirmText(action, first.impacts))) {
+          return
+        }
+        // 第二段：confirmed 执行
+        const done = await call('docker:action', { name, action, confirmed: true })
+        if (done.confirmRequired === true) return
+        if (done.ok) {
+          show(`${done.name}: ${done.action === 'remove' ? 'removed' : `${done.action}ed`}${done.detail !== undefined ? ` — ${done.detail}` : ''}`)
+          overview.refresh()
+        } else {
+          show(`${done.name}: ${done.action} failed — ${done.error ?? 'unknown error'}`, 'err')
         }
         return
       }
@@ -150,6 +161,18 @@ export function DockerView() {
                                   {action}
                                 </button>
                               ))}
+                              <button
+                                type="button"
+                                className="btn btn-small btn-danger"
+                                disabled={busy !== null}
+                                title={`remove ${c.name} (double confirm: type the container name)`}
+                                onClick={() => {
+                                  void runAction(c.name, 'remove')
+                                }}
+                              >
+                                {busy === `${c.name}:remove` ? <Spinner /> : null}
+                                remove
+                              </button>
                               <button
                                 type="button"
                                 className="btn btn-small"
@@ -256,11 +279,17 @@ function DaemonBanner({ status }: { status: { available: boolean; clientVersion?
 
 function buildConfirmText(action: DockerActionName, impacts: DockerActionImpacts): string {
   const ports = impacts.ports.length > 0 ? formatPorts(impacts.ports) : '—'
-  const lines = [
-    `Confirm "${action}" on container "${impacts.name}"?`,
-    `image: ${impacts.image ?? '—'} · state: ${impacts.state ?? '?'} · project: ${impacts.project ?? 'unknown'}`,
-    `published ports: ${ports}`,
-  ]
+  const lines =
+    action === 'remove'
+      ? [
+          `Confirm REMOVE of container "${impacts.name}"?`,
+          `image: ${impacts.image ?? '—'} · state: ${impacts.state ?? '?'} · project: ${impacts.project ?? 'unknown'}`,
+        ]
+      : [
+          `Confirm "${action}" on container "${impacts.name}"?`,
+          `image: ${impacts.image ?? '—'} · state: ${impacts.state ?? '?'} · project: ${impacts.project ?? 'unknown'}`,
+          `published ports: ${ports}`,
+        ]
   if (impacts.note !== undefined) lines.push(impacts.note)
   return lines.join('\n')
 }

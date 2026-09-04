@@ -255,6 +255,11 @@ export function recordCommandResult(input: {
 //   - 设备粒度：带 deviceId 时先动 event_deliveries 行，再聚合 agent_events
 //     （全 acked → acked；全 ≥delivered → delivered；否则保持 pending——docs/13
 //     §4.7「聚合态由 L3 维护」的本实现落点）。
+// 夜间#1 修复（ux-final-report §4.3/§8 遗留「WS delivery_state 恒 pending」）：
+//   设备行从「仅 UPDATE 已存在行」改为 upsert——事件先于设备配对落库时
+//   recordEvent 不会为后配对设备建行，WS push / sync 补发真实送达后旧行为零更新
+//   → 投递无行可记且聚合恒 pending。现在送达即补建 delivered 行、ack 即补建
+//   acked 行（各自受只前进 WHERE 守卫约束，绝不回退既有状态）。
 // 未确认事件绝不删除：本模块与整个 AC 域不存在任何 DELETE agent_events /
 // DELETE event_deliveries 路径（smoke 静态断言，T13 配套）。
 // ---------------------------------------------------------------------------
@@ -310,8 +315,38 @@ function advanceAggregate(eventId: number, target: EventDeliveryState, at: numbe
 }
 
 /**
+ * 设备投递行 upsert（夜间#1 修复，ux-final-report §4.3/§8 遗留）：
+ * WS push / sync 补发对某设备真实发出 event 帧，但该 (event, device) 行可能不存在
+ * ——事件落库先于设备配对时 recordEvent 只为当时 active 的设备建行。旧行为零更新
+ * → 投递既无行可记、聚合也永不前进（delivery_state 恒 pending）。
+ * 现语义：行缺失即插入目标态行；行存在则只在「只前进」窗口内更新（WHERE 守卫：
+ * delivered 不回退 pending，acked 不回退 delivered/pending）。
+ */
+function upsertDeviceDeliveryRow(
+  db: ReturnType<typeof getDatabase>,
+  eventId: number,
+  deviceId: number,
+  target: 'delivered' | 'acked',
+  at: number,
+): boolean {
+  const sql =
+    target === 'delivered'
+      ? `INSERT INTO event_deliveries (event_id, device_id, status, delivered_at, created_at)
+         VALUES (?, ?, 'delivered', ?, ?)
+         ON CONFLICT(event_id, device_id) DO UPDATE SET status = 'delivered', delivered_at = excluded.delivered_at
+         WHERE event_deliveries.status = 'pending'`
+      : `INSERT INTO event_deliveries (event_id, device_id, status, delivered_at, acked_at, created_at)
+         VALUES (?, ?, 'acked', ?, ?, ?)
+         ON CONFLICT(event_id, device_id) DO UPDATE SET
+           status = 'acked', acked_at = excluded.acked_at, delivered_at = COALESCE(delivered_at, excluded.delivered_at)
+         WHERE event_deliveries.status IN ('pending', 'delivered')`
+  const runArgs = target === 'delivered' ? [eventId, deviceId, at, at] : [eventId, deviceId, at, at, at]
+  return Number(db.prepare(sql).run(...runArgs).changes) > 0
+}
+
+/**
  * 标记已投递（pending → delivered；供 AC6 Gateway WS 发送成功后调用）。
- * 带 deviceId：先推进该设备的 event_deliveries 行，再聚合事件行；
+ * 带 deviceId：先推进（或补建）该设备的 event_deliveries 行，再聚合事件行；
  * 不带 deviceId：直接推进事件行（无设备粒度场景/本地广播事件）。
  */
 export function markEventDelivered(sequence: number, deviceId?: number): DeliveryTransitionResult {
@@ -322,12 +357,7 @@ export function markEventDelivered(sequence: number, deviceId?: number): Deliver
   db.exec('BEGIN')
   try {
     if (deviceId !== undefined) {
-      const r = db
-        .prepare(
-          "UPDATE event_deliveries SET status = 'delivered', delivered_at = ? WHERE event_id = ? AND device_id = ? AND status = 'pending'",
-        )
-        .run(now, sequence, deviceId)
-      deviceChanged = Number(r.changes) > 0
+      deviceChanged = upsertDeviceDeliveryRow(db, sequence, deviceId, 'delivered', now)
     }
     const state = advanceAggregate(row.id, 'delivered', now, deviceId !== undefined)
     db.exec('COMMIT')
@@ -341,6 +371,7 @@ export function markEventDelivered(sequence: number, deviceId?: number): Deliver
 /**
  * 标记已确认（pending|delivered → acked；供 AC6 设备 ack 调用）。
  * acked 是终态：其后的 markEventDelivered 只前进语义下被拒绝（updated:false）。
+ * 设备行缺失时补建 acked 行（delivered_at 一并补齐，语义 = 实际送达后才可能 ack）。
  */
 export function markEventAcked(sequence: number, deviceId?: number): DeliveryTransitionResult {
   const db = getDatabase()
@@ -350,12 +381,7 @@ export function markEventAcked(sequence: number, deviceId?: number): DeliveryTra
   db.exec('BEGIN')
   try {
     if (deviceId !== undefined) {
-      const r = db
-        .prepare(
-          "UPDATE event_deliveries SET status = 'acked', acked_at = ?, delivered_at = COALESCE(delivered_at, ?) WHERE event_id = ? AND device_id = ? AND status IN ('pending', 'delivered')",
-        )
-        .run(now, now, sequence, deviceId)
-      deviceChanged = Number(r.changes) > 0
+      deviceChanged = upsertDeviceDeliveryRow(db, sequence, deviceId, 'acked', now)
     }
     const state = advanceAggregate(row.id, 'acked', now, deviceId !== undefined)
     db.exec('COMMIT')
