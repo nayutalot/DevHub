@@ -107,7 +107,7 @@ fun DiagnosticsScreen() {
                                 (p.dataSourceReadable?.let { " readable=$it" } ?: "") +
                                 (p.controlNote?.let { " control=$it" } ?: ""),
                             fontSize = 11.sp,
-                            color = androidx.compose.ui.graphics.Color(0xFF555555),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, // 打磨批 D：深色主题次级色
                         )
                     }
                 }

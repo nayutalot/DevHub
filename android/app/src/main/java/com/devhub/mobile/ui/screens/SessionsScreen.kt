@@ -215,7 +215,7 @@ fun SessionsScreen(onOpenSession: (Long) -> Unit) {
         }
         // —— R3 显示归档开关 ——
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
-            Text("显示归档", fontSize = 12.sp, color = Color(0xFF555555))
+            Text("显示归档", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.width(4.dp))
             Switch(
                 checked = showArchived,
@@ -266,7 +266,10 @@ fun SessionsScreen(onOpenSession: (Long) -> Unit) {
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
             title = { Text("删除会话", fontWeight = FontWeight.SemiBold) },
-            text = { Text(SessionListOps.deleteConfirmText(target.title), fontSize = 13.sp) },
+            text = { Text(SessionListOps.deleteConfirmText(
+            // 打磨批 D：确认弹窗属显示层，标题同样清理 ** 记号
+            com.devhub.mobile.core.RichTextTokenizer.stripDisplayMarkers(target.title),
+        ), fontSize = 13.sp) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -306,7 +309,9 @@ private fun SessionRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 4.dp)
-                .background(if (highlight) Color(0xFFFFF8E1) else Color.Transparent)
+                // 打磨批 D：waiting 高亮底改为深色琥珀容器（钉深色主题后原浅黄底与
+                // 主题默认浅色文字对比失效）；边框保持琥珀高亮语义。
+                .background(if (highlight) Color(0xFF3B2F00) else Color.Transparent)
                 .border(
                     width = if (highlight) 1.dp else 0.dp,
                     color = if (highlight) Color(0xFFFFB300) else Color.Transparent,
@@ -325,27 +330,29 @@ private fun SessionRow(
                 ProviderAvatarFor(providerKey = session.providerKey, providerLabel = resolvedLabel, size = 30.dp)
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    session.title ?: "会话 #${session.sessionId}",
+                    // 打磨批 D：显示层清理 ** 记号（不改数据）；超长标题单行省略号截断
+                    com.devhub.mobile.core.RichTextTokenizer.stripDisplayMarkers(session.title)
+                        ?: "会话 #${session.sessionId}",
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 14.sp,
                     modifier = Modifier.weight(1f),
                     maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
                 StatusBadge(session.status)
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                ModeBadge(session.sessionMode) // observed 整行标注（徽章 + 尾注）
+                ModeBadge(session.sessionMode) // observed 整行标注（左 chip 一处；行尾重复文字已去除）
                 if (session.stale) {
-                    Text("数据过期（stale）", fontSize = 11.sp, color = Color(0xFF8D6E00))
+                    Text("数据过期（stale）", fontSize = 11.sp, color = Color(0xFFC7A008))
                 }
                 Text(providerLabel, fontSize = 11.sp, color = Color(0xFF757575))
                 if (session.archived) {
                     Text("已归档", fontSize = 11.sp, color = Color(0xFF757575))
                 }
                 Spacer(Modifier.weight(1f))
-                if (session.sessionMode == "observed") {
-                    Text("observed 只读", fontSize = 11.sp, color = Color(0xFF7A4F00), fontWeight = FontWeight.Medium)
-                }
+                // 打磨批 D：去掉行尾重复的「observed 只读」文字（与行首 ModeBadge chip 重复）；
+                // 保留左侧 chip 一处（信息密度更好，色板徽章一眼可辨）。
             }
         }
         // R3 长按菜单

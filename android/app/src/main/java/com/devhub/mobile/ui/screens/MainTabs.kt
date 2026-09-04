@@ -3,6 +3,7 @@ package com.devhub.mobile.ui.screens
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -47,6 +48,10 @@ fun MainTabs(
     var selected by remember { mutableStateOf(initialTab) }
 
     Scaffold(
+        // 视觉打磨批 D：顶部 inset 单计——外层 DevHubRoot Scaffold 已把状态栏 inset
+        // 作为 padding 应用到 NavHost；本层 Scaffold 默认 contentWindowInsets 会再次
+        // 加一次状态栏高度（出现"状态栏与连接条之间一整行空白带"）。置零交由外层单计。
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
             NavigationBar {
                 NavigationBarItem(
@@ -97,21 +102,27 @@ fun MainTabs(
 @Composable
 private fun ConnectionStatusBar(onGatewayConfig: () -> Unit) {
     val state by ConnectionManager.state.collectAsState()
-    val (bg, label) = when (val s = state) {
-        is ConnState.Connected -> Color(0xFFDDEBDD) to "已连接 · 心跳 ${s.heartbeatSec}s"
-        is ConnState.Connecting -> Color(0xFFFFECB3) to "连接中…"
-        is ConnState.Backing -> Color(0xFFFFAB91) to "退避重连（第 ${s.attempt} 次，${s.nextDelayMs / 1000}s 后）"
-        is ConnState.Unpaired -> Color(0xFFFFCDD2) to "未配对"
-        ConnState.Idle -> Color(0xFFE0E0E0) to "未启动"
+    // 打磨批 D：钉深色主题后默认文字为主题浅色，与浅色状态底对比失效 →
+    // 各状态显式配对 fg 色（取色与 StatusBadge 同源语义）。
+    val (bg, fg, label) = when (val s = state) {
+        is ConnState.Connected ->
+            Triple(Color(0xFFDDEBDD), Color(0xFF1B5E20), "已连接 · 心跳 ${s.heartbeatSec}s")
+        is ConnState.Connecting -> Triple(Color(0xFFFFECB3), Color(0xFF7A4F00), "连接中…")
+        is ConnState.Backing ->
+            Triple(Color(0xFFFFAB91), Color(0xFF7A2400), "退避重连（第 ${s.attempt} 次，${s.nextDelayMs / 1000}s 后）")
+        is ConnState.Unpaired -> Triple(Color(0xFFFFCDD2), Color(0xFFB71C1C), "未配对")
+        ConnState.Idle -> Triple(Color(0xFFE0E0E0), Color(0xFF37474F), "未启动")
     }
     Surface(color = bg, modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(label, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            Text(label, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = fg)
             Spacer(Modifier.weight(1f))
-            TextButton(onClick = onGatewayConfig) { Text("网关配置", fontSize = 12.sp) }
+            TextButton(onClick = onGatewayConfig) {
+                Text("网关配置", fontSize = 12.sp, color = fg)
+            }
         }
     }
 }

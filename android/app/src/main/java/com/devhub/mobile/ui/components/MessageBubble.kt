@@ -150,14 +150,20 @@ fun MessageBubble(
                         modifier = Modifier.widthIn(max = (LocalConfiguration.current.screenWidthDp * 0.86f).dp),
                     ) {
                         Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
-                            Text(
-                                message.contentRedacted,
+                            // 打磨批 D：所有文本展示路径统一过 R8 渲染器（tokenizer）——
+                            // system/tool 事件 chip 此前走纯 Text，真实消息里的 `**` 等记号原样露出。
+                            RichMarkdownText(
+                                text = message.contentRedacted,
                                 fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                baseColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                codeBackground = MaterialTheme.colorScheme.surface,
+                                chipBackground = MaterialTheme.colorScheme.secondaryContainer,
+                                chipForeground = MaterialTheme.colorScheme.onSecondaryContainer,
                             )
                             message.occurredAtSec?.let {
                                 Text(
-                                    TimeFmt.hm(it),
+                                    // 打磨批 D：同屏时间戳统一 "MM-dd HH:mm"（非当日也带日期前缀）
+                                    TimeFmt.mdHm(it),
                                     fontSize = 9.sp,
                                     color = MaterialTheme.colorScheme.outline,
                                 )
@@ -291,10 +297,14 @@ private fun ThinkingFold(
                 .padding(horizontal = 8.dp, vertical = 4.dp),
         )
         if (expanded) {
-            Text(
+            // 打磨批 D：展开后的思维链原文同样过 R8 渲染器（记号不原样露出；失败回退纯文本由渲染器兜底）
+            RichMarkdownText(
                 text = content,
                 fontSize = 11.sp,
-                color = codeFg.copy(alpha = 0.92f),
+                baseColor = codeFg.copy(alpha = 0.92f),
+                codeBackground = codeBg,
+                chipBackground = codeBg,
+                chipForeground = codeFg,
                 modifier = Modifier
                     .padding(top = 3.dp)
                     .background(codeBg, RoundedCornerShape(8.dp))

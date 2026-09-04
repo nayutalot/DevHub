@@ -54,6 +54,10 @@ fun RichMarkdownText(
                 when (t) {
                     is RichTextTokenizer.RichToken.Plain -> append(t.text)
 
+                    is RichTextTokenizer.RichToken.Bold -> withStyle(
+                        SpanStyle(fontWeight = FontWeight.Bold),
+                    ) { append(t.text) }
+
                     is RichTextTokenizer.RichToken.CodeSpan -> withStyle(
                         SpanStyle(fontFamily = FontFamily.Monospace, background = codeBackground, color = codeForeground),
                     ) { append(t.code) }
