@@ -8,6 +8,18 @@
  *   / tool_usage(id, session_id, tool_name, approval_status, status, started_at,
  *   completed_at, exit_code, error_type…)；part(id, message_id, data JSON, sequence)
  *   为消息正文的**可选**来源（part.type='text'）；
+ *
+ * 子会话过滤（用户需求：ZCode provider 只抓主智能体会话，过滤子智能体会话）：
+ * ZCode 库 session 表的子会话判别特征（真库实测三重）：task_type='subagent_child'
+ * （显式列）/ id 前缀 'sess_subagent_agent_' / parent_id 非空。本 provider 取前两重
+ * **双保险**（isZcodeSubagentSession：两者都判，命中任一即排除）；parent_id 不作判据
+ * （主会话也可能携带别的 parent 语义，绝不猜）。task_type 列按可选列白名单
+ * （ZCODE_DB_TASK_TYPE_OPTIONAL）检测：列缺失（schema 白名单比对不匹配的降级场景）
+ * 时仅前缀判据兜底；行值 NULL 时亦由前缀判据兜底。listSessions / 监控增量
+ * （sessions 发现、messages 投影、tool_usage 审批、tasks 复核）一切会话发现路径
+ * 全部过滤——子会话不过 sink：L3 的 persistMessage/applySessionStatus 会经
+ * ensureSessionRow 反向建行，漏滤即重新污染。投影字段不变（observed-only 语义不变）。
+ * 历史污染行由 scripts/cleanup-zcode-subagent-sessions.mjs 一次性清理。
  * - `~/.zcode/v2/tasks-index.sqlite`：tasks(task_id, title, task_status, workspace_path,
  *   updated_at)；task_id 与 db.session.id 同键空间（实测 51/51 全覆盖）。
  *
@@ -110,6 +122,36 @@ export const ZCODE_DB_OPTIONAL_SCHEMA: Readonly<Record<string, readonly string[]
 export const ZCODE_TASKS_REQUIRED_SCHEMA: Readonly<Record<string, readonly string[]>> = {
   tasks: ['task_id', 'title', 'task_status', 'workspace_path', 'updated_at'],
 } as const
+
+/**
+ * task_type 可选列白名单（子会话判别列；用户需求：只抓主智能体会话）。
+ * 不进 ZCODE_DB_REQUIRED_SCHEMA 的原因：required 是「缺列即 unavailable」语义，
+ * 会把「列缺失降级场景」整个判死——而本需求明确该场景由 id 前缀判据兜底继续工作。
+ * 列存在 → 双保险（task_type + 前缀都判）；列缺失 → 仅前缀兜底。
+ */
+export const ZCODE_DB_TASK_TYPE_OPTIONAL_SCHEMA: Readonly<Record<string, readonly string[]>> = {
+  session: ['task_type'],
+} as const
+
+/** 子会话显式 task_type 标记（真库实测取值；与 id 前缀判据 100% 重合，仍双保险都判）。 */
+export const ZCODE_SUBAGENT_TASK_TYPE = 'subagent_child'
+/** 子会话 ID 前缀（双保险第二判据：task_type 列缺失/行值 NULL 时的兜底）。 */
+export const ZCODE_SUBAGENT_ID_PREFIX = 'sess_subagent_agent_'
+/**
+ * 前缀 LIKE pattern（绑定参数用；`_` 是 LIKE 通配符必须转义为字面下划线）。
+ * SQL 形态：`id NOT LIKE ? ESCAPE '\'`。
+ */
+export const ZCODE_SUBAGENT_ID_LIKE_PATTERN = 'sess\\_subagent\\_agent\\_%'
+
+/**
+ * 子会话双保险判据（用户需求：只抓主智能体会话）：task_type 命中或 id 前缀命中
+ * 即为子会话。taskType 传 undefined 表示 task_type 列不可用（缺列降级）——仅按
+ * 前缀判；传 null 表示列存在但该行值为 NULL——同样由前缀兜底。parent_id 不作判据。
+ */
+export function isZcodeSubagentSession(id: string, taskType?: string | null): boolean {
+  if (taskType !== undefined && taskType !== null && String(taskType) === ZCODE_SUBAGENT_TASK_TYPE) return true
+  return String(id).startsWith(ZCODE_SUBAGENT_ID_PREFIX)
+}
 
 /**
  * tasks.task_status → 9 值状态映射表（实机复核取值全集 {completed, error} 后写死；
@@ -477,23 +519,37 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
         stats.lastSchemaProblems = check.problems
         return [] // schema 不匹配：绝不猜字段，返回空快照（health 呈现 unavailable）
       }
+      // 子会话过滤（用户需求：只抓主智能体会话）：task_type 列可用 → SQL 下推双条件
+      // （前缀 NOT LIKE + task_type <> 'subagent_child'），列缺失降级 → 仅前缀条件兜底。
+      const taskTypeAvailable = checkSchema(conn.db, ZCODE_DB_TASK_TYPE_OPTIONAL_SCHEMA).ok
+      const sql = taskTypeAvailable
+        ? 'SELECT rowid, id, directory, title, time_created, time_updated, task_type FROM session WHERE id NOT LIKE ? ESCAPE \'\\\' AND (task_type IS NULL OR task_type <> ?) ORDER BY rowid LIMIT ?'
+        : 'SELECT rowid, id, directory, title, time_created, time_updated FROM session WHERE id NOT LIKE ? ESCAPE \'\\\' ORDER BY rowid LIMIT ?'
       const rows = conn.db
-        .prepare('SELECT rowid, id, directory, title, time_created, time_updated FROM session ORDER BY rowid LIMIT ?')
-        .all(batchRows * 4) as unknown as Array<{
+        .prepare(sql)
+        .all(
+          ZCODE_SUBAGENT_ID_LIKE_PATTERN,
+          ...(taskTypeAvailable ? [ZCODE_SUBAGENT_TASK_TYPE] : []),
+          batchRows * 4,
+        ) as unknown as Array<{
         rowid: number
         id: string
         directory: string | null
         title: string | null
         time_created: number | null
         time_updated: number | null
+        task_type?: string | null
       }>
-      return rows.map((row) => ({
-        nativeId: String(row.id),
-        ...(row.directory !== null && row.directory.length > 0 ? { workdir: row.directory } : {}),
-        ...(row.title !== null && row.title.length > 0 ? { title: row.title } : {}),
-        ...(row.time_created !== null && row.time_created > 0 ? { startedAt: Math.floor(row.time_created / 1000) } : {}),
-        ...(row.time_updated !== null && row.time_updated > 0 ? { lastActivityAt: Math.floor(row.time_updated / 1000) } : {}),
-      }))
+      // JS 层双保险复判（SQL WHERE 之外的第二道滤网；两者都判）
+      return rows
+        .filter((row) => !isZcodeSubagentSession(String(row.id), taskTypeAvailable ? (row.task_type ?? null) : undefined))
+        .map((row) => ({
+          nativeId: String(row.id),
+          ...(row.directory !== null && row.directory.length > 0 ? { workdir: row.directory } : {}),
+          ...(row.title !== null && row.title.length > 0 ? { title: row.title } : {}),
+          ...(row.time_created !== null && row.time_created > 0 ? { startedAt: Math.floor(row.time_created / 1000) } : {}),
+          ...(row.time_updated !== null && row.time_updated > 0 ? { lastActivityAt: Math.floor(row.time_updated / 1000) } : {}),
+        }))
     })) ?? []
   }
 
@@ -786,26 +842,43 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
         return null
       }
       const partAvailable = checkSchema(db, ZCODE_DB_OPTIONAL_SCHEMA).ok
+      // 子会话过滤（用户需求：只抓主智能体会话）：task_type 列可用 → SQL 下推双条件，
+      // 列缺失降级 → 仅前缀兜底；JS 层对全窗口行复判，命中集合供后续消息/审批/任务
+      // 路径共用（这些路径漏滤会被 L3 ensureSessionRow 反向建行重新污染）。
+      const taskTypeAvailable = checkSchema(db, ZCODE_DB_TASK_TYPE_OPTIONAL_SCHEMA).ok
+      const subagentIds = new Set<string>()
       const tasks = readTaskStatusMap()
       if (tasks === null) {
         stats.lastSchemaProblems = ['tasks-index read failed']
         // tasks-index 读失败不否决整轮：db 侧继续（任务级状态暂缺）
       }
 
-      // 1) sessions：新行 + 变更行（time_updated 水位）
+      // 1) sessions：新行 + 变更行（time_updated 水位）；子会话不过 sink、不入 known
+      const sessionSql = taskTypeAvailable
+        ? 'SELECT rowid, id, directory, title, time_created, time_updated, task_type FROM session WHERE id NOT LIKE ? ESCAPE \'\\\' AND (task_type IS NULL OR task_type <> ?) ORDER BY rowid LIMIT ?'
+        : 'SELECT rowid, id, directory, title, time_created, time_updated FROM session WHERE id NOT LIKE ? ESCAPE \'\\\' ORDER BY rowid LIMIT ?'
       const sessions = db
-        .prepare('SELECT rowid, id, directory, title, time_created, time_updated FROM session ORDER BY rowid LIMIT ?')
-        .all(batchRows * 4) as unknown as Array<{
+        .prepare(sessionSql)
+        .all(
+          ZCODE_SUBAGENT_ID_LIKE_PATTERN,
+          ...(taskTypeAvailable ? [ZCODE_SUBAGENT_TASK_TYPE] : []),
+          batchRows * 4,
+        ) as unknown as Array<{
         rowid: number
         id: string
         directory: string | null
         title: string | null
         time_created: number | null
         time_updated: number | null
+        task_type?: string | null
       }>
       for (const row of sessions) {
         if (token.cancelled) return 'ok'
         const id = String(row.id)
+        if (isZcodeSubagentSession(id, taskTypeAvailable ? (row.task_type ?? null) : undefined)) {
+          subagentIds.add(id) // 双保险兜底（SQL 已滤时不应到达；防御性收集）
+          continue
+        }
         const timeUpdated = row.time_updated ?? 0
         const known = knownSessions.get(id)
         if (known !== undefined && known.timeUpdated >= timeUpdated) continue
@@ -835,8 +908,12 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
         if (rows.length === 0) break
         for (const row of rows) {
           cursors.message = Math.max(cursors.message, Number(row.rowid))
+          const msgSessionId = String(row.session_id)
+          // 子会话消息不投影（persistMessage 会反向建行；前缀判据对无 task_type 的
+          // message 行独立成立——一切会话发现路径都不得吃子会话）
+          if (subagentIds.has(msgSessionId) || isZcodeSubagentSession(msgSessionId, undefined)) continue
           const msg = projectMessageRow(row as ZcodeMessageRow, partAvailable, conn)
-          if (msg !== null) sink.onMessageAppended?.({ providerId: 'zcode', nativeId: String(row.session_id) }, msg)
+          if (msg !== null) sink.onMessageAppended?.({ providerId: 'zcode', nativeId: msgSessionId }, msg)
         }
         if (rows.length < batchRows) break
       }
@@ -849,8 +926,10 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
         if (rows.length === 0) break
         for (const row of rows) {
           cursors.toolUsage = Math.max(cursors.toolUsage, Number(row.rowid))
+          const sid = String(row.session_id)
+          // 子会话审批不追踪（applySessionStatus 会反向建行）
+          if (subagentIds.has(sid) || isZcodeSubagentSession(sid, undefined)) continue
           if (evalZcodeApprovalStatus(row.approval_status)) {
-            const sid = String(row.session_id)
             let set = pendingApprovals.get(sid)
             if (set === undefined) {
               set = new Set()
@@ -882,9 +961,11 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
         emitStatus(sid, pendingApprovals, taskStatusCache, lastStatus, sink)
       }
 
-      // 5) task_status 复核（UPDATE 不 bump rowid → 每轮全量小表重读）
+      // 5) task_status 复核（UPDATE 不 bump rowid → 每轮全量小表重读）；子会话任务
+      //    状态不上抛（同上：applySessionStatus 反向建行）
       if (tasks !== null) {
         for (const [taskId, raw] of tasks) {
+          if (subagentIds.has(taskId) || isZcodeSubagentSession(taskId, undefined)) continue
           if (taskStatusCache.get(taskId) !== raw) {
             taskStatusCache.set(taskId, raw)
             emitStatus(taskId, pendingApprovals, taskStatusCache, lastStatus, sink)

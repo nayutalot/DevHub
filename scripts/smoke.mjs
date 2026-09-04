@@ -8620,5 +8620,225 @@ if (isEntrypoint()) {
     assert.equal(qg.QUIT_EXIT_WATCHDOG_MS, 3000, 'exit watchdog grace stays 3s')
   })
 
+  // ------------------------------------------------------------------
+  // fix-zcode-subagent（用户报障：Agents 视图出现大量子智能体会话）——
+  // zcodeProvider 只抓主智能体会话，过滤子智能体会话（三重判别特征取前两重
+  // 双保险：task_type='subagent_child' + id 前缀 'sess_subagent_agent_'；
+  // parent_id 不作判据）。141 用例锁 provider 侧一切会话发现路径；142 用例锁
+  // scripts/cleanup-zcode-subagent-sessions.mjs 真库清污幂等。append-only 接续。
+  // ------------------------------------------------------------------
+
+  // 141. provider 侧过滤：listSessions / 监控增量（sessions 发现、messages 投影、
+  //      tool_usage 审批、tasks 状态复核）全部不吃子会话；task_type 行值 NULL 由
+  //      前缀兜底；无 task_type 列的降级库仅前缀兜底且白名单仍通过；L3 库零子会话行
+  registerCase('fix-zcode-subagent-141: zcode provider filters subagent sessions in every discovery path — listSessions dual-guard (task_type + id prefix; NULL task_type row still excluded via prefix fallback), degraded db without task_type column stays whitelist-ok with prefix-only filter, monitor incrementals (discover/messages/approval/task status) never emit subagent sessions, L3 db keeps zero subagent rows', async () => {
+    const { mkdtempSync, mkdirSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const { DatabaseSync } = await import('node:sqlite')
+    const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+    const svc = await import(new URL('../src/main/services/agentControl/agentControlService.ts', import.meta.url).href)
+    const zcodeMod = await import(new URL('../src/main/services/agentControl/providers/zcodeProvider.ts', import.meta.url).href)
+
+    // 判据常量契约（源头过滤的双保险判据，供清理脚本同名语义对齐）
+    assert.equal(zcodeMod.ZCODE_SUBAGENT_TASK_TYPE, 'subagent_child', 'explicit task_type marker')
+    assert.equal(zcodeMod.ZCODE_SUBAGENT_ID_PREFIX, 'sess_subagent_agent_', 'id prefix fallback marker')
+    assert.equal(zcodeMod.isZcodeSubagentSession('sess_subagent_agent_x', undefined), true, 'prefix hit with unavailable column → subagent')
+    assert.equal(zcodeMod.isZcodeSubagentSession('sess_subagent_agent_x', null), true, 'prefix hit with NULL task_type → subagent')
+    assert.equal(zcodeMod.isZcodeSubagentSession('sess_00401cb0-uuid', 'subagent_child'), true, 'task_type hit → subagent')
+    assert.equal(zcodeMod.isZcodeSubagentSession('sess_00401cb0-uuid', 'interactive'), false, 'main session kept')
+    assert.equal(zcodeMod.isZcodeSubagentSession('sess_00401cb0-uuid', null), false, 'NULL task_type without prefix → kept (never guesses)')
+    // like 下划线转义：_ 是 LIKE 通配符，pattern 必须精确匹配字面下划线
+    assert.ok(zcodeMod.ZCODE_SUBAGENT_ID_LIKE_PATTERN.includes('\\_'), 'LIKE pattern escapes underscore wildcards')
+
+    const dir = mkdtempSync(join(tmpdir(), 'devhub-fix-zc-sub-'))
+    const nowMs = 1788383547842
+    const mkFixtureDb = (dbPath, withTaskTypeColumn) => {
+      const fdb = new DatabaseSync(dbPath)
+      const taskTypeCol = withTaskTypeColumn ? ', task_type TEXT' : ''
+      fdb.exec(`
+        CREATE TABLE session (id TEXT, project_id TEXT, workspace_id TEXT, directory TEXT, title TEXT, time_created INTEGER, time_updated INTEGER, time_archived INTEGER${taskTypeCol});
+        CREATE TABLE message (id TEXT, session_id TEXT, data TEXT, sequence INTEGER, time_created INTEGER);
+        CREATE TABLE tool_usage (id TEXT, session_id TEXT, tool_name TEXT, approval_status TEXT, status TEXT, started_at INTEGER, completed_at INTEGER);
+        CREATE TABLE part (id TEXT, message_id TEXT, data TEXT, sequence INTEGER);
+      `)
+      return fdb
+    }
+
+    // 主库夹具（含 task_type 列）：主会话 ×2 + 子会话（显式 task_type）+ 兜底行
+    // （task_type=NULL 但前缀命中）+ 非前缀 NULL 行（主会话，验证 NULL 不误删）
+    const dbPath = join(dir, 'db.sqlite')
+    const fdb = mkFixtureDb(dbPath, true)
+    const insSession = fdb.prepare('INSERT INTO session (id, directory, title, time_created, time_updated, task_type) VALUES (?, ?, ?, ?, ?, ?)')
+    insSession.run('sess_main_completed', 'C:/ws/demo', 'Main one', nowMs, nowMs + 1000, 'interactive')
+    insSession.run('sess_main_plain', 'C:/ws/demo', 'Main two (NULL task_type)', nowMs, nowMs + 2000, null)
+    insSession.run('sess_subagent_agent_child', 'C:/ws/demo', 'child', nowMs, nowMs + 3000, 'subagent_child')
+    insSession.run('sess_subagent_agent_notype', 'C:/ws/demo', 'child no type', nowMs, nowMs + 4000, null)
+    const insMsg = fdb.prepare('INSERT INTO message (id, session_id, data, sequence, time_created) VALUES (?, ?, ?, ?, ?)')
+    insMsg.run('msg_main_1', 'sess_main_completed', JSON.stringify({ role: 'user', time: { created: nowMs } }), 0, nowMs)
+    insMsg.run('msg_child_1', 'sess_subagent_agent_child', JSON.stringify({ role: 'user', time: { created: nowMs + 10 } }), 0, nowMs + 10)
+    insMsg.run('msg_child_2', 'sess_subagent_agent_notype', JSON.stringify({ role: 'user', time: { created: nowMs + 20 } }), 0, nowMs + 20)
+    fdb.prepare("INSERT INTO tool_usage (id, session_id, tool_name, approval_status, status, started_at, completed_at) VALUES ('tu_child', 'sess_subagent_agent_child', 'Bash', 'pending', 'running', ?, NULL)").run(nowMs)
+    fdb.close()
+
+    // 降级夹具库（无 task_type 列）：白名单必须仍通过，前缀判据兜底过滤
+    const dbPathNoCol = join(dir, 'db-notype.sqlite')
+    const fdb2 = mkFixtureDb(dbPathNoCol, false)
+    fdb2.prepare("INSERT INTO session (id, directory, title, time_created, time_updated) VALUES ('sess_main_degraded', 'C:/ws/demo', 'Main degraded', 1, 2)").run()
+    fdb2.prepare("INSERT INTO session (id, directory, title, time_created, time_updated) VALUES ('sess_subagent_agent_nocol', 'C:/ws/demo', 'child nocol', 1, 2)").run()
+    fdb2.close()
+
+    const tasksPath = join(dir, 'tasks-index.sqlite')
+    const tdb = new DatabaseSync(tasksPath)
+    tdb.exec('CREATE TABLE tasks (task_id TEXT, title TEXT, task_status TEXT, workspace_path TEXT, updated_at INTEGER);')
+    const insTask = tdb.prepare('INSERT INTO tasks (task_id, title, task_status, workspace_path, updated_at) VALUES (?, ?, ?, ?, ?)')
+    insTask.run('sess_main_completed', 'Main one', 'completed', 'C:/ws/demo', nowMs)
+    insTask.run('sess_subagent_agent_child', 'child', 'error', 'C:/ws/demo', nowMs)
+    tdb.close()
+
+    await makeTempHome('devhub-fix-zc-sub-')
+    try {
+      const db = dbModule.getDatabase()
+      const snapshotRoot = join(dir, 'snaps')
+      const provider = zcodeMod.createZcodeProvider({ zcodeDbPath: dbPath, tasksIndexPath: tasksPath, snapshotRoot, pollMs: 100, snapshotRefreshMs: 60_000 })
+
+      // listSessions：只回 2 个主会话（子会话 + 兜底行全滤；投影字段语义不变）
+      const sessions = await provider.listSessions()
+      assert.deepEqual(sessions.map((s) => s.nativeId).sort(), ['sess_main_completed', 'sess_main_plain'], 'listSessions returns only main sessions')
+
+      // 降级库（无 task_type 列）：白名单通过 + 前缀兜底只回主会话
+      const degradedHealth = await zcodeMod.createZcodeProvider({ zcodeDbPath: dbPathNoCol, tasksIndexPath: tasksPath, snapshotRoot, directOpenMode: 'disabled' }).probeHealth()
+      assert.equal(degradedHealth.health, 'ok', `db without task_type column stays whitelist-ok (optional-column semantics), got ${degradedHealth.health}: ${degradedHealth.healthDetail ?? ''}`)
+      const degraded = await zcodeMod.createZcodeProvider({ zcodeDbPath: dbPathNoCol, tasksIndexPath: tasksPath, snapshotRoot, directOpenMode: 'disabled' }).listSessions()
+      assert.deepEqual(degraded.map((s) => s.nativeId), ['sess_main_degraded'], 'degraded db: prefix-only filter still excludes subagent rows')
+
+      // 监控增量：sessions 发现 / messages 投影 / tool_usage 审批 / tasks 状态复核
+      // 全部不吃子会话（L3 ensureSessionRow 会反向建行——漏滤即重新污染）
+      svc.setProviderOverride('zcode', provider)
+      svc.setProviderOverride('codex', stubAgentProvider('codex'))
+      svc.setProviderOverride('claude-code', stubAgentProvider('claude-code'))
+      svc.setProviderOverride('kimi', stubAgentProvider('kimi'))
+      svc.setProviderOverride('deepseek', stubAgentProvider('deepseek'))
+      svc.ensureAgentProviderRows()
+      svc.syncMonitorTasks()
+      let mainStatus = null
+      for (let i = 0; i < 80; i++) {
+        const row = db.prepare("SELECT status FROM agent_sessions WHERE native_id = 'sess_main_completed'").get()
+        if (row !== undefined && row.status === 'completed') { mainStatus = row.status; break }
+        await new Promise((r) => setTimeout(r, 100))
+      }
+      assert.equal(mainStatus, 'completed', 'monitor reaches main session through L3 (fixture is live)')
+
+      // L3 库复核：agent_sessions 零子会话行；消息只投影主会话；无子会话审批事件
+      const subRows = db.prepare("SELECT COUNT(*) AS c FROM agent_sessions WHERE native_id LIKE 'sess\\_subagent\\_agent\\_%' ESCAPE '\\'").get()
+      assert.equal(subRows.c, 0, 'monitor/upsert path keeps zero subagent session rows')
+      const zcodeSessionRows = db.prepare("SELECT native_id FROM agent_sessions s JOIN agent_providers p ON p.id = s.provider_id WHERE p.provider = 'zcode'").all()
+      assert.deepEqual(zcodeSessionRows.map((r) => r.native_id).sort(), ['sess_main_completed', 'sess_main_plain'], 'exactly the two main sessions persisted')
+      const childMsgs = db.prepare("SELECT COUNT(*) AS c FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id WHERE s.native_id LIKE 'sess\\_subagent\\_agent\\_%' ESCAPE '\\'").get()
+      assert.equal(childMsgs.c, 0, 'subagent messages never projected into L3')
+      const mainMsgs = db.prepare("SELECT COUNT(*) AS c FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id WHERE s.native_id = 'sess_main_completed'").get()
+      assert.equal(mainMsgs.c, 1, 'main session message still projected')
+      const childApproval = db.prepare("SELECT COUNT(*) AS c FROM agent_events e JOIN agent_sessions s ON s.id = e.session_id WHERE s.native_id LIKE 'sess\\_subagent\\_agent\\_%' ESCAPE '\\'").get()
+      assert.equal(childApproval.c, 0, 'subagent approval/task status never raised as events')
+
+      // upsert 全量路径（refreshProviderSessions → listSessions → upsert）：仍零子会话
+      const created = await svc.refreshProviderSessions('zcode', true)
+      assert.ok(created >= 0)
+      const subAfterRefresh = db.prepare("SELECT COUNT(*) AS c FROM agent_sessions WHERE native_id LIKE 'sess\\_subagent\\_agent\\_%' ESCAPE '\\'").get()
+      assert.equal(subAfterRefresh.c, 0, 'full snapshot refresh keeps zero subagent rows')
+
+      svc.stopAllAgentControlRuntime()
+      await new Promise((r) => setTimeout(r, 300))
+    } finally {
+      svc.stopAllAgentControlRuntime()
+      dbModule.closeDatabase()
+    }
+  })
+
+  // 142. cleanup 脚本（scripts/cleanup-zcode-subagent-sessions.mjs）夹具库清污：
+  //      dry-run 预览计数与全前缀清单 → apply 单事务删除（sessions/messages/会话域
+  //      events/deliveries/resources/edges；health 事件与主会话数据不动；
+  //      remote_commands FK SET NULL 解绑）→ 第二遍 apply 幂等全零
+  registerCase('fix-zcode-subagent-142: cleanup script on fixture db — dry-run previews exact counts with prefix-only list, apply deletes sessions/messages/session-scoped events/deliveries/session resource nodes/edges in one transaction while provider.health_changed and main-session data survive, remote_commands detached via FK SET NULL, second apply pass is an idempotent zero no-op', async () => {
+    const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+    const cleanupMod = await import(new URL('./cleanup-zcode-subagent-sessions.mjs', import.meta.url).href)
+
+    await makeTempHome('devhub-fix-zc-clean-')
+    const db = dbModule.getDatabase()
+    try {
+      const now = Math.floor(Date.now() / 1000)
+      db.prepare("INSERT INTO agent_providers (provider, display_name, created_at, updated_at) VALUES ('zcode', 'ZCode', ?, ?)").run(now, now)
+      const provider = db.prepare("SELECT id FROM agent_providers WHERE provider = 'zcode'").get()
+      const insSession = db.prepare("INSERT INTO agent_sessions (provider_id, native_id, session_mode, status, created_at, updated_at) VALUES (?, ?, 'observed', 'unknown', ?, ?)")
+      insSession.run(provider.id, 'sess_main_real', now, now)
+      insSession.run(provider.id, 'sess_subagent_agent_a', now, now)
+      insSession.run(provider.id, 'sess_subagent_agent_b', now, now)
+      const sidOf = (nativeId) => db.prepare('SELECT id FROM agent_sessions WHERE native_id = ?').get(nativeId).id
+      const mainId = sidOf('sess_main_real')
+      const subA = sidOf('sess_subagent_agent_a')
+      const subB = sidOf('sess_subagent_agent_b')
+      const insMsg = db.prepare('INSERT INTO agent_messages (session_id, native_msg_id, role, content_redacted, created_at) VALUES (?, ?, ?, ?, ?)')
+      insMsg.run(mainId, 'm1', 'user', 'main message kept', now)
+      insMsg.run(subA, 'c1', 'user', 'child message 1', now)
+      insMsg.run(subB, 'c2', 'user', 'child message 2', now)
+      const insEvent = db.prepare("INSERT INTO agent_events (provider_id, session_id, event_type, event_id, payload_json, delivery_state, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)")
+      insEvent.run(provider.id, subA, 'session.started', 'zcode:sess_subagent_agent_a:started', '{}', now)
+      insEvent.run(provider.id, subA, 'message.appended', 'zcode:sess_subagent_agent_a:c1', '{}', now)
+      insEvent.run(provider.id, subB, 'session.status_changed', 'zcode:sess_subagent_agent_b:unknown:failed', '{}', now)
+      insEvent.run(provider.id, mainId, 'session.started', 'zcode:sess_main_real:started', '{}', now)
+      insEvent.run(provider.id, null, 'provider.health_changed', 'degraded:1', '{}', now)
+      db.prepare("INSERT INTO remote_devices (device_name, platform, token_hash, paired_at, created_at, updated_at) VALUES ('dev', 'android', 'deadbeef', ?, ?, ?)").run(now, now, now)
+      const device = db.prepare('SELECT id FROM remote_devices').get()
+      const insDelivery = db.prepare("INSERT INTO event_deliveries (event_id, device_id, status, created_at) VALUES (?, ?, 'pending', ?)")
+      for (const eid of ['zcode:sess_subagent_agent_a:started', 'zcode:sess_subagent_agent_a:c1', 'zcode:sess_subagent_agent_b:unknown:failed']) {
+        insDelivery.run(db.prepare('SELECT id FROM agent_events WHERE event_id = ?').get(eid).id, device.id, now)
+      }
+      const insRes = db.prepare("INSERT INTO resources (resource_type, ref_id, display_name, created_at, updated_at) VALUES ('session', ?, ?, ?, ?)")
+      insRes.run(subA, 'zcode:sess_subagent_agent_a', now, now)
+      insRes.run(subB, 'zcode:sess_subagent_agent_b', now, now)
+      insRes.run(mainId, 'zcode:sess_main_real', now, now)
+      const agentRes = db.prepare("INSERT INTO resources (resource_type, ref_id, display_name, created_at, updated_at) VALUES ('agent', ?, 'zcode', ?, ?)").run(provider.id, now, now)
+      const resIdOf = (displayName) => db.prepare("SELECT id FROM resources WHERE resource_type = 'session' AND display_name = ?").get(displayName).id
+      const insEdge = db.prepare("INSERT INTO relationships (source_resource_id, target_resource_id, relation_type, created_at) VALUES (?, ?, 'exposes', ?)")
+      insEdge.run(agentRes.lastInsertRowid, resIdOf('zcode:sess_subagent_agent_a'), now)
+      insEdge.run(agentRes.lastInsertRowid, resIdOf('zcode:sess_subagent_agent_b'), now)
+      insEdge.run(agentRes.lastInsertRowid, resIdOf('zcode:sess_main_real'), now)
+      db.prepare("INSERT INTO remote_commands (command_id, idempotency_key, session_id, action, status, expires_at, created_at) VALUES ('cmd-1', 'key-1', ?, 'reply', 'executed', ?, ?)").run(subA, now + 600, now)
+
+      // dry-run：预览计数 + 清单全前缀（不写库）
+      const dry = cleanupMod.runZcodeSubagentCleanup({ db, apply: false })
+      assert.equal(dry.subagentSessions.length, 2, 'dry-run finds the two subagent rows')
+      assert.ok(dry.subagentSessions.every((s) => s.nativeId.startsWith('sess_subagent_agent_')), 'dry-run list is prefix-only')
+      assert.equal(dry.mainSessionsKept, 1, 'main session kept in preview')
+      assert.deepEqual(dry.counts, { sessions: 2, messages: 2, events: 3, deliveries: 3, resources: 2, relationships: 2, remoteCommandsDetached: 1 }, `dry-run counts precise, got ${JSON.stringify(dry.counts)}`)
+      const stillThere = db.prepare("SELECT COUNT(*) AS c FROM agent_sessions WHERE native_id LIKE 'sess\\_subagent\\_agent\\_%' ESCAPE '\\'").get()
+      assert.equal(stillThere.c, 2, 'dry-run is read-only (nothing deleted)')
+
+      // apply：单事务删除；主会话数据与 provider.health_changed 事件存活
+      const applied = cleanupMod.runZcodeSubagentCleanup({ db, apply: true })
+      assert.deepEqual(applied.counts, { sessions: 2, messages: 2, events: 3, deliveries: 3, resources: 2, relationships: 2, remoteCommandsDetached: 1 }, `apply counts match preview, got ${JSON.stringify(applied.counts)}`)
+      assert.equal(db.prepare("SELECT COUNT(*) AS c FROM agent_sessions WHERE native_id LIKE 'sess\\_subagent\\_agent\\_%' ESCAPE '\\'").get().c, 0, 'subagent sessions gone')
+      assert.equal(db.prepare('SELECT COUNT(*) AS c FROM agent_sessions').get().c, 1, 'main session survives')
+      assert.equal(db.prepare("SELECT COUNT(*) AS c FROM agent_messages WHERE session_id = ?").get(mainId).c, 1, 'main messages survive')
+      assert.equal(db.prepare("SELECT COUNT(*) AS c FROM agent_messages WHERE session_id IN (?, ?)").get(subA, subB).c, 0, 'subagent messages gone')
+      assert.equal(db.prepare("SELECT COUNT(*) AS c FROM agent_events WHERE event_id = 'degraded:1'").get().c, 1, 'provider.health_changed event untouched')
+      assert.equal(db.prepare("SELECT COUNT(*) AS c FROM agent_events WHERE event_id = 'zcode:sess_main_real:started'").get().c, 1, 'main session.started untouched')
+      assert.equal(db.prepare("SELECT COUNT(*) AS c FROM agent_events WHERE event_id LIKE 'zcode:sess_subagent_agent_%'").get().c, 0, 'session-scoped subagent events gone')
+      assert.equal(db.prepare('SELECT COUNT(*) AS c FROM event_deliveries').get().c, 0, 'deliveries of deleted events gone')
+      assert.equal(db.prepare("SELECT COUNT(*) AS c FROM resources WHERE resource_type = 'session'").get().c, 1, 'main session resource node survives')
+      assert.equal(db.prepare('SELECT COUNT(*) AS c FROM relationships').get().c, 1, 'main edge survives, subagent edges gone')
+      const cmd = db.prepare('SELECT session_id FROM remote_commands WHERE command_id = ?').get('cmd-1')
+      assert.equal(cmd.session_id, null, 'remote_commands detached via FK SET NULL (row kept, not deleted)')
+
+      // 幂等：第二遍 apply 全零（跑两遍结果一致）
+      const again = cleanupMod.runZcodeSubagentCleanup({ db, apply: true })
+      assert.equal(again.subagentSessions.length, 0, 'second pass finds nothing')
+      assert.deepEqual(again.counts, { sessions: 0, messages: 0, events: 0, deliveries: 0, resources: 0, relationships: 0, remoteCommandsDetached: 0 }, `second apply is a zero no-op, got ${JSON.stringify(again.counts)}`)
+      assert.equal(db.prepare('SELECT COUNT(*) AS c FROM agent_sessions').get().c, 1, 'second pass deletes nothing (idempotent)')
+    } finally {
+      dbModule.closeDatabase()
+    }
+  })
+
   await run()
 }
