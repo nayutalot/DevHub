@@ -38,12 +38,20 @@ let tray: Tray | null = null
 /** 菜单重建去抖：勾选态未变化时不重建（避免周期 tooltip 刷新打断打开中的菜单）。 */
 let lastMenuState = { monitor: false, autostart: false }
 
-/** 图标加载：项目根 resources 优先，__dirname 相对兜底；失败 → 空图标 + 结构化日志。 */
+/**
+ * 图标加载（双模式路径解析，packaging fix）：dev 下项目根 resources/ 两个既有
+ * candidate；打包后 resources/ 经 extraResources 落在 asar 外的
+ * process.resourcesPath/resources/（asar 内旧路径均不存在）→ app.isPackaged
+ * 时优先追加该 candidate。失败 → 空图标 + 结构化日志（docs/12 §10）。
+ */
 function loadTrayIcon(): NativeImage {
   const candidates = [
     join(app.getAppPath(), 'resources', 'tray.png'),
     join(__dirname, '../../resources/tray.png'),
   ]
+  if (app.isPackaged) {
+    candidates.unshift(join(process.resourcesPath, 'resources', 'tray.png'))
+  }
   for (const candidate of candidates) {
     try {
       if (!existsSync(candidate)) continue

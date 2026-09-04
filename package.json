@@ -4,12 +4,58 @@
   "private": true,
   "description": "Development Control Plane for Windows: discover, manage and relate projects, WSL, Docker, Git and services.",
   "main": "out/main/index.js",
+  "author": "DevHub",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit",
     "smoke": "node scripts/smoke.mjs",
-    "mcp": "node scripts/run-mcp.mjs"
+    "mcp": "node scripts/run-mcp.mjs",
+    "dist": "electron-vite build && electron-builder --win",
+    "gen:icon": "node scripts/gen-icon.mjs"
+  },
+  "build": {
+    "appId": "com.devhub.app",
+    "productName": "DevHub",
+    "asar": true,
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "out/**",
+      "src/main/db/migrations/*.sql",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources",
+        "to": "resources"
+      }
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "DevHub"
+    }
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
@@ -23,6 +69,7 @@
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^4.5.0",
     "electron": "44.1.1",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "typescript": "~5.9.2",
     "vite": "^7.0.0"
