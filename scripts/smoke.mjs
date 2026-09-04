@@ -1130,10 +1130,14 @@ if (isEntrypoint()) {
     'devhub.services.inspect',
     'devhub.docker.status',
     'devhub.docker.containers',
+    'devhub.docker.images',
     'devhub.wsl.status',
     'devhub.wsl.distributions',
     'devhub.git.status',
     'devhub.dashboard.summary',
+    'devhub.skills.list',
+    'devhub.versions.list',
+    'devhub.archives.list',
   ].sort()
 
   /** isError 结果的 JSON 帧（{ code, message }）。 */
@@ -1159,21 +1163,21 @@ if (isEntrypoint()) {
     )
   }
 
-  registerCase('m2-t01: server wires exactly 12 dotted tools; permission table covers exactly those, all READ_ONLY', async () => {
+  registerCase('m2-t01: server wires exactly 16 dotted tools; permission table covers exactly those, all READ_ONLY（夜间#2 四只读工具授权更新 12→16，docs/09 §10）', async () => {
     const permissions = await import(new URL('../src/main/mcp/permissions.ts', import.meta.url).href)
 
     await makeTempHome('devhub-m2-t01-')
     const { client, server } = await openMcp()
     try {
       const tools = await client.listTools()
-      assert.equal(tools.tools.length, 12, `exactly 12 tools, got ${tools.tools.length}`)
-      assert.deepEqual(tools.tools.map((t) => t.name).sort(), M2_TOOL_NAMES, 'all 12 dotted names, no drift')
+      assert.equal(tools.tools.length, 16, `exactly 16 tools, got ${tools.tools.length}`)
+      assert.deepEqual(tools.tools.map((t) => t.name).sort(), M2_TOOL_NAMES, 'all 16 dotted names, no drift')
       for (const tool of tools.tools) {
         assert.equal(tool.inputSchema.type, 'object', `inputSchema object for ${tool.name}`)
         assert.equal(typeof tool.description, 'string', `description present for ${tool.name}`)
       }
 
-      // 权限分类表覆盖且仅覆盖 12 个 tool，值全为 READ_ONLY（docs/08 §9.2）
+      // 权限分类表覆盖且仅覆盖 16 个 tool，值全为 READ_ONLY（docs/08 §9.2；夜间#2 扩 12→16）
       assert.deepEqual(Object.keys(permissions.TOOL_PERMISSIONS).sort(), M2_TOOL_NAMES, 'permission table exact coverage')
       for (const name of M2_TOOL_NAMES) {
         assert.equal(permissions.TOOL_PERMISSIONS[name], 'READ_ONLY', `${name} is READ_ONLY`)
