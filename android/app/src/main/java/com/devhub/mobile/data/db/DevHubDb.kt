@@ -52,6 +52,11 @@ data class SessionCacheEntity(
     val endedAtSec: Long?,
     val stale: Boolean,
     val cachedAtSec: Long,
+    // —— 体验整改批附加列（可选；旧端点缺失 → null/false，UI 回退不回归）——
+    val providerKey: String? = null,
+    val providerLabel: String? = null,
+    val archived: Boolean = false,
+    val parentSessionId: Long? = null,
 )
 
 /** 消息投影缓存（脱敏 contentRedacted；按会话分区，游标 after = 消息 id）。 */
@@ -62,6 +67,8 @@ data class MessageCacheEntity(
     val role: String,
     val contentRedacted: String,
     val occurredAtSec: Long?,
+    /** R1 分段 JSON（可空；null = 回退整段 contentRedacted 纯文本）。 */
+    val segmentsJson: String? = null,
 )
 
 /** 离线命令队列：断网/断连期间用户提交的 reply/actions（docs/14 §B.5 幂等补发）。 */
@@ -128,6 +135,10 @@ interface SessionCacheDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun upsertAll(sessions: List<SessionCacheEntity>)
+
+    /** R3 删除同步：轮询响应中已消失的会话行（含被删除/过滤的）从缓存移除；空列表请走 clear()。 */
+    @Query("DELETE FROM session_cache WHERE sessionId NOT IN (:ids)")
+    fun deleteExcept(ids: List<Long>)
 
     @Query("DELETE FROM session_cache")
     fun clear()
@@ -196,7 +207,9 @@ interface EventAckStateDao {
         PendingCommandEntity::class,
         EventAckStateEntity::class,
     ],
-    version = 1,
+    // v2（体验整改批 B）：session_cache + providerKey/providerLabel/archived/parentSessionId；
+    // message_cache + segmentsJson。纯缓存库，破坏性迁移可接受（fallbackToDestructiveMigration）。
+    version = 2,
     exportSchema = false,
 )
 abstract class DevHubDb : RoomDatabase() {

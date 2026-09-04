@@ -26,8 +26,10 @@ import androidx.navigation.navArgument
 import com.devhub.mobile.connect.ConnectionManager
 import com.devhub.mobile.connect.ConnState
 import com.devhub.mobile.connect.GatewayConnectionService
+import com.devhub.mobile.data.FixtureMode
 import com.devhub.mobile.data.SecureStore
 import com.devhub.mobile.ui.AppState
+import com.devhub.mobile.ui.screens.ChildSessionsScreen
 import com.devhub.mobile.ui.screens.GatewayConfigScreen
 import com.devhub.mobile.ui.screens.MainTabs
 import com.devhub.mobile.ui.screens.PairingScreen
@@ -83,7 +85,9 @@ fun DevHubRoot(startSessionId: Long?, onLinkConsumed: () -> Unit) {
     val context = LocalContext.current
     val state by ConnectionManager.state.collectAsState()
 
-    val paired = remember { mutableStateOf(SecureStore.loadToken(context) != null) }
+    val paired = remember {
+        mutableStateOf(SecureStore.loadToken(context) != null || FixtureMode.enabled(context))
+    }
     val startDestination = if (paired.value) "main" else "gateway"
 
     // 已配对：拉起前台服务（WS 长连 + 通知）；401 → 回配对页（结构化提示）
@@ -124,6 +128,11 @@ fun DevHubRoot(startSessionId: Long?, onLinkConsumed: () -> Unit) {
                 GatewayConfigScreen(
                     onConfigured = { navController.navigate("pairing") },
                     onDiagnostics = { navController.navigate("main?tab=diagnostics") },
+                    onDemoMode = {
+                        navController.navigate("main") {
+                            popUpTo("gateway") { inclusive = true }
+                        }
+                    },
                 )
             }
             composable("pairing") {
@@ -155,6 +164,21 @@ fun DevHubRoot(startSessionId: Long?, onLinkConsumed: () -> Unit) {
                 SessionDetailScreen(
                     sessionId = entry.arguments?.getLong("sessionId") ?: 0L,
                     onBack = { navController.popBackStack() },
+                    onOpenChildren = { id ->
+                        navController.navigate("children/$id")
+                    },
+                )
+            }
+            // R2 子智能体会话列表页（从父会话入口一步进入；行内可下钻）
+            composable(
+                "children/{sessionId}",
+                arguments = listOf(navArgument("sessionId") { type = NavType.LongType }),
+            ) { entry ->
+                ChildSessionsScreen(
+                    parentSessionId = entry.arguments?.getLong("sessionId") ?: 0L,
+                    parentTitle = null,
+                    onBack = { navController.popBackStack() },
+                    onOpenSession = { id -> navController.navigate("session/$id") },
                 )
             }
         }
