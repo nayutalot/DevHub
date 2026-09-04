@@ -115,6 +115,10 @@ ZCode 首版全部 observed（裁决 4）→ 对 ZCode 会话的 reply/pause/res
   配置文件；**不入仓库、不入 settings 表、不入 DevHub 日志**（DevHub 甚至不读取
   其内容，仅提示用户自行配置隧道指向 `gateway_port`）。
 - DevHub 不启动、不安装、不修改 NatPierce；仅展示隧道连通性提示（docs/11 §8）。
+- **增补（2026-09-04 隧道批次）**：方案 B（用户自备 ECS + frp，部署概要见
+  docs/natpierce-setup.md §7）与本节 NatPierce **同层**——同为 TCP 透传隧道，
+  「只传输不替代鉴权、凭据外置」语义不变：frp token 属用户外置凭据（不入仓库/
+  settings/日志），Gateway 仍只绑回环，鉴权/防重放/限流决策零改动。
 
 ## 9. Mimosa 钩子约束适配
 

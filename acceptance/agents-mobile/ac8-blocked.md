@@ -147,3 +147,54 @@
   夹具用例 ac8-139/140 基线内已绿且本批次未触碰对应 TS 路径。
 - Android 侧门禁 = `./gradlew assembleDebug` 两次（BUILD SUCCESSFUL）+ 真机
   安装 + 实测复验（见上表 #12）。
+
+---
+
+## 5. 隧道面状态更新（2026-09-04，ECS + frp 方案 B 实测）
+
+> 结论先行：**「手机经公网隧道地址连上桌面」这一前置已用模拟器等价证实**——
+> Android 模拟器（DevHub_API_35）App 配置 ECS 公网地址 `59.110.149.11:8746`
+> 后，B1/B2/B4 全部通过，WS 长连真实事件流可见。**真机（用户手机装 App）待
+> 用户执行后即等价复现**（App 与模拟器同一 APK，唯一差异 = 网络路径）。
+> 隧道 = 方案 B（ECS + frp，docs/natpierce-setup.md §7）；NatPierce（方案 A）
+> 仍未配置，B7 维持待用户凭据。
+
+### 5.1 部署事实（本批次，凭据零入库）
+
+- ECS（Ubuntu 24.04，2C2G，3Mbps）frps 0.71.0 systemd 常驻（`Restart=always`），
+  token 强认证（32 字节 hex，仅存 ECS frps.toml 与 PC frpc.toml 两处），dashboard
+  仅绑 127.0.0.1:7500；
+- PC frpc 0.71.0 常驻（`%LOCALAPPDATA%\DevHub\frp\`，机器本地不入仓库；自启 =
+  HKCU Run 键 `DevHubFRP` → vbs 隐藏启动器 + 5s 重拉循环；非提权环境无法建
+  SYSTEM schtasks，属部署环境限制非产品缺陷）；
+- DevHub 侧**零代码改动**：Gateway 仍绑 127.0.0.1:8746（settings
+  `gateway_enabled=1` 不变），经隧道流量在 Gateway 视角来源恒为 frpc 回环。
+
+### 5.2 B1–B8 逐项状态（对照 §1.2）
+
+| # | 状态 | 证据 / 说明 |
+| --- | --- | --- |
+| B1 隧道地址 health 200 | **通过** | PC 公网回环 `curl 59.110.149.11:8746/v1/health` ×5 全 200（RTT 85–269ms）；模拟器 App「测试连接」→「连接成功：devhub v0.1.0」→ `tunnel-ecs-01-config-health-ok.png` |
+| B2 隧道下 8 位码配对 | **通过** | 桌面回环 pairing/create 签发 → 模拟器经公网地址输码 claim 成功（安全须知弹窗出现）→ WS「已连接 · 心跳 30s」→ `tunnel-ecs-02-paired-ws-connected.png`；脚本化公网 claim（探针设备）同 200 |
+| B3 隧道下 WS 长连 + 实时事件 | **通过（WS 面）** | 模拟器 WS 已连（服务端 seq 实时推进，最近错误：无）→ `tunnel-ecs-04-diagnostics.png`；5 分钟长连零断连专项见 §5.3。`waiting_input`→系统通知帧经隧道未专项触发（需真实推理 turn，本地版本已证 §2/§4，判定与推送逻辑不在传输面） |
+| B4 防重放公网回归 | **通过（三态全做）** | 对公网地址：同 nonce 重放 → 401 AUTH_REPLAYED；窗外时间戳（-400s，有效 token）→ 401 AUTH_REPLAYED；合法时间戳+新 nonce → 200；另无 Token / 错 Token → 401 AUTH_INVALID_TOKEN（临时脚本跑完即删，未入仓库） |
+| B5 隧道下指令链 | 部分（门已证） | observed 会话 reply 经公网 → 403 COMMAND_NOT_EXECUTABLE（指令门公网路径实测）；202→执行→回流全链为真实推理消耗场景，本地版本已证（§2/§4），本批次不重复消耗 |
+| B6 断隧道补发 | 未跑（如实） | 需中途断 frpc + 真实 turn 等待场景；幂等补发逻辑与传输面无关（本地已证），留真机阶段与 B5 一并复跑 |
+| B7 natpierce 投影 | 不适用 | 方案 B 不经 `NATPIERCE_*` 环境变量（投影语义不变，仍 configured:false）；NatPierce 凭据仍待用户 |
+| B8 非回环 pairing/create 拒绝 | 不触发（隧道属性） | 经隧道到达 Gateway 的来源恒为 frpc 回环 → GATEWAY_LOCAL_ONLY 在隧道形态下不可触发；该拒绝的本地语义已在 AC7b 实证。属性已写入 docs/natpierce-setup.md §7.5 弱点②（公网防线收敛为 Token+防重放+限流） |
+
+### 5.3 WS 5 分钟长连专项（公网路径）
+
+独立探针设备经 `ws://59.110.149.11:8746/v1/events` 连接（Bearer 设备 Token）：
+hello 帧 → sync 对齐 → 保持 300s。实测结果：**保持 300137ms，零断连零错误**
+（唯一 close = 结束时主动 1000 正常关闭），心跳 30s 无调参（frpc↔frps 默认值
+足够），保持期间 t≈270s 实时收到 1 条事件帧（服务端 seq 推进即推，B3 实时
+推送面同时实证）。**结论：传输面稳定，无需调整 transport.heartbeat**。探针
+设备跑完即自撤销（200），temporary 脚本未入仓库。
+
+### 5.4 截图证据（acceptance/agents-mobile/，内无任何密码/token 明文）
+
+- `tunnel-ecs-01-config-health-ok.png` — App 填 ECS 公网地址 → health OK
+- `tunnel-ecs-02-paired-ws-connected.png` — 配对完成 + WS 已连接 + 真实会话列表（200 条）
+- `tunnel-ecs-03-agents-list.png` — Agents 真实数据（5 provider 能力徽章）
+- `tunnel-ecs-04-diagnostics.png` — 诊断页（WS seq 推进 / provider 诊断）
