@@ -67,6 +67,9 @@ import java.io.IOException
 /** R10：进会话即请求最新 200 条（last=200 尾部取数 + prevAfter 向旧翻页）。 */
 private const val TAIL_PAGE = 200
 
+/** R5.1 批次 C 端侧可见性打点 tag（logcat 过滤用；内容零输出，仅 id/时间戳）。 */
+private const val UX_LOG_TAG = "DevHubUx"
+
 /**
  * 页面 5：会话详情（GET /v1/sessions/{id} + 消息分页，docs/14 §B.1；体验整改批 B 增强）。
  * - R10：进会话 last=200 取最新 → LazyColumn reverseLayout（最新在底部、初始停底部）；
@@ -101,6 +104,15 @@ fun SessionDetailScreen(
     /** 消息分页入库（脱敏投影；segments 序列化为 JSON 供 UI 解析）。 */
     suspend fun insertPage(page: com.devhub.mobile.data.remote.MessagesPage) {
         if (page.items.isEmpty()) return
+        // R5.1 批次 C 端侧打点：App 侧消息可见时间（logcat 时间戳 ≈ Room 落库完成，
+        // Compose 于同帧内上屏；only ids/timestamps，零内容——日志脱敏红线同构）。
+        // 与桌面 agent_events.created_at / WS 事件序列对照 → WS→App 可见段样本。
+        for (m in page.items) {
+            android.util.Log.i(
+                UX_LOG_TAG,
+                "msg_visible sessionId=$sessionId id=${m.id} occurredAt=${m.occurredAtSec ?: -1L} atMs=${System.currentTimeMillis()}",
+            )
+        }
         withContext(Dispatchers.IO) {
             db.messageCacheDao().insertAll(
                 page.items.map { m ->
@@ -153,7 +165,10 @@ fun SessionDetailScreen(
             } catch (err: IOException) {
                 detailError = "网络不可达"
             }
-            // 新消息增量回流（after 正向游标；消息指纹去重语义在服务端，Room upsert 幂等）
+            // 新消息增量回流（after 正向游标；消息指纹去重语义在服务端，Room upsert 幂等）。
+            // 批次 C 缺陷修复：新启动的托管会话首屏常为空（消息在 spawn 后才产生），
+            // maxMessageId=null 时若跳过拉取，增量轮询永不启动 → 回流永久缺失。
+            // 回退为 tail 拉取（last=TAIL_PAGE），拉到任意消息后自然切换 after 增量。
             runCatching {
                 val after = withContext(Dispatchers.IO) { db.messageCacheDao().maxMessageId(sessionId) }
                 if (after != null) {
@@ -161,6 +176,12 @@ fun SessionDetailScreen(
                         ApiProvider.projection(context).messages(sessionId, after = after, limit = TAIL_PAGE)
                     }
                     insertPage(page)
+                } else {
+                    val page = withContext(Dispatchers.IO) {
+                        ApiProvider.projection(context).messages(sessionId, last = TAIL_PAGE)
+                    }
+                    insertPage(page)
+                    if (prevAfter == null) prevAfter = page.prevAfter
                 }
             }
             delay(3000)
@@ -265,11 +286,20 @@ fun SessionDetailScreen(
             granted = d.capabilities.granted,
         )
         if (d.session.sessionMode == "observed" || d.capabilities.mode == "observed") {
+            // R7.1：per-provider 原因卡（文案 = known-limitations §1 摘取，批次 C）；
+            // provider 未知时回退通用文案，绝不猜。
+            val reason = com.devhub.mobile.core.InteractionHonesty.observedReason(
+                providerKey = d.session.providerKey,
+                displayName = d.session.providerLabel,
+            ) ?: com.devhub.mobile.core.InteractionHonesty.GENERIC_OBSERVED_NOTE
             Text(
-                "observed 会话：纯观察模式，不提供任何远程控制（服务端亦全禁）。",
+                reason,
                 fontSize = 12.sp,
                 color = Color(0xFF7A4F00),
-                modifier = Modifier.padding(vertical = 4.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFFFF8E1), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
             )
         }
         if (controls.reply) {
@@ -286,7 +316,14 @@ fun SessionDetailScreen(
                         if (text.isEmpty()) return@Button
                         scope.launch {
                             submitStatus = when (val r = ConnectionManager.submitReply(sessionId, text)) {
-                                is SubmitResult.Accepted -> "已接受（commandId=${r.commandId}）"
+                                is SubmitResult.Accepted -> {
+                                    // R5.1 端侧打点：reply 提交→回流往返样本的起点标记
+                                    android.util.Log.i(
+                                        UX_LOG_TAG,
+                                        "reply_sent sessionId=$sessionId commandId=${r.commandId} atMs=${System.currentTimeMillis()}",
+                                    )
+                                    "已接受（commandId=${r.commandId}）"
+                                }
                                 SubmitResult.QueuedOffline -> "当前离线：已入离线队列，重连后自动补发（幂等）"
                                 is SubmitResult.Rejected -> "被拒绝：[${r.code}] ${r.message}"
                             }

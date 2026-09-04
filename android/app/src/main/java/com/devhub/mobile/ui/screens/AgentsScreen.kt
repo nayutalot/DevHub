@@ -1,5 +1,6 @@
 package com.devhub.mobile.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,14 +12,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -27,7 +34,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.devhub.mobile.core.IdempotencyKeys
+import com.devhub.mobile.core.InteractionHonesty
 import com.devhub.mobile.data.ApiProvider
+import com.devhub.mobile.data.FixtureMode
 import com.devhub.mobile.data.remote.AgentDto
 import com.devhub.mobile.data.remote.ApiError
 import com.devhub.mobile.ui.components.HealthBadge
@@ -35,19 +45,31 @@ import com.devhub.mobile.ui.components.ModeBadge
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
 
+/** 托管任务输入上限（与服务端 MANAGED_SESSION_TASK_MAX_CHARS 对齐）。 */
+private const val SPAWN_TASK_MAX_CHARS = 4_000
+
 /**
- * 页面 3：Agent 列表（GET /v1/agents，docs/14 §B.1）。
- * 行卡：displayName + health 徽章（ok/degraded/unavailable/unknown）+
- * capabilities 徽章（mode + granted[]）。
+ * 页面 3：Agent 列表（GET /v1/agents，docs/14 §B.1；体验整改批 C 交互诚实化）。
+ * - R6.1：managed provider 卡文案 =「托管会话可交互；外部会话只读」（能力是会话级的，
+ *   展示必须如实；不再把 provider 级 granted 列表渲染成"现在就能交互"）；
+ * - R6.2：对 managed provider（现 = codex，数据驱动判定，绝不硬编码）显示
+ *   「启动托管会话」→ POST /v1/providers/{id}/sessions（202）→ 跳入新会话详情，
+ *   reply/pause/resume 真实可用；夹具演示模式一律不给按钮（绝不伪造控制通道）；
+ * - R7.1/R7.2：observed provider 行显示 per-provider 原因卡（文案与
+ *   docs/known-limitations.md §1 一致），只展示会话级真实可用动作——不可用的
+ *   绝不显示为可点。
  */
 @Composable
-fun AgentsScreen() {
+fun AgentsScreen(onOpenSession: (Long) -> Unit = {}) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var agents by remember { mutableStateOf<List<AgentDto>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    val fixtureOn = remember { FixtureMode.enabled(context) }
 
     LaunchedEffect(Unit) {
         while (isActive) {
@@ -74,29 +96,151 @@ fun AgentsScreen() {
             list.isEmpty() -> Text("暂无 provider 投影", fontSize = 13.sp)
             else -> LazyColumn {
                 items(list, key = { it.id }) { agent ->
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 6.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(agent.displayName, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                            Spacer(Modifier.width(8.dp))
-                            HealthBadge(agent.health)
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            ModeBadge(agent.capabilities.mode)
-                            Text(
-                                if (agent.capabilities.granted.isEmpty()) "无控制能力" else "granted: ${agent.capabilities.granted.joinToString(" / ")}",
-                                fontSize = 11.sp,
-                                color = Color(0xFF555555),
-                            )
-                        }
-                    }
+                    ProviderCard(
+                        agent = agent,
+                        fixtureOn = fixtureOn,
+                        onOpenSession = onOpenSession,
+                    )
                 }
             }
         }
     }
 }
 
+@Composable
+private fun ProviderCard(
+    agent: AgentDto,
+    fixtureOn: Boolean,
+    onOpenSession: (Long) -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    // 展开状态（启动面板）只属于单卡：按 agent.id 记忆
+    var spawnPanelOpen by remember(agent.id) { mutableStateOf(false) }
+    var spawnTask by remember(agent.id) { mutableStateOf("") }
+    var spawnBusy by remember(agent.id) { mutableStateOf(false) }
+    var spawnStatus by remember(agent.id) { mutableStateOf<String?>(null) }
+
+    val isManaged = agent.capabilities.mode == InteractionHonesty.MODE_MANAGED
+    val canSpawn = InteractionHonesty.canSpawnManagedSession(agent.capabilities.mode, fixtureOn)
+    // R7.1：observed 原因卡（displayName 匹配；未知 → null → 通用兜底）
+    val observedReason = if (!isManaged) {
+        InteractionHonesty.observedReason(providerKey = null, displayName = agent.displayName)
+    } else {
+        null
+    }
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(agent.displayName, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Spacer(Modifier.width(8.dp))
+            HealthBadge(agent.health)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            ModeBadge(agent.capabilities.mode)
+            Text(
+                when {
+                    isManaged -> InteractionHonesty.MANAGED_PROVIDER_NOTE // R6.1 诚实文案
+                    agent.capabilities.granted.isEmpty() -> InteractionHonesty.EMPTY_GRANTED_NOTE
+                    else -> "granted: ${agent.capabilities.granted.joinToString(" / ")}"
+                },
+                fontSize = 11.sp,
+                color = Color(0xFF555555),
+            )
+        }
+
+        // R7.1：per-provider observed 原因卡（文案 = known-limitations §1；未知 provider 回退通用文案）
+        if (!isManaged) {
+            Text(
+                observedReason ?: InteractionHonesty.GENERIC_OBSERVED_NOTE,
+                fontSize = 11.sp,
+                color = Color(0xFF7A4F00),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFFFF8E1), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+            )
+        }
+
+        // R6.2：启动托管会话（数据驱动门：mode==managed 且非夹具；服务端 L3 二次校验兜底）
+        if (canSpawn && !spawnPanelOpen) {
+            OutlinedButton(
+                onClick = {
+                    spawnPanelOpen = true
+                    spawnStatus = null
+                },
+            ) { Text(InteractionHonesty.SPAWN_BUTTON_LABEL, fontSize = 13.sp) }
+        }
+        if (spawnPanelOpen) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedTextField(
+                    value = spawnTask,
+                    onValueChange = { spawnTask = it.take(SPAWN_TASK_MAX_CHARS) },
+                    label = { Text(InteractionHonesty.SPAWN_TASK_LABEL, fontSize = 12.sp) },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !spawnBusy,
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Button(
+                        onClick = {
+                            val task = spawnTask.trim()
+                            if (task.isEmpty() || spawnBusy) return@Button
+                            spawnBusy = true
+                            spawnStatus = null
+                            scope.launch {
+                                val message: String = try {
+                                    val started = withContext(Dispatchers.IO) {
+                                        ApiProvider.rest(context).startManagedSession(
+                                            providerId = agent.id,
+                                            task = task,
+                                            idempotencyKey = IdempotencyKeys.newKey(),
+                                        )
+                                    }
+                                    val sid = started.sessionId
+                                    if (sid != null) {
+                                        spawnPanelOpen = false
+                                        spawnTask = ""
+                                        // 跳入新托管会话详情：reply/pause/resume 会话级真实可用（R6.2）
+                                        onOpenSession(sid)
+                                        "已启动（commandId=${started.commandId}）"
+                                    } else {
+                                        "已受理（${started.status}，commandId=${started.commandId}）；会话列表稍后出现新会话"
+                                    }
+                                } catch (err: ApiError) {
+                                    "启动被拒绝：[${err.code}] ${err.message}"
+                                } catch (err: IOException) {
+                                    "网络不可达，未启动"
+                                }
+                                spawnBusy = false
+                                spawnStatus = message
+                            }
+                        },
+                        enabled = spawnTask.isNotBlank() && !spawnBusy,
+                    ) {
+                        Text(if (spawnBusy) InteractionHonesty.SPAWN_BUSY_LABEL else InteractionHonesty.SPAWN_CONFIRM_LABEL, fontSize = 13.sp)
+                    }
+                    TextButton(
+                        onClick = { spawnPanelOpen = false; spawnStatus = null },
+                        enabled = !spawnBusy,
+                    ) { Text(InteractionHonesty.SPAWN_CANCEL_LABEL, fontSize = 13.sp) }
+                }
+            }
+        }
+        spawnStatus?.let {
+            Text(it, fontSize = 11.sp, color = Color(0xFF555555))
+        }
+        if (fixtureOn) {
+            Text(
+                "演示数据（夹具）：此页能力展示仅示意，控制动作不可用",
+                fontSize = 10.sp,
+                color = Color(0xFF7A4F00),
+            )
+        }
+    }
+}

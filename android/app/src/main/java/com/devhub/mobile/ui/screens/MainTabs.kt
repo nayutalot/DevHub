@@ -83,7 +83,8 @@ fun MainTabs(
         ) {
             ConnectionStatusBar(onGatewayConfig = onGatewayConfig)
             when (selected) {
-                "agents" -> AgentsScreen()
+                // 批次 C R6.2：Agents 页「启动托管会话」→ 202 后跳入新会话详情
+                "agents" -> AgentsScreen(onOpenSession = onOpenSession)
                 "diagnostics" -> DiagnosticsScreen()
                 "device" -> DeviceScreen()
                 else -> SessionsScreen(onOpenSession = onOpenSession)

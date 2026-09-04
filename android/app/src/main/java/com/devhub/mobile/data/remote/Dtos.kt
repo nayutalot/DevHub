@@ -100,6 +100,18 @@ data class DeviceDto(
 
 data class CommandAccept(val commandId: String, val status: String)
 
+/**
+ * R6 启动托管会话响应（批次 A 端点：POST /v1/providers/{providerId}/sessions，202）。
+ * status ∈ accepted|executed|rejected；执行成功时携带 sessionId（agent_sessions 行 id，
+ * App 跳转会话详情用）与 nativeId；幂等重试还原原 commandId 原结果（docs/14 §B.5）。
+ */
+data class ManagedSessionStart(
+    val commandId: String,
+    val status: String,
+    val sessionId: Long? = null,
+    val nativeId: String? = null,
+)
+
 data class DiagProvider(
     val id: String,
     val installed: Boolean,
@@ -168,22 +180,30 @@ object Dtos {
         lastActivityAtSec = o.optLong("lastActivityAt", -1).takeIf { it > 0 },
         endedAtSec = o.optLong("endedAt", -1).takeIf { it > 0 },
         stale = o.optBoolean("stale", false),
-        // R4/R2/R3 附加字段（旧端点缺失 → null/false，UI 回退不回归）
+        // R4/R2/R3 附加字段（旧端点缺失 → null/false，UI 回退不回归）。
+        // 批次 C 契约对齐修复：批次 A 服务端投影字段 = archivedAt（unix 秒，仅归档行出现），
+        // 并非布尔 archived——布尔形态保留解析（向后兼容），归档判定以 archivedAt>0 为准。
         providerKey = o.optString("providerKey").takeIf { it.isNotEmpty() },
         providerLabel = o.optString("providerLabel").takeIf { it.isNotEmpty() },
-        archived = o.optBoolean("archived", false),
+        archived = o.optBoolean("archived", false) || o.optLong("archivedAt", -1) > 0,
         parentSessionId = o.optLong("parentSessionId", -1).takeIf { it > 0 },
     )
 
     fun parseSessions(body: JSONObject): List<SessionDto> =
         body.getJSONArray("sessions").mapObjects { raw -> parseSession(JSONObject(raw)) }
 
-    fun parseSessionDetail(body: JSONObject): SessionDetailDto = SessionDetailDto(
-        session = parseSession(body.getJSONObject("session")),
-        capabilities = parseCapabilities(body.getJSONObject("capabilities")),
-        childSessions = body.optJSONArray("childSessions")?.mapObjects { raw -> parseSession(JSONObject(raw)) }
-            ?: emptyList(),
-    )
+    fun parseSessionDetail(body: JSONObject): SessionDetailDto {
+        val sessionObj = body.optJSONObject("session") ?: body
+        // 批次 C 契约对齐修复：批次 A 网关把 childSessions 附在 session 视图内
+        //（body.session.childSessions）；顶层形态保留解析（夹具/向后兼容）。
+        val children = body.optJSONArray("childSessions")
+            ?: sessionObj.optJSONArray("childSessions")
+        return SessionDetailDto(
+            session = parseSession(sessionObj),
+            capabilities = parseCapabilities(body.getJSONObject("capabilities")),
+            childSessions = children?.mapObjects { raw -> parseSession(JSONObject(raw)) } ?: emptyList(),
+        )
+    }
 
     /** R1 segments：字段级 opt 容忍（label/content 缺失 → null），数组缺失 → null（App 回退整段纯文本）。 */
     fun parseSegments(arr: org.json.JSONArray?): List<SegmentDto>? = arr?.mapObjects { raw ->
@@ -226,6 +246,14 @@ object Dtos {
     fun parseCommandAccept(body: JSONObject): CommandAccept = CommandAccept(
         commandId = body.getString("commandId"),
         status = body.getString("status"),
+    )
+
+    /** R6 spawn 响应：sessionId/nativeId 字段级 opt 容忍（status=rejected 等形态缺失 → null）。 */
+    fun parseManagedSessionStart(body: JSONObject): ManagedSessionStart = ManagedSessionStart(
+        commandId = body.getString("commandId"),
+        status = body.getString("status"),
+        sessionId = body.optLong("sessionId", -1).takeIf { it > 0 },
+        nativeId = body.optString("nativeId").takeIf { it.isNotEmpty() },
     )
 
     fun parseDiagnostics(body: JSONObject): DiagnosticsDto = DiagnosticsDto(
