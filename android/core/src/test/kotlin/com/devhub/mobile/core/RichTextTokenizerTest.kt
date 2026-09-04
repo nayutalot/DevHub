@@ -41,6 +41,7 @@ class RichTextTokenizerTest {
                 is RichTextTokenizer.RichToken.Plain -> it.text
                 is RichTextTokenizer.RichToken.CodeBlock -> it.code
                 is RichTextTokenizer.RichToken.CodeSpan -> it.code
+                is RichTextTokenizer.RichToken.Bold -> it.text
                 is RichTextTokenizer.RichToken.Link -> it.label
                 is RichTextTokenizer.RichToken.ReferenceChip -> it.display
             }
@@ -121,5 +122,60 @@ class RichTextTokenizerTest {
         assertTrue(out.any { it is RichTextTokenizer.RichToken.Link })
         assertTrue(out.any { it is RichTextTokenizer.RichToken.ReferenceChip })
         assertEquals("D", (out.last() as RichTextTokenizer.RichToken.Plain).text.trim())
+    }
+
+    @Test
+    fun `double asterisk bold detected`() {
+        // 打磨批 D：真实 Claude/子代理长消息的 **加粗** 渲染为 Bold，记号不再原样露出
+        val out = RichTextTokenizer.tokenize("**任务** — 做一辆循线小车")
+        assertEquals(RichTextTokenizer.RichToken.Bold("任务"), out[0])
+        assertTrue(out.last() is RichTextTokenizer.RichToken.Plain)
+        val joined = out.joinToString("") {
+            when (it) {
+                is RichTextTokenizer.RichToken.Plain -> it.text
+                is RichTextTokenizer.RichToken.Bold -> it.text
+                else -> ""
+            }
+        }
+        assertTrue(joined.contains("任务"))
+        assertTrue(joined.contains("做一辆循线小车"))
+    }
+
+    @Test
+    fun `multiple bold segments all detected`() {
+        val out = RichTextTokenizer.tokenize("难点在于**循线运动控制**(要快)和**摆杆滚球平衡控制**(要稳)。")
+        val bolds = out.filterIsInstance<RichTextTokenizer.RichToken.Bold>()
+        assertEquals(2, bolds.size)
+        assertEquals("循线运动控制", bolds[0].text)
+        assertEquals("摆杆滚球平衡控制", bolds[1].text)
+    }
+
+    @Test
+    fun `bold markers inside code span stay literal`() {
+        val out = RichTextTokenizer.tokenize("`**x**`")
+        assertEquals(1, out.size)
+        val code = out[0] as RichTextTokenizer.RichToken.CodeSpan
+        assertEquals("**x**", code.code)
+    }
+
+    @Test
+    fun `unclosed bold stays plain and content preserved`() {
+        val out = RichTextTokenizer.tokenize("a ** b c")
+        assertTrue(out.none { it is RichTextTokenizer.RichToken.Bold })
+        val joined = out.filterIsInstance<RichTextTokenizer.RichToken.Plain>().joinToString("") { it.text }
+        assertEquals("a ** b c", joined)
+    }
+
+    @Test
+    fun `strip display markers removes double asterisk only`() {
+        // 打磨批 D：标题显示层清理（不改数据）
+        assertEquals("你是 DevHub App 体验整改批的批次 C", RichTextTokenizer.stripDisplayMarkers("你是 DevHub App 体验整改批的**批次 C**"))
+        assertEquals("Title", RichTextTokenizer.stripDisplayMarkers("**Title**"))
+        assertEquals("no markers", RichTextTokenizer.stripDisplayMarkers("no markers"))
+        assertEquals(null, RichTextTokenizer.stripDisplayMarkers(null))
+        // 清理后为空白 → 回退原文（内容零丢失）
+        assertEquals("**", RichTextTokenizer.stripDisplayMarkers("**"))
+        // 成对空格收敛
+        assertEquals("a b", RichTextTokenizer.stripDisplayMarkers("a**  **b"))
     }
 }

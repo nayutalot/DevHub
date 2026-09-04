@@ -88,10 +88,13 @@ fun ChildSessionsScreen(
             Column(Modifier.weight(1f)) {
                 Text("🤖 子智能体会话", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                 Text(
-                    "父会话：${parentTitle ?: "#$parentSessionId"}",
+                    // 打磨批 D：显示层清理 ** 记号（不改数据）
+                    com.devhub.mobile.core.RichTextTokenizer.stripDisplayMarkers(parentTitle)
+                        ?: "#$parentSessionId",
                     fontSize = 11.sp,
                     color = Color(0xFF757575),
                     maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
             }
         }
@@ -125,7 +128,9 @@ fun ChildSessionsScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 4.dp)
-                                .background(Color(0xFFF7F7F7))
+                                // 打磨批 D：钉深色主题后行底改用主题容器色（原浅灰 F7F7F7 与
+                                // 主题默认浅色文字对比失效）
+                                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                                 .clickable { onOpenSession(child.id) } // 已结束也可点入回看
                                 .padding(10.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -135,16 +140,19 @@ fun ChildSessionsScreen(
                                 ProviderAvatarFor(providerKey = child.providerKey, providerLabel = child.providerLabel, size = 26.dp, fontSize = 11)
                                 Spacer(Modifier.width(8.dp))
                                 Text(
-                                    child.title ?: "会话 #${child.id}",
+                                    // 打磨批 D：显示层清理 ** 记号；超长标题单行省略号截断
+                                    com.devhub.mobile.core.RichTextTokenizer.stripDisplayMarkers(child.title)
+                                        ?: "会话 #${child.id}",
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 13.sp,
                                     modifier = Modifier.weight(1f),
                                     maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                 )
                                 StatusBadge(child.status)
                             }
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text(SessionListOps.childLevelLabel(level), fontSize = 11.sp, color = Color(0xFF555555))
+                                Text(SessionListOps.childLevelLabel(level), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 ModeBadge(child.sessionMode)
                                 child.lastActivityAtSec?.let {
                                     Text(TimeFmt.mdHm(it), fontSize = 11.sp, color = Color(0xFF757575))

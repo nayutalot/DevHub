@@ -28,6 +28,18 @@ object ScrubberMath {
     }
 
     /**
+     * 视口锚点 fraction（打磨批 D 初始语义：at-bottom = 最新锚）。
+     * 输入 = reverseLayout 列表 firstVisibleItemIndex（reversed 索引，0 = 底部/最新）；
+     * 输出 = scrubber fraction（0 = 最新端，1 = 最旧端）。
+     * 停在底部（含初始/空窗口/全部可见的小窗口）恒 → 0，即「内容是最新」在滑条上
+     * 锚定「最新」端；此前以"最顶可见项"推 fraction，小窗口下初始误停最旧端。
+     */
+    fun fractionForReversedAnchor(firstVisibleReversedIndex: Int, count: Int): Float {
+        if (count <= 1) return 0f
+        return firstVisibleReversedIndex.coerceIn(0, count - 1).toFloat() / (count - 1).toFloat()
+    }
+
+    /**
      * 拖动是否触达「更旧」边缘（需要按 prevAfter 翻页）：
      * 目标索引落在已加载窗口顶部 edgeWindow 条以内且还有更旧数据。
      */

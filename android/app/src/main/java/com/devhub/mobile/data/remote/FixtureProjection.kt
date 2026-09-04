@@ -41,7 +41,8 @@ class FixtureProjection private constructor() : ProjectionApi {
     private val agents: List<AgentDto> = listOf(
         agent(1, "Codex"),
         agent(2, "Claude Code"),
-        agent(3, "Kimi"),
+        // 打磨批 D：chip 命名对齐真实 provider 名录（Kimi → Kimi Code）；五家集合与真实一致
+        agent(3, "Kimi Code"),
         agent(4, "ZCode"),
         agent(5, "DeepSeek"),
     )
@@ -204,12 +205,20 @@ class FixtureProjection private constructor() : ProjectionApi {
                 "禁止 WebView/HTML。对齐 AnnotatedString 的 SpanStyle 即可，无需额外依赖。",
             nowSec - 3 * 3600, // 无 segments：演示"回退整段纯文本 + R8 迷你渲染"路径
         )
+        // 打磨批 D：`**` 加粗真实形态样例（真实 Claude 长消息大量使用；此前记号原样露出）
+        msg(
+            880_003, 3, "assistant",
+            "**任务** — 做一辆循线小车,车上装平衡滚球控制装置。\n\n" +
+                "**关键约束**:\n- 车身 ≤35cm×25cm,轮式驱动\n- 循迹只能用红外光电模块\n\n" +
+                "需要注意的是,这道题的两大难点在于**循线运动控制**(要快又要停得准)和**摆杆滚球平衡控制**。",
+            nowSec - 2 * 3600, // 无 segments：走 contentRedacted 回退路径 + R8 渲染器（含 Bold）
+        )
 
-        // —— 主会话 4：Kimi 今日活跃 ——
+        // —— 主会话 4：Kimi Code 今日活跃 ——
         addSession(
             session(
-                id = 880_004, providerId = 3, key = "kimi", label = "Kimi",
-                title = "Kimi observed 只读样例", status = "running",
+                id = 880_004, providerId = 3, key = "kimi", label = "Kimi Code",
+                title = "Kimi Code observed 只读样例", status = "running",
                 startedDaysAgo = 0,
                 lastActivitySec = nowSec - 15 * 60,
             ),
@@ -229,6 +238,19 @@ class FixtureProjection private constructor() : ProjectionApi {
         )
         msg(880_005, 1, "user", "旧任务收尾。", nowSec - 3 * daySec)
         msg(880_005, 2, "assistant", "已归档的会话默认不在列表显示。", nowSec - 2 * daySec - 7200)
+
+        // —— 打磨批 D：长标题（** 记号 + 单行省略号截断样例）——
+        addSession(
+            session(
+                id = 880_006, providerId = 4, key = "zcode", label = "ZCode",
+                title = "你是 DevHub App 体验整改批的**批次 D**打磨验收：这条标题故意写得很长很长，" +
+                    "用于验证列表行单行截断省略号与标题 ** 记号的显示层清理样例",
+                status = "completed",
+                startedDaysAgo = 0,
+                lastActivitySec = nowSec - 3 * 60,
+            ),
+        )
+        msg(880_006, 1, "assistant", "**任务**：验证标题清理与省略号。**六项要求**：全部满足即过。", nowSec - 3 * 60)
 
         // —— R2：880001 的两个子会话（一个运行中、一个已结束，均可点入回看）——
         addSession(

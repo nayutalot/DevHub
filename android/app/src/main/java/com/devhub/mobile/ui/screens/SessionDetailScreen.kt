@@ -211,11 +211,13 @@ fun SessionDetailScreen(
             ProviderAvatarFor(providerKey = d?.session?.providerKey, providerLabel = d?.session?.providerLabel, size = 24.dp, fontSize = 11)
             Spacer(Modifier.width(6.dp))
             Text(
-                d?.session?.title ?: "会话 #$sessionId",
+                com.devhub.mobile.core.RichTextTokenizer.stripDisplayMarkers(d?.session?.title)
+                    ?: "会话 #$sessionId",
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 15.sp,
                 modifier = Modifier.weight(1f),
                 maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
         }
         if (fixtureOn) {
@@ -243,13 +245,13 @@ fun SessionDetailScreen(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             StatusBadge(d.session.status)
             ModeBadge(d.session.sessionMode)
-            if (d.session.stale) Text("数据过期（stale）", fontSize = 11.sp, color = Color(0xFF8D6E00))
+            if (d.session.stale) Text("数据过期（stale）", fontSize = 11.sp, color = Color(0xFFC7A008))
         }
         d.session.statusDetail?.let { Text(it, fontSize = 12.sp) }
         Text(
             "capabilities：mode=${d.capabilities.mode} granted=[${d.capabilities.granted.joinToString(", ")}] evidence=${d.capabilities.evidence}",
             fontSize = 11.sp,
-            color = Color(0xFF555555),
+            color = MaterialTheme.colorScheme.onSurfaceVariant, // 打磨批 D：深色主题下灰字升为主题次级色
         )
 
         // —— R2 子智能体会话入口 ——
@@ -361,8 +363,15 @@ fun SessionDetailScreen(
         submitStatus?.let { Text(it, fontSize = 12.sp) }
 
         // —— 消息（R11 气泡流；R10 逆序布局：最新在底部、初始停底部）——
+        // 打磨批 D：底部 contentPadding = 「跳到最新」FAB 高度 + 边距的避让区，
+        // 最新一条气泡不再被 FAB 遮压（ux-b-08/12、r9-fab 三帧缺陷）。
         Box(Modifier.weight(1f).fillMaxWidth().padding(top = 4.dp)) {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), reverseLayout = true) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                reverseLayout = true,
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 76.dp),
+            ) {
                 val count = messages.size
                 items(
                     count = count,
@@ -464,9 +473,11 @@ private fun ScrubberBar(
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("最新", fontSize = 10.sp, color = Color(0xFF757575))
-            val restFraction = ScrubberMath.fractionForIndex(
-                index = (count - 1 - (listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0))
-                    .coerceIn(0, count - 1),
+            // 打磨批 D：scrubber 回显走"视口锚点"语义——firstVisible（reversed 索引，0=底部最新）
+            // → fraction。停在底部（初始/全部可见的小窗口）恒锚「最新」端，
+            // 修复新会话/子会话首屏滑条误停最旧端/中位的缺陷。
+            val restFraction = ScrubberMath.fractionForReversedAnchor(
+                firstVisibleReversedIndex = listState.firstVisibleItemIndex,
                 count = count,
             )
             Slider(

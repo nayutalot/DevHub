@@ -52,6 +52,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 视觉打磨批 D：钉深色主题 → 状态栏浅色图标（isAppearanceLightStatusBars=false），
+        // 深色背景上浅色图标对比成立（此前浅色主题下近白图标不可见）。
+        androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+            .isAppearanceLightStatusBars = false
         if (Build.VERSION.SDK_INT >= 33) {
             notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }

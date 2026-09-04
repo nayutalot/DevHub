@@ -5,6 +5,7 @@ package com.devhub.mobile.core
  *
  * 支持（只做有明确语法的最小集合，绝不猜）：
  * - 行内代码 `` `code` `` 与围栏代码块 ``` ``` ```（内容原样保留）；
+ * - `**加粗**`（打磨批 D：真实 Claude/子代理长消息大量使用；渲染为粗体，记号不再原样露出）；
  * - markdown 链接 `[label](url)` 与被转义形态 `\[label\]\(url\)`（R8 用户实例）——只渲染 label；
  * - `plugin://` / `skill://` / `mcp://` 引用 → 渲染为「[插件] 名称」式 chip（服务端 segments 路径之外的第二道防线）；
  * - 清理转义符（``\[ \] \( \) \* \_ \- \`` `` 与 `\\`）。
@@ -17,6 +18,9 @@ object RichTextTokenizer {
         data class Plain(val text: String) : RichToken()
         data class CodeSpan(val code: String) : RichToken()
         data class CodeBlock(val code: String) : RichToken()
+
+        /** `**加粗**`（打磨批 D）：渲染粗体，记号不显示。 */
+        data class Bold(val text: String) : RichToken()
 
         /** markdown 链接：渲染只显示 label（url 仅供参考，不出网）。 */
         data class Link(val label: String, val url: String) : RichToken()
@@ -56,6 +60,9 @@ object RichTextTokenizer {
     private val plainLinkRegex = Regex("\\[([^\\]\\n]*)\\]\\(([^)\\n]*)\\)")
     private val bareRefRegex = Regex("\\b(plugin|skill|mcp)://[^\\s)\\]}>\uE002\uE003]+")
     private val codeSpanRegex = Regex("`([^`\\n]+)`")
+    // **加粗**：非贪婪、不跨行（Java regex 默认 . 不匹配换行）；
+    // 在行内代码之后匹配（代码片段区间内的 ** 保持字面量，由重叠保护处理）
+    private val boldRegex = Regex("\\*\\*(.+?)\\*\\*")
 
     fun tokenize(text: String): List<RichToken> {
         if (text.isEmpty()) return emptyList()
@@ -167,6 +174,13 @@ object RichTextTokenizer {
                 hits.add(Hit(m.range.first, m.range.last + 1, RichToken.CodeSpan(restore(m.groupValues[1]))))
             }
         }
+        // 4) **加粗**（最后匹配：代码片段/链接区间内的 ** 不开粗体；重叠保护兜底）
+        for (m in boldRegex.findAll(work)) {
+            if (!overlaps(m.range)) {
+                taken.add(m.range)
+                hits.add(Hit(m.range.first, m.range.last + 1, RichToken.Bold(restore(m.groupValues[1]).trim('*', ' '))))
+            }
+        }
         hits.sortBy { it.start }
 
         var cursor = 0
@@ -191,5 +205,17 @@ object RichTextTokenizer {
             val label = restore(labelRaw).trim().ifBlank { restore(urlRaw) }
             RichToken.Link(label = label, url = restore(urlRaw))
         }
+    }
+
+    /**
+     * 标题等短文本的显示层清理（打磨批 D）：去掉 `**` 加粗记号，只在显示层生效
+     * （不改缓存/投影数据）。标题单行展示不走富文本渲染，`**` 记号原样露出即噪声。
+     * 只清理有明确记号的最小集合（`**`），绝不猜其余语义；清理结果为空白时回退原文。
+     */
+    fun stripDisplayMarkers(raw: String?): String? {
+        if (raw == null) return null
+        if (!raw.contains("**")) return raw
+        val stripped = raw.replace("**", "").replace(Regex(" {2,}"), " ").trim()
+        return stripped.ifBlank { raw }
     }
 }

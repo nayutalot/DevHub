@@ -143,15 +143,15 @@ private fun ProviderCard(
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             ModeBadge(agent.capabilities.mode)
-            Text(
-                when {
-                    isManaged -> InteractionHonesty.MANAGED_PROVIDER_NOTE // R6.1 诚实文案
-                    agent.capabilities.granted.isEmpty() -> InteractionHonesty.EMPTY_GRANTED_NOTE
-                    else -> "granted: ${agent.capabilities.granted.joinToString(" / ")}"
-                },
-                fontSize = 11.sp,
-                color = Color(0xFF555555),
-            )
+                Text(
+                    when {
+                        isManaged -> InteractionHonesty.MANAGED_PROVIDER_NOTE // R6.1 诚实文案
+                        agent.capabilities.granted.isEmpty() -> InteractionHonesty.EMPTY_GRANTED_NOTE
+                        else -> "granted: ${agent.capabilities.granted.joinToString(" / ")}"
+                    },
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, // 打磨批 D：深色主题下灰字升为主题次级色
+                )
         }
 
         // R7.1：per-provider observed 原因卡（文案 = known-limitations §1；未知 provider 回退通用文案）
@@ -233,7 +233,7 @@ private fun ProviderCard(
             }
         }
         spawnStatus?.let {
-            Text(it, fontSize = 11.sp, color = Color(0xFF555555))
+            Text(it, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (fixtureOn) {
             Text(
