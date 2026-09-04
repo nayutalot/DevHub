@@ -794,7 +794,7 @@ registerCase('A17', 'versions.list：目录 8 目标 + version_targets 快照合
   note(`targets: ${data.targets.map((t) => `${t.id}=${t.state}`).join(', ')}`)
 })
 
-registerCase('A18', 'archives.list：archive_runs 最近 N 条（默认 20 上限 100；limit>100 → BAD_PAYLOAD，与 IPC archive:history 同口径）', async () => {
+registerCase('A18', 'archives.list：archive_runs 最近 N 条（默认 20 上限 100；limit>100 在 SDK/zod schema 层拒绝，语义与 IPC archive:history 的 BAD_PAYLOAD 等价）', async () => {
   const data = await callOk(ctx.mcp.client, 'devhub.archives.list')
   assert.ok(Array.isArray(data.runs), 'runs array present')
   assert.ok(data.runs.length <= 20, `default limit 20, got ${data.runs.length}`)
@@ -807,9 +807,14 @@ registerCase('A18', 'archives.list：archive_runs 最近 N 条（默认 20 上�
   }
   const limited = await callOk(ctx.mcp.client, 'devhub.archives.list', { limit: 1 })
   assert.ok(limited.runs.length <= 1, 'limit=1 caps the run list')
-  const frame = await callErr(ctx.mcp.client, 'devhub.archives.list', { limit: 101 })
-  assert.equal(frame.code, 'BAD_PAYLOAD', `limit>100 refused, got ${JSON.stringify(frame)}`)
-  note(`${data.runs.length} run(s) in the default view; limit>100 rejected as BAD_PAYLOAD`)
+  // >100 的拒绝发生在 SDK/zod 层（docs/08 §10.1）：SDK 把入参校验错误折叠为
+  // isError:true + "MCP error -32602: Input validation error" 文本帧（非 {code,message} JSON，
+  // 与 smoke m2 expectInvalidParams 同款口径；IPC 侧同语义拒绝码为 BAD_PAYLOAD）。
+  const rejected = await callTool(ctx.mcp.client, 'devhub.archives.list', { limit: 101 })
+  assert.equal(rejected.isError, true, 'limit>100 must surface as an error result')
+  assert.match(rejected.content[0].text, /Input validation error|Invalid arguments/, 'schema-level rejection message')
+  await liveness(ctx.mcp.client, 'A18')
+  note(`${data.runs.length} run(s) in the default view; limit>100 refused at the schema layer`)
 })
 
 registerCase('A19', 'docker.images：daemon down → available:false + reason + 空列表（与 docker:overview 同语义，绝不 isError、绝不起引擎）；daemon up → 结构化镜像表', async () => {
