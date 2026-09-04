@@ -191,6 +191,20 @@ class GatewayApi(
         ),
     )
 
+    /**
+     * POST /v1/providers/{providerId}/sessions（R6 启动托管会话；202 accepted|executed）。
+     * 仅对 capabilities 已授予 managed 的 provider 有意义——调用方（UI 门）须先经
+     * InteractionHonesty.canSpawnManagedSession 判定；服务端 L3 二次校验非 managed →
+     * 403 COMMAND_NOT_EXECUTABLE。控制类端点：刻意不进 ProjectionApi（夹具绝不伪造）。
+     */
+    fun startManagedSession(providerId: Long, task: String, idempotencyKey: String): ManagedSessionStart =
+        Dtos.parseManagedSessionStart(
+            post(
+                "/v1/providers/$providerId/sessions",
+                JSONObject().put("task", task).put("idempotencyKey", idempotencyKey),
+            ),
+        )
+
     /** GET /v1/devices。 */
     fun devices(): List<DeviceDto> = Dtos.parseDevices(get("/v1/devices"))
 

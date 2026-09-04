@@ -1,0 +1,110 @@
+package com.devhub.mobile.core
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/** R6/R7 交互诚实化纯逻辑：spawn 按钮门 + per-provider 原因卡（文案与 known-limitations §1 一致）。 */
+class InteractionHonestyTest {
+
+    // —— R6.2/R7.2：启动托管会话按钮可见性 ——
+
+    @Test
+    fun `spawn button shows only for managed capability on real gateway`() {
+        assertTrue(InteractionHonesty.canSpawnManagedSession(capabilityMode = "managed", fixtureMode = false))
+    }
+
+    @Test
+    fun `spawn button hidden for observed providers`() {
+        assertFalse(InteractionHonesty.canSpawnManagedSession(capabilityMode = "observed", fixtureMode = false))
+    }
+
+    @Test
+    fun `spawn button hidden when capability mode missing`() {
+        assertFalse(InteractionHonesty.canSpawnManagedSession(capabilityMode = null, fixtureMode = false))
+        assertFalse(InteractionHonesty.canSpawnManagedSession(capabilityMode = "", fixtureMode = false))
+    }
+
+    @Test
+    fun `spawn button always hidden in fixture demo mode`() {
+        // 夹具模式绝不伪造控制通道（红线）：即使投影 managed 也 false
+        assertFalse(InteractionHonesty.canSpawnManagedSession(capabilityMode = "managed", fixtureMode = true))
+    }
+
+    @Test
+    fun `managed mode constant matches server CapabilitySet value`() {
+        assertEquals("managed", InteractionHonesty.MODE_MANAGED)
+    }
+
+    // —— R7.1：per-provider 原因卡（providerKey 路径，SessionDetail 用） ——
+
+    @Test
+    fun `zcode reason mentions no official control channel`() {
+        val r = InteractionHonesty.observedReason("zcode")
+        assertTrue(r!!.contains("ZCode"))
+        assertTrue(r.contains("控制通道"))
+        assertTrue(r.contains("观察"))
+    }
+
+    @Test
+    fun `claude reason mentions hooks no input injection`() {
+        val r = InteractionHonesty.observedReason("claude-code")
+        assertTrue(r!!.contains("Claude"))
+        assertTrue(r.contains("hooks"))
+        assertTrue(r.contains("输入注入"))
+    }
+
+    @Test
+    fun `kimi reason mentions managed channel pending user authorization`() {
+        val r = InteractionHonesty.observedReason("kimi")
+        assertTrue(r!!.contains("Kimi"))
+        assertTrue(r.contains("托管通道"))
+        assertTrue(r.contains("裁决"))
+    }
+
+    @Test
+    fun `deepseek reason mentions not integrated`() {
+        val r = InteractionHonesty.observedReason("deepseek")
+        assertTrue(r!!.contains("DeepSeek"))
+        assertTrue(r.contains("未接入"))
+    }
+
+    // —— R7.1：displayName 兜底路径（/v1/agents 投影无 providerKey，Agents 卡用） ——
+
+    @Test
+    fun `reason resolves from display names projected by real gateway`() {
+        // 真库 display_name 实测值（2026-09-04 快照）：Codex / Claude Code / Kimi Code / ZCode / DeepSeek Harness
+        assertEquals(
+            InteractionHonesty.observedReason("zcode"),
+            InteractionHonesty.observedReason(null, "ZCode"),
+        )
+        assertEquals(
+            InteractionHonesty.observedReason("claude-code"),
+            InteractionHonesty.observedReason(null, "Claude Code"),
+        )
+        assertEquals(
+            InteractionHonesty.observedReason("kimi"),
+            InteractionHonesty.observedReason(null, "Kimi Code"),
+        )
+        assertEquals(
+            InteractionHonesty.observedReason("deepseek"),
+            InteractionHonesty.observedReason(null, "DeepSeek Harness"),
+        )
+    }
+
+    @Test
+    fun `unknown provider returns null so caller falls back to generic note`() {
+        assertNull(InteractionHonesty.observedReason(null))
+        assertNull(InteractionHonesty.observedReason(null, "Codex")) // codex 是 managed，无 observed 原因卡
+        assertNull(InteractionHonesty.observedReason("mystery-agent", "Mystery"))
+        assertNull(InteractionHonesty.observedReason("", ""))
+    }
+
+    @Test
+    fun `provider key match is case and separator insensitive`() {
+        assertEquals(InteractionHonesty.observedReason("zcode"), InteractionHonesty.observedReason("ZCode"))
+        assertEquals(InteractionHonesty.observedReason("claude-code"), InteractionHonesty.observedReason("ClaudeCode"))
+    }
+}

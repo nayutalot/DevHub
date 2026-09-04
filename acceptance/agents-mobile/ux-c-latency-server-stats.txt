@@ -1,0 +1,4 @@
+2026-09-04T17:13:24.315Z [INFO ] latency: db-to-ws n=2750 p50=535ms p95=941ms max=999ms (R5.1, window=512)
+2026-09-04T17:13:24.329Z [INFO ] latency: source-to-db n=2600 p50=43601858ms p95=84320460ms max=85033420ms (R5.1, window=512)
+2026-09-04T17:13:24.405Z [INFO ] latency: db-to-ws n=2800 p50=535ms p95=941ms max=999ms (R5.1, window=512)
+2026-09-04T17:13:24.417Z [INFO ] latency: source-to-db n=2650 p50=21429949ms p95=80270543ms max=81231501ms (R5.1, window=512)

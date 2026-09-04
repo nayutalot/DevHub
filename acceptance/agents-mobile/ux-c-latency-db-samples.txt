@@ -1,0 +1,32 @@
+== messages 17419-17432 ==
+{"id":17425,"role":"user","c":"Reply with exactly: UX-R1. Then stop.","occurred_at":1788547200,"created_at":1788547201}
+{"id":17426,"role":"assistant","c":"UX-R1","occurred_at":1788547203,"created_at":1788547205}
+{"id":17427,"role":"user","c":"Reply with exactly: UX-R2. Then stop.","occurred_at":1788547245,"created_at":1788547245}
+{"id":17428,"role":"assistant","c":"UX-R2","occurred_at":1788547249,"created_at":1788547249}
+{"id":17429,"role":"user","c":"Reply with exactly: UX-R3. Then stop.","occurred_at":1788547271,"created_at":1788547272}
+{"id":17430,"role":"assistant","c":"UX-R3","occurred_at":1788547281,"created_at":1788547282}
+{"id":17431,"role":"user","c":"Reply with exactly: UX-R4. Then stop.","occurred_at":1788547300,"created_at":1788547301}
+{"id":17432,"role":"assistant","c":"UX-R4","occurred_at":1788547315,"created_at":1788547316}
+== events for session 506 after id 18940 ==
+{"id":18941,"event_type":"session.status_changed","s":"session running","created_at":1788547200}
+{"id":18942,"event_type":"command.result","s":null,"created_at":1788547200}
+{"id":18943,"event_type":"message.appended","s":"Reply with exactly: UX-R1. Then stop.","created_at":1788547201}
+{"id":18944,"event_type":"message.appended","s":"UX-R1","created_at":1788547205}
+{"id":18945,"event_type":"session.status_changed","s":"session waiting_input","created_at":1788547205}
+{"id":18946,"event_type":"session.waiting_input","s":"turn 01a06db8 ended; awaiting next user ","created_at":1788547205}
+{"id":18947,"event_type":"command.result","s":null,"created_at":1788547245}
+{"id":18948,"event_type":"message.appended","s":"Reply with exactly: UX-R2. Then stop.","created_at":1788547245}
+{"id":18949,"event_type":"message.appended","s":"UX-R2","created_at":1788547249}
+{"id":18950,"event_type":"session.status_changed","s":"session waiting_input","created_at":1788547249}
+{"id":18951,"event_type":"session.waiting_input","s":"turn 01a06db9 ended; awaiting next user ","created_at":1788547249}
+{"id":18952,"event_type":"command.result","s":null,"created_at":1788547271}
+{"id":18953,"event_type":"message.appended","s":"Reply with exactly: UX-R3. Then stop.","created_at":1788547272}
+{"id":18954,"event_type":"message.appended","s":"UX-R3","created_at":1788547282}
+{"id":18955,"event_type":"command.result","s":null,"created_at":1788547300}
+{"id":18956,"event_type":"message.appended","s":"Reply with exactly: UX-R4. Then stop.","created_at":1788547301}
+{"id":18957,"event_type":"message.appended","s":"UX-R4","created_at":1788547316}
+== reply commands ==
+{"command_id":"cmd-ef907edd-ae66-4604-9f55-b46d53297116","action":"reply","status":"executed","session_id":506,"created_at":1788547199,"executed_at":1788547200}
+{"command_id":"cmd-1e0cb7b4-1257-4d5e-8bda-7d1a79db2d0c","action":"reply","status":"executed","session_id":506,"created_at":1788547244,"executed_at":1788547245}
+{"command_id":"cmd-ae668c56-698e-48b7-b169-1360d6458077","action":"reply","status":"executed","session_id":506,"created_at":1788547270,"executed_at":1788547271}
+{"command_id":"cmd-5b165452-ebc6-44ae-94cf-799ddd2d5e23","action":"reply","status":"executed","session_id":506,"created_at":1788547300,"executed_at":1788547300}

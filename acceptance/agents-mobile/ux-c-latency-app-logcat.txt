@@ -1,0 +1,19 @@
+--------- beginning of main
+09-04 18:38:30.127  8204  8204 I DevHubUx: msg_visible sessionId=506 id=17419 occurredAt=1788546953 atMs=1788547110127
+09-04 18:38:30.128  8204  8204 I DevHubUx: msg_visible sessionId=506 id=17420 occurredAt=1788546953 atMs=1788547110128
+09-04 18:38:30.128  8204  8204 I DevHubUx: msg_visible sessionId=506 id=17421 occurredAt=1788546953 atMs=1788547110128
+09-04 18:38:30.129  8204  8204 I DevHubUx: msg_visible sessionId=506 id=17422 occurredAt=1788546953 atMs=1788547110129
+09-04 18:38:30.129  8204  8204 I DevHubUx: msg_visible sessionId=506 id=17423 occurredAt=1788546953 atMs=1788547110129
+09-04 18:38:30.129  8204  8204 I DevHubUx: msg_visible sessionId=506 id=17424 occurredAt=1788546965 atMs=1788547110129
+09-04 18:39:59.039  8204  8204 I DevHubUx: reply_sent sessionId=506 commandId=cmd-ef907edd-ae66-4604-9f55-b46d53297116 atMs=1788547199039
+09-04 18:40:01.482  8204  8204 I DevHubUx: msg_visible sessionId=506 id=17425 occurredAt=1788547200 atMs=1788547201482
+09-04 18:40:07.762  8204  8204 I DevHubUx: msg_visible sessionId=506 id=17426 occurredAt=1788547203 atMs=1788547207762
+09-04 18:40:44.042  8204  8204 I DevHubUx: reply_sent sessionId=506 commandId=cmd-1e0cb7b4-1257-4d5e-8bda-7d1a79db2d0c atMs=1788547244042
+09-04 18:40:45.430  8204  8204 I DevHubUx: msg_visible sessionId=506 id=17427 occurredAt=1788547245 atMs=1788547245430
+09-04 18:40:51.708  8204  8204 I DevHubUx: msg_visible sessionId=506 id=17428 occurredAt=1788547249 atMs=1788547251707
+09-04 18:41:10.167  8204  8204 I DevHubUx: reply_sent sessionId=506 commandId=cmd-ae668c56-698e-48b7-b169-1360d6458077 atMs=1788547270167
+09-04 18:41:13.696  8204  8204 I DevHubUx: msg_visible sessionId=506 id=17429 occurredAt=1788547271 atMs=1788547273696
+09-04 18:41:23.115  8204  8204 I DevHubUx: msg_visible sessionId=506 id=17430 occurredAt=1788547281 atMs=1788547283115
+09-04 18:41:39.482  8204  8204 I DevHubUx: reply_sent sessionId=506 commandId=cmd-5b165452-ebc6-44ae-94cf-799ddd2d5e23 atMs=1788547299482
+09-04 18:41:41.978  8204  8204 I DevHubUx: msg_visible sessionId=506 id=17431 occurredAt=1788547300 atMs=1788547301978
+09-04 18:41:57.687  8204  8204 I DevHubUx: msg_visible sessionId=506 id=17432 occurredAt=1788547315 atMs=1788547317687

@@ -181,3 +181,44 @@
   `acceptance/agents-mobile/final-report.md` §2 为准。
 - mcp-acceptance：**22/22**（`scripts/mcp-acceptance.mjs` 用例数实数核实；
   AC9 终验树净后复跑确认）。
+
+## 8. 体验整改批（R1–R11）后的现状更新（2026-09-04，批次 C 收口）
+
+> 以下为本清单 §1 相关条目在体验整改批（批次 A/B/C 合并）之后的现状增补；
+> 原条目事实基础未变，此处只记**变化**与**新增边界**。证据见
+> `acceptance/agents-mobile/ux-final-report.md` 与 `ux-c-latency-report.md`。
+
+### 8.1 R6 交互真实性：Codex 托管会话可交互已真实验证（更新 §1.6 关联面）
+
+- **新增能力（批次 A 服务端 + 批次 C App）**：`POST /v1/providers/{providerId}/sessions`
+  托管启动端点已上线；App Agents 页对 managed provider（现 = Codex）显示
+  「启动托管会话」→ 202 → 跳入新会话 → reply/pause/resume 可用。批次 C 已完成
+  **模拟器 + 公网隧道 + 真实 Codex 端到端验证**：spawn commandId
+  `cmd-204a1b54…`（executed）+ 会话 #506 + 4 次手机 reply 全部 executed 并回流。
+- **边界不变（仍如实）**：能力是**会话级**的——仅 DevHub 托管启动的会话可交互；
+  用户外部自启的 Codex 会话依旧 observed 只读。App 文案已诚实化（
+  「托管会话可交互；外部会话只读」），observed 四家零控件现状保持，
+  per-provider 原因卡产品化（文案 = 本清单 §1 摘取，`:core` InteractionHonesty 单测锁定）。
+- §1.5 Kimi 条目不受影响：managed 通道真机端到端仍未验证（App 的启动按钮由
+  `capabilities.mode==managed` 数据驱动，Kimi 授权后自动出现，无需改 App）。
+
+### 8.2 R5 延迟现状（实测数字）
+
+- 公网隧道全链路（模拟器 → ECS frp → 常驻桌面 → 真实 Codex）**新消息出现延迟
+  （源 occurredAt → App 可见）：p50 = 2.70s / p95 = 4.76s（n=4，全部 ≤5s，达标）**。
+- 分段：源→库（活跃消息，秒粒度）p50=1s / max=2s；库→WS p50=535ms / p95=941ms
+  （latencyStats 窗口含启动回填，取上界）；库→App 可见 p50=1.4s / max=2.76s。
+- **残余限制（如实）**：① App 侧仍为 REST 轮询驱动（列表 2s/详情 3s），R5.3 的
+  "WS 事件驱动刷新"未实施——当前主导延迟段即轮询相位，进一步压低需立 App 改造批；
+  ② WS 事件 delivery_state 实测全程 `pending`（App 在线但投递标记未发生；功能无损，
+  属服务端投递面观察项）；③ source-to-db 的 latencyStats 汇总行被启动历史回填
+  主导（p50 数万 ms），该口径**不可**当作活跃延迟读数，活跃值以逐消息差值为准。
+- 改造前形态（15s 全量刷新下限 + 固定轮询）同链路最坏 ≈18s+，p95 ≤5s 不可达
+  （定性对比，docs/17 §1 基线）。
+
+### 8.3 跨批契约教训（防复发）
+
+- 批次 B 以夹具联调的新 UI 字段形态与批次 A 服务端实现存在两处错位
+  （`archivedAt` vs 布尔 `archived`；`childSessions` 嵌套 vs 顶层），夹具下不可现、
+  真实网关首跑暴露，批次 C 已修 App 侧。后续批次凡新增投影字段，**必须以真实
+  Gateway 响应样例为准**（docs/14 补样例 JSON 的文字修订留文档批）。
