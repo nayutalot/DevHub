@@ -10,7 +10,7 @@
 //   A01      initialize 握手 serverInfo.name==='devhub' + stderr 纪律（M3-A01/A02）
 //   A01-raw  原始 stdio 探针：stdout 每行合法 JSON、非法 JSON 行→协议错误帧不退
 //            出、stdin 关闭→退出码 0（M3-A01/A08/A11）
-//   A02      tools/list 恰 12 个点分名，全部 READ_ONLY（annotations 或权限表声明）（M3-A03）
+//   A02      tools/list 恰 16 个点分名，全部 READ_ONLY（annotations 或权限表声明）（M3-A03）
 //   A03      resources/list 6 个；environment/dashboard Markdown 含真实数据标志（M3-A06）
 //   A04…A12 environment.detect / doctor / projects.list / projects.get /
 //            services.list / services.inspect / docker.* / wsl.* / git.status 真实断言
@@ -18,6 +18,11 @@
 //   A13      多进程共享 DB：启动 Electron App 期间 MCP 读同一库无 locked（M3-A10）
 //   A14      并发 5 个 tools/call 响应帧无交错损坏（M3-A09）
 //   A15      DEVHUB_HOME 透传 → 隔离空库（M3-A12）
+//   A16…A19 skills.list / versions.list / archives.list / docker.images 真实调用
+//           （docs/09 §10 只读扩展：A16 断言 agent 投影不带 vault 外路径字段、
+//            A18 断言 limit 默认 20 上限 100 与 IPC archive:history 同口径、
+//            A19 断言 daemon 降级语义且绝不起引擎）
+//   A20      权限表外名拒绝语义不回归（4 个新 tool READ_ONLY；变更动作名绝不注册）
 //   E01…E05 异常注入流（每项后跟随一次正常调用证明 server 存活）
 //
 // 末尾把"环境体检"场景原始输出落盘 acceptance/mcp-scenario-report.json。
@@ -223,7 +228,7 @@ registerCase('A01-raw', '原始 stdio 探针：stdout 全部为合法 JSON-RPC �
     })
   })
   assert.equal(Array.isArray(listResponse.result?.tools), true, 'server still answers tools/list after an invalid JSON line')
-  assert.equal(listResponse.result.tools.length, 12, 'tools/list answers with the full 12-tool registry (process alive)')
+  assert.equal(listResponse.result.tools.length, 16, 'tools/list answers with the full 16-tool registry (process alive)')
 
   // 优雅退出：stdin 关闭 → 退出码 0（M3-A11）
   const exitCode = await new Promise((resolveExit) => {
@@ -244,14 +249,14 @@ registerCase('A01-raw', '原始 stdio 探针：stdout 全部为合法 JSON-RPC �
   assert.equal(exitCode, 0, `graceful exit code after stdin close, got ${exitCode}`)
 })
 
-registerCase('A02', 'tools/list 恰 12 个点分名，全部 READ_ONLY（annotations 或权限表声明）；有参 tool 严格 schema', async () => {
+registerCase('A02', 'tools/list 恰 16 个点分名，全部 READ_ONLY（annotations 或权限表声明）；有参 tool 严格 schema', async () => {
   const tools = await ctx.mcp.client.listTools()
-  assert.equal(tools.tools.length, 12, `exactly 12 tools, got ${tools.tools.length}`)
+  assert.equal(tools.tools.length, 16, `exactly 16 tools, got ${tools.tools.length}`)
   const names = tools.tools.map((t) => t.name)
   for (const name of names) {
     assert.match(name, /^devhub\.[a-z]+\.[a-zA-Z]+$/, `dotted name: ${name}`)
   }
-  assert.equal(new Set(names).size, 12, 'no duplicate tool names')
+  assert.equal(new Set(names).size, 16, 'no duplicate tool names')
 
   // 只读标注：优先 annotations.readOnlyHint；否则核对 server 权限分类表声明
   const permissions = await import(pathToFileURL(join(ROOT, 'src/main/mcp/permissions.ts')).href)
@@ -742,6 +747,112 @@ registerCase('A15', 'DEVHUB_HOME 透传：设置后 MCP 打开隔离库（便携
   } finally {
     await mcp.close()
   }
+})
+
+registerCase('A16', 'skills.list：库内镜像 + agents 链接态五态汇总；agent 投影刻意不带 vault 外本机路径字段（skillsDir/agentsDir/agentFiles 不外泄），limit 语义正确', async () => {
+  const data = await callOk(ctx.mcp.client, 'devhub.skills.list')
+  assert.ok(Array.isArray(data.skills), 'skills array present')
+  assert.equal(data.count, data.skills.length, 'count reflects the full mirror (no limit passed)')
+  for (const s of data.skills) {
+    assert.equal(typeof s.name, 'string', `skill name present: ${JSON.stringify(s).slice(0, 120)}`)
+    assert.equal(typeof s.description, 'string', 'description literal (possibly empty)')
+    if (s.vaultRelPath !== undefined) assert.match(s.vaultRelPath, /^skills\//, `vault reference stays vault-relative: ${s.vaultRelPath}`)
+  }
+  assert.ok(Array.isArray(data.agents), 'agents array present')
+  for (const a of data.agents) {
+    assert.ok(['windows', 'linux'].includes(a.platform), `agent platform enum: ${a.name}`)
+    assert.equal(typeof a.enabled, 'boolean', `agent enabled boolean: ${a.name}`)
+    assert.equal(typeof a.available, 'boolean', `agent availability literal: ${a.name}`)
+    assert.ok(['windows', 'companion-cache', 'none'].includes(a.probe), `probe provenance enum: ${a.name}`)
+    const c = a.counts
+    for (const key of ['linked', 'missing', 'wrongTarget', 'realDir', 'vaultMissing']) {
+      assert.equal(typeof c[key], 'number', `five-state count ${key} for ${a.name}`)
+    }
+    assert.equal(a.skillsDir, undefined, `agent ${a.name}: skillsDir not projected (out-of-vault path discipline)`)
+    assert.equal(a.agentsDir, undefined, `agent ${a.name}: agentsDir not projected`)
+    assert.equal(a.agentFiles, undefined, `agent ${a.name}: file listings not projected`)
+  }
+  const limited = await callOk(ctx.mcp.client, 'devhub.skills.list', { limit: 1 })
+  assert.ok(limited.skills.length <= 1, 'limit caps the returned skills array')
+  assert.equal(limited.count, data.count, 'count keeps the full-mirror semantics under limit')
+  note(`${data.count} skill(s), ${data.agents.length} agent(s) projected without local paths`)
+})
+
+registerCase('A17', 'versions.list：目录 8 目标 + version_targets 快照合并（never live-check；未检测 = unknown + lastCheckedAt null）', async () => {
+  const data = await callOk(ctx.mcp.client, 'devhub.versions.list')
+  assert.ok(Array.isArray(data.targets) && data.targets.length === 8, `exactly the 8 catalog targets, got ${data.targets?.length}`)
+  for (const t of data.targets) {
+    assert.equal(typeof t.id, 'string', 'target id literal')
+    assert.equal(typeof t.name, 'string', 'target display name')
+    assert.equal(typeof t.channel, 'string', 'channel catalog text (no credential surface)')
+    assert.ok(['npm', 'winget', 'native', 'github'].includes(t.channelKind), `channelKind enum: ${t.channelKind}`)
+    assert.ok(t.installed === null || typeof t.installed === 'string', 'installed version or explicit null')
+    assert.ok(t.latest === null || typeof t.latest === 'string', 'latest version or explicit null')
+    assert.ok(['up-to-date', 'upgradable', 'unknown', 'check-failed', 'detect-only'].includes(t.state), `state enum: ${t.state}`)
+    assert.ok(t.lastCheckedAt === null || Number.isInteger(t.lastCheckedAt), 'lastCheckedAt unix seconds or null')
+  }
+  note(`targets: ${data.targets.map((t) => `${t.id}=${t.state}`).join(', ')}`)
+})
+
+registerCase('A18', 'archives.list：archive_runs 最近 N 条（默认 20 上限 100；limit>100 → BAD_PAYLOAD，与 IPC archive:history 同口径）', async () => {
+  const data = await callOk(ctx.mcp.client, 'devhub.archives.list')
+  assert.ok(Array.isArray(data.runs), 'runs array present')
+  assert.ok(data.runs.length <= 20, `default limit 20, got ${data.runs.length}`)
+  for (const r of data.runs) {
+    assert.equal(typeof r.id, 'number', 'run id')
+    assert.equal(typeof r.projectName, 'string', 'project name literal')
+    assert.ok(['running', 'done', 'failed', 'rolled-back'].includes(r.status), `status enum: ${r.status}`)
+    assert.equal(typeof r.oldPath, 'string', 'oldPath (archive fact, same projection as the IPC channel)')
+    assert.equal(typeof r.newPath, 'string', 'newPath')
+  }
+  const limited = await callOk(ctx.mcp.client, 'devhub.archives.list', { limit: 1 })
+  assert.ok(limited.runs.length <= 1, 'limit=1 caps the run list')
+  const frame = await callErr(ctx.mcp.client, 'devhub.archives.list', { limit: 101 })
+  assert.equal(frame.code, 'BAD_PAYLOAD', `limit>100 refused, got ${JSON.stringify(frame)}`)
+  note(`${data.runs.length} run(s) in the default view; limit>100 rejected as BAD_PAYLOAD`)
+})
+
+registerCase('A19', 'docker.images：daemon down → available:false + reason + 空列表（与 docker:overview 同语义，绝不 isError、绝不起引擎）；daemon up → 结构化镜像表', async () => {
+  const result = await callTool(ctx.mcp.client, 'devhub.docker.images')
+  assert.equal(result.isError, undefined, 'docker.images is never an error (degradation is a normal condition)')
+  const data = result.structuredContent
+  assert.equal(typeof data.available, 'boolean', 'available boolean')
+  assert.ok(Array.isArray(data.images), 'images array present')
+  assert.equal(data.count, data.images.length, 'count agrees with the image array')
+  assert.equal(typeof data.danglingCount, 'number', 'dangling count present')
+  if (data.available === false) {
+    assert.ok(typeof data.reason === 'string' && data.reason.length > 0, 'degradation reason present')
+    assert.deepEqual(data.images, [], 'degraded image list empty')
+    note(`degraded as expected: ${data.reason}`)
+  } else {
+    for (const image of data.images) {
+      assert.equal(typeof image.repository, 'string', 'repository field')
+      assert.equal(typeof image.tag, 'string', 'tag field')
+      assert.equal(typeof image.imageId, 'string', 'imageId field')
+      assert.equal(typeof image.size, 'string', 'size field')
+    }
+    note(`daemon available: ${data.count} image(s), ${data.danglingCount} dangling`)
+  }
+})
+
+registerCase('A20', '权限表外名拒绝语义不回归：4 个新 tool 已入表且 READ_ONLY；表外/原型链名 → PERMISSION_DENIED；变更动作名（toggle/update/run 类）绝不注册（docs/09 §10）', async () => {
+  const permissions = await import(pathToFileURL(join(ROOT, 'src/main/mcp/permissions.ts')).href)
+  for (const name of ['devhub.skills.list', 'devhub.versions.list', 'devhub.archives.list', 'devhub.docker.images']) {
+    assert.equal(permissions.TOOL_PERMISSIONS[name], 'READ_ONLY', `${name} registered READ_ONLY`)
+  }
+  for (const name of ['devhub.not_a_real_tool', 'devhub.skills.toggle', 'devhub.versions.update', 'toString', 'constructor']) {
+    assert.throws(
+      () => permissions.assertPermission(name),
+      (err) => err.code === 'PERMISSION_DENIED',
+      `off-table name must be denied: ${name}`
+    )
+  }
+  const tools = await ctx.mcp.client.listTools()
+  const names = tools.tools.map((tool) => tool.name)
+  for (const banned of ['devhub.skills.toggle', 'devhub.versions.update', 'devhub.archives.run']) {
+    assert.ok(!names.includes(banned), `change action ${banned} must not be a registered tool (MCP stays read-only)`)
+  }
+  await liveness(ctx.mcp.client, 'A20')
 })
 
 // ---------------------------------------------------------------------------
