@@ -159,6 +159,14 @@ export function startRelayServer(options: { config?: ReturnType<typeof loadConfi
         `Sec-WebSocket-Accept: ${accept}\r\n` +
         '\r\n',
     )
+    // TCP keepalive（initialDelay 5s；A⑥ 修 2，M3-A⑤ 根因①）：host socket 死亡（RST/
+    // 半开）后内核秒级探测迫使 error→close 浮出 → hostOnline 翻转，不再依赖应用层
+    // 事件循环活跃度（修复前空闲循环 ≥15s 不处理 close，僵尸窗口内 hostOnline 恒真）。
+    // Linux 默认探测间隔/次数即秒级；两腿同参（device 腿死连接同样早回收，预算护栏受益）。
+    const tcpSocket = socket as import('node:net').Socket
+    if (typeof tcpSocket.setKeepAlive === 'function') {
+      tcpSocket.setKeepAlive(true, 5000)
+    }
     const connection = new RelayConnection(
       identity,
       socket,

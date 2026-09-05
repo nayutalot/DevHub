@@ -388,19 +388,20 @@ export class Forwarder {
           this.ackToDevice(deviceId, { type: 'command_ack', requestId, idempotencyKey, status: 'accepted', queued: true })
           return
         }
-        // host 已回线：尝试内存帧投递；无内存帧（重启后）等待设备补发帧重试
+        // host 已回线：尝试内存帧投递；无内存帧（重启后）等待设备补发帧重试。
+        // A⑥ 修复（M3-A⑤ 根因②）：sendToHost true 只代表写入用户态缓冲——僵尸窗口内
+        // （host socket 已死、close 未处理）写入仍同步返回 true。因此：
+        // ① 不再删除武装帧——真送达由 host 回执清理（handleHostCommandAck，已有逻辑），
+        //    僵尸写后行保持 queued + 内存帧在，host 重连 deliverQueuedCommands 重投；
+        // ② 无论投递真假都同步 ackToDevice queued:true——幂等且真实（命令此刻确实处于
+        //    排队等待态，docs/18 §3.9 queued:true 语义），设备重发即刻获得回执，不再石沉大海。
         const memory = this.queuedMemory.get(existing.id)
         if (memory !== undefined && this.sendToHost(memory.frame)) {
-          this.queuedMemory.delete(existing.id)
-          this.audit.write({ category: 'command', action: 'command_relayed', outcome: 'success', deviceId, detail: { idempotencyKey, replayed: true } })
-          return
-        }
-        if (memory === undefined && frame.requestId === requestId) {
-          // 设备重发帧（QueueReplay）自带完整 auth → 原样中继
-          if (this.sendToHost(frame)) {
-            this.audit.write({ category: 'command', action: 'command_relayed', outcome: 'success', deviceId, detail: { idempotencyKey, replayed: true, source: 'device_resend' } })
-            return
-          }
+          this.audit.write({ category: 'command', action: 'command_relayed', outcome: 'success', deviceId, detail: { idempotencyKey, replayed: true, armedFrameKept: true } })
+        } else if (memory === undefined && this.sendToHost(frame)) {
+          // 设备重发帧（QueueReplay）自带完整 auth → 原样中继（武装帧语义一致：真受理
+          // 由 host 回执落行；僵尸写则行仍 queued，设备下次重发走本分支或排队应答）
+          this.audit.write({ category: 'command', action: 'command_relayed', outcome: 'success', deviceId, detail: { idempotencyKey, replayed: true, source: 'device_resend' } })
         }
         this.ackToDevice(deviceId, { type: 'command_ack', requestId, idempotencyKey, status: 'accepted', queued: true })
         return
