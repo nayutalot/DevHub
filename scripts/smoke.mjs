@@ -4,21 +4,50 @@
 // Steps append new cases with registerCase(); existing cases are never removed
 // or skipped — the suite only grows. Run with: npm run smoke
 //
+// Tier split（M3-P0b，docs/briefs/m3p0b-smoke-tiers.md）：append-only 铁律不变——
+// 分层只是给用例打标记（registerCase 第 3 参 tier），164 条用例本体零删改，
+// 全量档仍是现行为。
+//   full（默认）: `npm run smoke`       —— 全部用例（含 Gateway/端口/子进程/真机面）
+//   fast        : `npm run smoke:fast`  —— 纯逻辑/编解码/解析/夹具库子集（目标 <2min）
+// 归类口径：拉起 Gateway、占监听端口、起子进程、真机探测、依赖真库状态、
+// 隐式进程探测（如 archive preview 的占用扫描）→ full；纯函数/编解码/解析/
+// 临时库夹具 → fast；边界拿不准一律 full（保守）。
+//
 // Exit code: 0 when every registered case passes, 1 otherwise.
 
 import { strict as assert } from 'node:assert'
 import { pathToFileURL } from 'node:url'
 
-/** @type {{ name: string, fn: () => void | Promise<void> }[]} */
+/** @type {{ name: string, fn: () => void | Promise<void>, tier: 'fast' | 'full' }[]} */
 const cases = []
 
 /**
  * Register one smoke case. Append-only by contract (#27).
  * @param {string} name
  * @param {() => void | Promise<void>} fn
+ * @param {'fast' | 'full'} [tier] tier marker; default 'full'（未标记 = 保守进全量档）
  */
-export function registerCase(name, fn) {
-  cases.push({ name, fn })
+export function registerCase(name, fn, tier = 'full') {
+  cases.push({ name, fn, tier })
+}
+
+/**
+ * Parse --tier=fast|full（`--tier=fast` 与 `--tier fast` 两种形态都收；默认 full）。
+ * @returns {'fast' | 'full'}
+ */
+function parseTierArg() {
+  const argv = process.argv.slice(2)
+  let tier = 'full'
+  for (let i = 0; i < argv.length; i++) {
+    const eq = argv[i].match(/^--tier=(.+)$/)
+    if (eq) tier = eq[1]
+    else if (argv[i] === '--tier') tier = argv[i + 1] ?? ''
+  }
+  if (tier !== 'fast' && tier !== 'full') {
+    console.error(`[smoke] invalid --tier value: ${tier} (expected fast | full; default full)`)
+    process.exit(1)
+  }
+  return tier
 }
 
 function isEntrypoint() {
@@ -26,9 +55,18 @@ function isEntrypoint() {
   return import.meta.url === pathToFileURL(process.argv[1]).href
 }
 
-async function run() {
+/**
+ * Run the selected tier. full = 现行为（全部用例，输出与分层前逐行一致），
+ * fast = 纯逻辑子集（打印自己的计数行）。计数保持动态计算（R1 批设计）。
+ * @param {'fast' | 'full'} tier
+ */
+async function run(tier) {
+  const selected = tier === 'full' ? cases : cases.filter((c) => c.tier === tier)
+  if (tier !== 'full') {
+    console.log(`[smoke] tier=${tier}: running ${selected.length} of ${cases.length} registered cases`)
+  }
   let passed = 0
-  for (const { name, fn } of cases) {
+  for (const { name, fn } of selected) {
     try {
       await fn()
       passed += 1
@@ -38,8 +76,8 @@ async function run() {
       console.error(err instanceof Error ? err.stack : String(err))
     }
   }
-  console.log(`${passed}/${cases.length} passed`)
-  if (passed !== cases.length) {
+  console.log(`${passed}/${selected.length} passed${tier === 'full' ? '' : ` (tier=${tier})`}`)
+  if (passed !== selected.length) {
     process.exitCode = 1
   }
 }
@@ -51,7 +89,7 @@ if (isEntrypoint()) {
     assert.equal(1 + 1, 2, 'sanity arithmetic')
     assert.ok(true, 'sanity truthiness')
     await Promise.resolve()
-  })
+  }, 'fast')
 
   // ------------------------------------------------------------------
   // Step 1: shared contract layer (channels + types)
@@ -157,7 +195,7 @@ if (isEntrypoint()) {
     assert.equal(channels.IPC_CHANNELS.length, 70, `expected 70 channels, got ${channels.IPC_CHANNELS.length}`)
     assert.deepEqual([...channels.IPC_CHANNELS], expected, 'whitelist must match docs/04 + docs/09 §9 + docs/10 §11 + docs/14 §A.1 exactly')
     assert.equal(new Set(channels.IPC_CHANNELS).size, 70, 'no duplicate channels')
-  })
+  }, 'fast')
 
   // ------------------------------------------------------------------
   // Step 2: exec kernel
@@ -246,7 +284,7 @@ if (isEntrypoint()) {
     } finally {
       db.close()
     }
-  })
+  }, 'fast')
 
   // S1 note: 003_merge_legacy.sql 新增 5 张合并表（skill_agents / skill_links /
   // apihub_profiles / version_targets / archive_runs），业务表总数 14 → 19。
@@ -299,7 +337,7 @@ if (isEntrypoint()) {
     } finally {
       db.close()
     }
-  })
+  }, 'fast')
 
   registerCase('step3: settings seeds, WAL mode and foreign_keys are active', async () => {
     const { mkdtempSync } = await import('node:fs')
@@ -323,7 +361,7 @@ if (isEntrypoint()) {
     } finally {
       db.close()
     }
-  })
+  }, 'fast')
 
   // ------------------------------------------------------------------
   // Step 4: read-only adapters (git / fs / windows / wsl / docker)
@@ -404,7 +442,7 @@ if (isEntrypoint()) {
     const expectedRoot = '/mnt/' + root[0].toLowerCase() + root.slice(2).replace(/\\/g, '/')
     assert.equal(alpha.wslPath, `${expectedRoot}/alpha-app`)
     assert.equal(beta.wslPath, `${expectedRoot}/beta-py`)
-  })
+  }, 'fast')
 
   registerCase('step4: windows adapters report real listening ports, processes and details', async () => {
     const adapter = await import(new URL('../src/main/adapters/windows.ts', import.meta.url).href)
@@ -598,7 +636,7 @@ if (isEntrypoint()) {
     } finally {
       db2.close()
     }
-  })
+  }, 'fast')
 
   registerCase('step5: scanService persists fixture projects, dirty repository, scans row and contains edge', async () => {
     const { mkdtempSync } = await import('node:fs')
@@ -910,6 +948,7 @@ if (isEntrypoint()) {
       assert.equal(protoProbe.ok, false, 'prototype-chain keys must not bypass the whitelist')
       assert.equal(protoProbe.error.code, 'CHANNEL_NOT_ALLOWED')
     },
+    'fast',
   )
 
   registerCase(
@@ -947,6 +986,7 @@ if (isEntrypoint()) {
         assert.equal(typeof envelope.error.message, 'string')
       }
     },
+    'fast',
   )
 
   // ------------------------------------------------------------------
@@ -1022,6 +1062,7 @@ if (isEntrypoint()) {
       assert.ok(cut.startsWith('cmd /c '), 'truncation keeps the prefix for recognition')
       assert.equal(fmt.truncate('short', 40), 'short', 'short strings pass through unchanged')
     },
+    'fast',
   )
 
   registerCase(
@@ -1054,6 +1095,7 @@ if (isEntrypoint()) {
       assert.equal(fmt.severityClass('warning'), 'diag-warning')
       assert.equal(fmt.severityClass('info'), 'diag-info')
     },
+    'fast',
   )
 
   // ------------------------------------------------------------------
@@ -1100,6 +1142,7 @@ if (isEntrypoint()) {
         else process.env.DEVHUB_HOME = savedHome
       }
     },
+    'fast',
   )
 
   // ------------------------------------------------------------------
@@ -1210,7 +1253,7 @@ if (isEntrypoint()) {
       const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   registerCase('m2-t02: resources/list has the 6 stable URIs; environment markdown carries Windows + versions; dashboard non-empty', async () => {
     const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
@@ -1254,7 +1297,7 @@ if (isEntrypoint()) {
       await server.close()
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   registerCase('m2-t03: prompts/list has the 4 dotted names; find_port_owner renders the port argument into the text', async () => {
     await makeTempHome('devhub-m2-t03-')
@@ -1287,7 +1330,7 @@ if (isEntrypoint()) {
       const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   registerCase('m2-t04: environment.detect returns structuredContent + summary text; windows tools >=5 with dual python', async () => {
     const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
@@ -1814,7 +1857,7 @@ if (isEntrypoint()) {
     } finally {
       db2.close()
     }
-  })
+  }, 'fast')
 
   // ---- S1 fixtures：夹具老数据（registry.json / vault skills / api-hub-profiles / archiver config）----
   async function buildS1LegacyFixture(prefix) {
@@ -1926,7 +1969,7 @@ if (isEntrypoint()) {
     } finally {
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // 42. 夹具导入正确性：agents 字段映射、skills frontmatter、history 去重与路径归一匹配、apihub 占位
   registerCase('s1-42: migrate-legacy fixture correctness — agent fields, skills mirror, run dedup + path-normalized project match, apihub placeholders', async () => {
@@ -2008,7 +2051,7 @@ if (isEntrypoint()) {
     } finally {
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // 43. settings 种子：vault_path / archive_dest_root 存在（003 种子，不覆盖已有值）
   registerCase('s1-43: settings seeds vault_path and archive_dest_root exist after migration', async () => {
@@ -2037,7 +2080,7 @@ if (isEntrypoint()) {
     } finally {
       db.close()
     }
-  })
+  }, 'fast')
 
   // 44. 真库只读断言：真实导入结果落库（skill_agents / archive_runs）。
   // 依赖本机已真实执行过 `node scripts/migrate-legacy.mjs`；真库缺失时打 SKIP note
@@ -2245,7 +2288,7 @@ if (isEntrypoint()) {
     } finally {
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // 47. import：临时源目录 → vault 出现新 skill、源目录变 junction、逐字节一致、agent 建链、git commit
   registerCase('s2-47: importSkill — copy/verify/delete-source/junction/commit pipeline with agent linking', async () => {
@@ -2392,7 +2435,7 @@ if (isEntrypoint()) {
     } finally {
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // 49. agentsDir 硬链接模式：link 后 dev+ino 一致 → unlink 后清理（vault 文件不动）
   registerCase('s2-49: agentsDir hardlink sharing — enable makes dev+ino-identical files, disable cleans them up', async () => {
@@ -2446,7 +2489,7 @@ if (isEntrypoint()) {
     } finally {
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // 50. handlers 注册：新 channels 全部入白名单且 dispatch 可达（unknown → CHANNEL_NOT_ALLOWED）
   registerCase('s2-50: skills channels registered and dispatchable; strict payload validation; unknown folds to CHANNEL_NOT_ALLOWED', async () => {
@@ -2497,7 +2540,7 @@ if (isEntrypoint()) {
     } finally {
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // 51. （真机只读）scanVault 真库：vault_path 下 4 skill 入库与 S1 导入一致
   registerCase('s2-51: real-db readonly assertion — 4+ vault-mirrored skills, no duplicate names (S1 import intact)', async () => {
@@ -2566,7 +2609,7 @@ if (isEntrypoint()) {
     } finally {
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // ------------------------------------------------------------------
   // S3 批次：ApiHub 接口中心 + 版本中心（docs/09 §6/§7/§9）
@@ -2636,7 +2679,7 @@ if (isEntrypoint()) {
     } finally {
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // 54. profiles CRUD + needsRekey 档案语义（不可解 blob → 禁止切换 + 引导重填；重录后解除）
   registerCase('s3-54: profiles CRUD and needsRekey semantics — undecryptable blob blocks switch, re-entering the key clears it', async () => {
@@ -2717,7 +2760,7 @@ if (isEntrypoint()) {
     } finally {
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // 55. 适配器写-读回环：夹具 AI home 下 claude-cli 与 codex 写目标文件 → 读回一致 → 备份存在
   registerCase('s3-55: adapter write/read loop in fixture AI home — claude-cli & codex roundtrip with backups', async () => {
@@ -2781,7 +2824,7 @@ if (isEntrypoint()) {
       homes.restore()
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // 56. 切换流：两段式 + 只读文件写入失败 → 全量回滚恢复原内容
   registerCase('s3-56: two-phase switch (impacts then confirmed); read-only target file → structured failed result with full rollback', async () => {
@@ -2871,7 +2914,7 @@ if (isEntrypoint()) {
       homes.restore()
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // 57.（真机只读）进程检测：explorer.exe 查询返回非空列表
   registerCase('s3-57: process probe — real explorer.exe query returns a non-empty list (read-only)', async () => {
@@ -3025,7 +3068,7 @@ if (isEntrypoint()) {
       homes.restore()
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // 61. 密钥红线：save/switch 全链路返回值与日志文件无明文 key（夹具 key 已知前缀，mask 尾 4 位在场）
   registerCase('s3-61: key red line — full-chain save/switch returns and the log file never contain the plaintext key', async () => {
@@ -3082,7 +3125,7 @@ if (isEntrypoint()) {
       homes.restore()
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // ==================================================================
   // S4 批次（docs/09 §8/§9）：Docker 视图 + WSL 监控并入（62-68 追加，
@@ -3397,7 +3440,7 @@ if (isEntrypoint()) {
     for (const ch of ['skills:toggleLink', 'apihub:switch', 'versions:update', 'dashboard:summary']) {
       assert.equal(typeof registry[ch], 'function', `${ch} handler intact`)
     }
-  })
+  }, 'fast')
 
   // ==================================================================
   // S5 批次（docs/10 全文权威）：Archive 归档模块（69-80 追加；
@@ -3494,7 +3537,7 @@ if (isEntrypoint()) {
     assert.deepEqual(pr.lineColOf(lines, idx), { line: 2, col: 5 }, '1-based line/col')
     assert.equal(pr.snippetAround(lines, idx), 'bbb-ccc', 'snippet is the trimmed containing line')
     assert.ok(pr.snippetAround('x'.repeat(300), 0, 10).endsWith('…'), 'long snippet truncated with ellipsis')
-  })
+  }, 'fast')
 
   // 70. scanRules / depDirs 规则表：忽略目录、venv 定点、二进制嗅探边界、lockfile 判定
   registerCase('s5-70: scanRules/depDirs rule table — ignore dirs, venv pinned files, NUL-at-8KB boundary, lockfile-gated node_modules strip', async () => {
@@ -3563,7 +3606,7 @@ if (isEntrypoint()) {
     mkdirSync(join(cache, '__pycache__'), { recursive: true })
     mkdirSync(join(cache, '.tox'), { recursive: true })
     assert.deepEqual([...(await mover.detectDepSkipDirs(cache))].sort(), ['.tox', '__pycache__'], 'cache dirs stripped unconditionally')
-  })
+  }, 'fast')
 
   // 71. walker：夹具树命中/剪枝/定点 + 取消 token（预取消 + 扫描中途取消）
   registerCase('s5-71: walker — fixture tree hits with ignore pruning and venv pinning; oversize/binary skip; cancel token stops mid-scan', async () => {
@@ -3636,7 +3679,7 @@ if (isEntrypoint()) {
       (err) => err.name === 'WalkerCancelledError',
       'cancel mid-scan stops the walker (per-file token checks)',
     )
-  })
+  }, 'fast')
 
   // 72. 同卷移动：rename 模式，内容逐字节一致，源不存在；uniqueDestPath 与非空目标拒绝
   registerCase('s5-72: same-volume move — rename mode, byte-identical content, source gone; uniqueDestPath (-archived-YYYYMMDD(-N)); non-empty dest refused', async () => {
@@ -3685,7 +3728,7 @@ if (isEntrypoint()) {
       mkdirSync(dir, { recursive: true })
       return dir
     }
-  })
+  }, 'fast')
 
   // 73. 跨卷移动（注入 renameFn 抛 EXDEV 模拟跨卷）+ 中途复制失败注入（失败保源清半成品）
   // 选型说明：目标盘写满无法确定性模拟；Windows 目录只读属性不阻止写入——
@@ -3762,7 +3805,7 @@ if (isEntrypoint()) {
       mkdirSync(dir, { recursive: true })
       return dir
     }
-  })
+  }, 'fast')
 
   // 74. 剥离：node_modules 有/无 lockfile 两态 + venv + __pycache__；剥离清单随结果返回
   registerCase('s5-74: strip rules in the move — node_modules gated by lockfile (both states), venv and __pycache__ stripped, stripped list returned', async () => {
@@ -3821,7 +3864,7 @@ if (isEntrypoint()) {
       mkdirSync(dir, { recursive: true })
       return dir
     }
-  })
+  }, 'fast')
 
   // 75. pathFixer：`\\` 转义/大小写/URL 编码变体改写、非 UTF-8 跳过、备份 + 回滚恢复
   registerCase('s5-75: pathFixer — variant rewrite with \\\\ escape preserved, non-UTF-8 skipped untouched, missing reported, backup + rollback restores originals', async () => {
@@ -3911,7 +3954,7 @@ if (isEntrypoint()) {
       mkdirSync(dir, { recursive: true })
       return dir
     }
-  })
+  }, 'fast')
 
   // 76. preview→run 全链路：未带/伪造/过期 previewId 拒绝；正常链路落库 + projects 联动
   registerCase('s5-76: preview→run full chain — run without/forged/expired previewId refused (PROJECT_LOCKED-free fixture); done row + projects.win_path linkage + archives row + history', async () => {
@@ -4256,7 +4299,7 @@ if (isEntrypoint()) {
     } finally {
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // 80. handlers：archive channels dispatch 可达 + 严格校验（projectId≥1 / previewId 格式 / runId≥1）
   registerCase('s5-80: archive handlers dispatch — whitelist + registry coverage, strict payload validation, unknown archive sub-channel folds to CHANNEL_NOT_ALLOWED', async () => {
@@ -4348,7 +4391,7 @@ if (isEntrypoint()) {
     } finally {
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // ==================================================================
   // AC2 批次（docs/13 / docs/14 §A / docs/16 §1 AC2 行）：Agent Control
@@ -4408,7 +4451,7 @@ if (isEntrypoint()) {
     } finally {
       db.close()
     }
-  })
+  }, 'fast')
 
   // 82. migration 004 v3→v4 升级路径（T1）：手工 v3 库预置 19 表数据 → 仅应用 004
   //     → 既有 19 表行级零变化（settings 例外 = 文档设计内的 4 条新种子键）
@@ -4481,7 +4524,7 @@ if (isEntrypoint()) {
     } finally {
       db2.close()
     }
-  })
+  }, 'fast')
 
   // 83. T2 负向护栏：setUserVersionLiteral 对未注册版本（99）显式 throw
   registerCase('ac2-83: T2 negative guard — setUserVersionLiteral throws for unregistered version; case 4 literal assignment works', async () => {
@@ -4506,7 +4549,7 @@ if (isEntrypoint()) {
     } finally {
       db.close()
     }
-  })
+  }, 'fast')
 
   // 84. agents 13 条 channel：白名单尾部按 docs/14 §A.1 顺序逐字存在 + 注册表覆盖
   registerCase('ac2-84: agents channels (14, 夜间#1 就地更新 13→14) — whitelist tail in docs/14 §A.1 order, registry handlers, compile-time contract assertion holds', async () => {
@@ -4537,7 +4580,7 @@ if (isEntrypoint()) {
       assert.equal(typeof registry[ch], 'function', `${ch} has a registered handler`)
     }
     assert.equal(handlers.contractCoversWhitelist, true, 'ChannelContract covers exactly the whitelist (observed at runtime)')
-  })
+  }, 'fast')
 
   // 85. agent_sessions CHECK：session_mode 三态 CHECK 拒绝非法值；9 值 status 全部
   //     可插入（status 在 docs/13 §4.2 为注释枚举、无 CHECK——运行期合法性由
@@ -4583,7 +4626,7 @@ if (isEntrypoint()) {
     } finally {
       db.close()
     }
-  })
+  }, 'fast')
 
   // 86. redact.ts：maskKey 只出尾 4 位 + 长度；redactText 打码 token=/password= 值段
   registerCase('ac2-86: redact.ts — maskKey tail4+len only, redactText masks token/password/api_key value segments, no full secret leakage, idempotent', async () => {
@@ -4608,7 +4651,7 @@ if (isEntrypoint()) {
 
     assert.equal(redact.redactText('plain text without secrets'), 'plain text without secrets', 'non-sensitive text untouched')
     assert.equal(redact.redactText(redacted), redacted, 'redaction is idempotent')
-  })
+  }, 'fast')
 
   // 87. agents 读类 channel dispatch（s5-80 模式）：真实探测投影 + gatewayStatus
   //     settings 真值 + 诊断形状 + payload 严格校验。
@@ -4739,7 +4782,7 @@ if (isEntrypoint()) {
       svc.stopAllAgentControlRuntime()
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // 88. agents 动作类 channel dispatch（s5-80 模式）：sessionAction 能力门细分、
   //     pairingCreate/gatewayRestart GATEWAY_DISABLED、deviceRevoke 两段式 + 审计、
@@ -4864,7 +4907,7 @@ if (isEntrypoint()) {
     } finally {
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // ==================================================================
   // AC3 批次（docs/16 §1 AC3 行）：spawnManaged（docs/12 §3 契约）/ 增量 jsonl /
@@ -4989,7 +5032,7 @@ if (isEntrypoint()) {
     assert.equal(r.rotated, true, 'offset > size detected as rotation/truncation')
     assert.equal(r.lines.length, 1)
     assert.deepEqual(r.parsed, [{ r: 1 }])
-  })
+  }, 'fast')
 
   // 94. eventPipeline：sequence 单调 / event_id 幂等 / 先落库后投递 / deliveries 行 /
   //     payload 脱敏 / waiting_input 两值 / status_changed 仅变化才发 / 终态 finished
@@ -5069,7 +5112,7 @@ if (isEntrypoint()) {
       svc.stopAllAgentControlRuntime()
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // 95. 状态判定器边界：codex event payload 判定（无审批判定源 → 绝不产生）+
   //     ReadFailureTracker 5 次降级沿 / 恢复沿 + connection_lost（终态不覆盖）+ 恢复重探
@@ -5122,7 +5165,7 @@ if (isEntrypoint()) {
       svc.stopAllAgentControlRuntime()
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // 96. Codex 夹具：假 rollout jsonl + session_index 发现 → 快照落库（workdir 归一匹配
   //     project）+ exposes 资源边 + session.started 事件 + readMessages 增量与消息落库幂等
@@ -5216,7 +5259,7 @@ if (isEntrypoint()) {
       svc.stopAllAgentControlRuntime()
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // 97. Codex 夹具 app-server 握手：成功 → managed + granted 逐个验证；失败 → observed 降级
   registerCase('ac3-97: codex fixture app-server — handshake success grants verified reply/pause/resume (managed), crash folds to observed with empty granted', async () => {
@@ -5378,7 +5421,7 @@ if (isEntrypoint()) {
     writeFileSync(settingsPath, '{ not json', 'utf8')
     await assert.rejects(() => claudeMod.writeClaudeHooks({ claudeHome: home, port: 18746, secret }), /not valid JSON/, 'corrupted settings refused')
     assert.equal(readFileSync(settingsPath, 'utf8'), '{ not json', 'corrupted file left untouched')
-  })
+  }, 'fast')
 
   // 100. Claude 回环 listener：正确 secret 回调 → 事件映射；错误 secret 静默拒绝计数；
   //      非回调路径 404；映射表边界
@@ -5580,7 +5623,7 @@ if (isEntrypoint()) {
       svc.stopAllAgentControlRuntime()
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // 103. Codex 真机只读探测：exe hash 目录发现 + --version + 真实会话发现（零写库零写入）
   registerCase('ac3-103: codex real machine probe (read-only) — exe hash-dir discovery, --version, real rollout session discovery; env-dependent with SKIP note', async () => {
@@ -5727,7 +5770,7 @@ if (isEntrypoint()) {
       svc.stopAllAgentControlRuntime()
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // 106. Kimi wire.jsonl：状态判定映射（实机复核全集）+ 消息投影脱敏 + 真实
   //      startMonitor → L3 落库（waiting_input/approval_required 事件贯通）
@@ -5817,7 +5860,7 @@ if (isEntrypoint()) {
       svc.stopAllAgentControlRuntime()
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // 107. Kimi managed stdin reply（夹具假进程）：终态确认才成功；进程秒退无终态 →
   //      结构化失败（进程退出 ≠ 成功，docs/12 §8.3）
@@ -6104,7 +6147,7 @@ if (isEntrypoint()) {
       svc.stopAllAgentControlRuntime()
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // 111. ZCode schema 防御：白名单不匹配 → unavailable + 结构化 health_detail，
   //      监控启停不崩溃（R2：非公开 CLI schema 变更）
@@ -6162,7 +6205,7 @@ if (isEntrypoint()) {
       svc.stopAllAgentControlRuntime()
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // 112. ZCode 快照降级（模拟 CANTOPEN）：直连禁用 → 复制-读-删除；tmp 清理断言；
   //      数据经快照可读；自动模式下健康库零快照残留
@@ -6235,7 +6278,7 @@ if (isEntrypoint()) {
       svc.stopAllAgentControlRuntime()
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // 113. ZCode 真机只读探测：活跃写入中的真库（WAL）readOnly 直连 + 真实会话快照
   //      （零写入、绝不 checkpoint；T11 字节级不变性由夹具用例承载）
@@ -6337,7 +6380,7 @@ if (isEntrypoint()) {
       svc.stopAllAgentControlRuntime()
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // 115. 事件管线收口 T13/T14：markDelivered/markAcked 只前进（ack 后 delivered
   //      拒绝）；eventsSince 补发语义；未确认事件绝不删除（静态断言零 DELETE 路径）
@@ -6450,7 +6493,7 @@ if (isEntrypoint()) {
     } finally {
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // 116. 多 provider 并发不串会话：codex + zcode + claude 夹具同时监控 → 会话/
   //      消息/事件严格按 provider 归属（T「多 Agent 并发不串会话」smoke 层）
@@ -6614,7 +6657,7 @@ if (isEntrypoint()) {
       mod.agentSummaryText({ totalSessions: 12, activeSessions: 0, waitingInput: 0, approvalRequired: 0, monitorEnabled: false }),
       'DevHub — Agents: 0/12 active (monitoring off)',
     )
-  })
+  }, 'fast')
 
   // 118. 托盘菜单数据源：getAgentSummaryCounts 从 agent_sessions 真实库投影计数
   //      （docs/12 §10；活跃 = running/waiting_input/approval_required/paused/connection_lost）
@@ -6661,7 +6704,7 @@ if (isEntrypoint()) {
       svc.stopAllAgentControlRuntime()
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // 119. 自启胶水注入位（docs/12 §10：setLoginItemSettings 即时应用；services 层
   //      electron-free，electron 侧真实现由 autostartWire.ts 注入——本用例在系统 Node
@@ -6717,7 +6760,7 @@ if (isEntrypoint()) {
       svc.stopAllAgentControlRuntime()
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // 120. 脱敏全通道扫描（docs/11 T10 在 IPC 面的 AC5 收口：13 条 agents channel
   //      任一返回序列化后无 token_hash / token 明文 / key 全值）。夹具库埋假凭据
@@ -6843,7 +6886,7 @@ if (isEntrypoint()) {
       svc.stopAllAgentControlRuntime()
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // ====================================================================
   // AC6 — Remote Gateway（docs/14 Part B/C + docs/15 §2-§5）。
@@ -8586,7 +8629,7 @@ if (isEntrypoint()) {
     } finally {
       rmSync(base, { recursive: true, force: true })
     }
-  })
+  }, 'fast')
 
   // ------------------------------------------------------------------
   // AC9 退出滞留修复：quitGuarantee 状态机（electron-free 纯逻辑，直载）——
@@ -8633,7 +8676,7 @@ if (isEntrypoint()) {
     // 常量契约：5s 硬上限守收尾、3s 看门狗守最终退出
     assert.equal(qg.QUIT_TEARDOWN_HARD_CAP_MS, 5000, 'teardown hard cap stays 5s')
     assert.equal(qg.QUIT_EXIT_WATCHDOG_MS, 3000, 'exit watchdog grace stays 3s')
-  })
+  }, 'fast')
 
   // ------------------------------------------------------------------
   // fix-zcode-subagent（用户报障：Agents 视图出现大量子智能体会话）——
@@ -8771,7 +8814,7 @@ if (isEntrypoint()) {
       svc.stopAllAgentControlRuntime()
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // 142. cleanup 脚本（scripts/cleanup-zcode-subagent-sessions.mjs）夹具库清污：
   //      dry-run 预览计数与全前缀清单 → apply 单事务删除（sessions/messages/会话域
@@ -8856,7 +8899,7 @@ if (isEntrypoint()) {
     } finally {
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
 
 
@@ -8930,7 +8973,7 @@ if (isEntrypoint()) {
         db3.close()
       }
     }
-  })
+  }, 'fast')
 
   // 144. R1/R8：zcode part 结构 → segments 投影（text/reasoning/tool 映射）；
   //      R8 plugin:// 标签化（segments 展示路径零原始 URI，contentRedacted 保留
@@ -9036,7 +9079,7 @@ if (isEntrypoint()) {
       svc.stopAllAgentControlRuntime()
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // 145. R10：messages 尾部取数（last/before + prevAfter 游标；after 正向不变；
   //      last/after/before 互斥 → BAD_PAYLOAD；nextAfter 语义不变）
@@ -9091,7 +9134,7 @@ if (isEntrypoint()) {
       svc.stopAllAgentControlRuntime()
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // 146. R3：archive/unarchive 幂等 + DELETE 级联清理（子会话链连带；消息/事件/
   //      deliveries/资源边清零；remote_commands FK SET NULL 解绑；源文件零触碰
@@ -9172,7 +9215,7 @@ if (isEntrypoint()) {
       svc.stopAllAgentControlRuntime()
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // 147. R2：zcode 父子链端到端（fixture 带 parent_id 列）——子会话快照落库、
   //      默认列表隐藏、parentId= 过滤、sessionDetail childSessions、子会话消息
@@ -9278,7 +9321,7 @@ if (isEntrypoint()) {
     } finally {
       await gwCaseTeardown(m)
     }
-  })
+  }, 'fast')
 
   // 148. R6：POST /v1/providers/{providerId}/sessions —— managed 门（managed→202、
   //      observed→403 COMMAND_NOT_EXECUTABLE、未验证→403 AGENT_CAPABILITY_MISSING、
@@ -9426,7 +9469,7 @@ if (isEntrypoint()) {
     assert.ok(snap['db-to-ws'].p50Ms > 400, 'ring keeps only the latest window (p50=' + snap['db-to-ws'].p50Ms + ')')
     lat.resetLatencyStats()
     assert.equal(lat.latencySnapshot()['source-to-db'].count, 0, 'reset clears everything')
-  })
+  }, 'fast')
 
   // ==================================================================
   // 夜间#1 批次（服务端积压补齐，主控任务书授权）：nb1-150…nb1-154 追加。
@@ -9682,7 +9725,7 @@ if (isEntrypoint()) {
       svc.stopAllAgentControlRuntime()
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // 154. WS delivery 修复（ux-final-report §4.3/§8 遗留）：设备投递行 upsert ——
   //      事件先于配对落库（零 deliveries 行）→ markEventDelivered 补建 delivered 行 +
@@ -9749,7 +9792,7 @@ if (isEntrypoint()) {
     } finally {
       dbModule.closeDatabase()
     }
-  })
+  }, 'fast')
 
   // ====================================================================
   // M2-R1 收尾批 — relay-client smoke 段（docs/19 §4 + docs/20 §2.1 R1 验收线①-⑧）。
@@ -10074,7 +10117,7 @@ if (isEntrypoint()) {
     fragConn.feed(fragBytes.subarray(mid))
     assert.ok(fragText !== null, 'incremental parse completes on the tail bytes')
     assert.deepEqual(JSON.parse(fragText), fragSample, 'fragment reassembly field identity')
-  })
+  }, 'fast')
 
   // 156. 重连退避参数（docs/19 §4.2，行为规格移植自 Android core/Backoff.kt）：
   //      1s→60s cap 倍增表 / ±20% jitter 边界（randomSource 注入缝固定值）/ 封顶后
@@ -10133,7 +10176,7 @@ if (isEntrypoint()) {
     assert.equal(clamped.nextDelayMs(), 1200, 'r>1 clamps to the upper jitter bound')
     const clampedLow = new BackoffCalculator({ randomSource: () => -7 })
     assert.equal(clampedLow.nextDelayMs(), 800, 'r<0 clamps to the lower jitter bound')
-  })
+  }, 'fast')
 
   // 157. 断线回填幂等 + watermark 前向只进（docs/19 §4.3 三步恢复序① + §4.3 水位行）：
   //      离线期事件只落库 → hello 水位回填补推（投影对拍 fixture #6 裁定面）→ 同水位
@@ -10214,7 +10257,7 @@ if (isEntrypoint()) {
     } finally {
       await r1CaseTeardown(m)
     }
-  })
+  }, 'fast')
 
   // 158. 命令排队→上线投递（docs/18 §3.9 queued 语义 + docs/19 §4.2 三步恢复序②）：
   //      host 离线期间 ECS 已受理排队的 command（fixture #8 帧形为底，动态字段覆写）
@@ -10560,5 +10603,5 @@ if (isEntrypoint()) {
     }
   })
 
-  await run()
+  await run(parseTierArg())
 }

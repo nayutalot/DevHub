@@ -10,6 +10,7 @@
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit",
     "smoke": "node scripts/smoke.mjs",
+    "smoke:fast": "node scripts/smoke.mjs --tier=fast",
     "mcp": "node scripts/run-mcp.mjs",
     "dist": "electron-vite build && electron-builder --win",
     "gen:icon": "node scripts/gen-icon.mjs"
