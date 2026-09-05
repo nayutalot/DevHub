@@ -81,6 +81,7 @@ function readFileSyncSafe(p) {
 
 function fail(message) {
   console.error(`[loadtest] FAIL: ${message}`)
+  console.error('[loadtest] child log tail:\n' + childLog.split('\n').slice(-15).join('\n'))
   if (!child.killed) {
     if (process.platform === 'win32') child.stdin.write('shutdown\n')
     else child.kill('SIGTERM')
@@ -162,23 +163,71 @@ async function main() {
   console.log(`[loadtest] ④ 突发 ${BURST_EVENTS} events × ${DEVICE_COUNT} 扇出：首个事件到达延迟 p50=${percentile(latencies, 50)}ms p95=${percentile(latencies, 95)}ms；突发窗口 ${burstMs}ms（≈${(BURST_EVENTS / (burstMs / 1000)).toFixed(0)} events/s 注入，≤200 预算）`)
   void fanoutTarget
 
-  // ⑤ 排队 + 优雅停机零帧丢失抽查：断 host → 1 条命令 queued → 停机 → 重启（同库）→ 补发投递
+  // ⑤ 排队受理抽查（对齐真实 App 行为）：断 host → 200ms → device#0 发命令 →
+  // 首发总时限 5s 等 ack → 未到按 QueueReplay 语义同 key 换 nonce 重发一次 → 再守 30s →
+  // 断言 queued:true。真实 Android 客户端是常读 socket——④ 首延迟采样后为每台设备挂
+  // 持续后台读者（消耗帧+计数）直到 ⑤ 结束，客户端接收缓冲永不饥饿（⑤ 段 ECS 失败
+  // 根因即「只读首帧就停读」造成的接收黑洞）。
+  const frameCounts = new Array(DEVICE_COUNT).fill(0)
+  let stopReaders = false
+  let ackWaiter = null // device#0 的 command_ack 路由目标（读者承担投递，不与计数竞争）
+  const routeAck = (frame) => {
+    if (frame.type === 'command_ack' && ackWaiter !== null) {
+      const resolve = ackWaiter
+      ackWaiter = null
+      resolve(frame)
+      return true
+    }
+    return false
+  }
+  const readers = devices.map((c, i) => (async () => {
+    while (!stopReaders && !c.closed) {
+      try {
+        const item = await c.recv(2000)
+        if (i === 0 && item.kind === 'text' && routeAck(item.frame)) continue
+        frameCounts[i] += 1
+      } catch { /* 空闲超时/连接关闭 → 复查循环条件 */ }
+    }
+  })())
+  console.log(`[loadtest] ⑤ ${DEVICE_COUNT} 台设备持续后台读者已挂载（消耗积压 + 后续帧，socket 零饥饿）`)
+
   host.destroy()
   await sleep(200)
-  devices[0].send({
+  const cmdFrame = {
     type: 'command', requestId: 'lt-cmd-1', idempotencyKey: 'lt-idem-1', sessionId: 1, action: 'pause',
     auth: { token: 'x', ts: Math.floor(Date.now() / 1000), nonce: randomBytes(16).toString('hex') }, createdAt: Math.floor(Date.now() / 1000),
-  })
-  // 跳过积压事件帧，取 queued ack
-  let queuedAck = null
-  for (let i = 0; i < 300; i += 1) {
-    const f = await devices[0].recvFrame(5000)
-    if (f.type === 'command_ack') {
-      queuedAck = f
-      break
-    }
   }
-  if (queuedAck === null || queuedAck.queued !== true) fail('排队受理异常（预期 queued:true）')
+  const nextAck = (timeoutMs) => new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      ackWaiter = null
+      resolve(null)
+    }, timeoutMs)
+    ackWaiter = (frame) => {
+      clearTimeout(timer)
+      resolve(frame)
+    }
+  })
+  // 首发总时限 5s：hostOnline 写入竞态（host socket 已死但 close 未处理 → 命令走中继
+  // 永无回执）可能触发也可能不触发——两条路径都必须通过。
+  const firstAck = nextAck(5000)
+  devices[0].send(cmdFrame)
+  let ack = await firstAck
+  if (ack === null) {
+    console.log('[loadtest] ⑤ 首发命令 5s 未获 ack（hostOnline 写入竞态路径触发）——QueueReplay 语义重发一次（同 idempotencyKey 换 nonce）')
+    const retryAck = nextAck(30_000)
+    devices[0].send({ ...cmdFrame, auth: { ...cmdFrame.auth, nonce: randomBytes(16).toString('hex') } })
+    ack = await retryAck
+  }
+  if (ack === null || ack.queued !== true) {
+    if (process.env.LT_HOLD === '1') {
+      console.log(`[loadtest][hold] 保持 ${120}s 供排查（child pid=${child.pid} port=${port}）...`)
+      await sleep(120_000)
+    }
+    fail('排队受理异常（预期 queued:true）')
+  }
+  stopReaders = true
+  await Promise.allSettled(readers)
+  console.log(`[loadtest] ⑤ 排队受理 ✓（queued:true status=${ack.status}）；持续读者累计消耗 ${frameCounts.reduce((a, b) => a + b, 0)} 帧（含 ④ 积压），全程无接收饥饿`)
   for (const c of devices) c.destroy()
   if (process.platform === 'win32') child.stdin.write('shutdown\n')
   else child.kill('SIGTERM')

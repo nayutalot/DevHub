@@ -11,7 +11,7 @@
     "start": "node --experimental-strip-types src/server.ts",
     "migrate": "node scripts/migrate.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node --test test/",
+    "test": "node --test",
     "selfcheck": "node --experimental-strip-types src/selfcheck.mjs",
     "smoke": "node --experimental-strip-types scripts/smoke.mjs",
     "loadtest": "node scripts/loadtest.mjs"
