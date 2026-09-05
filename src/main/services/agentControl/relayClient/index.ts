@@ -70,7 +70,7 @@ import {
   requestTokenRotation,
   setRotationBridgeHost,
 } from './rotationBridge.ts'
-import { clearCommandDownlinkState, setCommandDownlinkHost } from './commandDownlink.ts'
+import { clearCommandDownlinkState, handleCommandFrame, setCommandDownlinkHost, type CommandDownlinkHost } from './commandDownlink.ts'
 import { setRelayRuntimeView } from './statusProjector.ts'
 
 // ---------------------------------------------------------------------------
@@ -103,6 +103,8 @@ let helloTimer: NodeJS.Timeout | null = null
 const deviceMappings = new Map<number, number>()
 /** 配对桥宿主（wireSeams 构建；pair 帧路由复用同一实例）。 */
 let pairingHost: PairingBridgeHost | null = null
+/** 命令下行宿主（wireSeams 构建；command 帧路由复用同一实例，docs/18 §3.8 E→H）。 */
+let commandDownlinkHost: CommandDownlinkHost | null = null
 let backoff = new BackoffCalculator()
 let seamsWired = false
 
@@ -323,11 +325,12 @@ function wireSeams(): void {
     sendTokenRotation: (frame) => sendFrame(frame),
   })
   // 命令下行（commandDownlink 完成批）：ack/result/error 帧出口 + L3 终态监听
-  setCommandDownlinkHost({
+  commandDownlinkHost = {
     sendAck: (frame) => sendFrame(frame),
     sendResult: (frame) => sendFrame(frame),
     sendError: (frame) => sendFrame(frame),
-  })
+  }
+  setCommandDownlinkHost(commandDownlinkHost)
   // L3 配对码签发同步（createPairing → register_pairing；离线 false → 本地模式退化）
   setPairingIssuedListener((event) => {
     handlePairingIssued(event)
@@ -479,6 +482,9 @@ function routeFrame(text: string): void {
     case 'sync_request':
       handleSyncRequestFrame(frame)
       return
+    case 'command':
+      handleCommandFrameSafe(frame)
+      return
     case 'heartbeat':
       handleHeartbeatFrame(frame)
       return
@@ -540,6 +546,22 @@ function handlePairFrameSafe(frame: unknown): void {
     handlePairFrame(frame, host)
   } catch {
     /* 逐帧隔离（失败路径已折 error 帧） */
+  }
+}
+
+/**
+ * command 帧（docs/18 §3.8 E→H，D→E 的原样中继形态）→ commandDownlink 流水
+ * （auth → action 翻译 → L3 submitRemoteCommand → ack/result 回帧）。宿主缺席
+ * （wireSeams 前的早到帧）→ 忽略（绝不猜）；处理异常逐帧隔离（该帧失败折 error /
+ * command_ack 回执，绝不杀伤连接循环）。
+ */
+function handleCommandFrameSafe(frame: unknown): void {
+  const host = commandDownlinkHost
+  if (host === null) return
+  try {
+    handleCommandFrame(frame, host)
+  } catch {
+    /* 逐帧隔离 */
   }
 }
 
