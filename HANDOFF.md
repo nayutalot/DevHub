@@ -1,53 +1,58 @@
-# DevHub 会话交接文档（2026-09-05 晨，UX 整改+夜间迭代收官）
+# DevHub 会话交接文档（2026-09-05 午，M2 进行中·配额中断点）
 
-> 交接范围：项目重建 → Phase 1 → MCP → 并库 S1-S6 → Agent Control AC0-AC9 → ECS+frp 公网隧道 → 打包 exe → **App 体验整改 R1-R11 全过 + ECS Relay 设计批 + 夜间迭代三批**。新会话按此文档续接。
+> 交接范围：项目重建 → Phase 1 → MCP → 并库 S1-S6 → Agent Control AC0-AC9 → ECS+frp 隧道 → 打包 → UX 整改 R1-R11 → 夜间迭代 → IP TLS 裁决 → **ECS Relay M2（R2 完成；R1/R3 代码全部完成、差测试收尾——本会话因模型并发配额被占中断于此）**。新会话按本文档续接。
 
 ## 1. 当前状态一句话
 
-**DevHub 全功能就绪且已推送 GitHub（main @ 70dd8f3）：UX 整改 R1-R11 真机验收全过（含公网隧道端到端 spawn+回复回流、延迟 p95 4.76s）、ECS Relay 阶段 2 设计文档齐备（docs/18-21，等用户四项裁决后进 M2 编码）、夜间迭代三批（服务端积压/MCP 四工具/App 视觉打磨）全部合并。门禁终态：tsc 0 / smoke 156/156 / mcp-acceptance 27/27 / build / :core:test 107 / assembleDebug 全绿。**
+**M2 三批代码已全部写完**：R2 服务已合并 main（e46c1c9）；R1 八模块与 R3 全功能块分别在各自 worktree 增量提交完毕（接力模式对抗配额中断），**只剩两个收尾批**（R1 的 smoke 测试段+门禁；R3 的门禁实跑+模拟器截图）。用户已切换到 coding plan（5.3 主控，实测 3 子代理并发可用）——新会话直接执行 §5 两个收尾任务书即可。
 
 ## 2. 协作模式（用户铁律）
 
-- **主控只 plan/review/merge，一切执行派 omni-agent**；每批独立复跑门禁后追认
-- **夜间时段（23:00-09:00 至 09-20）并发工作流**：一 Agent 一 Worktree 一任务，禁交叉，主控独占 merge；文件域隔离分工（TS 服务端/MCP/android 各一路）
-- 先规划后写码；冲突上报裁决；视觉评审派 omni-agent 看图；截图 PrintWindow/adb screencap
-- **端口铁律（三次事故教训）：smoke 依赖 8746-8755 全空闲；真实 Gateway/常驻实例与其互斥——跑门禁前 taskkill DevHub.exe，跑完用 dist/win-unpacked/DevHub.exe 恢复；用户手动启动的常驻实例也会撞端口，门禁窗口提示用户勿启动**
-- mcp-acceptance 先 commit 再跑（A12 干净树）；Mimosa「env→path→fs」误报不可安抚（npm 已单源化先例）；绝不 --no-verify
+- 主控只 plan/review/merge，执行派 omni-agent；一 Agent 一 Worktree 一任务，禁交叉，主控独占 merge
+- **配额中断应对（本会话实证）**：concurrency limit 反复杀子代理时用「增量提交接力」——任务书强制"每完成一个模块立即 git commit"，中断后新 agent 从 WIP 提交续作，每轮净赚一块（R1 八模块就是这样拼完的）；配额占满时 10-30 分钟退避重试
+- **端口铁律**：smoke 需 8746-8755 全空闲——跑门禁前 `taskkill //IM DevHub.exe //F`，跑完 `cmd //c start "" "F:\Active_Project\DevHub\dist\win-unpacked\DevHub.exe"` 恢复常驻+curl 127.0.0.1:8746/v1/health 确认 200；子代理测试桩一律用段外端口（18443 类）
+- mcp-acceptance 先 commit 再跑（A12 干净树）；Mimosa「env→path→fs」误报不可安抚；绝不 --no-verify
+- 视觉评审派 omni-agent 看图；先规划后写码；冲突上报裁决
 
-## 3. 项目事实基线（终态）
+## 3. M2 状态台账（精确到 commit）
 
-- git main @ 70dd8f3 = origin/main（github.com/nayutalot/DevHub）；树净；打包产物 dist/（NSIS+portable+win-unpacked，未入库）
-- IPC 白名单 **70 条**（55+15 agents:，夜间#1 +versions:cancel/+agents:probeProvider）；MCP **16 tools**（夜间#2 补 skills.list/versions.list/archives.list/docker.images）；migration **005**（user_version=5：parent_session_id/archived_at/segments_json）
-- smoke **156/156**；mcp-acceptance **27/27**；:core:test **107**；真库 user_version=5
-- 公网通道：ECS 59.110.149.11 frps + PC frpc（HKCU Run 常驻）→ 127.0.0.1:8746；皎月连备用未激活
-- 常驻=打包版 DevHub.exe（登录自启指向 win-unpacked 路径）
+| 批次 | 位置 | 状态 | 剩余 |
+| --- | --- | --- | --- |
+| R2 ecs-relay 服务 | **已合并 main @ e46c1c9**（含 16 帧 fixture：`ecs-relay/test/fixtures/frames.json`、偏离单：`ecs-relay/README.md`） | ✅ 完成（node --test 76/76、selfcheck 59/59） | — |
+| R1 relay-client | worktree `F:\Active_Project\DevHub-worktrees\relay-client`，分支 `agent/relay-client`，HEAD=**26d8249**，树净 | **八模块代码全完成**（groundwork/wsClient/config/backoff/eventUplink/commandDownlink/pairingBridge/rotationBridge+statusProjector+编排组装，git log 各 wip 提交可查） | §5.1 收尾批：smoke 段+四门禁+终提交 |
+| R3 android-relay | worktree `F:\Active_Project\DevHub-worktrees\android-relay`，分支 `agent/android-relay`，HEAD=**6a80ae8**，树净 | **全功能块完成**（Room 双模式/:core relay 五件+4 测试/ConnectionManager 参数化/UI 双模式接线/:core 曾实测全绿+fixture 对拍） | §5.2 收尾批：门禁实跑+模拟器四类截图+终提交 |
 
-## 4. 近三阶段交付摘要
+- 两个 worktree 的分支已推送 origin（同名分支）做保险。
+- R2 协议裁定（R1/R3 已对齐，新会话继续遵守）：①event 帧=`type:'event'`+`eventType`；②token_rotation 必携 deviceId；③register_pairing host 腿控制帧；④requestId ECS 内部重写；⑤host 离线 `command_ack{status:'queued'}`。
 
-### App 体验整改 R1-R11（docs/17 任务书，批次 A/B/C 三 worktree 并行）
-- **批 A（05ecc8b）**：migration 005、messages segments 投影（思维链/工具调用分段，无结构绝不猜）、plugin/skill 引用标签化、last/before/prevAfter 尾部取数、archive/unarchive/DELETE 端点（只动本地投影零触碰源文件）、childSessions 父子链、providerKey/Label、自适应刷新节流（活跃 3s/空闲 15s）+延迟打点、`POST /v1/providers/{id}/sessions` 托管会话启动端点（docs/15 §5 已加授权注记）
-- **批 B（35d96f8）**：App 全套阅读体验——气泡对话流/思维链默认折叠/纯 Compose 迷你渲染器（chip 化插件引用）/逆序首屏+prevAfter 上翻/scrubber 拖动定位+跳最新 FAB/子会话入口/归档长按菜单/五家色板徽标+过滤 chips；**显式夹具演示模式**（显著标注零冒充）；:core 37→88 单测
-- **批 C（1e42115）**：R6「启动托管会话」按钮+**公网隧道真实端到端**（手机一键起托管 Codex 会话 cmd-204a…→202→跳转→5 次手机回复全部真实推理回流）；R7 四家 per-provider 原因卡；延迟三段实测 **源→App p95 4.76s 达标（≤5s）**；29 张截图视觉评审 **29/29 pass 零红线**；ux-final-report.md（R1-R11 逐条全过）
-- 跨批契约修复三处（archivedAt 双形态/childSessions 嵌套兼容/空会话 tail 回退）——**教训：并行批次共享 DTO 契约时，请求参数名等未定义点必须主控先行裁决广播**
+## 4. 项目事实基线（main @ 28e0f38+）
 
-### ECS Relay 阶段 1+2（审计→设计）
-- 审计四文档（d98e300）：ecs-relay-current-state（证据分级）/ecs-relay-gaps（G1-G11）/agent-control-reference-map（八仓）/ecs-security-group-policy
-- 设计四文档（a9acfe8）：docs/18 协议（WS 16 帧+REST 5 端点混合制）/19 架构（三层身份模型+ECS 被攻破论证+relayClient 八模块）/20 计划（M1-M5+G8 四阶段迁移编排）/21 待裁决（域名/FCM/Kimi 真机/Claude hooks）
-- **下一步 M2 三 worktree 并行编码，等用户裁决 docs/21（域名+TLS 是 443 硬前置）**
+- git main（=origin/main）：IP TLS 裁决批 28e0f38（U1=DONE 无域名方案）；门禁基线 tsc 0 / smoke 156/156 / mcp 27/27 / :core 107 / assembleDebug
+- 白名单 70 条；MCP 16 tools；migration 005（user_version=5）；常驻=打包版 DevHub.exe（用户新版已含全部 main 代码）
+- ECS Relay 权威文档：docs/18 协议（16 帧）/19 架构/20 计划（M2-M5）/21 裁决（U1 已决；FCM/Kimi 真机/hooks 待用户）；部署物料 docs/ecs-relay-deploy/（自签 IP 证书+双指纹）
+- 公网通道现役：frp（59.110.149.11:8746）；Relay 443 正式入口在 M3 部署时上线
 
-### 夜间迭代三批（并发 worktree）
-- **#1 服务端积压（49423c5）**：docker remove/wsl shutdownAll 两段确认、versions:cancel（spawnManaged+killTree 真中断）、agents:probeProvider、**WS delivery 修复**（late-paired 设备投递行 upsert + sendFrame 背压语义修正）
-- **#2 MCP 四工具（c6b5e2a+ecde667）**：docs/09 §10 欠账补齐，16 tools，mcp 22→27 用例
-- **#4 App 视觉打磨（b4faa07）**：钉深色主题+状态栏、inset 去双计、scrubber 最新锚、markdown ** 粗体渲染统一+标题 strip、FAB 避让、文案杂项六项；:core 88→107
-- 计数断言就地更新（授权模式）：m2-t01 12→16、ac2-84 68→70、ac5-120 13→14、#1 批内 5 处
+## 5. 新会话立即执行的两个收尾任务书（可直接派 omni-agent）
 
-## 5. 遗留与待用户裁决
+### 5.1 R1 终收批（worktree relay-client，HEAD=26d8249）
 
-1. **docs/21 四项**：域名+TLS（推荐购域名+Let's Encrypt，阻塞 M2 起跑的 443 正式态）/FCM 分期/Kimi 真机 managed（approve 验证门依赖）/Claude hooks 注册入口
-2. delivery 聚合语义：现按"全部设备行"计（陈旧离线设备卡聚合 pending）——是否改"仅活跃设备"待裁决
-3. R5.3 App WS 事件驱动刷新半程未做（现轮询兜底已达标）；R9 拖动气泡帧/R11 日期帧引用 B 批截图
-4. 旧已知项：relativeTime 中英混排（等用户）、ZCode approval 判定源未实测到 pending 形态、DeepSeek 未接入
+**任务**：①smoke 新段（append-only，scripts/smoke.mjs 尾部，模式照 ac6 段，用例名 `nb-r1-*`）：16 帧 round-trip 逐帧对拍 ecs-relay/test/fixtures/frames.json；重连退避参数；断线回填幂等；命令排队→上线投递；同幂等键重试返回原结果；token_rotation 落库+宽限；撤销踢线；凭据零入日志/DB 抽样。内存 Relay 桩端口 127.0.0.1:18443 类段外，帧数据源=fixture。②门禁：跑 smoke 前 taskkill DevHub.exe/跑完恢复常驻+curl 200（§2 端口铁律）；tsc 0+smoke（156 基线+新段全绿）+build+mcp-acceptance（先 commit 树净，27/27）。③缺陷最小修复重跑。④`git commit -m "test(relay): relay-client smoke segment + gates green (M2-R1 wrap)"`。铁律：docs/00 全 28 条；smoke append-only（计数断言受影响就地更新注明）；MCP/android/ecs-relay 零触碰；增量提交纪律（每 2-3 用例一 commit）。
 
-## 6. 关键执行约束（沿用）
+### 5.2 R3 收尾批（worktree android-relay，HEAD=6a80ae8）
 
-28 条合同 + docs/11-16 + docs/17 §3 红线 + docs/18-21（ECS Relay 协议/架构权威）；exec.ts 唯一 spawn；SQL 绑定；migration append-only（现 user_version=5）；electron-free services；真库只读快照法；打包带双镜像环境变量（ELECTRON_MIRROR/ELECTRON_BUILDER_BINARIES_MIRROR）。
+**任务**：①门禁实跑：`gradlew :core:test :app:assembleDebug`（JAVA_HOME=D:\Apps\JetBrains\IntelliJ IDEA 2026.1\jbr；local.properties 已在位）→全绿数字+APK 路径；失败则最小修复（每 fix 一 commit）。②模拟器冒烟+四类截图（**不做真实 relay 连接**，端到端归 M3）：local 模式回归（连桌面常驻 Gateway 127.0.0.1:8746）；relay 模式 UI 验收=模式选择页/relayUrl+wss 校验（输 ws:// 被拒）/降级态 upstream:disconnected；截图存 worktree acceptance/agents-mobile/relay-*.png（控制门恒空一类也要），数据来源如实标注，零凭据。③`git commit -m "test(app): relay dual-mode gates + emulator evidence (M2-R3 wrap)"`。铁律：只改 android/+acceptance；observed 零控件；桌面常驻不杀；绝不 --no-verify。
+
+### 5.3 收尾后主控流程
+
+R1/R3 回报 → 逐一 review（范围纪律：R1 只动 src+scripts、R3 只动 android+acceptance）→ 合入序 **R1 → R3** → 主仓统一门禁（端口铁律）→ push main → 清 worktree/分支 → **M3 规划**（部署 ECS Relay 上 443：gen-ip-cert.sh→Caddy→指纹分发→App/relayClient 双端 wss 联调→R-B1..R-B9 验收表，含 TLS 三拒）→ P1-P4 迁移编排（docs/20 §4）。
+
+## 6. 遗留与待用户
+
+1. docs/21 待裁决三项：FCM 分期/Kimi 真机 managed/Claude hooks 注册（不阻塞 M2/M3 前中期）
+2. R2 验收线③部署演练（2C2G 实机 loadtest）归 M3
+3. delivery 聚合"全设备 vs 仅活跃"语义小裁决
+4. 旧已知项：relativeTime 中英混排、ZCode approval 判定源未实测、DeepSeek 未接入
+
+## 7. 关键约束速查
+
+28 条合同（docs/00）+ docs/11-16 + docs/17 §3 + docs/18-21；exec.ts 唯一 spawn；SQL 绑定；migration append-only（user_version=5）；electron-free services；真库只读快照法；打包带双镜像环境变量；ecs-relay/ 子目录自含（独立 node_modules/node --test，零污染 DevHub 门禁）。
