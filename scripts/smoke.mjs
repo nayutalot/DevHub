@@ -9751,5 +9751,389 @@ if (isEntrypoint()) {
     }
   })
 
+  // ====================================================================
+  // M2-R1 收尾批 — relay-client smoke 段（docs/19 §4 + docs/20 §2.1 R1 验收线①-⑧）。
+  // 帧数据源 = ecs-relay/test/fixtures/frames.json（16 帧权威 fixture，逐字段对拍，
+  // 禁止手抄帧——动态字段以 fixture 样本为底覆写）；内存 ECS Relay 桩（host 腿 WS）
+  // 监听 127.0.0.1:18443 类段外端口（占用顺延，严禁碰 smoke 门禁段 8746-8755）。
+  // 既有 156 用例零改动（append-only，约束 #27）。
+  // ====================================================================
+  const { writeFileSync, readFileSync, readdirSync } = await import('node:fs')
+  const { join } = await import('node:path')
+
+  /** fixture 只读装载（权威帧源，零手抄）。 */
+  const r1Fixture = JSON.parse(readFileSync(new URL('../ecs-relay/test/fixtures/frames.json', import.meta.url), 'utf8'))
+
+  /** 取 fixture 帧 #no 指定 leg 的样本深拷贝（动态字段由用例覆写，帧源仍是 fixture）。 */
+  function r1FixtureFrame(no, leg) {
+    const entry = r1Fixture.frames.find((f) => f.no === no)
+    assert.ok(entry !== undefined, `fixture frame #${no} present`)
+    const sample = leg === undefined ? entry.samples[0] : entry.samples.find((s) => s.leg === leg)
+    assert.ok(sample !== undefined, `fixture frame #${no} leg "${leg}" present`)
+    return JSON.parse(JSON.stringify(sample.frame))
+  }
+
+  /** 取 fixture hostControlFrames（16 帧之外的 host 腿控制面）指定 leg 样本深拷贝。 */
+  function r1FixtureControlFrame(leg) {
+    const entry = r1Fixture.hostControlFrames[0]
+    assert.ok(entry !== undefined, 'fixture hostControlFrames entry present')
+    const sample = entry.samples.find((s) => s.leg === leg)
+    assert.ok(sample !== undefined, `fixture hostControlFrames leg "${leg}" present`)
+    return JSON.parse(JSON.stringify(sample.frame))
+  }
+
+  /** 服务端视角解析一帧客户端帧（客户端帧必带掩码，RFC6455 §5.1）；返回一帧 + 余量。 */
+  function r1ParseMaskedClientFrame(buf) {
+    if (buf.length < 2) return { frame: null, rest: buf }
+    const opcode = buf[0] & 0x0f
+    const masked = (buf[1] & 0x80) !== 0
+    let len = buf[1] & 0x7f
+    let offset = 2
+    if (len === 126) {
+      if (buf.length < offset + 2) return { frame: null, rest: buf }
+      len = buf.readUInt16BE(offset)
+      offset += 2
+    } else if (len === 127) {
+      if (buf.length < offset + 8) return { frame: null, rest: buf }
+      len = Number(buf.readBigUInt64BE(offset))
+      offset += 8
+    }
+    if (masked) {
+      if (buf.length < offset + 4 + len) return { frame: null, rest: buf }
+      const maskKey = buf.subarray(offset, offset + 4)
+      const payload = Buffer.from(buf.subarray(offset + 4, offset + 4 + len))
+      for (let i = 0; i < payload.length; i += 1) payload[i] ^= maskKey[i % 4]
+      return { frame: { opcode, masked, payload }, rest: buf.subarray(offset + 4 + len) }
+    }
+    if (buf.length < offset + len) return { frame: null, rest: buf }
+    return { frame: { opcode, masked, payload: Buffer.from(buf.subarray(offset, offset + len)) }, rest: buf.subarray(offset + len) }
+  }
+
+  /**
+   * 内存 ECS Relay 桩（host 腿 WS 服务端，ac6 自搓 WS 同源做法）：段外回环端口
+   * 监听（18443 起 EADDRINUSE 顺延 +9，绝不占用 8746-8755 门禁段）；upgrade 头
+   * 原样留档（凭据运输面审计数据源）；收帧必掩码、发帧必不掩码（RFC6455 §5.1
+   * 对称面）；ping 即 pong；每次收到的协议帧留档 stub.log（红线扫描数据源）。
+   */
+  async function r1StartRelayStub(portHint = 18443) {
+    const { createServer } = await import('node:http')
+    const { createHash } = await import('node:crypto')
+    const stub = { server: null, port: null, connections: [], upgrades: [], log: [] }
+    const handleUpgrade = (req, socket) => {
+      const key = req.headers['sec-websocket-key']
+      const accept = createHash('sha1').update(String(key) + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64')
+      socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ' + accept + '\r\n\r\n')
+      socket.setNoDelay(true)
+      const conn = { socket, received: [], closeCode: null, alive: true, headers: { authorization: req.headers.authorization ?? null } }
+      stub.connections.push(conn)
+      stub.upgrades.push(conn.headers)
+      let buffer = Buffer.alloc(0)
+      socket.on('data', (chunk) => {
+        buffer = buffer.length === 0 ? Buffer.from(chunk) : Buffer.concat([buffer, chunk])
+        while (true) {
+          const parsed = r1ParseMaskedClientFrame(buffer)
+          if (parsed.frame === null) break
+          buffer = parsed.rest
+          const { opcode, payload } = parsed.frame
+          if (opcode === 0x8) {
+            conn.closeCode = payload.length >= 2 ? payload.readUInt16BE(0) : null
+            conn.alive = false
+            try { socket.destroy() } catch { /* 已关 */ }
+            return
+          }
+          if (opcode === 0x9) {
+            try { socket.write(encodeClientFrame(0xA, payload, { mask: false })) } catch { /* 已关 */ }
+            continue
+          }
+          if (opcode === 0xA) continue
+          if (opcode === 0x1 || opcode === 0x2) {
+            const text = payload.toString('utf8')
+            let json
+            try { json = JSON.parse(text) } catch { json = undefined }
+            conn.received.push({ opcode, text, json })
+            stub.log.push({ conn, json, text })
+          }
+        }
+      })
+      socket.on('error', () => { conn.alive = false })
+      socket.on('close', () => { conn.alive = false })
+    }
+    const tryListen = (port) =>
+      new Promise((resolve, reject) => {
+        const server = createServer()
+        server.on('error', reject)
+        server.on('upgrade', handleUpgrade)
+        server.listen(port, '127.0.0.1', () => resolve(server))
+      })
+    let lastErr = null
+    for (let p = portHint; p < portHint + 10; p += 1) {
+      try {
+        stub.server = await tryListen(p)
+        stub.port = p
+        return stub
+      } catch (err) {
+        lastErr = err
+      }
+    }
+    throw lastErr ?? new Error('relay stub listen failed')
+  }
+
+  /** 桩向最新活跃连接发一帧服务端 JSON（不掩码，RFC6455 §5.1 服务端方向）。 */
+  function r1StubSend(stub, obj, conn) {
+    const target = conn ?? [...stub.connections].reverse().find((c) => c.alive)
+    assert.ok(target !== undefined && target.alive, 'relay stub has an alive connection to send on')
+    target.socket.write(encodeClientFrame(0x1, Buffer.from(JSON.stringify(obj), 'utf8'), { mask: false }))
+  }
+
+  /** 轮询等待桩收到匹配帧（跨全部连接；等待期内新增连接也参与匹配）。 */
+  async function r1StubWait(stub, predicate, timeoutMs = 3000, label = 'relay stub frame') {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      for (const conn of stub.connections) {
+        const hit = conn.received.find(predicate)
+        if (hit !== undefined) {
+          conn.received.splice(conn.received.indexOf(hit), 1)
+          return { conn, ...hit }
+        }
+      }
+      await sleep(20)
+    }
+    throw new Error(`relay stub waitFrame timeout: ${label}`)
+  }
+
+  /** 桩收尾（先毁全部连接再关监听；零孤儿端口）。 */
+  async function r1StubClose(stub) {
+    for (const conn of stub.connections) {
+      conn.alive = false
+      try { conn.socket.destroy() } catch { /* 已关 */ }
+    }
+    stub.connections.length = 0
+    if (stub.server !== null) await new Promise((resolve) => stub.server.close(() => resolve()))
+  }
+
+  /**
+   * nb-r1 全栈用例夹具（隔离 home + relay 模块单例清场 + 凭据文件 env 缝）：
+   * ac6 gwCaseSetup 同款纪律 + relayClient 特有面（DEVHUB_RELAY_CREDENTIAL_FILE
+   * 覆盖进临时 home，teardown 还原；监控关闭 hermetic，ac2-87 先例）。
+   */
+  async function r1CaseSetup(prefix) {
+    const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+    const svc = await import(new URL('../src/main/services/agentControl/agentControlService.ts', import.meta.url).href)
+    const settingsSvc = await import(new URL('../src/main/services/settingsService.ts', import.meta.url).href)
+    const relay = await import(new URL('../src/main/services/agentControl/relayClient/index.ts', import.meta.url).href)
+    const auth = await import(new URL('../src/main/services/agentControl/gateway/auth.ts', import.meta.url).href)
+    const providerRegistry = await import(new URL('../src/main/services/agentControl/providerRegistry.ts', import.meta.url).href)
+    const dir = await makeTempHome(prefix)
+    dbModule.getDatabase()
+      .prepare("INSERT INTO settings (key, value) VALUES ('agents_monitor_enabled', '0') ON CONFLICT(key) DO UPDATE SET value = '0'")
+      .run()
+    const prevCredFile = process.env.DEVHUB_RELAY_CREDENTIAL_FILE
+    const credentialFile = join(dir, 'relay-credential.txt')
+    process.env.DEVHUB_RELAY_CREDENTIAL_FILE = credentialFile
+    return { dbModule, svc, settingsSvc, relay, auth, providerRegistry, credentialFile, prevCredFile }
+  }
+
+  /** nb-r1 用例收尾（relay 单例复位 → 配对内存态复位 → env 还原 → 关库）。 */
+  async function r1CaseTeardown(m) {
+    m.providerRegistry.clearProviderOverrides()
+    m.svc.stopAllAgentControlRuntime()
+    m.relay.resetRelayClientForSmoke()
+    const pairing = await import(new URL('../src/main/services/agentControl/gateway/pairing.ts', import.meta.url).href)
+    pairing.resetPairingState()
+    if (m.prevCredFile === undefined) delete process.env.DEVHUB_RELAY_CREDENTIAL_FILE
+    else process.env.DEVHUB_RELAY_CREDENTIAL_FILE = m.prevCredFile
+    m.dbModule.closeDatabase()
+  }
+
+  /** 夹具设备行（remote_devices；token 明文仅内存流转，落库只有 sha256——红线）。 */
+  function r1FixtureDevice(m, db, name, token) {
+    const now = Math.floor(Date.now() / 1000)
+    const info = db
+      .prepare(
+        'INSERT INTO remote_devices (device_name, platform, token_hash, token_version, status, paired_at, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?, ?)',
+      )
+      .run(name, 'android', m.auth.sha256Hex(token), 'active', now, now, now)
+    return Number(info.lastInsertRowid)
+  }
+
+  /** 夹具 managed provider（能力门全授予 + sendReply 计数桩，ac6-128 同款缝）。 */
+  async function r1FixtureManagedProvider(m, db, tag) {
+    const providerId = fixtureProviderRow(db, 'kimi')
+    db.prepare('UPDATE agent_providers SET capabilities_json = ? WHERE id = ?').run(
+      JSON.stringify({ mode: 'managed', granted: ['reply', 'pause', 'resume'], verifiedAt: Math.floor(Date.now() / 1000), evidence: 'fixture override' }),
+      providerId,
+    )
+    const sessionId = fixtureSessionRow(db, providerId, `${tag}-sess`, 'managed')
+    const calls = { reply: 0 }
+    m.providerRegistry.setProviderOverride('kimi', {
+      id: 'kimi',
+      probeHealth: async () => ({ status: 'ok' }),
+      listSessions: async () => [],
+      readMessages: async () => ({ items: [] }),
+      getCapabilities: async () => ({ mode: 'managed', granted: ['reply', 'pause', 'resume'], verifiedAt: Math.floor(Date.now() / 1000), evidence: 'fixture override' }),
+      sendReply: async () => { calls.reply += 1; return { ok: true, status: 'executed' } },
+      pause: async () => ({ ok: false, status: 'unsupported', detail: 'fixture' }),
+      resume: async () => ({ ok: false, status: 'unsupported', detail: 'fixture' }),
+      startMonitor: () => ({ providerId: 'kimi', stop: async () => {} }),
+      dispose: async () => {},
+    })
+    return { providerId, sessionId, calls }
+  }
+
+  /** 启用 relay 三件套（gateway_enabled 前提 + relay_enabled/endpoint）并装配凭据文件。 */
+  function r1EnableRelay(m, stub, credential) {
+    m.settingsSvc.setSetting('gateway_enabled', '1')
+    m.settingsSvc.setSetting('relay_enabled', '1')
+    m.settingsSvc.setSetting('relay_endpoint', `ws://127.0.0.1:${stub.port}`)
+    writeFileSync(m.credentialFile, `${credential}\n`, 'utf8')
+  }
+
+  /** hello 握手（桩收到连接后发 fixture #1 host 腿样本；sequence 供回填对拍覆写）。 */
+  async function r1HelloNewConnection(stub, { sequence = 0 } = {}) {
+    const deadline = Date.now() + 5000
+    while (Date.now() < deadline) {
+      const conn = stub.connections.find((c) => c.helloSent !== true)
+      if (conn !== undefined) {
+        conn.helloSent = true
+        const hello = r1FixtureFrame(1, 'host')
+        hello.sequence = sequence
+        r1StubSend(stub, hello, conn)
+        return conn
+      }
+      await sleep(20)
+    }
+    throw new Error('relay stub: no new connection to greet with hello')
+  }
+
+  // 155. 16 帧 round-trip 逐帧对拍 fixture（docs/20 §2.4 三线契约防漂移）：
+  //      客户端 TX（encodeClientTextFrame 必掩码 → 桩视角掩码解析 → 字段同一性）×
+  //      服务端 TX（不掩码 → RelayClientConnection 真实解析路径 → 字段同一性）双方向，
+  //      16 帧型 + host 腿控制帧全样本；掩码方向对称红线（服务端帧带掩码 → 1002）。
+  registerCase('nb-r1-155: relay 16-frame fixture round-trip — every fixture sample (16 frame types + host-leg control frames) survives client-TX masked encode/decode and server-TX parse with field identity; masking direction red line (masked server frame -> 1002)', async () => {
+    assert.equal(r1Fixture.frames.length, 16, 'fixture carries the full 16-frame protocol table (docs/18 §3)')
+    for (const entry of r1Fixture.frames) {
+      assert.ok(entry.samples.length >= 1, `frame #${entry.no} ${entry.type} has samples`)
+    }
+    const samples = [
+      ...r1Fixture.frames.flatMap((f) => f.samples.map((s) => ({ frameType: f.type, no: f.no, leg: s.leg, frame: s.frame }))),
+      ...r1Fixture.hostControlFrames.flatMap((h) => h.samples.map((s) => ({ frameType: h.type, no: 'hostControl', leg: s.leg, frame: s.frame }))),
+    ]
+    assert.ok(samples.length >= 35, `fixture sample coverage, got ${samples.length}`)
+
+    const wsMod = await import(new URL('../src/main/services/agentControl/relayClient/wsClient.ts', import.meta.url).href)
+    let clientTx = 0
+    let serverTx = 0
+    for (const sample of samples) {
+      // 客户端 TX：编码 → 必带掩码（RFC6455 §5.1）→ 桩视角掩码解析 → 字段同一性
+      const wire = wsMod.encodeClientTextFrame(sample.frame)
+      assert.equal((wire[1] & 0x80) !== 0, true, `client frame ${sample.frameType}/${sample.leg} MUST be masked`)
+      const decoded = r1ParseMaskedClientFrame(wire)
+      assert.ok(decoded.frame !== null, `client frame ${sample.frameType}/${sample.leg} decodes fully`)
+      assert.equal(decoded.rest.length, 0, `client frame ${sample.frameType}/${sample.leg} consumes the whole buffer`)
+      assert.equal(decoded.frame.masked, true, 'stub-side decode confirms the mask bit')
+      assert.deepEqual(JSON.parse(decoded.frame.payload.toString('utf8')), sample.frame, `client-TX field identity: ${sample.frameType}/${sample.leg}`)
+      clientTx += 1
+
+      // 服务端 TX：不掩码编码 → RelayClientConnection 真实解析路径（分片收口/掩码拒绝语义）
+      let receivedText = null
+      const fakeSocket = { write: () => true, on: () => {}, destroy: () => {} }
+      const conn = new wsMod.RelayClientConnection(fakeSocket, {
+        onText: (_c, text) => { receivedText = text },
+        onClosed: () => {},
+      })
+      const serverWire = encodeClientFrame(0x1, Buffer.from(JSON.stringify(sample.frame), 'utf8'), { mask: false })
+      conn.feed(serverWire)
+      assert.ok(receivedText !== null, `server frame ${sample.frameType}/${sample.leg} reaches hooks.onText`)
+      assert.deepEqual(JSON.parse(receivedText), sample.frame, `server-TX field identity: ${sample.frameType}/${sample.leg}`)
+      serverTx += 1
+    }
+    assert.equal(clientTx, samples.length)
+    assert.equal(serverTx, samples.length)
+
+    // 掩码方向对称红线：带掩码的「服务端帧」→ 客户端判 protocol error → close 1002
+    const written = []
+    const errSocket = { write: (b) => { written.push(Buffer.from(b)); return true }, on: () => {}, destroy: () => {} }
+    const errConn = new wsMod.RelayClientConnection(errSocket, { onText: () => assert.fail('masked server frame must never reach onText'), onClosed: () => {} })
+    const rogueSample = r1FixtureFrame(13, 'ecs-to-host')
+    errConn.feed(encodeClientFrame(0x1, Buffer.from(JSON.stringify(rogueSample), 'utf8'))) // 客户端编码默认带掩码
+    assert.equal(errConn.closed, true, 'masked server frame closes the connection')
+    const closeFrames = written.map((b) => r1ParseMaskedClientFrame(b).frame).filter((f) => f !== null && f.opcode === 0x8)
+    assert.ok(closeFrames.length >= 1, 'client answers the protocol violation with a close frame')
+    assert.equal(closeFrames[0].payload.readUInt16BE(0), 1002, 'close code 1002 (protocol error)')
+
+    // 分片收口路径：fixture 事件帧拆两片（FIN 分界）→ onText 收到完整帧
+    const fragSample = r1FixtureFrame(6, 'host-to-ecs')
+    const fragBytes = encodeClientFrame(0x1, Buffer.from(JSON.stringify(fragSample), 'utf8'), { mask: false })
+    let fragText = null
+    const fragSocket = { write: () => true, on: () => {}, destroy: () => {} }
+    const fragConn = new wsMod.RelayClientConnection(fragSocket, { onText: (_c, text) => { fragText = text }, onClosed: () => {} })
+    // 增量解析：整帧拆两段 TCP 段喂入（任意切分点）——前半只缓冲、后半收口分发
+    const mid = Math.floor(fragBytes.length / 2)
+    fragConn.feed(fragBytes.subarray(0, mid))
+    assert.ok(fragText === null, 'partial frame stays buffered (no premature dispatch)')
+    fragConn.feed(fragBytes.subarray(mid))
+    assert.ok(fragText !== null, 'incremental parse completes on the tail bytes')
+    assert.deepEqual(JSON.parse(fragText), fragSample, 'fragment reassembly field identity')
+  })
+
+  // 156. 重连退避参数（docs/19 §4.2，行为规格移植自 Android core/Backoff.kt）：
+  //      1s→60s cap 倍增表 / ±20% jitter 边界（randomSource 注入缝固定值）/ 封顶后
+  //      停止翻倍（Kotlin 同款 while 结构）/ 向零截断 / reset 归零 / 非法 attempt 拒绝。
+  registerCase('nb-r1-156: reconnect backoff — 1s->2s->...->60s doubling table with cap-stop-doubling, +-20% jitter bounds via randomSource seam (fixed 0 / 0.5 / 1), truncation toward zero, reset-to-base, invalid attempt refused', async () => {
+    const { BACKOFF_BASE_DELAY_MS, BACKOFF_MAX_DELAY_MS, BACKOFF_JITTER_FRACTION, BackoffCalculator } = await import(
+      new URL('../src/main/services/agentControl/relayClient/backoff.ts', import.meta.url).href
+    )
+    assert.equal(BACKOFF_BASE_DELAY_MS, 1000, 'base 1s (docs/14 §B.2)')
+    assert.equal(BACKOFF_MAX_DELAY_MS, 60000, 'cap 60s')
+    assert.equal(BACKOFF_JITTER_FRACTION, 0.2, 'jitter +-20%')
+
+    // 倍增表（r=0.5 → 因子 1.0）：1s→2s→4s→8s→16s→32s→60s 封顶，封顶后停止翻倍
+    const mid = new BackoffCalculator({ randomSource: () => 0.5 })
+    const table = []
+    for (let i = 0; i < 9; i += 1) table.push(mid.nextDelayMs())
+    assert.deepEqual(table, [1000, 2000, 4000, 8000, 16000, 32000, 60000, 60000, 60000], 'doubling table with cap-stop-doubling (60s, no overflow)')
+    assert.equal(mid.delayMsForAttempt(100), 60000, 'attempt 100 stays at the cap (Kotlin while-loop semantics)')
+    assert.equal(mid.attempts, 9, 'attempts counter tracks nextDelayMs calls')
+
+    // jitter 下界（r=0 → 因子 0.8）与上界（r=1 → 因子 1.2）
+    const low = new BackoffCalculator({ randomSource: () => 0 })
+    assert.equal(low.nextDelayMs(), 800, 'attempt 1 lower jitter bound = 800ms')
+    for (let i = 0; i < 5; i += 1) low.nextDelayMs()
+    assert.equal(low.nextDelayMs(), 48000, 'attempt 7 lower jitter bound = 60000*0.8')
+    const high = new BackoffCalculator({ randomSource: () => 1 })
+    assert.equal(high.nextDelayMs(), 1200, 'attempt 1 upper jitter bound = 1200ms')
+    for (let i = 0; i < 5; i += 1) high.nextDelayMs()
+    assert.equal(high.nextDelayMs(), 72000, 'attempt 7 upper jitter bound = 60000*1.2 (cap applies to base, not jitter)')
+
+    // 向零截断（Kotlin toLong 语义）：r=0.75 → 因子 1.1 → 1100 整
+    const trunc = new BackoffCalculator({ randomSource: () => 0.75 })
+    assert.equal(trunc.nextDelayMs(), 1100, 'truncation toward zero (1100.000...|0)')
+    const trunc2 = new BackoffCalculator({ randomSource: () => 0.5123 })
+    assert.ok(Number.isInteger(trunc2.nextDelayMs()), 'delay is always an integer ms')
+
+    // reset：连接成功归零，下次回到 base；零 jitter（fraction 0）时退化为确定 base 表
+    const reset = new BackoffCalculator({ randomSource: () => 0.5 })
+    reset.nextDelayMs()
+    reset.nextDelayMs()
+    assert.equal(reset.attempts, 2)
+    reset.reset()
+    assert.equal(reset.attempts, 0)
+    assert.equal(reset.nextDelayMs(), 1000, 'after reset the next delay is base again')
+
+    const zeroJitter = new BackoffCalculator({ jitterFraction: 0, randomSource: () => 0.999 })
+    assert.deepEqual([zeroJitter.nextDelayMs(), zeroJitter.nextDelayMs()], [1000, 2000], 'fraction 0 collapses jitter to the pure doubling table')
+
+    // 非法 attempt 拒绝（RangeError，绝不静默猜）
+    assert.throws(() => mid.delayMsForAttempt(0), RangeError, 'attempt 0 refused')
+    assert.throws(() => mid.delayMsForAttempt(-3), RangeError, 'negative attempt refused')
+    assert.throws(() => mid.delayMsForAttempt(1.5), RangeError, 'non-integer attempt refused')
+
+    // 随机源越界值被钳制（[0,1] 外仍产出合法延迟带）
+    const clamped = new BackoffCalculator({ randomSource: () => 42 })
+    assert.equal(clamped.nextDelayMs(), 1200, 'r>1 clamps to the upper jitter bound')
+    const clampedLow = new BackoffCalculator({ randomSource: () => -7 })
+    assert.equal(clampedLow.nextDelayMs(), 800, 'r<0 clamps to the lower jitter bound')
+  })
+
   await run()
 }
