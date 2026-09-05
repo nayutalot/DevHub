@@ -18,12 +18,23 @@ import kotlinx.coroutines.flow.Flow
 // PendingCommand / EventAckState；Token 明文绝不入库——见 SecureStore）
 // ---------------------------------------------------------------------------
 
-/** Gateway 配置（单行 id=1；默认 10.0.2.2:8746 = 模拟器回环映射）。 */
+/**
+ * Gateway 配置（单行 id=1；默认 10.0.2.2:8746 = 模拟器回环映射）。
+ * R3 双模式扩展（docs/19 §7.1）：`{ mode: 'local' | 'relay', host?, port?, relayUrl?, deviceName }`
+ * —— mode 默认 local（旧行破坏性迁移后语义不变）；relayUrl 仅 relay 模式使用；
+ * pinFingerprints = 注入式 SPKI 指纹（docs/19 §10.2，非机密物料，逗号/换行分隔）。
+ */
 @Entity(tableName = "gateway_config")
 data class GatewayConfigEntity(
     @PrimaryKey val id: Int = 1,
     val host: String,
     val port: Int,
+    /** local | relay（docs/19 §7.1 双模式；绝不字段嗅探，模式显式选择）。 */
+    val mode: String = "local",
+    /** relay 模式 endpoint，强制 wss://（docs/19 §11 / docs/18 §2；ws:// 在保存与连接两层都被拒绝）。 */
+    val relayUrl: String? = null,
+    /** 注入式指纹高级项（docs/19 §10.2）：`sha256/{hex}` 列表；null/空白 = 不启用 pinning。 */
+    val pinFingerprints: String? = null,
 )
 
 /** 本设备配对元数据（单行 id=1）。Token 经 Keystore 加密后存 SecureStore（绝不入 Room/日志）。 */
@@ -209,7 +220,8 @@ interface EventAckStateDao {
     ],
     // v2（体验整改批 B）：session_cache + providerKey/providerLabel/archived/parentSessionId；
     // message_cache + segmentsJson。纯缓存库，破坏性迁移可接受（fallbackToDestructiveMigration）。
-    version = 2,
+    // v3（M2-R3 双模式批，docs/19 §7.1）：gateway_config + mode/relayUrl/pinFingerprints。
+    version = 3,
     exportSchema = false,
 )
 abstract class DevHubDb : RoomDatabase() {
