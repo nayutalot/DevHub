@@ -179,16 +179,25 @@ class WsClient {
   }
   push(item) {
     const waiter = this.waiters.shift()
-    if (waiter !== undefined) waiter(item)
+    if (waiter !== undefined) waiter.fn(item)
     else this.queue.push(item)
   }
   recv(timeoutMs = 5000) {
     if (this.queue.length > 0) return Promise.resolve(this.queue.shift())
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('recv timeout')), timeoutMs)
-      this.waiters.push((item) => {
-        clearTimeout(timer)
-        resolve(item)
+      // A⑥ 修复：超时必须摘除本 waiter（此前超时回调永久滞留数组，后续 push 喂给已
+      // reject 的死回调 = 帧被静默吞掉——与 test/helpers.mjs 同源的等待者泄漏病）。
+      const timer = setTimeout(() => {
+        const idx = this.waiters.findIndex((w) => w.timer === timer)
+        if (idx >= 0) this.waiters.splice(idx, 1)
+        reject(new Error('recv timeout'))
+      }, timeoutMs)
+      this.waiters.push({
+        timer,
+        fn: (item) => {
+          clearTimeout(timer)
+          resolve(item)
+        },
       })
     })
   }

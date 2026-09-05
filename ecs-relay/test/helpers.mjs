@@ -284,7 +284,11 @@ export class TestWsClient {
     if (this.queue.length > 0) return this.queue.shift()
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
-        const idx = this.waiters.findIndex((w) => w.resolve === resolve)
+        // A⑥ 修复：必须以 timer 身份摘除本 waiter——此前比较 w.resolve === resolve
+        // （包装箭头 ≠ 裸 resolve）恒 false，超时 waiter 永远滞留队头，后续 push 把帧
+        // 喂给已 reject 的死 waiter（resolve 成 no-op）→ 帧被静默吞掉（loadtest ⑤
+        // ECS 路径 ack 消失的根因：reader 超时循环 2-3 次后即形成死 waiter 队头）。
+        const idx = this.waiters.findIndex((w) => w.timer === timer)
         if (idx >= 0) this.waiters.splice(idx, 1)
         reject(new Error(`recv timeout (closed=${this.closed} closeInfo=${JSON.stringify(this.closedInfo)})`))
       }, timeoutMs)
@@ -293,6 +297,7 @@ export class TestWsClient {
           clearTimeout(timer)
           resolve(item)
         },
+        timer,
       }
       this.waiters.push(waiter)
     })

@@ -414,3 +414,18 @@ test('bootRelay 冒烟（端口段外 + 绑定回环）', async (t) => {
   assert.ok(world.port > 10000, `随机高端口（实测 ${world.port}），绝不占 8746-8755`)
   assert.notEqual([8746, 8747, 8748, 8749, 8750, 8751, 8752, 8753, 8754, 8755].includes(world.port), true)
 })
+
+test('A⑥ 回归：recv 超时循环不泄漏死 waiter（帧绝不被静默吞掉）', async (t) => {
+  const world = await setupWorld(t)
+  const { device } = await pairDevice(world)
+  // 制造 3 次 recv 超时（修复前：每次超时泄漏一个已 reject 的死 waiter 滞留队头，
+  // 下一帧 push 喂给死 waiter = 静默吞帧——loadtest ⑤ ECS 路径 ack 消失的根因）
+  for (let i = 0; i < 3; i += 1) {
+    await assert.rejects(() => device.recv(30), /recv timeout/)
+  }
+  device.send({ type: 'heartbeat', ts: 1, lastAckedSeq: 0, tokenVersion: 1 })
+  const hb = await device.recvFrame(3000)
+  assert.equal(hb.type, 'heartbeat')
+  assert.equal(hb.upstream, 'connected')
+  assert.equal(device.waiters.length, 0, '无泄漏残留 waiter（修复前残留 3 个死 waiter）')
+})
