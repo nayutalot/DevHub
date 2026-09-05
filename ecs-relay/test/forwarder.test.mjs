@@ -236,6 +236,43 @@ test('host 在线：command 原样中继 → command_ack rejected（errorCode �
   assert.equal(ack.errorCode, 'AGENT_CAPABILITY_MISSING')
 })
 
+test('A⑥ 修 1：僵尸窗口排队态重发 → 立即 queued:true + 武装帧保留（host 重连重投）', async (t) => {
+  const world = await setupWorld(t)
+  const { device } = await pairDevice(world)
+  // A⑤ 确定性复现手法：destroy 后立即首发+重发，不等 hostOnline 翻转
+  world.host.destroy()
+  const base = { type: 'command', requestId: 'zx-1', idempotencyKey: 'zx-key', sessionId: 1, action: 'pause', auth: { token: 't', ts: 1, nonce: 'n1' }, createdAt: 1 }
+  device.send({ ...base })
+  device.send({ ...base, requestId: 'zx-1-retry', auth: { ...base.auth, nonce: 'n2' } })
+  // 重发必须立即获得 queued:true 回执（修复前：武装帧被删 + 无任何 ack → 石沉大海）
+  let ack = null
+  for (let i = 0; i < 4 && ack === null; i += 1) {
+    const f = await device.recvFrame(3000)
+    if (f.type === 'command_ack' && f.idempotencyKey === 'zx-key') ack = f
+  }
+  assert.equal(ack?.status, 'accepted', '重发 → accepted')
+  assert.equal(ack?.queued, true, '重发 → 立即 queued:true（同步回执）')
+  // 武装帧保留（僵尸写兜底：真送达由 host 回执清武装）
+  assert.equal(world.handle.forwarder.debugQueuedMemoryCount(), 1, '排队态重发不删除武装帧')
+  const host2 = new TestWsClient()
+  await host2.connect(world.port, '/relay/host', { Authorization: `Bearer ${world.credential}` })
+  await host2.recvFrame() // hello
+  let delivered = null
+  for (let i = 0; i < 4 && delivered === null; i += 1) {
+    const f = await host2.recvFrame(5000)
+    if (f.type === 'command' && f.idempotencyKey === 'zx-key') delivered = f
+  }
+  assert.notEqual(delivered, null, 'host 重连 → 武装帧重投（完整帧含 auth）')
+  host2.send({ type: 'command_ack', requestId: delivered.requestId, idempotencyKey: 'zx-key', commandId: 'cmd-zx', status: 'accepted' })
+  let realAck = null
+  for (let i = 0; i < 4 && realAck === null; i += 1) {
+    const f = await device.recvFrame(3000)
+    if (f.type === 'command_ack' && f.commandId === 'cmd-zx') realAck = f
+  }
+  assert.notEqual(realAck, null, 'host 真回执回流设备（accepted 不带 queued）')
+  assert.equal(realAck.queued, undefined)
+})
+
 // ---- 事件/sync/heartbeat ---------------------------------------------------------
 
 test('event 扇出：deviceId 填充 + 缓存幂等；sync_request 补发 + ACK 中继', async (t) => {
@@ -376,4 +413,19 @@ test('bootRelay 冒烟（端口段外 + 绑定回环）', async (t) => {
   const world = await bootRelay(t)
   assert.ok(world.port > 10000, `随机高端口（实测 ${world.port}），绝不占 8746-8755`)
   assert.notEqual([8746, 8747, 8748, 8749, 8750, 8751, 8752, 8753, 8754, 8755].includes(world.port), true)
+})
+
+test('A⑥ 回归：recv 超时循环不泄漏死 waiter（帧绝不被静默吞掉）', async (t) => {
+  const world = await setupWorld(t)
+  const { device } = await pairDevice(world)
+  // 制造 3 次 recv 超时（修复前：每次超时泄漏一个已 reject 的死 waiter 滞留队头，
+  // 下一帧 push 喂给死 waiter = 静默吞帧——loadtest ⑤ ECS 路径 ack 消失的根因）
+  for (let i = 0; i < 3; i += 1) {
+    await assert.rejects(() => device.recv(30), /recv timeout/)
+  }
+  device.send({ type: 'heartbeat', ts: 1, lastAckedSeq: 0, tokenVersion: 1 })
+  const hb = await device.recvFrame(3000)
+  assert.equal(hb.type, 'heartbeat')
+  assert.equal(hb.upstream, 'connected')
+  assert.equal(device.waiters.length, 0, '无泄漏残留 waiter（修复前残留 3 个死 waiter）')
 })

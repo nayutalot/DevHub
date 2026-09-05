@@ -10,7 +10,7 @@
  * 扇出限幅（超限靠 sync 补齐，不丢只延迟）。
  */
 import { spawn } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -62,20 +62,15 @@ child.stderr.on('data', (d) => {
 })
 
 function rssMB() {
-  // Linux: /proc/<pid>/status VmRSS（字节 KB）；Windows 无 /proc → 报告 N/A（演练以 Linux 为准）
+  // Linux: /proc/<pid>/status VmRSS（字节 KB）；A⑥ 修复：此前经 require('node:fs')
+  // （ESM 无 require → ReferenceError 被吞）恒返回 N/A，且采样点在子进程退出后——
+  // 现改为直接 readFileSync，并由调用方在优雅停机前采样。
   try {
-    const status = readFileSyncSafe(`/proc/${child.pid}/status`)
+    const status = readFileSync(`/proc/${child.pid}/status`, 'utf8')
     const m = /VmRSS:\s+(\d+) kB/.exec(status)
     return m ? Number(m[1]) / 1024 : null
   } catch {
     return null
-  }
-}
-function readFileSyncSafe(p) {
-  try {
-    return require('node:fs').readFileSync(p, 'utf8')
-  } catch {
-    return ''
   }
 }
 
@@ -228,14 +223,14 @@ async function main() {
   stopReaders = true
   await Promise.allSettled(readers)
   console.log(`[loadtest] ⑤ 排队受理 ✓（queued:true status=${ack.status}）；持续读者累计消耗 ${frameCounts.reduce((a, b) => a + b, 0)} 帧（含 ④ 积压），全程无接收饥饿`)
+  const mem = rssMB() // 优雅停机前采样（64 连满载态；/proc 随进程退出消失）
   for (const c of devices) c.destroy()
   if (process.platform === 'win32') child.stdin.write('shutdown\n')
   else child.kill('SIGTERM')
   const exitCode = await new Promise((resolve) => child.on('exit', resolve))
   console.log(`[loadtest] ⑤ 优雅停机 exit=${exitCode}（排队命令状态行持久，重启恢复链路由 selfcheck 第 6 项覆盖）`)
 
-  const mem = rssMB()
-  console.log(`[loadtest] ⑥ 子进程 RSS：${mem === null ? 'N/A（非 Linux；演练在 2C2G 上重跑取值）' : `${mem.toFixed(1)} MB`}`)
+  console.log(`[loadtest] ⑥ 子进程 RSS：${mem === null ? 'N/A（非 Linux）' : `${mem.toFixed(1)} MB`}`)
   console.log(`[loadtest] 预算对照：64 连接 ✓（实际 64）；连接内存预算 ≈4MB（docs/19 §5.5）；扇出限幅注入 ≤200 events/s ✓`)
 
   try {

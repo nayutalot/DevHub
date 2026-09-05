@@ -65,3 +65,28 @@ test('多 host 连接滚动重启不互踢（docs/18 §2）', async (t) => {
   assert.equal(ack.type, 'register_pairing_ack')
   host2.destroy()
 })
+
+test('A⑥ 修 2：TCP keepalive 活跃性——host 死亡零流量 → upstream.connected ≤15s 翻转', async (t) => {
+  const world = await setupWorld(t)
+  // 再挂一条 host 连接后全部销毁（无 close 帧、此后零流量；health 轮询走独立 HTTP 短连接）
+  const host2 = new TestWsClient()
+  await host2.connect(world.port, '/relay/host', { Authorization: `Bearer ${world.credential}` })
+  await host2.recvFrame()
+  world.host.destroy()
+  host2.destroy()
+  const t0 = Date.now()
+  let flipped = false
+  while (Date.now() - t0 < 15000) {
+    try {
+      const body = await (await fetch(`http://127.0.0.1:${world.port}/v1/health`)).json()
+      if (body.upstream?.connected === false) {
+        flipped = true
+        break
+      }
+    } catch {
+      /* health 瞬时不可用 → 继续轮询 */
+    }
+    await sleep(50)
+  }
+  assert.equal(flipped, true, `hostOnline 零流量翻转（实测 ${Date.now() - t0}ms ≤15000ms；修复前本地 ≥15s 不翻转）`)
+})
