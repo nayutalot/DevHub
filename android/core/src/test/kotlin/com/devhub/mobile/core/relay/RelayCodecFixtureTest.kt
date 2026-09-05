@@ -40,22 +40,28 @@ class RelayCodecFixtureTest {
         is RelayFrame.Unknown -> f.type
     }
 
-    /** 模型级 round-trip：decode → encode → decode 必须得到等值模型（payload 以文本比）。 */
+    /**
+     * 模型级 round-trip：decode → encode → decode 必须得到等值模型（payload 以文本比）。
+     * 注：org.json 20240303 JSONObject.equals 是同一性比较（深度比较走 similar），
+     * 凡嵌 JSONObject 的帧（Event payload / Command payload / SyncResponse 内嵌 Event）
+     * 一律逐字段比较、payload 以 toString 比对——与 Event/Command 分支同因。
+     */
     private fun assertRoundTrip(model: RelayFrame) {
         val reparsed = RelayCodec.parse(RelayCodec.encode(model))
         when (model) {
             is RelayFrame.Event -> {
                 val other = reparsed as RelayFrame.Event
-                assertEquals(model.sequence, other.sequence)
-                assertEquals(model.eventId, other.eventId)
-                assertEquals(model.deviceId, other.deviceId)
-                assertEquals(model.provider, other.provider)
-                assertEquals(model.sessionId, other.sessionId)
-                assertEquals(model.eventType, other.eventType)
-                assertEquals(model.timestampSec, other.timestampSec)
-                assertEquals(model.summary, other.summary)
-                assertEquals(model.payload.toString(), other.payload.toString())
-                assertEquals(model.requiresUserAction, other.requiresUserAction)
+                assertEventEquals(model, other)
+            }
+
+            is RelayFrame.SyncResponse -> {
+                val other = reparsed as RelayFrame.SyncResponse
+                assertEquals(model.requestId, other.requestId)
+                assertEquals(model.upTo, other.upTo)
+                assertEquals(model.hasMore, other.hasMore)
+                assertEquals(model.hasGaps, other.hasGaps)
+                assertEquals("sync_response 内嵌事件数应一致", model.events.size, other.events.size)
+                for (i in model.events.indices) assertEventEquals(model.events[i], other.events[i])
             }
 
             is RelayFrame.Command -> {
@@ -250,6 +256,19 @@ class RelayCodecFixtureTest {
         assertEquals("future_frame", (parsed as RelayFrame.Unknown).type)
         val reparsed = RelayCodec.parse(RelayCodec.encode(parsed))
         assertEquals(parsed, reparsed)
+    }
+
+    private fun assertEventEquals(model: RelayFrame.Event, other: RelayFrame.Event) {
+        assertEquals(model.sequence, other.sequence)
+        assertEquals(model.eventId, other.eventId)
+        assertEquals(model.deviceId, other.deviceId)
+        assertEquals(model.provider, other.provider)
+        assertEquals(model.sessionId, other.sessionId)
+        assertEquals(model.eventType, other.eventType)
+        assertEquals(model.timestampSec, other.timestampSec)
+        assertEquals(model.summary, other.summary)
+        assertEquals(model.payload.toString(), other.payload.toString())
+        assertEquals(model.requiresUserAction, other.requiresUserAction)
     }
 
     private fun findSample(type: String, leg: String): RelayFrame {
