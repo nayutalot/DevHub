@@ -63,6 +63,8 @@ import {
   recordWaitingInputEvent,
 } from './eventPipeline.ts'
 import { computeNatPierceStatus, refreshNatPierceStatus } from './natpierce.ts'
+import { generateDeviceToken, sha256Hex } from './gateway/auth.ts'
+import { projectRelayStatus } from './relayClient/statusProjector.ts'
 import {
   AGENT_PROVIDER_CATALOG,
   WIRED_PROVIDER_IDS,
@@ -827,6 +829,9 @@ export function getGatewayStatus(): GatewayStatusView {
     .prepare("SELECT COUNT(*) AS c FROM remote_devices WHERE status = 'active'")
     .get() as { c: number }
   const probe = gatewayRuntimeProbe !== null ? gatewayRuntimeProbe() : undefined
+  // M2-R1（docs/19 §4.7 D5）：relay 可选附加字段——disabled → projectRelayStatus null
+  // → 字段缺席（零噪声向后兼容）；enabled → 结构化真值（statusProjector 投影）。
+  const relayStatus = projectRelayStatus()
   return {
     enabled: gatewayEnabledSetting(),
     running: probe?.running ?? false,
@@ -836,6 +841,7 @@ export function getGatewayStatus(): GatewayStatusView {
     // AC8（docs/15 §8 / docs/16 §1 AC8 行）：NatPierce 外置配置投影——configured
     // = env 齐备性，reachable = 60s 缓存的健康探测（diagnostics 面刷新），零凭据。
     natpierce: computeNatPierceStatus(),
+    ...(relayStatus !== null ? { relay: relayStatus } : {}),
     ...(probe?.lastError !== undefined && probe.lastError.length > 0 ? { lastError: probe.lastError } : {}),
   }
 }
@@ -2177,6 +2183,14 @@ export async function shutdownAgentControlRuntime(): Promise<void> {
     await gw.stopGateway('app quit teardown (docs/12 §10 order: WS close -> listener close)')
   } catch {
     // Gateway 收尾失败不阻断后续步骤（runQuitTeardown 同纪律）
+  }
+  // M2-R1：关 relayClient（docs/19 §4.2「托盘退出收尾顺序追加『关 relayClient』一步」
+  // ——docs/12 §10 顺序表延伸；动态 import 同上，relayClient/index.ts 静态依赖本模块）
+  try {
+    const relay = await import('./relayClient/index.ts')
+    relay.stopRelayClient('app quit teardown (docs/12 §10 order: relay client close)')
+  } catch {
+    // relayClient 收尾失败不阻断后续步骤
   }
   for (const id of WIRED_PROVIDER_IDS) {
     const instance = getProviderInstance(id)

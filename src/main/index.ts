@@ -290,6 +290,14 @@ function bootstrapMainProcess(): void {
         .then((gw) => gw.applyGatewaySettings({ appName: 'devhub', appVersion: app.getVersion() }))
         .catch((err) => logger.error(`gateway startup failed: ${errorMessage(err)}`))
 
+      // M2-R1 ECS Relay client 启动（docs/19 §4.2 常驻形态：随 Main 进程）：按
+      // settings relay_enabled/relay_endpoint + 凭据文件真值收敛（disabled/
+      // unregistered/misconfigured 结构化投影零连接）。失败不阻断应用启动，
+      // 错误经 agents:gatewayStatus.relay.lastError 结构化可见。
+      void import('./services/agentControl/relayClient/index.ts')
+        .then((relay) => relay.applyRelaySettings())
+        .catch((err) => logger.error(`relay client startup failed: ${errorMessage(err)}`))
+
       mainWindow = createWindow()
 
       // 托盘常驻（docs/12 §10）：创建 + 2s 节奏刷新 tooltip 摘要（活跃会话计数）
