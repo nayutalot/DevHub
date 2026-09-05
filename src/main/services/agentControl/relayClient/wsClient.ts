@@ -146,6 +146,12 @@ export type HostToEcsFrame =
     }
   /** docs/18 §3.15：撤销定点踢线（deviceId = Windows 侧 remote_devices.id）。 */
   | { type: 'disconnect'; deviceId: number; reason: 'revoked' }
+  /**
+   * docs/18 §3.16：error 帧为双向 × 两腿——H→E 形态（commandDownlink auth 失败
+   * docs/19 §4.4、pair 复核失败 docs/18 §3.3 失败路径、sync_request 未知设备）。
+   * 零凭据零堆栈（约束 #14）。
+   */
+  | { type: 'error'; requestId?: string; code: string; message: string; retryable?: boolean; retryAfterSec?: number }
 
 /**
  * ECS → relayClient（E→H）。hello 的 sequence = ECS 缓存水位（断线回填起点判定，
