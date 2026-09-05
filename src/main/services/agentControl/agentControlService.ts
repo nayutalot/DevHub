@@ -427,6 +427,76 @@ export function setDeviceRevokedListener(listener: ((deviceId: number) => void) 
   deviceRevokedListener = listener
 }
 
+/**
+ * 追加设备撤销监听（M2-R1 relayClient 踢线注入，docs/18 §3.15/§9.5）：与
+ * setDeviceRevokedListener（主槽，Gateway 独占）并行的附加槽列表——撤销路径
+ * 逐个回调（单个失败不阻断其余，与主槽同纪律）。
+ */
+const extraDeviceRevokedListeners: Array<(deviceId: number) => void> = []
+
+export function addDeviceRevokedListener(listener: (deviceId: number) => void): void {
+  extraDeviceRevokedListeners.push(listener)
+}
+
+/** 清空附加撤销监听（smoke/测试复位；生产不调用）。 */
+export function clearExtraDeviceRevokedListeners(): void {
+  extraDeviceRevokedListeners.length = 0
+}
+
+/**
+ * 远程指令终态监听（M2-R1 relayClient commandDownlink 消费，docs/18 §3.10
+ * command_result 回帧）：executeRemoteCommand / 过期标记到达终态时触发一次。
+ * relay 侧按 commandId 过滤（只回帧经 relay 下达的指令）；Gateway/IPC 来源
+ * 指令的终态已由 command.result 事件承载，不在 relay 面回帧。
+ */
+export interface RemoteCommandTerminalEvent {
+  commandId: string
+  idempotencyKey: string
+  sessionId: number
+  action: string
+  status: 'executed' | 'rejected' | 'failed' | 'expired'
+  errorCode: string | null
+}
+
+let remoteCommandCompleteListener: ((event: RemoteCommandTerminalEvent) => void) | null = null
+
+export function setRemoteCommandCompleteListener(listener: ((event: RemoteCommandTerminalEvent) => void) | null): void {
+  remoteCommandCompleteListener = listener
+}
+
+/** 终态触发（L3 内部；监听异常绝不影响指令行状态机）。 */
+function notifyRemoteCommandTerminal(event: RemoteCommandTerminalEvent): void {
+  if (remoteCommandCompleteListener === null) return
+  try {
+    remoteCommandCompleteListener(event)
+  } catch {
+    /* 回帧侧异常不影响 L3 终态（command.result 事件双通道兜底） */
+  }
+}
+
+/**
+ * 远程指令终态只读投影（M2-R1 commandDownlink 幂等重放回帧数据源；docs/18 §3.10
+ * 「同 key 重试返回原结果」的 result 帧形态）。gateway 层只读豁免同款（零写库）。
+ */
+export function getRemoteCommandResultView(commandId: string): RemoteCommandTerminalEvent | null {
+  const row = getDatabase()
+    .prepare('SELECT command_id, idempotency_key, session_id, action, status, error_code FROM remote_commands WHERE command_id = ?')
+    .get(commandId) as
+    | { command_id: string; idempotency_key: string; session_id: number | null; action: string; status: string; error_code: string | null }
+    | undefined
+  if (row === undefined) return null
+  const status = row.status
+  if (status !== 'executed' && status !== 'rejected' && status !== 'failed' && status !== 'expired') return null
+  return {
+    commandId: row.command_id,
+    idempotencyKey: row.idempotency_key,
+    sessionId: row.session_id === null ? 0 : Number(row.session_id),
+    action: row.action,
+    status,
+    errorCode: row.error_code,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 读类 8 条（查 004 新表真实返回）
 // ---------------------------------------------------------------------------
@@ -940,6 +1010,15 @@ export function revokeDevice(
       /* 断连异常不影响撤销结果 */
     }
   }
+  // M2-R1：附加撤销监听（relayClient 踢线 disconnect{deviceId,reason:'revoked'}，
+  // docs/18 §9.5 撤销链路；单监听失败不阻断其余与撤销结果）
+  for (const listener of extraDeviceRevokedListeners) {
+    try {
+      listener(deviceId)
+    } catch {
+      /* 踢线异常不影响撤销结果 */
+    }
+  }
   return { revoked: true }
 }
 
@@ -1088,6 +1167,15 @@ export async function submitRemoteCommand(input: RemoteCommandSubmitInput): Prom
         status: 'expired',
         errorCode: 'COMMAND_EXPIRED',
       })
+      // M2-R1：relay 面终态回帧（commandDownlink 按 commandId 过滤）
+      notifyRemoteCommandTerminal({
+        commandId: existing.command_id,
+        idempotencyKey: key,
+        sessionId: input.sessionId,
+        action: input.action,
+        status: 'expired',
+        errorCode: 'COMMAND_EXPIRED',
+      })
       throw new ServiceError('COMMAND_EXPIRED', `remote command: command expired (expires_at = ${existing.expires_at}, docs/14 B.5)`)
     }
     // 同 key 重试：原命令原结果，不重复执行（终态/未过期均返回原结果）
@@ -1110,6 +1198,7 @@ export async function submitRemoteCommand(input: RemoteCommandSubmitInput): Prom
   // 202 accepted 语义：响应先回，执行到底（结果照常回写 command.result 事件）
   void executeRemoteCommand({
     commandId,
+    idempotencyKey: key,
     providerKey: gate.providerKey,
     nativeId: session.native_id,
     sessionId: input.sessionId,
@@ -1123,6 +1212,8 @@ export async function submitRemoteCommand(input: RemoteCommandSubmitInput): Prom
 /** 后台执行体：provider 动作 → remote_commands 终态 + command.result 事件（异常折叠，绝不上抛）。 */
 async function executeRemoteCommand(input: {
   commandId: string
+  /** M2-R1：relay 面终态回帧（notifyRemoteCommandTerminal）所需幂等键。 */
+  idempotencyKey: string
   providerKey: string
   nativeId: string
   sessionId: number
@@ -1161,6 +1252,14 @@ async function executeRemoteCommand(input: {
         action: input.action,
         status: 'executed',
       })
+      notifyRemoteCommandTerminal({
+        commandId: input.commandId,
+        idempotencyKey: input.idempotencyKey,
+        sessionId: input.sessionId,
+        action: input.action,
+        status: 'executed',
+        errorCode: null,
+      })
     } else if (outcome.status === 'unsupported') {
       db.prepare("UPDATE remote_commands SET status = 'rejected', error_code = 'AGENT_CAPABILITY_MISSING', result_json = ?, executed_at = ? WHERE command_id = ?").run(
         JSON.stringify({ status: 'unsupported' }),
@@ -1173,6 +1272,14 @@ async function executeRemoteCommand(input: {
         sessionId: input.sessionId,
         nativeId: input.nativeId,
         commandId: input.commandId,
+        action: input.action,
+        status: 'rejected',
+        errorCode: 'AGENT_CAPABILITY_MISSING',
+      })
+      notifyRemoteCommandTerminal({
+        commandId: input.commandId,
+        idempotencyKey: input.idempotencyKey,
+        sessionId: input.sessionId,
         action: input.action,
         status: 'rejected',
         errorCode: 'AGENT_CAPABILITY_MISSING',
@@ -1196,6 +1303,14 @@ async function executeRemoteCommand(input: {
         status: 'failed',
         errorCode,
       })
+      notifyRemoteCommandTerminal({
+        commandId: input.commandId,
+        idempotencyKey: input.idempotencyKey,
+        sessionId: input.sessionId,
+        action: input.action,
+        status: 'failed',
+        errorCode,
+      })
     }
   } catch (err) {
     // 门后异常折叠为 rejected + 结构化错误码（约束 #14；事件照发，远程端可见）
@@ -1212,6 +1327,14 @@ async function executeRemoteCommand(input: {
         sessionId: input.sessionId,
         nativeId: input.nativeId,
         commandId: input.commandId,
+        action: input.action,
+        status: 'rejected',
+        errorCode,
+      })
+      notifyRemoteCommandTerminal({
+        commandId: input.commandId,
+        idempotencyKey: input.idempotencyKey,
+        sessionId: input.sessionId,
         action: input.action,
         status: 'rejected',
         errorCode,
