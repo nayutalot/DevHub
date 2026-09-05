@@ -25,6 +25,7 @@ import { RelayConnection } from './ws.ts'
 import { EventCache } from './cache.ts'
 import { loadConfig } from './config.ts'
 import { RateLimits } from './auth.ts'
+import { checkCertificateExpiry } from './certCheck.mjs'
 
 const sha256hex = (v) => createHash('sha256').update(v, 'utf8').digest('hex')
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -422,6 +423,49 @@ try {
     }
 
     // ===========================================================================
+    step('9. 僵尸窗口重发回执（A⑥ 修 1：重发 → 立即 queued:true + 武装帧保留重投）')
+    {
+      // A⑤ 确定性复现手法：destroy 后立即首发+重发，不等 hostOnline 翻转。
+      globalThis.selfcheckHost.destroy() // 无 close 帧——僵尸窗口起点
+      const liveKey = 'selfcheck-idem-live'
+      const base = {
+        type: 'command', requestId: 'selfcheck-live-1', idempotencyKey: liveKey, sessionId: 7,
+        action: 'pause', auth: { token: deviceToken, ts: Math.floor(Date.now() / 1000), nonce: crypto.randomBytes(16).toString('hex') },
+        createdAt: Math.floor(Date.now() / 1000),
+      }
+      // 首发：僵尸写（armed+中继、无 ack）或排队受理（queued ack）——两态均合法
+      globalThis.selfcheckDevice.send({ ...base })
+      // 重发（QueueReplay，docs/18 §3.8：同 key 换 requestId/nonce）→ 必须立即获得 queued:true
+      const resendAt = Date.now()
+      globalThis.selfcheckDevice.send({ ...base, requestId: 'selfcheck-live-1-retry', auth: { ...base.auth, nonce: crypto.randomBytes(16).toString('hex') } })
+      let liveAck = null
+      for (let i = 0; i < 4 && liveAck === null; i += 1) {
+        const f = await globalThis.selfcheckDevice.recvFrame(3000)
+        if (f.type === 'command_ack' && f.idempotencyKey === liveKey) liveAck = f
+      }
+      assert(liveAck !== null && liveAck.status === 'accepted' && liveAck.queued === true, `重发 → 同步 queued:true 回执（等待 ${Date.now() - resendAt}ms；A⑤「重发石沉大海」根因修复）`)
+
+      // 武装帧保留：host 重连 → 排队命令重投（僵尸写兜底；真回执才清武装）
+      const hostL2 = new WsClient()
+      await hostL2.connect(port, '/relay/host', { Authorization: `Bearer ${hostCredential.value}` })
+      await hostL2.recvFrame() // hello
+      let delivered = null
+      for (let i = 0; i < 4 && delivered === null; i += 1) {
+        const f = await hostL2.recvFrame(5000)
+        if (f.type === 'command' && f.idempotencyKey === liveKey) delivered = f
+      }
+      assert(delivered !== null && delivered.auth?.token === deviceToken, '武装帧保留：host 重连 → 僵尸写命令重投（完整帧含 auth）')
+      hostL2.send({ type: 'command_ack', requestId: delivered.requestId, idempotencyKey: liveKey, commandId: 'cmd-sc-live', status: 'accepted' })
+      let liveRealAck = null
+      for (let i = 0; i < 4 && liveRealAck === null; i += 1) {
+        const f = await globalThis.selfcheckDevice.recvFrame(3000)
+        if (f.type === 'command_ack' && f.commandId === 'cmd-sc-live') liveRealAck = f
+      }
+      assert(liveRealAck !== null && liveRealAck.queued === undefined, 'host 真回执回流设备（accepted 不带 queued）')
+      globalThis.selfcheckHost = hostL2
+    }
+
+    // ===========================================================================
     step('3. 命令过期（queued TTL → expired + COMMAND_EXPIRED 回流）')
     {
       globalThis.selfcheckHost.destroy()
@@ -435,6 +479,31 @@ try {
       assert(qAck.queued === true, '排队受理（queued:true）')
       // 默认 TTL 300s 太长——改由专用短 TTL 实例验证（见步骤 3b），此处仅验证排队受理
       ok('排队受理与 queued 应答（短 TTL 过期见 3b）')
+    }
+
+    // ===========================================================================
+    step('10. TCP keepalive 活跃性（A⑥ 修 2：host 死亡 → 零流量 → upstream.connected ≤15s 翻转）')
+    {
+      const hostK = new WsClient()
+      await hostK.connect(port, '/relay/host', { Authorization: `Bearer ${hostCredential.value}` })
+      await hostK.recvFrame() // hello
+      hostK.destroy() // 无 close 帧；此后该连接零流量（health 轮询走独立 HTTP 短连接）
+      const t0 = Date.now()
+      let flipped = false
+      while (Date.now() - t0 < 15000) {
+        try {
+          const body = await (await fetch(`http://127.0.0.1:${port}/v1/health`)).json()
+          if (body.upstream?.connected === false) {
+            flipped = true
+            break
+          }
+        } catch {
+          /* health 瞬时不可用 → 继续轮询 */
+        }
+        await sleep(100)
+      }
+      const elapsed = Date.now() - t0
+      assert(flipped, `upstream.connected 翻转耗时 ${elapsed}ms ≤15000ms（keepalive initialDelay 5s；A⑤ 修复前空闲循环 ≥15s 不翻转）`)
     }
 
     // ===========================================================================
@@ -566,19 +635,40 @@ try {
       assert(prodConfig.cacheSoftRows === 25000 && prodConfig.cacheHardRows === 50000, '缓存软/硬上限 25k/50k 行')
       assert(prodConfig.cachePayloadTtlSec === 72 * 3600, '缓存 payload TTL 72h')
     }
+
+  // ===========================================================================
+  step('证书剩余有效期（A⑥ 修 3 / P0a 证书日历：RELAY_CERT_PATH，默认 /etc/devhub-relay/tls/server.crt）')
+  {
+    const cert = checkCertificateExpiry()
+    if (cert.status === 'skip') {
+      console.log(`  [SKIP] ${cert.message}`)
+      results.push({ step: currentStep, item: '证书剩余有效期（证书文件不存在 → 跳过）', pass: true, skip: true })
+    } else if (cert.status === 'fail') {
+      console.log(`  !!! ${cert.message}`)
+      fail('证书剩余有效期 ≥14 天', cert.message)
+    } else {
+      ok(cert.message)
+    }
+  }
   }
 
   // ===========================================================================
   // 汇总
   console.log('\n' + '='.repeat(72))
   const failed = results.filter((r) => !r.pass)
+  const skipped = results.filter((r) => r.skip === true)
   for (const stepName of [...new Set(results.map((r) => r.step))]) {
     const items = results.filter((r) => r.step === stepName)
     const bad = items.filter((r) => !r.pass).length
     console.log(`${bad === 0 ? 'PASS' : 'FAIL'}  ${stepName}  (${items.length - bad}/${items.length})`)
   }
   console.log('='.repeat(72))
-  console.log(`selfcheck: ${results.length - failed.length}/${results.length} checks passed`)
+  const counted = results.length - skipped.length
+  const passLine = `selfcheck: ${counted - failed.length}/${counted} checks passed` + (skipped.length > 0 ? `（另 SKIP ${skipped.length} 项，不计入通过/失败）` : '')
+  console.log(passLine)
+  if (skipped.length > 0) {
+    for (const s of skipped) console.log(`  - [SKIP] ${s.item}`)
+  }
   if (failed.length > 0) {
     console.log('FAILED ITEMS:')
     for (const f of failed) console.log(`  - [${f.step}] ${f.item}`)
