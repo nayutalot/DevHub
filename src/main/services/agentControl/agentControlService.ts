@@ -444,6 +444,37 @@ export function clearExtraDeviceRevokedListeners(): void {
 }
 
 /**
+ * 配对码签发监听（M2-R1 relayClient pairingBridge 消费，docs/19 §4.5「签发同步」）：
+ * createPairing 成功签发后触发一次；监听方（pairingBridge）计算 code_hash 后经
+ * register_pairing 帧同步 ECS 落 pairing_codes。relay 关闭/离线时监听缺席或投递
+ * 失败 → 配对退化为本地模式专用（docs/19 §4.5），绝不影响签发本身。
+ * code 明文仅在监听参数中瞬时流转（pairingBridge 现场哈希后丢弃）——不入日志/
+ * 审计/DB（docs/15 §2 红线）。
+ */
+export interface PairingIssuedEvent {
+  pairingId: string
+  /** 8 位 Crockford Base32 明文（瞬时；监听方现场 sha256 后同步 ECS）。 */
+  code: string
+  expiresAt: number
+}
+
+let pairingIssuedListener: ((event: PairingIssuedEvent) => void) | null = null
+
+export function setPairingIssuedListener(listener: ((event: PairingIssuedEvent) => void) | null): void {
+  pairingIssuedListener = listener
+}
+
+/** 签发触发（L3 内部；监听异常不影响签发结果）。 */
+function notifyPairingIssued(event: PairingIssuedEvent): void {
+  if (pairingIssuedListener === null) return
+  try {
+    pairingIssuedListener(event)
+  } catch {
+    /* 同步失败不阻断本地配对（本地模式照常可用，docs/19 §4.5） */
+  }
+}
+
+/**
  * 远程指令终态监听（M2-R1 relayClient commandDownlink 消费，docs/18 §3.10
  * command_result 回帧）：executeRemoteCommand / 过期标记到达终态时触发一次。
  * relay 侧按 commandId 过滤（只回帧经 relay 下达的指令）；Gateway/IPC 来源
@@ -962,7 +993,11 @@ export async function createSessionAction(
  */
 export async function createPairing(deviceName?: string): Promise<AgentPairingCreateResult> {
   const { createPairingCode } = await import('./gateway/pairing.ts')
-  return createPairingCode(deviceName)
+  const result = createPairingCode(deviceName)
+  // M2-R1：relay 面签发同步（pairingBridge register_pairing → ECS pairing_codes；
+  // 明文码仅在监听参数中瞬时流转，docs/19 §4.5）
+  notifyPairingIssued({ pairingId: result.pairingId, code: result.code, expiresAt: result.expiresAt })
+  return result
 }
 
 /**

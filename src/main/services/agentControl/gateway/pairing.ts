@@ -179,6 +179,38 @@ export function claimPairingCode(input: PairingClaimInput, sourceKey: string): P
   return { deviceId: paired.deviceId, token, tokenVersion: paired.tokenVersion, gatewayName: GATEWAY_NAME }
 }
 
+/**
+ * Relay 面核销（M2-R1 pairingBridge，docs/18 §3.2 校验归属表 + §3.3；docs/19 §4.5）：
+ * Relay 模式下码校验上移 ECS（TTL/一次性/失败作废/限流），明文码不出 device leg
+ * ——E→H pair 帧只携 pairingId。Windows 保留「pairingId 活性复核 + Token 签发 +
+ * token_hash 落库」三权（G4 裁决）：本函数按 pairingId 定位活跃码复核活性后签发，
+ * 语义与 claimPairingCode 同源（一次性/审计/L3 pairDevice），仅省去码比对步
+ * （ECS 已完成）。claim 限流在 ECS 面（5 次/5min），本函数不计 Windows 窗口。
+ */
+export function claimPairingByRelayId(input: { pairingId: string; deviceName: string; platform: string }): PairingClaimResult {
+  if (!isGatewayEnabled()) {
+    throw new ServiceError('GATEWAY_DISABLED', 'pairing: remote gateway is disabled (settings gateway_enabled = 0); enable the gateway first')
+  }
+  const pairing = activePairing
+  if (pairing === null || input.pairingId !== pairing.pairingId) {
+    rejectInvalidCode('relay pairing claim: no active pairing code for this pairingId (issue a new code on the desktop first)')
+  }
+  if (pairing.consumed) {
+    rejectInvalidCode('relay pairing claim: pairing code already consumed (one-time, docs/15 §2)')
+  }
+  if (nowMs() / 1000 > pairing.expiresAt) {
+    voidActivePairing('expired')
+    rejectInvalidCode('relay pairing claim: pairing code expired (TTL 300s)')
+  }
+  // 成功：码即失效（一次性）→ 设备行 + 审计；Token 明文仅经 pair_accepted 帧一次性过境
+  pairing.consumed = true
+  activePairing = null
+  const token = generateDeviceToken()
+  const paired = pairDevice({ deviceName: input.deviceName, platform: input.platform, tokenHash: sha256Hex(token) })
+  recordSecurityAudit('pairing', 'pairing_claimed', paired.deviceId, 'success', JSON.stringify({ pairingId: pairing.pairingId, source: 'relay' }))
+  return { deviceId: paired.deviceId, token, tokenVersion: paired.tokenVersion, gatewayName: GATEWAY_NAME }
+}
+
 /** smoke/测试复位（内存态配对码；生产不调用——重启即等效复位）。 */
 export function resetPairingState(): void {
   activePairing = null
