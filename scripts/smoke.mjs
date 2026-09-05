@@ -10346,5 +10346,219 @@ if (isEntrypoint()) {
     }
   })
 
+  // 160. token_rotation 落库 + 宽限窗口（docs/18 §3.14 + docs/19 §4.6）：非 ready 前置门
+  //      零副作用 → 全流程 L3 落库（sha256 覆盖 + version+1 + 审计零明文）→ 帧形对拍
+  //      fixture #14 host-to-ecs（R2 裁定②必携 deviceId）→ 宽限登记 + heartbeat
+  //      tokenVersion 确认信道（docs/18 §3.13）→ 版本不符合法 no-op → 短窗注入过期：
+  //      维持新 Token（无回滚位）+ 审计；撤销/未知设备结构化拒绝。
+  registerCase('nb-r1-160: token_rotation persisted + grace window — offline gate is zero-side-effect, dispatch lands sha256+version+1 in L3 with plaintext-free audit, frame matches fixture #14 (deviceId mandatory), heartbeat tokenVersion confirms, mismatch is a no-op, injected short window expires to keep-new-token with audit, revoked/unknown refused', async () => {
+    const m = await r1CaseSetup('devhub-nb-r1-160-')
+    const db = m.dbModule.getDatabase()
+    try {
+      const rotation = await import(new URL('../src/main/services/agentControl/relayClient/rotationBridge.ts', import.meta.url).href)
+      const deviceToken = `nb-r1-dev-token-160-${randomBytes(8).toString('hex')}`
+      const deviceId = r1FixtureDevice(m, db, 'nb-r1-160-phone', deviceToken)
+      const captured = []
+
+      // 离线前置门：两平面凭据同步只能在连接面进行 → 拒绝且零副作用（L3 不触达）
+      rotation.setRotationBridgeHost({ isReady: () => false, sendTokenRotation: (f) => { captured.push(f); return true } })
+      const offline = rotation.requestTokenRotation(deviceId, 'manual')
+      assert.equal(offline.dispatched, false)
+      assert.equal(offline.stage, 'offline')
+      assert.equal(captured.length, 0, 'offline refusal sends no frame')
+      assert.equal(Number(db.prepare('SELECT token_version FROM remote_devices WHERE id = ?').get(deviceId).token_version), 1, 'offline refusal never touches L3')
+      assert.equal(db.prepare("SELECT COUNT(*) c FROM security_audit_logs WHERE action = 'token_rotated'").get().c, 0)
+
+      // ready：L3 落库 → 帧发送 → 宽限登记
+      rotation.setRotationBridgeHost({ isReady: () => true, sendTokenRotation: (f) => { captured.push(f); return true } })
+      const first = rotation.requestTokenRotation(deviceId, 'post-pairing')
+      assert.equal(first.stage, 'dispatched')
+      assert.equal(first.tokenVersion, 2)
+      assert.ok(first.requestId, 'dispatch carries a requestId')
+      const frame = captured[0]
+      const fixtureShape = r1FixtureFrame(14, 'host-to-ecs')
+      assert.deepEqual(Object.keys(frame).sort(), Object.keys(fixtureShape).sort(), 'frame shape matches fixture #14 host-to-ecs (R2: deviceId present)')
+      assert.equal(frame.type, 'token_rotation')
+      assert.equal(frame.deviceId, deviceId, 'deviceId = Windows-side remote_devices.id (R2 裁定②)')
+      assert.equal(frame.tokenVersion, 2)
+      assert.equal(frame.reason, 'post-pairing')
+      assert.match(frame.newToken, /^[A-Za-z0-9_-]{43}$/, 'newToken is a 256-bit base64url token')
+      const row = db.prepare('SELECT token_hash, token_version FROM remote_devices WHERE id = ?').get(deviceId)
+      assert.equal(row.token_hash, m.auth.sha256Hex(frame.newToken), 'token_hash overwritten with sha256(newToken)')
+      assert.equal(row.token_version, 2, 'token_version incremented')
+      const rotatedAudit = db.prepare("SELECT detail_json FROM security_audit_logs WHERE action = 'token_rotated' AND device_id = ? ORDER BY id DESC LIMIT 1").get(deviceId)
+      assert.ok(rotatedAudit, 'token_rotated audited')
+      assert.ok(!rotatedAudit.detail_json.includes(frame.newToken), 'audit never carries the token plaintext')
+
+      // 宽限窗口：待确认登记 + heartbeat tokenVersion 确认信道（docs/18 §3.13）
+      assert.equal(rotation.pendingRotationCount(), 1, 'dispatch registers a pending confirmation window')
+      assert.equal(rotation.getPendingRotationVersion(deviceId), 2)
+      assert.equal(rotation.noteTokenRotationConfirmed(99), false, 'version mismatch is a legal no-op (no cross-device misattribution)')
+      assert.equal(rotation.getPendingRotationVersion(deviceId), 2)
+      assert.equal(rotation.noteTokenRotationConfirmed(2), true, 'heartbeat tokenVersion confirms the pending rotation')
+      assert.equal(rotation.pendingRotationCount(), 0, 'window cleared on confirmation')
+      assert.ok(db.prepare("SELECT id FROM security_audit_logs WHERE action = 'token_rotation_confirmed' AND device_id = ?").get(deviceId), 'confirmation audited')
+
+      // 宽限过期：短窗注入，未确认 → 维持新 Token（单哈希列无回滚位）+ 审计
+      rotation.setRotationGraceWindowMs(120)
+      const second = rotation.requestTokenRotation(deviceId, 'manual')
+      assert.equal(second.stage, 'dispatched')
+      assert.equal(second.tokenVersion, 3)
+      await pollUntil(() => db.prepare("SELECT COUNT(*) c FROM security_audit_logs WHERE action = 'token_rotation_grace_expired' AND device_id = ?").get(deviceId).c === 1, 3000, 40, 'grace expiry audit')
+      assert.equal(rotation.pendingRotationCount(), 0, 'window cleared on expiry')
+      const rowAfter = db.prepare('SELECT token_hash, token_version FROM remote_devices WHERE id = ?').get(deviceId)
+      assert.equal(rowAfter.token_version, 3, 'new token stays effective (no rollback bit)')
+      assert.equal(rowAfter.token_hash, m.auth.sha256Hex(captured[1].newToken), 'hash matches the last dispatched token')
+
+      // 撤销设备 → DEVICE_REVOKED；未知设备 → NOT_FOUND（零落库零帧）
+      db.prepare("UPDATE remote_devices SET status = 'revoked' WHERE id = ?").run(deviceId)
+      const revoked = rotation.requestTokenRotation(deviceId, 'manual')
+      assert.equal(revoked.stage, 'refused')
+      assert.equal(revoked.errorCode, 'DEVICE_REVOKED', 'revocation is final (docs/15 §4)')
+      const missing = rotation.requestTokenRotation(424242, 'manual')
+      assert.equal(missing.stage, 'refused')
+      assert.equal(missing.errorCode, 'NOT_FOUND')
+      assert.equal(captured.length, 2, 'refusals never sent frames')
+    } finally {
+      await r1CaseTeardown(m)
+    }
+  })
+
+  // 161. 撤销踢线（docs/18 §3.15 / §9.5 撤销链路）：H→E 定点踢线（L3 revoke → 附加
+  //      撤销监听 → disconnect{deviceId, reason:'revoked'}，帧形对拍 fixture #15）；
+  //      E→H revoked → 状态机停止且绝不自动重连（对比 server_shutdown → 退避重连
+  //      恢复 ready）；lastError 结构化零凭据。
+  registerCase('nb-r1-161: revocation kick — L3 revoke emits the fixture-shaped disconnect{deviceId,revoked} frame, E->H revoked stops the state machine with zero auto-reconnect (contrast: server_shutdown reconnects to ready), structured credential-free lastError', async () => {
+    const m = await r1CaseSetup('devhub-nb-r1-161-')
+    const db = m.dbModule.getDatabase()
+    const stub = await r1StartRelayStub()
+    try {
+      r1EnableRelay(m, stub, 'nb-r1-relay-cred-161')
+      const deviceToken = `nb-r1-dev-token-161-${randomBytes(8).toString('hex')}`
+      const deviceId = r1FixtureDevice(m, db, 'nb-r1-161-phone', deviceToken)
+      m.relay.configureRelayClientRuntime({ helloTimeoutMs: 3000, baseDelayMs: 60, maxDelayMs: 250 })
+      m.relay.startRelayClient()
+      await r1HelloNewConnection(stub)
+      await pollUntil(() => m.relay.getRelayClientDiagnostics().status === 'ready', 5000, 30, 'initial ready')
+      assert.equal(stub.connections.length, 1)
+
+      // H→E 定点踢线：撤销链路 L3 revoke → disconnect 帧（deviceId = Windows 侧 id）
+      m.svc.revokeDevice(deviceId, true, 'ipc')
+      const kick = await r1StubWait(stub, (f) => f.json?.type === 'disconnect' && f.json.reason === 'revoked', 3000, 'H->E kick frame')
+      assert.deepEqual(kick.json, { ...r1FixtureFrame(15, 'host-to-ecs'), deviceId }, 'kick frame matches fixture #15 host-to-ecs with the revoked deviceId')
+      assert.equal(db.prepare('SELECT status FROM remote_devices WHERE id = ?').get(deviceId).status, 'revoked')
+      assert.ok(db.prepare("SELECT id FROM security_audit_logs WHERE action = 'device_revoked' AND device_id = ?").get(deviceId), 'revocation audited')
+
+      // E→H revoked：状态机停止，绝不自动重连（docs/18 §3.15）
+      r1StubSend(stub, r1FixtureFrame(15, 'ecs-to-device-revoked'))
+      await pollUntil(() => m.relay.getRelayClientDiagnostics().status === 'stopped', 3000, 30, 'stopped on revoked')
+      assert.ok((m.relay.getRelayClientDiagnostics().lastError ?? '').includes('revoked'), 'structured lastError carries the revocation (zero credentials)')
+      await sleep(500) // 注入退避 60-250ms：若仍有重连调度必已发生
+      assert.equal(stub.connections.length, 1, 'no auto-reconnect after revoked')
+      assert.equal(m.relay.getRelayClientDiagnostics().status, 'stopped')
+
+      // 对比面：server_shutdown（非撤销）→ 关闭后退避重连 → hello → 恢复 ready
+      m.relay.startRelayClient()
+      await pollUntil(() => stub.connections.length === 2, 3000, 30, 'second connection after re-trigger')
+      await r1HelloNewConnection(stub)
+      await pollUntil(() => m.relay.getRelayClientDiagnostics().status === 'ready', 5000, 30, 'ready again')
+      r1StubSend(stub, r1FixtureFrame(15, 'ecs-to-device-server-shutdown'))
+      await pollUntil(() => stub.connections.length === 3, 5000, 30, 'backoff reconnect fires for server_shutdown')
+      await r1HelloNewConnection(stub)
+      await pollUntil(() => m.relay.getRelayClientDiagnostics().status === 'ready', 5000, 30, 'ready after reconnect (contrast with revoked)')
+    } finally {
+      m.relay.resetRelayClientForSmoke()
+      await r1StubClose(stub)
+      await r1CaseTeardown(m)
+    }
+  })
+
+  // 162. 凭据零入日志/DB 抽样（docs/19 §2.2/§3 红线）：四个秘密（relay 凭据 / 配对码
+  //      明文 / deviceToken / 轮换 newToken）× 全部非豁免面（帧 / settings / 
+  //      remote_devices / 审计 / 事件 / 诊断投影）零出现；豁免面仅限 docs/19 §3 W-R3
+  //      受控一次性过境（upgrade Authorization 头 / pair_accepted.deviceToken /
+  //      token_rotation.newToken）；静态面：relayClient 模块零 console 输出。
+  registerCase('nb-r1-162: credential zero-leak sweep — relay credential rides only the upgrade Authorization header, pairing code is hashed on-site (register_pairing), deviceToken/newToken transit once through pair_accepted/token_rotation, every other frame/settings/device-row/audit/event/diagnostic surface is free of all four secrets, relayClient sources contain zero console logging', async () => {
+    const m = await r1CaseSetup('devhub-nb-r1-162-')
+    const db = m.dbModule.getDatabase()
+    const stub = await r1StartRelayStub()
+    try {
+      const statusProjector = await import(new URL('../src/main/services/agentControl/relayClient/statusProjector.ts', import.meta.url).href)
+      const pairingBridge = await import(new URL('../src/main/services/agentControl/relayClient/pairingBridge.ts', import.meta.url).href)
+      const relayCred = `nb-r1-RELAY-CRED-${randomBytes(12).toString('hex')}`
+      r1EnableRelay(m, stub, relayCred)
+      m.relay.configureRelayClientRuntime({ helloTimeoutMs: 3000, baseDelayMs: 50, maxDelayMs: 200 })
+      m.relay.startRelayClient()
+      await r1HelloNewConnection(stub)
+      await pollUntil(() => m.relay.getRelayClientDiagnostics().status === 'ready', 5000, 30, 'ready')
+      assert.equal(stub.upgrades[stub.upgrades.length - 1].authorization, `Bearer ${relayCred}`, 'credential rides the upgrade Authorization header (sanctioned transport surface)')
+
+      // 配对链全流程（register_pairing → ack → pair → pair_accepted → post-pairing 轮换）
+      const created = await m.svc.createPairing('nb-r1-162-phone')
+      const reg = await r1StubWait(stub, (f) => f.json?.type === 'register_pairing' && f.json.pairingId === created.pairingId, 3000, 'register_pairing')
+      assert.deepEqual(Object.keys(reg.json).sort(), Object.keys(r1FixtureControlFrame('host-to-ecs')).sort(), 'register_pairing matches the fixture hostControlFrames shape')
+      assert.equal(reg.json.codeHash, m.auth.sha256Hex(created.code), 'pairing code hashed on-site (sha256), plaintext never framed')
+      assert.equal(reg.json.expiresAt, created.expiresAt)
+      r1StubSend(stub, { ...r1FixtureControlFrame('ecs-to-host'), requestId: reg.json.requestId, pairingId: created.pairingId, accepted: true, expiresAt: created.expiresAt })
+      await pollUntil(() => pairingBridge.getLastRegisterPairingAck()?.accepted === true, 2000, 30, 'register ack recorded (diagnostics without secrets)')
+      r1StubSend(stub, { ...r1FixtureFrame(2, 'ecs-to-host'), requestId: 'nb-r1-162-pair-1', ecsDeviceId: 7, pairingId: created.pairingId, deviceName: 'nb-r1-162-phone', platform: 'android' })
+      const accepted = await r1StubWait(stub, (f) => f.json?.type === 'pair_accepted' && f.json.requestId === 'nb-r1-162-pair-1', 3000, 'pair_accepted')
+      const deviceToken = accepted.json.deviceToken
+      assert.match(deviceToken, /^[A-Za-z0-9_-]{43}$/, 'deviceToken is a 256-bit base64url token (one-time transit)')
+      const devRow = db.prepare('SELECT id, token_hash, token_version FROM remote_devices WHERE device_name = ?').get('nb-r1-162-phone')
+      assert.ok(devRow, 'claim created the device row')
+      assert.equal(Number(devRow.token_version), 2, 'claim (v1) + post-pairing rotation (v2) both landed — rotation runs in the paired callback before the wire')
+      assert.equal(accepted.json.device.deviceId, devRow.id, 'pair_accepted carries the Windows-side device id')
+      await pollUntil(() => m.relay.getRelayClientDiagnostics().mappedDevices === 1, 2000, 30, 'ecs->win device mapping registered')
+      const rot = await r1StubWait(stub, (f) => f.json?.type === 'token_rotation' && f.json.deviceId === devRow.id, 3000, 'post-pairing token_rotation')
+      const newToken = rot.json.newToken
+      assert.match(newToken, /^[A-Za-z0-9_-]{43}$/)
+      assert.equal(rot.json.reason, 'post-pairing', 'post-pairing rotation fired automatically (docs/19 §4.5)')
+      assert.equal(rot.json.tokenVersion, 2)
+      assert.equal(devRow.token_hash, m.auth.sha256Hex(newToken), 'db stores sha256(newToken) after rotation (hash material only)')
+
+      // 红线扫描：四个秘密 × 非豁免面
+      const secrets = [relayCred, created.code, deviceToken, newToken]
+      // 受控一次性过境面（docs/19 §3 W-R3）只允许各自的 token 过境：其余两秘密仍禁
+      for (const entry of stub.log) {
+        if (entry.json?.type === 'pair_accepted' || entry.json?.type === 'token_rotation') {
+          assert.ok(!entry.text.includes(relayCred) && !entry.text.includes(created.code), 'transit frames never carry the relay credential or the pairing code')
+          continue
+        }
+        for (const secret of secrets) {
+          assert.ok(!entry.text.includes(secret), `frame type=${entry.json?.type} never carries secret ${secret.slice(0, 12)}…`)
+        }
+      }
+      for (const row of db.prepare('SELECT key, value FROM settings').all()) {
+        for (const secret of secrets) assert.ok(!String(row.value).includes(secret), `settings ${row.key} is secret-free`)
+      }
+      for (const row of db.prepare('SELECT * FROM remote_devices').all()) {
+        const blob = JSON.stringify(row)
+        for (const secret of secrets) assert.ok(!blob.includes(secret), 'remote_devices carries hash material only')
+      }
+      for (const row of db.prepare('SELECT action, detail_json FROM security_audit_logs').all()) {
+        const blob = `${row.action} ${row.detail_json ?? ''}`
+        for (const secret of secrets) assert.ok(!blob.includes(secret), `audit ${row.action} is secret-free`)
+      }
+      for (const row of db.prepare('SELECT payload_json FROM agent_events').all()) {
+        for (const secret of secrets) assert.ok(!row.payload_json.includes(secret), 'agent_events are secret-free')
+      }
+      const diagBlob = JSON.stringify(m.relay.getRelayClientDiagnostics()) + JSON.stringify(statusProjector.projectRelayStatus())
+      for (const secret of secrets) assert.ok(!diagBlob.includes(secret), 'diagnostics/status projection is secret-free')
+
+      // 静态面：relayClient 模块零 console 输出（凭据不入日志的结构保证）
+      const relayDir = new URL('../src/main/services/agentControl/relayClient/', import.meta.url)
+      for (const file of readdirSync(relayDir)) {
+        if (!file.endsWith('.ts')) continue
+        const src = readFileSync(new URL(file, relayDir), 'utf8')
+        assert.ok(!/console\./.test(src), `relayClient/${file} never logs (structural no-leak guarantee)`)
+      }
+    } finally {
+      m.relay.resetRelayClientForSmoke()
+      await r1StubClose(stub)
+      await r1CaseTeardown(m)
+    }
+  })
+
   await run()
 }
