@@ -97,6 +97,31 @@ export function setEventDeliverySink(sink: EventDeliverySink | null): void {
   deliverySink = sink
 }
 
+/**
+ * Relay 事件 sink（M2-R1，docs/19 §4.3 多 sink 注入缝）：gateway WS sink（上方，
+ * 原样）+ relay sink（本缝，relayClient eventUplink 注册）——同一 COMMIT 后按序
+ * 调用，两 sink 相互独立（任一失败不影响另一侧与落库结果，投递失败不回滚 DB）。
+ * 输入在 EventDeliverySink 形态上追加 provider（业务键投影，docs/18 §3.6 G6 新增
+ * 字段的数据源；无 provider 行为 null）。
+ */
+export type RelayEventSink = (event: {
+  sequence: number
+  eventId: string
+  eventType: AgentEventType
+  payload: Record<string, unknown>
+  sessionId: number | null
+  summary?: string | null
+  createdAt: number
+  provider: string | null
+}) => void
+
+let relayEventSink: RelayEventSink | null = null
+
+/** 注册 Relay 事件 sink（relayClient 接线点；传 null 注销）。 */
+export function setRelayEventSink(sink: RelayEventSink | null): void {
+  relayEventSink = sink
+}
+
 export interface EventRecordInput {
   eventType: AgentEventType
   /** provider 业务键（'codex' 等）；agent_providers 行不存在时 provider_id 落 NULL。 */
@@ -173,8 +198,10 @@ export function recordEvent(input: EventRecordInput): EventRecordResult {
     db.exec('COMMIT')
     // COMMIT 后才投递（docs/12 §6 语义 1）；投递失败不回滚 DB。
     // R5.1（ux 批 A）：db-to-ws 分段打点（agent_events.created_at → WS 投递回调触发）。
-    if (deliverySink !== null) {
+    if (deliverySink !== null || relayEventSink !== null) {
       recordLatencySample('db-to-ws', Date.now() - now * 1000)
+    }
+    if (deliverySink !== null) {
       try {
         deliverySink({
           sequence,
@@ -187,6 +214,23 @@ export function recordEvent(input: EventRecordInput): EventRecordResult {
         })
       } catch {
         // 投递异常不影响落库结果（重连补发兜底，AC6）
+      }
+    }
+    // Relay sink（docs/19 §4.3）：与 gateway sink 相互独立；失败不回滚（sync/回填兜底）。
+    if (relayEventSink !== null) {
+      try {
+        relayEventSink({
+          sequence,
+          eventId,
+          eventType: input.eventType,
+          payload,
+          sessionId: input.sessionId ?? null,
+          summary,
+          createdAt: now,
+          provider: input.providerKey !== undefined && input.providerKey !== '-' ? input.providerKey : null,
+        })
+      } catch {
+        // relay 投递异常不影响落库与 gateway 投递（断线回填兜底）
       }
     }
     return { recorded: true, sequence, eventId, deliveries }
@@ -409,6 +453,8 @@ export interface EventReplayRow {
   payload: Record<string, unknown>
   deliveryState: EventDeliveryState
   createdAt: number
+  /** provider 业务键（M2-R1：Relay event 帧 provider 字段数据源，docs/18 §3.6；无 provider 行为 null）。 */
+  provider: string | null
 }
 
 export interface EventReplayPage {

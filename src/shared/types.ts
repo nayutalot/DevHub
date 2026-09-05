@@ -59,6 +59,17 @@ export type ErrorCode =
   | 'COMMAND_KEY_CONFLICT'
   | 'COMMAND_EXPIRED'
   | 'COMMAND_NOT_EXECUTABLE'
+  // --- ECS Relay（M2-R1，docs/18 §8.2 append-only：8 行新码行 = 9 枚举值，
+  //     RELAY_DEVICE_UNKNOWN / RELAY_HOST_UNKNOWN 同属注册表未知行） ---
+  | 'PAIRING_INVALID_CODE'
+  | 'PAIRING_CODE_EXPIRED'
+  | 'PAIRING_CODE_VOIDED'
+  | 'RELAY_UPSTREAM_OFFLINE'
+  | 'RELAY_UPSTREAM_TIMEOUT'
+  | 'RELAY_REST_READONLY'
+  | 'RELAY_QUEUE_FULL'
+  | 'RELAY_DEVICE_UNKNOWN'
+  | 'RELAY_HOST_UNKNOWN'
 
 // ---------------------------------------------------------------------------
 // 2. Exec kernel result (src/main/core/exec.ts, constraint #10)
@@ -1765,6 +1776,26 @@ export interface GatewayStatusView {
   activeDevices: number
   natpierce: GatewayNatPierceStatus
   lastError?: string
+  /** ECS Relay 投影（M2-R1，docs/19 §4.7 可选附加字段；disabled 时缺席 = 零噪声向后兼容）。 */
+  relay?: RelayStatusView
+}
+
+/**
+ * agents:gatewayStatus.relay 可选投影（docs/19 §4.7 D5：不新增 IPC channel，
+ * 可选字段向后兼容）。凭据/注册码绝不入本投影（红线 docs/19 §2.2）。
+ */
+export interface RelayStatusView {
+  enabled: boolean
+  /** host leg 连接态（hello 已收且恢复序完成或进行中）。 */
+  connected: boolean
+  /** settings.relay_endpoint 原样（wss://…；未配置为空串）。 */
+  endpoint: string
+  /** ECS relay_hosts.id（hello 帧回填；未连接缺席）。 */
+  hostId?: number
+  /** 最近一次连接失败的结构化原因（零凭据）。 */
+  lastError?: string
+  /** 结构化告警（非错误）：如 relay 启用但本地 Gateway 未启用（docs/19 §4.8）。 */
+  warning?: string
 }
 
 export interface AgentGatewayStatusPayload extends EmptyPayload {}

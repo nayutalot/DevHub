@@ -5,7 +5,10 @@
  * skills_last_sync_at（S2：Skills 页上次双侧同步时间，skillService 写入）/
  * deepseekHarnessRoot（S3：版本中心 DeepSeek Harness 安装目录，docs/09 §7.1）/
  * gateway_port / gateway_enabled / agents_monitor_enabled / login_autostart
- * （AC2：004 种子的 4 个 AC 域键，docs/13 §6——settings:set 通道白名单同步 6→10）；
+ * （AC2：004 种子的 4 个 AC 域键，docs/13 §6——settings:set 通道白名单同步 6→10）/
+ * relay_enabled / relay_endpoint（M2-R1：ECS Relay 两键，docs/19 §4.7——白名单
+ * 同步 10→12；Relay 凭据/注册码绝不入 settings，凭据走
+ * %LOCALAPPDATA%\DevHub\relay\credential 机器本地文件，docs/19 §2.2 红线）；
  * 一切 SQL 参数绑定（约束 #11）。
  */
 
@@ -24,6 +27,9 @@ const ALLOWED_KEYS: readonly string[] = [
   'gateway_enabled',
   'agents_monitor_enabled',
   'login_autostart',
+  // M2-R1 批次（docs/19 §4.7）：ECS Relay 两键（默认 '0'/''——零连接）
+  'relay_enabled',
+  'relay_endpoint',
 ]
 
 function assertAllowedKey(key: string): void {
