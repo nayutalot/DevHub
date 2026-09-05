@@ -1588,6 +1588,49 @@ export function touchDeviceLastSeen(deviceId: number): void {
 }
 
 // ---------------------------------------------------------------------------
+// M2-R1 — 设备 Token 轮换（docs/18 §3.14 + docs/19 §4.5 rotationBridge 数据面：
+// L3 新 Token 生成 + token_hash 覆盖 + token_version+1 + 审计；schema 现字段
+// 承载，零 migration。明文 Token 仅返回值一次性流转进 token_rotation 帧——
+// 红线受控面 docs/19 §3 W-R3，绝不入日志/审计/DB）
+// ---------------------------------------------------------------------------
+
+/** 轮换原因全集（docs/18 §3.14 reason 枚举）。 */
+export type DeviceTokenRotationReason = 'post-pairing' | 'manual' | 'periodic'
+
+/**
+ * 设备 Token 轮换（rotationBridge 的 L3 落点；docs/18 §3.14「Windows 侧落库」行）：
+ * 撤销设备 → DEVICE_REVOKED（轮换对撤销设备无意义，撤销即拒不可复活）；成功 =
+ * sha256(newToken) 覆盖 token_hash + token_version+1 + 审计 device/token_rotated
+ * （detail 零 Token 明文）。宽限跟踪（300s 确认窗口）与帧发送归 rotationBridge。
+ */
+export function rotateDeviceToken(
+  deviceId: number,
+  reason: DeviceTokenRotationReason,
+): { deviceId: number; tokenVersion: number; token: string } {
+  const db = getDatabase()
+  const row = db.prepare('SELECT id, status, token_version FROM remote_devices WHERE id = ?').get(deviceId) as
+    | { id: number; status: string; token_version: number }
+    | undefined
+  if (row === undefined) {
+    throw new ServiceError('NOT_FOUND', `remote device ${deviceId} not found`)
+  }
+  if (row.status === 'revoked') {
+    throw new ServiceError('DEVICE_REVOKED', `remote device ${deviceId} is revoked; token rotation refused (revocation is final, docs/15 §4)`)
+  }
+  const token = generateDeviceToken()
+  const tokenVersion = Number(row.token_version) + 1
+  const now = nowSec()
+  db.prepare('UPDATE remote_devices SET token_hash = ?, token_version = ?, updated_at = ? WHERE id = ?').run(
+    sha256Hex(token),
+    tokenVersion,
+    now,
+    deviceId,
+  )
+  insertSecurityAudit('device', 'token_rotated', deviceId, 'success', JSON.stringify({ reason, tokenVersion }))
+  return { deviceId, tokenVersion, token }
+}
+
+// ---------------------------------------------------------------------------
 // AC3 — Provider 探测 / 会话/消息落库 / 资源登记 / 监控启停接线
 // （docs/16 §1 AC3 行；写库只发生在本 Service，约束 #20）
 // ---------------------------------------------------------------------------
