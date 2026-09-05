@@ -9751,5 +9751,814 @@ if (isEntrypoint()) {
     }
   })
 
+  // ====================================================================
+  // M2-R1 收尾批 — relay-client smoke 段（docs/19 §4 + docs/20 §2.1 R1 验收线①-⑧）。
+  // 帧数据源 = ecs-relay/test/fixtures/frames.json（16 帧权威 fixture，逐字段对拍，
+  // 禁止手抄帧——动态字段以 fixture 样本为底覆写）；内存 ECS Relay 桩（host 腿 WS）
+  // 监听 127.0.0.1:18443 类段外端口（占用顺延，严禁碰 smoke 门禁段 8746-8755）。
+  // 既有 156 用例零改动（append-only，约束 #27）。
+  // ====================================================================
+  const { writeFileSync, readFileSync, readdirSync } = await import('node:fs')
+  const { join } = await import('node:path')
+
+  /** fixture 只读装载（权威帧源，零手抄）。 */
+  const r1Fixture = JSON.parse(readFileSync(new URL('../ecs-relay/test/fixtures/frames.json', import.meta.url), 'utf8'))
+
+  /** 取 fixture 帧 #no 指定 leg 的样本深拷贝（动态字段由用例覆写，帧源仍是 fixture）。 */
+  function r1FixtureFrame(no, leg) {
+    const entry = r1Fixture.frames.find((f) => f.no === no)
+    assert.ok(entry !== undefined, `fixture frame #${no} present`)
+    const sample = leg === undefined ? entry.samples[0] : entry.samples.find((s) => s.leg === leg)
+    assert.ok(sample !== undefined, `fixture frame #${no} leg "${leg}" present`)
+    return JSON.parse(JSON.stringify(sample.frame))
+  }
+
+  /** 取 fixture hostControlFrames（16 帧之外的 host 腿控制面）指定 leg 样本深拷贝。 */
+  function r1FixtureControlFrame(leg) {
+    const entry = r1Fixture.hostControlFrames[0]
+    assert.ok(entry !== undefined, 'fixture hostControlFrames entry present')
+    const sample = entry.samples.find((s) => s.leg === leg)
+    assert.ok(sample !== undefined, `fixture hostControlFrames leg "${leg}" present`)
+    return JSON.parse(JSON.stringify(sample.frame))
+  }
+
+  /** 服务端视角解析一帧客户端帧（客户端帧必带掩码，RFC6455 §5.1）；返回一帧 + 余量。 */
+  function r1ParseMaskedClientFrame(buf) {
+    if (buf.length < 2) return { frame: null, rest: buf }
+    const opcode = buf[0] & 0x0f
+    const masked = (buf[1] & 0x80) !== 0
+    let len = buf[1] & 0x7f
+    let offset = 2
+    if (len === 126) {
+      if (buf.length < offset + 2) return { frame: null, rest: buf }
+      len = buf.readUInt16BE(offset)
+      offset += 2
+    } else if (len === 127) {
+      if (buf.length < offset + 8) return { frame: null, rest: buf }
+      len = Number(buf.readBigUInt64BE(offset))
+      offset += 8
+    }
+    if (masked) {
+      if (buf.length < offset + 4 + len) return { frame: null, rest: buf }
+      const maskKey = buf.subarray(offset, offset + 4)
+      const payload = Buffer.from(buf.subarray(offset + 4, offset + 4 + len))
+      for (let i = 0; i < payload.length; i += 1) payload[i] ^= maskKey[i % 4]
+      return { frame: { opcode, masked, payload }, rest: buf.subarray(offset + 4 + len) }
+    }
+    if (buf.length < offset + len) return { frame: null, rest: buf }
+    return { frame: { opcode, masked, payload: Buffer.from(buf.subarray(offset, offset + len)) }, rest: buf.subarray(offset + len) }
+  }
+
+  /**
+   * 内存 ECS Relay 桩（host 腿 WS 服务端，ac6 自搓 WS 同源做法）：段外回环端口
+   * 监听（18443 起 EADDRINUSE 顺延 +9，绝不占用 8746-8755 门禁段）；upgrade 头
+   * 原样留档（凭据运输面审计数据源）；收帧必掩码、发帧必不掩码（RFC6455 §5.1
+   * 对称面）；ping 即 pong；每次收到的协议帧留档 stub.log（红线扫描数据源）。
+   */
+  async function r1StartRelayStub(portHint = 18443) {
+    const { createServer } = await import('node:http')
+    const { createHash } = await import('node:crypto')
+    const stub = { server: null, port: null, connections: [], upgrades: [], log: [] }
+    const handleUpgrade = (req, socket) => {
+      const key = req.headers['sec-websocket-key']
+      const accept = createHash('sha1').update(String(key) + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64')
+      socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ' + accept + '\r\n\r\n')
+      socket.setNoDelay(true)
+      const conn = { socket, received: [], closeCode: null, alive: true, headers: { authorization: req.headers.authorization ?? null } }
+      stub.connections.push(conn)
+      stub.upgrades.push(conn.headers)
+      let buffer = Buffer.alloc(0)
+      socket.on('data', (chunk) => {
+        buffer = buffer.length === 0 ? Buffer.from(chunk) : Buffer.concat([buffer, chunk])
+        while (true) {
+          const parsed = r1ParseMaskedClientFrame(buffer)
+          if (parsed.frame === null) break
+          buffer = parsed.rest
+          const { opcode, payload } = parsed.frame
+          if (opcode === 0x8) {
+            conn.closeCode = payload.length >= 2 ? payload.readUInt16BE(0) : null
+            conn.alive = false
+            try { socket.destroy() } catch { /* 已关 */ }
+            return
+          }
+          if (opcode === 0x9) {
+            try { socket.write(encodeClientFrame(0xA, payload, { mask: false })) } catch { /* 已关 */ }
+            continue
+          }
+          if (opcode === 0xA) continue
+          if (opcode === 0x1 || opcode === 0x2) {
+            const text = payload.toString('utf8')
+            let json
+            try { json = JSON.parse(text) } catch { json = undefined }
+            conn.received.push({ opcode, text, json })
+            stub.log.push({ conn, json, text })
+          }
+        }
+      })
+      socket.on('error', () => { conn.alive = false })
+      socket.on('close', () => { conn.alive = false })
+    }
+    const tryListen = (port) =>
+      new Promise((resolve, reject) => {
+        const server = createServer()
+        server.on('error', reject)
+        server.on('upgrade', handleUpgrade)
+        server.listen(port, '127.0.0.1', () => resolve(server))
+      })
+    let lastErr = null
+    for (let p = portHint; p < portHint + 10; p += 1) {
+      try {
+        stub.server = await tryListen(p)
+        stub.port = p
+        return stub
+      } catch (err) {
+        lastErr = err
+      }
+    }
+    throw lastErr ?? new Error('relay stub listen failed')
+  }
+
+  /** 桩向最新活跃连接发一帧服务端 JSON（不掩码，RFC6455 §5.1 服务端方向）。 */
+  function r1StubSend(stub, obj, conn) {
+    const target = conn ?? [...stub.connections].reverse().find((c) => c.alive)
+    assert.ok(target !== undefined && target.alive, 'relay stub has an alive connection to send on')
+    target.socket.write(encodeClientFrame(0x1, Buffer.from(JSON.stringify(obj), 'utf8'), { mask: false }))
+  }
+
+  /** 轮询等待桩收到匹配帧（跨全部连接；等待期内新增连接也参与匹配）。 */
+  async function r1StubWait(stub, predicate, timeoutMs = 3000, label = 'relay stub frame') {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      for (const conn of stub.connections) {
+        const hit = conn.received.find(predicate)
+        if (hit !== undefined) {
+          conn.received.splice(conn.received.indexOf(hit), 1)
+          return { conn, ...hit }
+        }
+      }
+      await sleep(20)
+    }
+    throw new Error(`relay stub waitFrame timeout: ${label}`)
+  }
+
+  /** 桩收尾（先毁全部连接再关监听；零孤儿端口）。 */
+  async function r1StubClose(stub) {
+    for (const conn of stub.connections) {
+      conn.alive = false
+      try { conn.socket.destroy() } catch { /* 已关 */ }
+    }
+    stub.connections.length = 0
+    if (stub.server !== null) await new Promise((resolve) => stub.server.close(() => resolve()))
+  }
+
+  /**
+   * nb-r1 全栈用例夹具（隔离 home + relay 模块单例清场 + 凭据文件 env 缝）：
+   * ac6 gwCaseSetup 同款纪律 + relayClient 特有面（DEVHUB_RELAY_CREDENTIAL_FILE
+   * 覆盖进临时 home，teardown 还原；监控关闭 hermetic，ac2-87 先例）。
+   */
+  async function r1CaseSetup(prefix) {
+    const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+    const svc = await import(new URL('../src/main/services/agentControl/agentControlService.ts', import.meta.url).href)
+    const settingsSvc = await import(new URL('../src/main/services/settingsService.ts', import.meta.url).href)
+    const relay = await import(new URL('../src/main/services/agentControl/relayClient/index.ts', import.meta.url).href)
+    const auth = await import(new URL('../src/main/services/agentControl/gateway/auth.ts', import.meta.url).href)
+    const providerRegistry = await import(new URL('../src/main/services/agentControl/providerRegistry.ts', import.meta.url).href)
+    const dir = await makeTempHome(prefix)
+    dbModule.getDatabase()
+      .prepare("INSERT INTO settings (key, value) VALUES ('agents_monitor_enabled', '0') ON CONFLICT(key) DO UPDATE SET value = '0'")
+      .run()
+    const prevCredFile = process.env.DEVHUB_RELAY_CREDENTIAL_FILE
+    const credentialFile = join(dir, 'relay-credential.txt')
+    process.env.DEVHUB_RELAY_CREDENTIAL_FILE = credentialFile
+    return { dbModule, svc, settingsSvc, relay, auth, providerRegistry, credentialFile, prevCredFile }
+  }
+
+  /** nb-r1 用例收尾（relay 单例复位 → 配对内存态复位 → env 还原 → 关库）。 */
+  async function r1CaseTeardown(m) {
+    m.providerRegistry.clearProviderOverrides()
+    m.svc.stopAllAgentControlRuntime()
+    m.relay.resetRelayClientForSmoke()
+    const pairing = await import(new URL('../src/main/services/agentControl/gateway/pairing.ts', import.meta.url).href)
+    pairing.resetPairingState()
+    if (m.prevCredFile === undefined) delete process.env.DEVHUB_RELAY_CREDENTIAL_FILE
+    else process.env.DEVHUB_RELAY_CREDENTIAL_FILE = m.prevCredFile
+    m.dbModule.closeDatabase()
+  }
+
+  /** 夹具设备行（remote_devices；token 明文仅内存流转，落库只有 sha256——红线）。 */
+  function r1FixtureDevice(m, db, name, token) {
+    const now = Math.floor(Date.now() / 1000)
+    const info = db
+      .prepare(
+        'INSERT INTO remote_devices (device_name, platform, token_hash, token_version, status, paired_at, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?, ?)',
+      )
+      .run(name, 'android', m.auth.sha256Hex(token), 'active', now, now, now)
+    return Number(info.lastInsertRowid)
+  }
+
+  /** 夹具 managed provider（能力门全授予 + sendReply 计数桩，ac6-128 同款缝）。 */
+  async function r1FixtureManagedProvider(m, db, tag) {
+    const providerId = fixtureProviderRow(db, 'kimi')
+    db.prepare('UPDATE agent_providers SET capabilities_json = ? WHERE id = ?').run(
+      JSON.stringify({ mode: 'managed', granted: ['reply', 'pause', 'resume'], verifiedAt: Math.floor(Date.now() / 1000), evidence: 'fixture override' }),
+      providerId,
+    )
+    const sessionId = fixtureSessionRow(db, providerId, `${tag}-sess`, 'managed')
+    const calls = { reply: 0 }
+    m.providerRegistry.setProviderOverride('kimi', {
+      id: 'kimi',
+      probeHealth: async () => ({ status: 'ok' }),
+      listSessions: async () => [],
+      readMessages: async () => ({ items: [] }),
+      getCapabilities: async () => ({ mode: 'managed', granted: ['reply', 'pause', 'resume'], verifiedAt: Math.floor(Date.now() / 1000), evidence: 'fixture override' }),
+      sendReply: async () => { calls.reply += 1; return { ok: true, status: 'executed' } },
+      pause: async () => ({ ok: false, status: 'unsupported', detail: 'fixture' }),
+      resume: async () => ({ ok: false, status: 'unsupported', detail: 'fixture' }),
+      startMonitor: () => ({ providerId: 'kimi', stop: async () => {} }),
+      dispose: async () => {},
+    })
+    return { providerId, sessionId, calls }
+  }
+
+  /** 启用 relay 三件套（gateway_enabled 前提 + relay_enabled/endpoint）并装配凭据文件。 */
+  function r1EnableRelay(m, stub, credential) {
+    m.settingsSvc.setSetting('gateway_enabled', '1')
+    m.settingsSvc.setSetting('relay_enabled', '1')
+    m.settingsSvc.setSetting('relay_endpoint', `ws://127.0.0.1:${stub.port}`)
+    writeFileSync(m.credentialFile, `${credential}\n`, 'utf8')
+  }
+
+  /** hello 握手（桩收到连接后发 fixture #1 host 腿样本；sequence 供回填对拍覆写）。 */
+  async function r1HelloNewConnection(stub, { sequence = 0 } = {}) {
+    const deadline = Date.now() + 5000
+    while (Date.now() < deadline) {
+      const conn = stub.connections.find((c) => c.helloSent !== true)
+      if (conn !== undefined) {
+        conn.helloSent = true
+        const hello = r1FixtureFrame(1, 'host')
+        hello.sequence = sequence
+        r1StubSend(stub, hello, conn)
+        return conn
+      }
+      await sleep(20)
+    }
+    throw new Error('relay stub: no new connection to greet with hello')
+  }
+
+  // 155. 16 帧 round-trip 逐帧对拍 fixture（docs/20 §2.4 三线契约防漂移）：
+  //      客户端 TX（encodeClientTextFrame 必掩码 → 桩视角掩码解析 → 字段同一性）×
+  //      服务端 TX（不掩码 → RelayClientConnection 真实解析路径 → 字段同一性）双方向，
+  //      16 帧型 + host 腿控制帧全样本；掩码方向对称红线（服务端帧带掩码 → 1002）。
+  registerCase('nb-r1-155: relay 16-frame fixture round-trip — every fixture sample (16 frame types + host-leg control frames) survives client-TX masked encode/decode and server-TX parse with field identity; masking direction red line (masked server frame -> 1002)', async () => {
+    assert.equal(r1Fixture.frames.length, 16, 'fixture carries the full 16-frame protocol table (docs/18 §3)')
+    for (const entry of r1Fixture.frames) {
+      assert.ok(entry.samples.length >= 1, `frame #${entry.no} ${entry.type} has samples`)
+    }
+    const samples = [
+      ...r1Fixture.frames.flatMap((f) => f.samples.map((s) => ({ frameType: f.type, no: f.no, leg: s.leg, frame: s.frame }))),
+      ...r1Fixture.hostControlFrames.flatMap((h) => h.samples.map((s) => ({ frameType: h.type, no: 'hostControl', leg: s.leg, frame: s.frame }))),
+    ]
+    assert.ok(samples.length >= 35, `fixture sample coverage, got ${samples.length}`)
+
+    const wsMod = await import(new URL('../src/main/services/agentControl/relayClient/wsClient.ts', import.meta.url).href)
+    let clientTx = 0
+    let serverTx = 0
+    for (const sample of samples) {
+      // 客户端 TX：编码 → 必带掩码（RFC6455 §5.1）→ 桩视角掩码解析 → 字段同一性
+      const wire = wsMod.encodeClientTextFrame(sample.frame)
+      assert.equal((wire[1] & 0x80) !== 0, true, `client frame ${sample.frameType}/${sample.leg} MUST be masked`)
+      const decoded = r1ParseMaskedClientFrame(wire)
+      assert.ok(decoded.frame !== null, `client frame ${sample.frameType}/${sample.leg} decodes fully`)
+      assert.equal(decoded.rest.length, 0, `client frame ${sample.frameType}/${sample.leg} consumes the whole buffer`)
+      assert.equal(decoded.frame.masked, true, 'stub-side decode confirms the mask bit')
+      assert.deepEqual(JSON.parse(decoded.frame.payload.toString('utf8')), sample.frame, `client-TX field identity: ${sample.frameType}/${sample.leg}`)
+      clientTx += 1
+
+      // 服务端 TX：不掩码编码 → RelayClientConnection 真实解析路径（分片收口/掩码拒绝语义）
+      let receivedText = null
+      const fakeSocket = { write: () => true, on: () => {}, destroy: () => {} }
+      const conn = new wsMod.RelayClientConnection(fakeSocket, {
+        onText: (_c, text) => { receivedText = text },
+        onClosed: () => {},
+      })
+      const serverWire = encodeClientFrame(0x1, Buffer.from(JSON.stringify(sample.frame), 'utf8'), { mask: false })
+      conn.feed(serverWire)
+      assert.ok(receivedText !== null, `server frame ${sample.frameType}/${sample.leg} reaches hooks.onText`)
+      assert.deepEqual(JSON.parse(receivedText), sample.frame, `server-TX field identity: ${sample.frameType}/${sample.leg}`)
+      serverTx += 1
+    }
+    assert.equal(clientTx, samples.length)
+    assert.equal(serverTx, samples.length)
+
+    // 掩码方向对称红线：带掩码的「服务端帧」→ 客户端判 protocol error → close 1002
+    const written = []
+    const errSocket = { write: (b) => { written.push(Buffer.from(b)); return true }, on: () => {}, destroy: () => {} }
+    const errConn = new wsMod.RelayClientConnection(errSocket, { onText: () => assert.fail('masked server frame must never reach onText'), onClosed: () => {} })
+    const rogueSample = r1FixtureFrame(13, 'ecs-to-host')
+    errConn.feed(encodeClientFrame(0x1, Buffer.from(JSON.stringify(rogueSample), 'utf8'))) // 客户端编码默认带掩码
+    assert.equal(errConn.closed, true, 'masked server frame closes the connection')
+    const closeFrames = written.map((b) => r1ParseMaskedClientFrame(b).frame).filter((f) => f !== null && f.opcode === 0x8)
+    assert.ok(closeFrames.length >= 1, 'client answers the protocol violation with a close frame')
+    assert.equal(closeFrames[0].payload.readUInt16BE(0), 1002, 'close code 1002 (protocol error)')
+
+    // 分片收口路径：fixture 事件帧拆两片（FIN 分界）→ onText 收到完整帧
+    const fragSample = r1FixtureFrame(6, 'host-to-ecs')
+    const fragBytes = encodeClientFrame(0x1, Buffer.from(JSON.stringify(fragSample), 'utf8'), { mask: false })
+    let fragText = null
+    const fragSocket = { write: () => true, on: () => {}, destroy: () => {} }
+    const fragConn = new wsMod.RelayClientConnection(fragSocket, { onText: (_c, text) => { fragText = text }, onClosed: () => {} })
+    // 增量解析：整帧拆两段 TCP 段喂入（任意切分点）——前半只缓冲、后半收口分发
+    const mid = Math.floor(fragBytes.length / 2)
+    fragConn.feed(fragBytes.subarray(0, mid))
+    assert.ok(fragText === null, 'partial frame stays buffered (no premature dispatch)')
+    fragConn.feed(fragBytes.subarray(mid))
+    assert.ok(fragText !== null, 'incremental parse completes on the tail bytes')
+    assert.deepEqual(JSON.parse(fragText), fragSample, 'fragment reassembly field identity')
+  })
+
+  // 156. 重连退避参数（docs/19 §4.2，行为规格移植自 Android core/Backoff.kt）：
+  //      1s→60s cap 倍增表 / ±20% jitter 边界（randomSource 注入缝固定值）/ 封顶后
+  //      停止翻倍（Kotlin 同款 while 结构）/ 向零截断 / reset 归零 / 非法 attempt 拒绝。
+  registerCase('nb-r1-156: reconnect backoff — 1s->2s->...->60s doubling table with cap-stop-doubling, +-20% jitter bounds via randomSource seam (fixed 0 / 0.5 / 1), truncation toward zero, reset-to-base, invalid attempt refused', async () => {
+    const { BACKOFF_BASE_DELAY_MS, BACKOFF_MAX_DELAY_MS, BACKOFF_JITTER_FRACTION, BackoffCalculator } = await import(
+      new URL('../src/main/services/agentControl/relayClient/backoff.ts', import.meta.url).href
+    )
+    assert.equal(BACKOFF_BASE_DELAY_MS, 1000, 'base 1s (docs/14 §B.2)')
+    assert.equal(BACKOFF_MAX_DELAY_MS, 60000, 'cap 60s')
+    assert.equal(BACKOFF_JITTER_FRACTION, 0.2, 'jitter +-20%')
+
+    // 倍增表（r=0.5 → 因子 1.0）：1s→2s→4s→8s→16s→32s→60s 封顶，封顶后停止翻倍
+    const mid = new BackoffCalculator({ randomSource: () => 0.5 })
+    const table = []
+    for (let i = 0; i < 9; i += 1) table.push(mid.nextDelayMs())
+    assert.deepEqual(table, [1000, 2000, 4000, 8000, 16000, 32000, 60000, 60000, 60000], 'doubling table with cap-stop-doubling (60s, no overflow)')
+    assert.equal(mid.delayMsForAttempt(100), 60000, 'attempt 100 stays at the cap (Kotlin while-loop semantics)')
+    assert.equal(mid.attempts, 9, 'attempts counter tracks nextDelayMs calls')
+
+    // jitter 下界（r=0 → 因子 0.8）与上界（r=1 → 因子 1.2）
+    const low = new BackoffCalculator({ randomSource: () => 0 })
+    assert.equal(low.nextDelayMs(), 800, 'attempt 1 lower jitter bound = 800ms')
+    for (let i = 0; i < 5; i += 1) low.nextDelayMs()
+    assert.equal(low.nextDelayMs(), 48000, 'attempt 7 lower jitter bound = 60000*0.8')
+    const high = new BackoffCalculator({ randomSource: () => 1 })
+    assert.equal(high.nextDelayMs(), 1200, 'attempt 1 upper jitter bound = 1200ms')
+    for (let i = 0; i < 5; i += 1) high.nextDelayMs()
+    assert.equal(high.nextDelayMs(), 72000, 'attempt 7 upper jitter bound = 60000*1.2 (cap applies to base, not jitter)')
+
+    // 向零截断（Kotlin toLong 语义）：r=0.75 → 因子 1.1 → 1100 整
+    const trunc = new BackoffCalculator({ randomSource: () => 0.75 })
+    assert.equal(trunc.nextDelayMs(), 1100, 'truncation toward zero (1100.000...|0)')
+    const trunc2 = new BackoffCalculator({ randomSource: () => 0.5123 })
+    assert.ok(Number.isInteger(trunc2.nextDelayMs()), 'delay is always an integer ms')
+
+    // reset：连接成功归零，下次回到 base；零 jitter（fraction 0）时退化为确定 base 表
+    const reset = new BackoffCalculator({ randomSource: () => 0.5 })
+    reset.nextDelayMs()
+    reset.nextDelayMs()
+    assert.equal(reset.attempts, 2)
+    reset.reset()
+    assert.equal(reset.attempts, 0)
+    assert.equal(reset.nextDelayMs(), 1000, 'after reset the next delay is base again')
+
+    const zeroJitter = new BackoffCalculator({ jitterFraction: 0, randomSource: () => 0.999 })
+    assert.deepEqual([zeroJitter.nextDelayMs(), zeroJitter.nextDelayMs()], [1000, 2000], 'fraction 0 collapses jitter to the pure doubling table')
+
+    // 非法 attempt 拒绝（RangeError，绝不静默猜）
+    assert.throws(() => mid.delayMsForAttempt(0), RangeError, 'attempt 0 refused')
+    assert.throws(() => mid.delayMsForAttempt(-3), RangeError, 'negative attempt refused')
+    assert.throws(() => mid.delayMsForAttempt(1.5), RangeError, 'non-integer attempt refused')
+
+    // 随机源越界值被钳制（[0,1] 外仍产出合法延迟带）
+    const clamped = new BackoffCalculator({ randomSource: () => 42 })
+    assert.equal(clamped.nextDelayMs(), 1200, 'r>1 clamps to the upper jitter bound')
+    const clampedLow = new BackoffCalculator({ randomSource: () => -7 })
+    assert.equal(clampedLow.nextDelayMs(), 800, 'r<0 clamps to the lower jitter bound')
+  })
+
+  // 157. 断线回填幂等 + watermark 前向只进（docs/19 §4.3 三步恢复序① + §4.3 水位行）：
+  //      离线期事件只落库 → hello 水位回填补推（投影对拍 fixture #6 裁定面）→ 同水位
+  //      重回填零重发（幂等）→ 写失败即中止且水位只推进到已交付位 → 恢复续传 →
+  //      水位恢复取大绝不回退（进程重启恢复语义）。
+  registerCase('nb-r1-157: offline backfill idempotency — offline events stay db-only, hello-watermark backfill projects fixture event shape, same-watermark re-backfill is a zero-op, mid-backfill write failure stops at the last delivered sequence then resumes, watermark restore takes max and never regresses', async () => {
+    const m = await r1CaseSetup('devhub-nb-r1-157-')
+    const db = m.dbModule.getDatabase()
+    try {
+      const ep = await import(new URL('../src/main/services/agentControl/eventPipeline.ts', import.meta.url).href)
+      const eventUplink = await import(new URL('../src/main/services/agentControl/relayClient/eventUplink.ts', import.meta.url).href)
+      // provider 行（eventsSince LEFT JOIN agent_providers 的 provider 字段数据源）
+      fixtureProviderRow(db, 'codex')
+      let online = false
+      const sent = []
+      eventUplink.setEventUplinkHost({ isReady: () => online, sendEvent: (frame) => { sent.push(frame); return true } })
+
+      // 离线期事件：COMMIT 落库、零投递（回填兜底）
+      const e1 = ep.recordEvent({ eventType: 'session.waiting_input', providerKey: 'codex', nativeId: 'nb-r1-157', payload: { status: 'waiting_input' }, summary: 'offline waiting input', fingerprint: 'nb-r1-157-fp-1' })
+      const e2 = ep.recordEvent({ eventType: 'message.appended', providerKey: 'codex', nativeId: 'nb-r1-157', payload: { role: 'assistant' }, summary: 'offline appended', fingerprint: 'nb-r1-157-fp-2' })
+      const e3 = ep.recordEvent({ eventType: 'session.status_changed', providerKey: 'codex', nativeId: 'nb-r1-157', payload: { from: 'running', to: 'waiting_input' }, summary: 'offline status', fingerprint: 'nb-r1-157-fp-3' })
+      assert.ok(e1.recorded && e2.recorded && e3.recorded, 'fixture events recorded')
+      assert.equal(sent.length, 0, 'offline: zero frames while not ready')
+      assert.equal(eventUplink.currentLastSentSeq(), 0, 'watermark untouched while offline')
+
+      // hello 水位 0（ECS 空缓存）→ 回填全部三帧；投影对拍 fixture #6 host-to-ecs 裁定面
+      online = true
+      const r1 = eventUplink.backfillFromWatermark(0)
+      assert.equal(r1.sent, 3, 'backfill sends every offline event')
+      assert.ok(r1.pages >= 1, 'at least one page scanned')
+      assert.equal(r1.scannedThrough, e3.sequence, 'scan reaches the newest sequence')
+      const f1 = sent[0]
+      assert.equal(f1.type, 'event', "discriminator type='event' (fixture 裁定)")
+      assert.equal(f1.eventType, 'session.waiting_input', 'eventType carries the event type (fixture 裁定①)')
+      assert.equal(f1.sequence, e1.sequence, 'seq -> sequence')
+      assert.equal(f1.eventId, e1.eventId, 'eventId passthrough')
+      assert.equal(f1.requiresUserAction, true, 'waiting_input whitelist -> requiresUserAction true (docs/18 §4.2)')
+      assert.equal(f1.provider, 'codex')
+      assert.equal(f1.summary, 'offline waiting input')
+      assert.equal(f1.sessionId, undefined, 'absent sessionId is never fabricated')
+      assert.equal(sent[1].requiresUserAction, false, 'message.appended is never requiresUserAction')
+      assert.equal(eventUplink.currentLastSentSeq(), e3.sequence, 'watermark = highest delivered')
+      assert.equal(m.settingsSvc.getSetting('relay_last_sent_seq'), String(e3.sequence), 'watermark persisted (docs/19 §4.3)')
+
+      // 幂等：同水位重回填零重发（ECS 侧另有 sequence UNIQUE 去重双保险）
+      const r2 = eventUplink.backfillFromWatermark(e3.sequence)
+      assert.equal(r2.sent, 0, 'same-watermark re-backfill sends nothing')
+      assert.equal(sent.length, 3, 'no duplicate frames on the wire')
+
+      // 水位前向只进：持久值被 rogue 低位覆写后恢复仍取大（绝不回退）
+      m.settingsSvc.setSetting('relay_last_sent_seq', '1')
+      eventUplink.restoreLastSentSeq()
+      assert.equal(eventUplink.currentLastSentSeq(), e3.sequence, 'restore takes max(persisted, memory)')
+
+      // 断线再现 + 写失败：第二帧写失败即中止，水位只推进到已交付位
+      online = false
+      const e4 = ep.recordEvent({ eventType: 'message.appended', providerKey: 'codex', nativeId: 'nb-r1-157', payload: { role: 'user' }, summary: 'second outage a', fingerprint: 'nb-r1-157-fp-4' })
+      const e5 = ep.recordEvent({ eventType: 'message.appended', providerKey: 'codex', nativeId: 'nb-r1-157', payload: { role: 'assistant' }, summary: 'second outage b', fingerprint: 'nb-r1-157-fp-5' })
+      online = true
+      let deliverCalls = 0
+      eventUplink.setEventUplinkHost({ isReady: () => true, sendEvent: () => { deliverCalls += 1; return deliverCalls < 2 } })
+      const r3 = eventUplink.backfillFromWatermark(e3.sequence)
+      assert.equal(r3.sent, 1, 'write failure stops the backfill after the last success')
+      assert.equal(eventUplink.currentLastSentSeq(), e4.sequence, 'watermark only advanced through the delivered event (never fabricates)')
+
+      // 恢复续传：修好链路后从断点继续，不重发已交付窗口
+      eventUplink.setEventUplinkHost({ isReady: () => true, sendEvent: (frame) => { sent.push(frame); return true } })
+      const r4 = eventUplink.backfillFromWatermark(e4.sequence)
+      assert.equal(r4.sent, 1, 'resume delivers exactly the remaining event')
+      assert.equal(eventUplink.currentLastSentSeq(), e5.sequence, 'watermark converges to the newest')
+      assert.ok(sent.every((f) => f.sequence !== e1.sequence || f === sent[0]), 'earlier window never re-sent')
+
+      // 进程重启恢复：内存归零后从 settings 持久水位恢复（回填起点不回退 → 零重复回填）
+      eventUplink.resetEventUplinkState()
+      assert.equal(eventUplink.currentLastSentSeq(), 0)
+      eventUplink.restoreLastSentSeq()
+      assert.equal(eventUplink.currentLastSentSeq(), e5.sequence, 'restart recovery pulls the persisted high-water mark')
+    } finally {
+      await r1CaseTeardown(m)
+    }
+  })
+
+  // 158. 命令排队→上线投递（docs/18 §3.9 queued 语义 + docs/19 §4.2 三步恢复序②）：
+  //      host 离线期间 ECS 已受理排队的 command（fixture #8 帧形为底，动态字段覆写）
+  //      → relayClient hello/ready 后投递 → auth（同源 Bearer + 防重放）→ action 翻译
+  //      send_message≡reply → L3 submitRemoteCommand 执行 → command_result 回帧。
+  //      fixture #1 host 腿 hello 为握手帧源。
+  registerCase('nb-r1-158: command queued while host offline -> delivered after hello/ready, executed end-to-end (auth -> send_message==reply -> L3 submit -> command_result frame), accepted path never emits command_ack', async () => {
+    const m = await r1CaseSetup('devhub-nb-r1-158-')
+    const db = m.dbModule.getDatabase()
+    const stub = await r1StartRelayStub()
+    try {
+      r1EnableRelay(m, stub, 'nb-r1-relay-cred-158')
+      const { sessionId, calls } = await r1FixtureManagedProvider(m, db, 'nb-r1-158')
+      const deviceToken = `nb-r1-dev-token-158-${randomBytes(8).toString('hex')}`
+      r1FixtureDevice(m, db, 'nb-r1-158-phone', deviceToken)
+      m.relay.configureRelayClientRuntime({ helloTimeoutMs: 3000, baseDelayMs: 50, maxDelayMs: 200 })
+
+      // host 离线期间 ECS 已排队的命令（此刻 host 腿零连接）
+      const nowSec = Math.floor(Date.now() / 1000)
+      const queued = r1FixtureFrame(8, 'device-to-ecs')
+      queued.requestId = 'nb-r1-q-req-1'
+      queued.idempotencyKey = 'nb-r1-cmd-q-158'
+      queued.sessionId = sessionId
+      queued.payload = { text: 'queued while host offline' }
+      queued.auth = { token: deviceToken, ts: nowSec, nonce: randomBytes(16).toString('hex') }
+      queued.createdAt = nowSec
+
+      m.relay.startRelayClient()
+      await r1HelloNewConnection(stub) // fixture #1 host 腿 hello 握手
+      await pollUntil(() => m.relay.getRelayClientDiagnostics().status === 'ready', 5000, 30, 'relay client ready after hello')
+      assert.equal(m.relay.getRelayClientDiagnostics().hostId, 1, 'hello.hostId lands in diagnostics')
+
+      // 上线投递排队命令
+      r1StubSend(stub, queued)
+      const result = await r1StubWait(stub, (f) => f.json?.type === 'command_result' && f.json.idempotencyKey === 'nb-r1-cmd-q-158', 4000, 'queued command result frame')
+      assert.equal(result.json.status, 'executed', 'queued command executed end-to-end')
+      assert.equal(result.json.action, 'send_message', 'command_result action uses the relay name (send_message)')
+      assert.equal(result.json.sessionId, sessionId, 'result carries the session')
+      assert.equal(calls.reply, 1, 'provider executed exactly once')
+      const row = db.prepare('SELECT command_id, status FROM remote_commands WHERE idempotency_key = ?').get('nb-r1-cmd-q-158')
+      assert.equal(result.json.commandId, row.command_id, 'result commandId matches the L3 row')
+      assert.equal(row.status, 'executed', 'L3 row reaches terminal executed')
+      assert.ok(!stub.log.some((e) => e.json?.type === 'command_ack'), 'accepted path emits no command_ack (terminal rides command_result)')
+    } finally {
+      m.relay.resetRelayClientForSmoke()
+      await r1StubClose(stub)
+      await r1CaseTeardown(m)
+    }
+  })
+
+  // 159. 同幂等键重试返回原结果（docs/14 §B.5 + docs/18 §3.8 重试语义）：同 key 同
+  //      payload 新 nonce 重试 → 原 commandId 原结果重放（command_result + command_ack
+  //      accepted），零重复执行；同 key 异 payload → rejected COMMAND_KEY_CONFLICT；
+  //      字面同帧重发（同 nonce）→ error AUTH_REPLAYED（防重放层按传输帧计）；错
+  //      token → error AUTH_INVALID_TOKEN；approve → AGENT_CAPABILITY_MISSING（G6）；
+  //      未知 action → BAD_PAYLOAD。
+  registerCase('nb-r1-159: idempotent retry replays the original result — same key fresh nonce -> replayed command_result + accepted ack with zero re-execution; key/payload conflict rejected; literal same-frame resend -> AUTH_REPLAYED; wrong token -> AUTH_INVALID_TOKEN; approve -> AGENT_CAPABILITY_MISSING; unknown action -> BAD_PAYLOAD', async () => {
+    const m = await r1CaseSetup('devhub-nb-r1-159-')
+    const db = m.dbModule.getDatabase()
+    const stub = await r1StartRelayStub()
+    try {
+      r1EnableRelay(m, stub, 'nb-r1-relay-cred-159')
+      const { sessionId, calls } = await r1FixtureManagedProvider(m, db, 'nb-r1-159')
+      const deviceToken = `nb-r1-dev-token-159-${randomBytes(8).toString('hex')}`
+      r1FixtureDevice(m, db, 'nb-r1-159-phone', deviceToken)
+      m.relay.configureRelayClientRuntime({ helloTimeoutMs: 3000, baseDelayMs: 50, maxDelayMs: 200 })
+      m.relay.startRelayClient()
+      await r1HelloNewConnection(stub)
+      await pollUntil(() => m.relay.getRelayClientDiagnostics().status === 'ready', 5000, 30, 'relay client ready')
+
+      const authFrame = () => ({ token: deviceToken, ts: Math.floor(Date.now() / 1000), nonce: randomBytes(16).toString('hex') })
+      const cmd = r1FixtureFrame(8, 'device-to-ecs')
+      cmd.requestId = 'nb-r1-159-req-1'
+      cmd.idempotencyKey = 'nb-r1-key-159'
+      cmd.sessionId = sessionId
+      cmd.payload = { text: 'first transmission' }
+      cmd.auth = authFrame()
+
+      // 首发：202 语义 accepted → 异步执行 → command_result executed
+      r1StubSend(stub, cmd)
+      const first = await r1StubWait(stub, (f) => f.json?.type === 'command_result' && f.json.idempotencyKey === 'nb-r1-key-159', 4000, 'first command_result')
+      assert.equal(first.json.status, 'executed')
+      const firstCommandId = first.json.commandId
+      assert.equal(calls.reply, 1, 'provider executed once')
+
+      // 同 key 同 payload 重试（新 nonce）→ 原 commandId 原结果重放 + command_ack accepted，零重复执行
+      const retry = { ...cmd, requestId: 'nb-r1-159-req-1-retry', auth: authFrame() }
+      r1StubSend(stub, retry)
+      const replayed = await r1StubWait(stub, (f) => f.json?.type === 'command_result' && f.json.idempotencyKey === 'nb-r1-key-159', 4000, 'replayed command_result')
+      assert.equal(replayed.json.commandId, firstCommandId, 'retry replays the original commandId')
+      assert.equal(replayed.json.status, 'executed', 'retry replays the original result')
+      const ack = await r1StubWait(stub, (f) => f.json?.type === 'command_ack' && f.json.idempotencyKey === 'nb-r1-key-159', 4000, 'replay command_ack')
+      assert.equal(ack.json.status, 'accepted', 'replay ack accepted')
+      assert.equal(ack.json.commandId, firstCommandId, 'ack carries the original commandId')
+      assert.equal(calls.reply, 1, 'no duplicate execution on retry')
+      assert.equal(db.prepare('SELECT COUNT(*) c FROM remote_commands WHERE idempotency_key = ?').get('nb-r1-key-159').c, 1, 'still exactly one command row')
+
+      // 同 key 异 payload → 结构化拒绝 COMMAND_KEY_CONFLICT，不执行（新 nonce：防重放层按传输帧计，幂等层按 key+payload 计）
+      r1StubSend(stub, { ...retry, requestId: 'nb-r1-159-req-1-conflict', payload: { text: 'a different text' }, auth: authFrame() })
+      const conflict = await r1StubWait(stub, (f) => f.json?.type === 'command_ack' && f.json.errorCode === 'COMMAND_KEY_CONFLICT', 4000, 'conflict ack')
+      assert.equal(conflict.json.status, 'rejected')
+      assert.equal(calls.reply, 1, 'conflicting retry never executes')
+
+      // 字面同帧重发（同 nonce）→ 防重放层 error AUTH_REPLAYED（按传输帧计）
+      r1StubSend(stub, cmd)
+      const replayedNonce = await r1StubWait(stub, (f) => f.json?.type === 'error' && f.json.code === 'AUTH_REPLAYED', 4000, 'replayed-nonce error frame')
+      assert.equal(replayedNonce.json.requestId, cmd.requestId, 'error echoes the request id')
+
+      // 错 token → AUTH_INVALID_TOKEN error 帧，绝不触达 L3
+      r1StubSend(stub, { ...cmd, idempotencyKey: 'nb-r1-key-159-b', auth: { token: 'nb-r1-wrong-token', ts: Math.floor(Date.now() / 1000), nonce: randomBytes(16).toString('hex') } })
+      await r1StubWait(stub, (f) => f.json?.type === 'error' && f.json.code === 'AUTH_INVALID_TOKEN', 4000, 'invalid token error frame')
+
+      // approve（G6 默认恒不授予）→ rejected AGENT_CAPABILITY_MISSING；未知 action → BAD_PAYLOAD
+      const approve = { ...cmd, requestId: 'nb-r1-159-req-a', idempotencyKey: 'nb-r1-key-159-a', action: 'approve', auth: authFrame() }
+      delete approve.payload
+      r1StubSend(stub, approve)
+      const approveAck = await r1StubWait(stub, (f) => f.json?.type === 'command_ack' && f.json.errorCode === 'AGENT_CAPABILITY_MISSING', 4000, 'approve rejection ack')
+      assert.equal(approveAck.json.status, 'rejected')
+      r1StubSend(stub, { ...cmd, requestId: 'nb-r1-159-req-d', idempotencyKey: 'nb-r1-key-159-d', action: 'dance', auth: authFrame() })
+      const danceAck = await r1StubWait(stub, (f) => f.json?.type === 'command_ack' && f.json.errorCode === 'BAD_PAYLOAD', 4000, 'unknown action ack')
+      assert.equal(danceAck.json.status, 'rejected')
+
+      // 全程只落地一条命令行（拒绝路径不产生流水行）
+      assert.equal(db.prepare('SELECT COUNT(*) c FROM remote_commands').get().c, 1, 'exactly one command row for the whole case')
+    } finally {
+      m.relay.resetRelayClientForSmoke()
+      await r1StubClose(stub)
+      await r1CaseTeardown(m)
+    }
+  })
+
+  // 160. token_rotation 落库 + 宽限窗口（docs/18 §3.14 + docs/19 §4.6）：非 ready 前置门
+  //      零副作用 → 全流程 L3 落库（sha256 覆盖 + version+1 + 审计零明文）→ 帧形对拍
+  //      fixture #14 host-to-ecs（R2 裁定②必携 deviceId）→ 宽限登记 + heartbeat
+  //      tokenVersion 确认信道（docs/18 §3.13）→ 版本不符合法 no-op → 短窗注入过期：
+  //      维持新 Token（无回滚位）+ 审计；撤销/未知设备结构化拒绝。
+  registerCase('nb-r1-160: token_rotation persisted + grace window — offline gate is zero-side-effect, dispatch lands sha256+version+1 in L3 with plaintext-free audit, frame matches fixture #14 (deviceId mandatory), heartbeat tokenVersion confirms, mismatch is a no-op, injected short window expires to keep-new-token with audit, revoked/unknown refused', async () => {
+    const m = await r1CaseSetup('devhub-nb-r1-160-')
+    const db = m.dbModule.getDatabase()
+    try {
+      const rotation = await import(new URL('../src/main/services/agentControl/relayClient/rotationBridge.ts', import.meta.url).href)
+      const deviceToken = `nb-r1-dev-token-160-${randomBytes(8).toString('hex')}`
+      const deviceId = r1FixtureDevice(m, db, 'nb-r1-160-phone', deviceToken)
+      const captured = []
+
+      // 离线前置门：两平面凭据同步只能在连接面进行 → 拒绝且零副作用（L3 不触达）
+      rotation.setRotationBridgeHost({ isReady: () => false, sendTokenRotation: (f) => { captured.push(f); return true } })
+      const offline = rotation.requestTokenRotation(deviceId, 'manual')
+      assert.equal(offline.dispatched, false)
+      assert.equal(offline.stage, 'offline')
+      assert.equal(captured.length, 0, 'offline refusal sends no frame')
+      assert.equal(Number(db.prepare('SELECT token_version FROM remote_devices WHERE id = ?').get(deviceId).token_version), 1, 'offline refusal never touches L3')
+      assert.equal(db.prepare("SELECT COUNT(*) c FROM security_audit_logs WHERE action = 'token_rotated'").get().c, 0)
+
+      // ready：L3 落库 → 帧发送 → 宽限登记
+      rotation.setRotationBridgeHost({ isReady: () => true, sendTokenRotation: (f) => { captured.push(f); return true } })
+      const first = rotation.requestTokenRotation(deviceId, 'post-pairing')
+      assert.equal(first.stage, 'dispatched')
+      assert.equal(first.tokenVersion, 2)
+      assert.ok(first.requestId, 'dispatch carries a requestId')
+      const frame = captured[0]
+      const fixtureShape = r1FixtureFrame(14, 'host-to-ecs')
+      assert.deepEqual(Object.keys(frame).sort(), Object.keys(fixtureShape).sort(), 'frame shape matches fixture #14 host-to-ecs (R2: deviceId present)')
+      assert.equal(frame.type, 'token_rotation')
+      assert.equal(frame.deviceId, deviceId, 'deviceId = Windows-side remote_devices.id (R2 裁定②)')
+      assert.equal(frame.tokenVersion, 2)
+      assert.equal(frame.reason, 'post-pairing')
+      assert.match(frame.newToken, /^[A-Za-z0-9_-]{43}$/, 'newToken is a 256-bit base64url token')
+      const row = db.prepare('SELECT token_hash, token_version FROM remote_devices WHERE id = ?').get(deviceId)
+      assert.equal(row.token_hash, m.auth.sha256Hex(frame.newToken), 'token_hash overwritten with sha256(newToken)')
+      assert.equal(row.token_version, 2, 'token_version incremented')
+      const rotatedAudit = db.prepare("SELECT detail_json FROM security_audit_logs WHERE action = 'token_rotated' AND device_id = ? ORDER BY id DESC LIMIT 1").get(deviceId)
+      assert.ok(rotatedAudit, 'token_rotated audited')
+      assert.ok(!rotatedAudit.detail_json.includes(frame.newToken), 'audit never carries the token plaintext')
+
+      // 宽限窗口：待确认登记 + heartbeat tokenVersion 确认信道（docs/18 §3.13）
+      assert.equal(rotation.pendingRotationCount(), 1, 'dispatch registers a pending confirmation window')
+      assert.equal(rotation.getPendingRotationVersion(deviceId), 2)
+      assert.equal(rotation.noteTokenRotationConfirmed(99), false, 'version mismatch is a legal no-op (no cross-device misattribution)')
+      assert.equal(rotation.getPendingRotationVersion(deviceId), 2)
+      assert.equal(rotation.noteTokenRotationConfirmed(2), true, 'heartbeat tokenVersion confirms the pending rotation')
+      assert.equal(rotation.pendingRotationCount(), 0, 'window cleared on confirmation')
+      assert.ok(db.prepare("SELECT id FROM security_audit_logs WHERE action = 'token_rotation_confirmed' AND device_id = ?").get(deviceId), 'confirmation audited')
+
+      // 宽限过期：短窗注入，未确认 → 维持新 Token（单哈希列无回滚位）+ 审计
+      rotation.setRotationGraceWindowMs(120)
+      const second = rotation.requestTokenRotation(deviceId, 'manual')
+      assert.equal(second.stage, 'dispatched')
+      assert.equal(second.tokenVersion, 3)
+      await pollUntil(() => db.prepare("SELECT COUNT(*) c FROM security_audit_logs WHERE action = 'token_rotation_grace_expired' AND device_id = ?").get(deviceId).c === 1, 3000, 40, 'grace expiry audit')
+      assert.equal(rotation.pendingRotationCount(), 0, 'window cleared on expiry')
+      const rowAfter = db.prepare('SELECT token_hash, token_version FROM remote_devices WHERE id = ?').get(deviceId)
+      assert.equal(rowAfter.token_version, 3, 'new token stays effective (no rollback bit)')
+      assert.equal(rowAfter.token_hash, m.auth.sha256Hex(captured[1].newToken), 'hash matches the last dispatched token')
+
+      // 撤销设备 → DEVICE_REVOKED；未知设备 → NOT_FOUND（零落库零帧）
+      db.prepare("UPDATE remote_devices SET status = 'revoked' WHERE id = ?").run(deviceId)
+      const revoked = rotation.requestTokenRotation(deviceId, 'manual')
+      assert.equal(revoked.stage, 'refused')
+      assert.equal(revoked.errorCode, 'DEVICE_REVOKED', 'revocation is final (docs/15 §4)')
+      const missing = rotation.requestTokenRotation(424242, 'manual')
+      assert.equal(missing.stage, 'refused')
+      assert.equal(missing.errorCode, 'NOT_FOUND')
+      assert.equal(captured.length, 2, 'refusals never sent frames')
+    } finally {
+      await r1CaseTeardown(m)
+    }
+  })
+
+  // 161. 撤销踢线（docs/18 §3.15 / §9.5 撤销链路）：H→E 定点踢线（L3 revoke → 附加
+  //      撤销监听 → disconnect{deviceId, reason:'revoked'}，帧形对拍 fixture #15）；
+  //      E→H revoked → 状态机停止且绝不自动重连（对比 server_shutdown → 退避重连
+  //      恢复 ready）；lastError 结构化零凭据。
+  registerCase('nb-r1-161: revocation kick — L3 revoke emits the fixture-shaped disconnect{deviceId,revoked} frame, E->H revoked stops the state machine with zero auto-reconnect (contrast: server_shutdown reconnects to ready), structured credential-free lastError', async () => {
+    const m = await r1CaseSetup('devhub-nb-r1-161-')
+    const db = m.dbModule.getDatabase()
+    const stub = await r1StartRelayStub()
+    try {
+      r1EnableRelay(m, stub, 'nb-r1-relay-cred-161')
+      const deviceToken = `nb-r1-dev-token-161-${randomBytes(8).toString('hex')}`
+      const deviceId = r1FixtureDevice(m, db, 'nb-r1-161-phone', deviceToken)
+      m.relay.configureRelayClientRuntime({ helloTimeoutMs: 3000, baseDelayMs: 60, maxDelayMs: 250 })
+      m.relay.startRelayClient()
+      await r1HelloNewConnection(stub)
+      await pollUntil(() => m.relay.getRelayClientDiagnostics().status === 'ready', 5000, 30, 'initial ready')
+      assert.equal(stub.connections.length, 1)
+
+      // H→E 定点踢线：撤销链路 L3 revoke → disconnect 帧（deviceId = Windows 侧 id）
+      m.svc.revokeDevice(deviceId, true, 'ipc')
+      const kick = await r1StubWait(stub, (f) => f.json?.type === 'disconnect' && f.json.reason === 'revoked', 3000, 'H->E kick frame')
+      assert.deepEqual(kick.json, { ...r1FixtureFrame(15, 'host-to-ecs'), deviceId }, 'kick frame matches fixture #15 host-to-ecs with the revoked deviceId')
+      assert.equal(db.prepare('SELECT status FROM remote_devices WHERE id = ?').get(deviceId).status, 'revoked')
+      assert.ok(db.prepare("SELECT id FROM security_audit_logs WHERE action = 'device_revoked' AND device_id = ?").get(deviceId), 'revocation audited')
+
+      // E→H revoked：状态机停止，绝不自动重连（docs/18 §3.15）
+      r1StubSend(stub, r1FixtureFrame(15, 'ecs-to-device-revoked'))
+      await pollUntil(() => m.relay.getRelayClientDiagnostics().status === 'stopped', 3000, 30, 'stopped on revoked')
+      assert.ok((m.relay.getRelayClientDiagnostics().lastError ?? '').includes('revoked'), 'structured lastError carries the revocation (zero credentials)')
+      await sleep(500) // 注入退避 60-250ms：若仍有重连调度必已发生
+      assert.equal(stub.connections.length, 1, 'no auto-reconnect after revoked')
+      assert.equal(m.relay.getRelayClientDiagnostics().status, 'stopped')
+
+      // 对比面：server_shutdown（非撤销）→ 关闭后退避重连 → hello → 恢复 ready
+      m.relay.startRelayClient()
+      await pollUntil(() => stub.connections.length === 2, 3000, 30, 'second connection after re-trigger')
+      await r1HelloNewConnection(stub)
+      await pollUntil(() => m.relay.getRelayClientDiagnostics().status === 'ready', 5000, 30, 'ready again')
+      r1StubSend(stub, r1FixtureFrame(15, 'ecs-to-device-server-shutdown'))
+      await pollUntil(() => stub.connections.length === 3, 5000, 30, 'backoff reconnect fires for server_shutdown')
+      await r1HelloNewConnection(stub)
+      await pollUntil(() => m.relay.getRelayClientDiagnostics().status === 'ready', 5000, 30, 'ready after reconnect (contrast with revoked)')
+    } finally {
+      m.relay.resetRelayClientForSmoke()
+      await r1StubClose(stub)
+      await r1CaseTeardown(m)
+    }
+  })
+
+  // 162. 凭据零入日志/DB 抽样（docs/19 §2.2/§3 红线）：四个秘密（relay 凭据 / 配对码
+  //      明文 / deviceToken / 轮换 newToken）× 全部非豁免面（帧 / settings / 
+  //      remote_devices / 审计 / 事件 / 诊断投影）零出现；豁免面仅限 docs/19 §3 W-R3
+  //      受控一次性过境（upgrade Authorization 头 / pair_accepted.deviceToken /
+  //      token_rotation.newToken）；静态面：relayClient 模块零 console 输出。
+  registerCase('nb-r1-162: credential zero-leak sweep — relay credential rides only the upgrade Authorization header, pairing code is hashed on-site (register_pairing), deviceToken/newToken transit once through pair_accepted/token_rotation, every other frame/settings/device-row/audit/event/diagnostic surface is free of all four secrets, relayClient sources contain zero console logging', async () => {
+    const m = await r1CaseSetup('devhub-nb-r1-162-')
+    const db = m.dbModule.getDatabase()
+    const stub = await r1StartRelayStub()
+    try {
+      const statusProjector = await import(new URL('../src/main/services/agentControl/relayClient/statusProjector.ts', import.meta.url).href)
+      const pairingBridge = await import(new URL('../src/main/services/agentControl/relayClient/pairingBridge.ts', import.meta.url).href)
+      const relayCred = `nb-r1-RELAY-CRED-${randomBytes(12).toString('hex')}`
+      r1EnableRelay(m, stub, relayCred)
+      m.relay.configureRelayClientRuntime({ helloTimeoutMs: 3000, baseDelayMs: 50, maxDelayMs: 200 })
+      m.relay.startRelayClient()
+      await r1HelloNewConnection(stub)
+      await pollUntil(() => m.relay.getRelayClientDiagnostics().status === 'ready', 5000, 30, 'ready')
+      assert.equal(stub.upgrades[stub.upgrades.length - 1].authorization, `Bearer ${relayCred}`, 'credential rides the upgrade Authorization header (sanctioned transport surface)')
+
+      // 配对链全流程（register_pairing → ack → pair → pair_accepted → post-pairing 轮换）
+      const created = await m.svc.createPairing('nb-r1-162-phone')
+      const reg = await r1StubWait(stub, (f) => f.json?.type === 'register_pairing' && f.json.pairingId === created.pairingId, 3000, 'register_pairing')
+      assert.deepEqual(Object.keys(reg.json).sort(), Object.keys(r1FixtureControlFrame('host-to-ecs')).sort(), 'register_pairing matches the fixture hostControlFrames shape')
+      assert.equal(reg.json.codeHash, m.auth.sha256Hex(created.code), 'pairing code hashed on-site (sha256), plaintext never framed')
+      assert.equal(reg.json.expiresAt, created.expiresAt)
+      r1StubSend(stub, { ...r1FixtureControlFrame('ecs-to-host'), requestId: reg.json.requestId, pairingId: created.pairingId, accepted: true, expiresAt: created.expiresAt })
+      await pollUntil(() => pairingBridge.getLastRegisterPairingAck()?.accepted === true, 2000, 30, 'register ack recorded (diagnostics without secrets)')
+      r1StubSend(stub, { ...r1FixtureFrame(2, 'ecs-to-host'), requestId: 'nb-r1-162-pair-1', ecsDeviceId: 7, pairingId: created.pairingId, deviceName: 'nb-r1-162-phone', platform: 'android' })
+      const accepted = await r1StubWait(stub, (f) => f.json?.type === 'pair_accepted' && f.json.requestId === 'nb-r1-162-pair-1', 3000, 'pair_accepted')
+      const deviceToken = accepted.json.deviceToken
+      assert.match(deviceToken, /^[A-Za-z0-9_-]{43}$/, 'deviceToken is a 256-bit base64url token (one-time transit)')
+      const devRow = db.prepare('SELECT id, token_hash, token_version FROM remote_devices WHERE device_name = ?').get('nb-r1-162-phone')
+      assert.ok(devRow, 'claim created the device row')
+      assert.equal(Number(devRow.token_version), 2, 'claim (v1) + post-pairing rotation (v2) both landed — rotation runs in the paired callback before the wire')
+      assert.equal(accepted.json.device.deviceId, devRow.id, 'pair_accepted carries the Windows-side device id')
+      await pollUntil(() => m.relay.getRelayClientDiagnostics().mappedDevices === 1, 2000, 30, 'ecs->win device mapping registered')
+      const rot = await r1StubWait(stub, (f) => f.json?.type === 'token_rotation' && f.json.deviceId === devRow.id, 3000, 'post-pairing token_rotation')
+      const newToken = rot.json.newToken
+      assert.match(newToken, /^[A-Za-z0-9_-]{43}$/)
+      assert.equal(rot.json.reason, 'post-pairing', 'post-pairing rotation fired automatically (docs/19 §4.5)')
+      assert.equal(rot.json.tokenVersion, 2)
+      assert.equal(devRow.token_hash, m.auth.sha256Hex(newToken), 'db stores sha256(newToken) after rotation (hash material only)')
+
+      // 红线扫描：四个秘密 × 非豁免面
+      const secrets = [relayCred, created.code, deviceToken, newToken]
+      // 受控一次性过境面（docs/19 §3 W-R3）只允许各自的 token 过境：其余两秘密仍禁
+      for (const entry of stub.log) {
+        if (entry.json?.type === 'pair_accepted' || entry.json?.type === 'token_rotation') {
+          assert.ok(!entry.text.includes(relayCred) && !entry.text.includes(created.code), 'transit frames never carry the relay credential or the pairing code')
+          continue
+        }
+        for (const secret of secrets) {
+          assert.ok(!entry.text.includes(secret), `frame type=${entry.json?.type} never carries secret ${secret.slice(0, 12)}…`)
+        }
+      }
+      for (const row of db.prepare('SELECT key, value FROM settings').all()) {
+        for (const secret of secrets) assert.ok(!String(row.value).includes(secret), `settings ${row.key} is secret-free`)
+      }
+      for (const row of db.prepare('SELECT * FROM remote_devices').all()) {
+        const blob = JSON.stringify(row)
+        for (const secret of secrets) assert.ok(!blob.includes(secret), 'remote_devices carries hash material only')
+      }
+      for (const row of db.prepare('SELECT action, detail_json FROM security_audit_logs').all()) {
+        const blob = `${row.action} ${row.detail_json ?? ''}`
+        for (const secret of secrets) assert.ok(!blob.includes(secret), `audit ${row.action} is secret-free`)
+      }
+      for (const row of db.prepare('SELECT payload_json FROM agent_events').all()) {
+        for (const secret of secrets) assert.ok(!row.payload_json.includes(secret), 'agent_events are secret-free')
+      }
+      const diagBlob = JSON.stringify(m.relay.getRelayClientDiagnostics()) + JSON.stringify(statusProjector.projectRelayStatus())
+      for (const secret of secrets) assert.ok(!diagBlob.includes(secret), 'diagnostics/status projection is secret-free')
+
+      // 静态面：relayClient 模块零 console 输出（凭据不入日志的结构保证）
+      const relayDir = new URL('../src/main/services/agentControl/relayClient/', import.meta.url)
+      for (const file of readdirSync(relayDir)) {
+        if (!file.endsWith('.ts')) continue
+        const src = readFileSync(new URL(file, relayDir), 'utf8')
+        assert.ok(!/console\./.test(src), `relayClient/${file} never logs (structural no-leak guarantee)`)
+      }
+    } finally {
+      m.relay.resetRelayClientForSmoke()
+      await r1StubClose(stub)
+      await r1CaseTeardown(m)
+    }
+  })
+
   await run()
 }

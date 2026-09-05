@@ -63,6 +63,8 @@ import {
   recordWaitingInputEvent,
 } from './eventPipeline.ts'
 import { computeNatPierceStatus, refreshNatPierceStatus } from './natpierce.ts'
+import { generateDeviceToken, sha256Hex } from './gateway/auth.ts'
+import { projectRelayStatus } from './relayClient/statusProjector.ts'
 import {
   AGENT_PROVIDER_CATALOG,
   WIRED_PROVIDER_IDS,
@@ -427,6 +429,107 @@ export function setDeviceRevokedListener(listener: ((deviceId: number) => void) 
   deviceRevokedListener = listener
 }
 
+/**
+ * 追加设备撤销监听（M2-R1 relayClient 踢线注入，docs/18 §3.15/§9.5）：与
+ * setDeviceRevokedListener（主槽，Gateway 独占）并行的附加槽列表——撤销路径
+ * 逐个回调（单个失败不阻断其余，与主槽同纪律）。
+ */
+const extraDeviceRevokedListeners: Array<(deviceId: number) => void> = []
+
+export function addDeviceRevokedListener(listener: (deviceId: number) => void): void {
+  extraDeviceRevokedListeners.push(listener)
+}
+
+/** 清空附加撤销监听（smoke/测试复位；生产不调用）。 */
+export function clearExtraDeviceRevokedListeners(): void {
+  extraDeviceRevokedListeners.length = 0
+}
+
+/**
+ * 配对码签发监听（M2-R1 relayClient pairingBridge 消费，docs/19 §4.5「签发同步」）：
+ * createPairing 成功签发后触发一次；监听方（pairingBridge）计算 code_hash 后经
+ * register_pairing 帧同步 ECS 落 pairing_codes。relay 关闭/离线时监听缺席或投递
+ * 失败 → 配对退化为本地模式专用（docs/19 §4.5），绝不影响签发本身。
+ * code 明文仅在监听参数中瞬时流转（pairingBridge 现场哈希后丢弃）——不入日志/
+ * 审计/DB（docs/15 §2 红线）。
+ */
+export interface PairingIssuedEvent {
+  pairingId: string
+  /** 8 位 Crockford Base32 明文（瞬时；监听方现场 sha256 后同步 ECS）。 */
+  code: string
+  expiresAt: number
+}
+
+let pairingIssuedListener: ((event: PairingIssuedEvent) => void) | null = null
+
+export function setPairingIssuedListener(listener: ((event: PairingIssuedEvent) => void) | null): void {
+  pairingIssuedListener = listener
+}
+
+/** 签发触发（L3 内部；监听异常不影响签发结果）。 */
+function notifyPairingIssued(event: PairingIssuedEvent): void {
+  if (pairingIssuedListener === null) return
+  try {
+    pairingIssuedListener(event)
+  } catch {
+    /* 同步失败不阻断本地配对（本地模式照常可用，docs/19 §4.5） */
+  }
+}
+
+/**
+ * 远程指令终态监听（M2-R1 relayClient commandDownlink 消费，docs/18 §3.10
+ * command_result 回帧）：executeRemoteCommand / 过期标记到达终态时触发一次。
+ * relay 侧按 commandId 过滤（只回帧经 relay 下达的指令）；Gateway/IPC 来源
+ * 指令的终态已由 command.result 事件承载，不在 relay 面回帧。
+ */
+export interface RemoteCommandTerminalEvent {
+  commandId: string
+  idempotencyKey: string
+  sessionId: number
+  action: string
+  status: 'executed' | 'rejected' | 'failed' | 'expired'
+  errorCode: string | null
+}
+
+let remoteCommandCompleteListener: ((event: RemoteCommandTerminalEvent) => void) | null = null
+
+export function setRemoteCommandCompleteListener(listener: ((event: RemoteCommandTerminalEvent) => void) | null): void {
+  remoteCommandCompleteListener = listener
+}
+
+/** 终态触发（L3 内部；监听异常绝不影响指令行状态机）。 */
+function notifyRemoteCommandTerminal(event: RemoteCommandTerminalEvent): void {
+  if (remoteCommandCompleteListener === null) return
+  try {
+    remoteCommandCompleteListener(event)
+  } catch {
+    /* 回帧侧异常不影响 L3 终态（command.result 事件双通道兜底） */
+  }
+}
+
+/**
+ * 远程指令终态只读投影（M2-R1 commandDownlink 幂等重放回帧数据源；docs/18 §3.10
+ * 「同 key 重试返回原结果」的 result 帧形态）。gateway 层只读豁免同款（零写库）。
+ */
+export function getRemoteCommandResultView(commandId: string): RemoteCommandTerminalEvent | null {
+  const row = getDatabase()
+    .prepare('SELECT command_id, idempotency_key, session_id, action, status, error_code FROM remote_commands WHERE command_id = ?')
+    .get(commandId) as
+    | { command_id: string; idempotency_key: string; session_id: number | null; action: string; status: string; error_code: string | null }
+    | undefined
+  if (row === undefined) return null
+  const status = row.status
+  if (status !== 'executed' && status !== 'rejected' && status !== 'failed' && status !== 'expired') return null
+  return {
+    commandId: row.command_id,
+    idempotencyKey: row.idempotency_key,
+    sessionId: row.session_id === null ? 0 : Number(row.session_id),
+    action: row.action,
+    status,
+    errorCode: row.error_code,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 读类 8 条（查 004 新表真实返回）
 // ---------------------------------------------------------------------------
@@ -726,6 +829,9 @@ export function getGatewayStatus(): GatewayStatusView {
     .prepare("SELECT COUNT(*) AS c FROM remote_devices WHERE status = 'active'")
     .get() as { c: number }
   const probe = gatewayRuntimeProbe !== null ? gatewayRuntimeProbe() : undefined
+  // M2-R1（docs/19 §4.7 D5）：relay 可选附加字段——disabled → projectRelayStatus null
+  // → 字段缺席（零噪声向后兼容）；enabled → 结构化真值（statusProjector 投影）。
+  const relayStatus = projectRelayStatus()
   return {
     enabled: gatewayEnabledSetting(),
     running: probe?.running ?? false,
@@ -735,6 +841,7 @@ export function getGatewayStatus(): GatewayStatusView {
     // AC8（docs/15 §8 / docs/16 §1 AC8 行）：NatPierce 外置配置投影——configured
     // = env 齐备性，reachable = 60s 缓存的健康探测（diagnostics 面刷新），零凭据。
     natpierce: computeNatPierceStatus(),
+    ...(relayStatus !== null ? { relay: relayStatus } : {}),
     ...(probe?.lastError !== undefined && probe.lastError.length > 0 ? { lastError: probe.lastError } : {}),
   }
 }
@@ -892,7 +999,11 @@ export async function createSessionAction(
  */
 export async function createPairing(deviceName?: string): Promise<AgentPairingCreateResult> {
   const { createPairingCode } = await import('./gateway/pairing.ts')
-  return createPairingCode(deviceName)
+  const result = createPairingCode(deviceName)
+  // M2-R1：relay 面签发同步（pairingBridge register_pairing → ECS pairing_codes；
+  // 明文码仅在监听参数中瞬时流转，docs/19 §4.5）
+  notifyPairingIssued({ pairingId: result.pairingId, code: result.code, expiresAt: result.expiresAt })
+  return result
 }
 
 /**
@@ -938,6 +1049,15 @@ export function revokeDevice(
       deviceRevokedListener(deviceId)
     } catch {
       /* 断连异常不影响撤销结果 */
+    }
+  }
+  // M2-R1：附加撤销监听（relayClient 踢线 disconnect{deviceId,reason:'revoked'}，
+  // docs/18 §9.5 撤销链路；单监听失败不阻断其余与撤销结果）
+  for (const listener of extraDeviceRevokedListeners) {
+    try {
+      listener(deviceId)
+    } catch {
+      /* 踢线异常不影响撤销结果 */
     }
   }
   return { revoked: true }
@@ -1088,6 +1208,15 @@ export async function submitRemoteCommand(input: RemoteCommandSubmitInput): Prom
         status: 'expired',
         errorCode: 'COMMAND_EXPIRED',
       })
+      // M2-R1：relay 面终态回帧（commandDownlink 按 commandId 过滤）
+      notifyRemoteCommandTerminal({
+        commandId: existing.command_id,
+        idempotencyKey: key,
+        sessionId: input.sessionId,
+        action: input.action,
+        status: 'expired',
+        errorCode: 'COMMAND_EXPIRED',
+      })
       throw new ServiceError('COMMAND_EXPIRED', `remote command: command expired (expires_at = ${existing.expires_at}, docs/14 B.5)`)
     }
     // 同 key 重试：原命令原结果，不重复执行（终态/未过期均返回原结果）
@@ -1110,6 +1239,7 @@ export async function submitRemoteCommand(input: RemoteCommandSubmitInput): Prom
   // 202 accepted 语义：响应先回，执行到底（结果照常回写 command.result 事件）
   void executeRemoteCommand({
     commandId,
+    idempotencyKey: key,
     providerKey: gate.providerKey,
     nativeId: session.native_id,
     sessionId: input.sessionId,
@@ -1123,6 +1253,8 @@ export async function submitRemoteCommand(input: RemoteCommandSubmitInput): Prom
 /** 后台执行体：provider 动作 → remote_commands 终态 + command.result 事件（异常折叠，绝不上抛）。 */
 async function executeRemoteCommand(input: {
   commandId: string
+  /** M2-R1：relay 面终态回帧（notifyRemoteCommandTerminal）所需幂等键。 */
+  idempotencyKey: string
   providerKey: string
   nativeId: string
   sessionId: number
@@ -1161,6 +1293,14 @@ async function executeRemoteCommand(input: {
         action: input.action,
         status: 'executed',
       })
+      notifyRemoteCommandTerminal({
+        commandId: input.commandId,
+        idempotencyKey: input.idempotencyKey,
+        sessionId: input.sessionId,
+        action: input.action,
+        status: 'executed',
+        errorCode: null,
+      })
     } else if (outcome.status === 'unsupported') {
       db.prepare("UPDATE remote_commands SET status = 'rejected', error_code = 'AGENT_CAPABILITY_MISSING', result_json = ?, executed_at = ? WHERE command_id = ?").run(
         JSON.stringify({ status: 'unsupported' }),
@@ -1173,6 +1313,14 @@ async function executeRemoteCommand(input: {
         sessionId: input.sessionId,
         nativeId: input.nativeId,
         commandId: input.commandId,
+        action: input.action,
+        status: 'rejected',
+        errorCode: 'AGENT_CAPABILITY_MISSING',
+      })
+      notifyRemoteCommandTerminal({
+        commandId: input.commandId,
+        idempotencyKey: input.idempotencyKey,
+        sessionId: input.sessionId,
         action: input.action,
         status: 'rejected',
         errorCode: 'AGENT_CAPABILITY_MISSING',
@@ -1196,6 +1344,14 @@ async function executeRemoteCommand(input: {
         status: 'failed',
         errorCode,
       })
+      notifyRemoteCommandTerminal({
+        commandId: input.commandId,
+        idempotencyKey: input.idempotencyKey,
+        sessionId: input.sessionId,
+        action: input.action,
+        status: 'failed',
+        errorCode,
+      })
     }
   } catch (err) {
     // 门后异常折叠为 rejected + 结构化错误码（约束 #14；事件照发，远程端可见）
@@ -1212,6 +1368,14 @@ async function executeRemoteCommand(input: {
         sessionId: input.sessionId,
         nativeId: input.nativeId,
         commandId: input.commandId,
+        action: input.action,
+        status: 'rejected',
+        errorCode,
+      })
+      notifyRemoteCommandTerminal({
+        commandId: input.commandId,
+        idempotencyKey: input.idempotencyKey,
+        sessionId: input.sessionId,
         action: input.action,
         status: 'rejected',
         errorCode,
@@ -1427,6 +1591,49 @@ export function touchDeviceLastSeen(deviceId: number): void {
   getDatabase()
     .prepare('UPDATE remote_devices SET last_seen_at = ?, updated_at = ? WHERE id = ?')
     .run(now, now, deviceId)
+}
+
+// ---------------------------------------------------------------------------
+// M2-R1 — 设备 Token 轮换（docs/18 §3.14 + docs/19 §4.5 rotationBridge 数据面：
+// L3 新 Token 生成 + token_hash 覆盖 + token_version+1 + 审计；schema 现字段
+// 承载，零 migration。明文 Token 仅返回值一次性流转进 token_rotation 帧——
+// 红线受控面 docs/19 §3 W-R3，绝不入日志/审计/DB）
+// ---------------------------------------------------------------------------
+
+/** 轮换原因全集（docs/18 §3.14 reason 枚举）。 */
+export type DeviceTokenRotationReason = 'post-pairing' | 'manual' | 'periodic'
+
+/**
+ * 设备 Token 轮换（rotationBridge 的 L3 落点；docs/18 §3.14「Windows 侧落库」行）：
+ * 撤销设备 → DEVICE_REVOKED（轮换对撤销设备无意义，撤销即拒不可复活）；成功 =
+ * sha256(newToken) 覆盖 token_hash + token_version+1 + 审计 device/token_rotated
+ * （detail 零 Token 明文）。宽限跟踪（300s 确认窗口）与帧发送归 rotationBridge。
+ */
+export function rotateDeviceToken(
+  deviceId: number,
+  reason: DeviceTokenRotationReason,
+): { deviceId: number; tokenVersion: number; token: string } {
+  const db = getDatabase()
+  const row = db.prepare('SELECT id, status, token_version FROM remote_devices WHERE id = ?').get(deviceId) as
+    | { id: number; status: string; token_version: number }
+    | undefined
+  if (row === undefined) {
+    throw new ServiceError('NOT_FOUND', `remote device ${deviceId} not found`)
+  }
+  if (row.status === 'revoked') {
+    throw new ServiceError('DEVICE_REVOKED', `remote device ${deviceId} is revoked; token rotation refused (revocation is final, docs/15 §4)`)
+  }
+  const token = generateDeviceToken()
+  const tokenVersion = Number(row.token_version) + 1
+  const now = nowSec()
+  db.prepare('UPDATE remote_devices SET token_hash = ?, token_version = ?, updated_at = ? WHERE id = ?').run(
+    sha256Hex(token),
+    tokenVersion,
+    now,
+    deviceId,
+  )
+  insertSecurityAudit('device', 'token_rotated', deviceId, 'success', JSON.stringify({ reason, tokenVersion }))
+  return { deviceId, tokenVersion, token }
 }
 
 // ---------------------------------------------------------------------------
@@ -1976,6 +2183,14 @@ export async function shutdownAgentControlRuntime(): Promise<void> {
     await gw.stopGateway('app quit teardown (docs/12 §10 order: WS close -> listener close)')
   } catch {
     // Gateway 收尾失败不阻断后续步骤（runQuitTeardown 同纪律）
+  }
+  // M2-R1：关 relayClient（docs/19 §4.2「托盘退出收尾顺序追加『关 relayClient』一步」
+  // ——docs/12 §10 顺序表延伸；动态 import 同上，relayClient/index.ts 静态依赖本模块）
+  try {
+    const relay = await import('./relayClient/index.ts')
+    relay.stopRelayClient('app quit teardown (docs/12 §10 order: relay client close)')
+  } catch {
+    // relayClient 收尾失败不阻断后续步骤
   }
   for (const id of WIRED_PROVIDER_IDS) {
     const instance = getProviderInstance(id)

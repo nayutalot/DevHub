@@ -467,6 +467,15 @@ export function createHandlerRegistry(deps: HandlerDeps): HandlerRegistry {
           .then((gw) => gw.applyGatewaySettings())
           .catch(() => {})
       }
+      // M2-R1 relay 接线（docs/19 §4.7 settings 面）：relay_enabled/relay_endpoint
+      // 翻转即时生效（stop → start 收敛；disabled/unregistered/misconfigured 结构化
+      // 投影零连接），照 gateway_enabled 先例。启动失败不回滚 settings，经
+      // agents:gatewayStatus.relay.lastError 结构化可见。
+      if (key === 'relay_enabled' || key === 'relay_endpoint') {
+        void import('../services/agentControl/relayClient/index.ts')
+          .then((relay) => relay.applyRelaySettings())
+          .catch(() => {})
+      }
       return { saved: true as const }
     },
     'app:version': async () => ({

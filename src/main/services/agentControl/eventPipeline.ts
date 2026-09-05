@@ -97,6 +97,31 @@ export function setEventDeliverySink(sink: EventDeliverySink | null): void {
   deliverySink = sink
 }
 
+/**
+ * Relay 事件 sink（M2-R1，docs/19 §4.3 多 sink 注入缝）：gateway WS sink（上方，
+ * 原样）+ relay sink（本缝，relayClient eventUplink 注册）——同一 COMMIT 后按序
+ * 调用，两 sink 相互独立（任一失败不影响另一侧与落库结果，投递失败不回滚 DB）。
+ * 输入在 EventDeliverySink 形态上追加 provider（业务键投影，docs/18 §3.6 G6 新增
+ * 字段的数据源；无 provider 行为 null）。
+ */
+export type RelayEventSink = (event: {
+  sequence: number
+  eventId: string
+  eventType: AgentEventType
+  payload: Record<string, unknown>
+  sessionId: number | null
+  summary?: string | null
+  createdAt: number
+  provider: string | null
+}) => void
+
+let relayEventSink: RelayEventSink | null = null
+
+/** 注册 Relay 事件 sink（relayClient 接线点；传 null 注销）。 */
+export function setRelayEventSink(sink: RelayEventSink | null): void {
+  relayEventSink = sink
+}
+
 export interface EventRecordInput {
   eventType: AgentEventType
   /** provider 业务键（'codex' 等）；agent_providers 行不存在时 provider_id 落 NULL。 */
@@ -173,8 +198,10 @@ export function recordEvent(input: EventRecordInput): EventRecordResult {
     db.exec('COMMIT')
     // COMMIT 后才投递（docs/12 §6 语义 1）；投递失败不回滚 DB。
     // R5.1（ux 批 A）：db-to-ws 分段打点（agent_events.created_at → WS 投递回调触发）。
-    if (deliverySink !== null) {
+    if (deliverySink !== null || relayEventSink !== null) {
       recordLatencySample('db-to-ws', Date.now() - now * 1000)
+    }
+    if (deliverySink !== null) {
       try {
         deliverySink({
           sequence,
@@ -187,6 +214,23 @@ export function recordEvent(input: EventRecordInput): EventRecordResult {
         })
       } catch {
         // 投递异常不影响落库结果（重连补发兜底，AC6）
+      }
+    }
+    // Relay sink（docs/19 §4.3）：与 gateway sink 相互独立；失败不回滚（sync/回填兜底）。
+    if (relayEventSink !== null) {
+      try {
+        relayEventSink({
+          sequence,
+          eventId,
+          eventType: input.eventType,
+          payload,
+          sessionId: input.sessionId ?? null,
+          summary,
+          createdAt: now,
+          provider: input.providerKey !== undefined && input.providerKey !== '-' ? input.providerKey : null,
+        })
+      } catch {
+        // relay 投递异常不影响落库与 gateway 投递（断线回填兜底）
       }
     }
     return { recorded: true, sequence, eventId, deliveries }
@@ -396,6 +440,61 @@ function asState(value: string): EventDeliveryState {
   return value === 'delivered' || value === 'acked' ? value : 'pending'
 }
 
+// ---------------------------------------------------------------------------
+// M2-R1 — Relay 累计 ACK 回写（docs/18 §3.11 E→H sync_request{after,deviceId} →
+// docs/19 §4.3「批量 markEventAcked（新增 L3 范围批）」）：
+// 累计游标（§6.2「只前进」）一次性把 ≤ after 的全部未 ack 事件推进到 acked
+// （单事务内循环现 upsert/聚合原语，等价逐个 markEventAcked 但原子且少 N-1 次
+// 事务）。relayClient 的 sync_request 路由（relayClient/index.ts）消费。
+// ---------------------------------------------------------------------------
+
+export interface EventsAckedThroughResult {
+  /** 本次实际推进（pending|delivered → acked）的 (event, device) 行数。 */
+  acked: number
+  /** 窗口内涉及的最高 sequence（无行 → null）。 */
+  lastSequence: number | null
+}
+
+/**
+ * 范围批 ack：sequence ≤ throughSequence 且对该设备未 ack 的事件 → acked。
+ * 累计游标是 ack seqs[] 的超集（docs/18 §10 映射表）；只前进语义由
+ * upsertDeviceDeliveryRow 的 WHERE 守卫 + advanceAggregate 的秩比较保证
+ * （重复 sync_request / 乱序回退游标均为合法 no-op）。
+ */
+export function markEventsAckedThrough(throughSequence: number, deviceId: number): EventsAckedThroughResult {
+  if (!Number.isSafeInteger(throughSequence) || throughSequence < 0) {
+    throw new ServiceError('BAD_PAYLOAD', `markEventsAckedThrough: throughSequence must be a non-negative integer, got ${throughSequence}`)
+  }
+  if (!Number.isSafeInteger(deviceId) || deviceId <= 0) {
+    throw new ServiceError('BAD_PAYLOAD', `markEventsAckedThrough: deviceId must be a positive integer, got ${deviceId}`)
+  }
+  const db = getDatabase()
+  const pendingIds = db
+    .prepare(
+      `SELECT e.id FROM agent_events e WHERE e.id <= ? AND NOT EXISTS (
+         SELECT 1 FROM event_deliveries d WHERE d.event_id = e.id AND d.device_id = ? AND d.status = 'acked'
+       ) ORDER BY e.id ASC`,
+    )
+    .all(throughSequence, deviceId) as unknown as Array<{ id: number }>
+  if (pendingIds.length === 0) {
+    return { acked: 0, lastSequence: null }
+  }
+  const now = nowSec()
+  db.exec('BEGIN')
+  try {
+    let acked = 0
+    for (const row of pendingIds) {
+      if (upsertDeviceDeliveryRow(db, Number(row.id), deviceId, 'acked', now)) acked += 1
+      advanceAggregate(Number(row.id), 'acked', now, true)
+    }
+    db.exec('COMMIT')
+    return { acked, lastSequence: Number(pendingIds[pendingIds.length - 1].id) }
+  } catch (err) {
+    db.exec('ROLLBACK')
+    throw new ServiceError('DB_ERROR', `markEventsAckedThrough failed: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
 /** 补发行投影（payload 已脱敏——落库前经 redactPayloadDeep，此处不再二次处理）。 */
 export interface EventReplayRow {
   /** agent_events.id = 全局 sequence。 */
@@ -409,6 +508,8 @@ export interface EventReplayRow {
   payload: Record<string, unknown>
   deliveryState: EventDeliveryState
   createdAt: number
+  /** provider 业务键（M2-R1：Relay event 帧 provider 字段数据源，docs/18 §3.6；无 provider 行为 null）。 */
+  provider: string | null
 }
 
 export interface EventReplayPage {
@@ -432,12 +533,15 @@ export function eventsSince(afterSequence: number, deviceId: number | null, limi
   const capped = Math.max(1, Math.min(limit, 200))
   const db = getDatabase()
   const after = Number.isSafeInteger(afterSequence) && afterSequence > 0 ? afterSequence : 0
+  // provider 业务键经 LEFT JOIN 投影（M2-R1：Relay event 帧 provider 字段数据源，
+  // docs/18 §3.6 G6 新增字段；provider_id 为 NULL 或行缺失 → null，绝不猜）。
   const rows = (
     deviceId !== null
       ? db
           .prepare(
-            `SELECT e.id, e.session_id, e.event_id, e.event_type, e.summary, e.payload_json, e.delivery_state, e.created_at
+            `SELECT e.id, e.session_id, e.event_id, e.event_type, e.summary, e.payload_json, e.delivery_state, e.created_at, p.provider AS provider_key
              FROM agent_events e
+             LEFT JOIN agent_providers p ON p.id = e.provider_id
              WHERE e.id > ? AND NOT EXISTS (
                SELECT 1 FROM event_deliveries d WHERE d.event_id = e.id AND d.device_id = ? AND d.status = 'acked'
              )
@@ -446,8 +550,9 @@ export function eventsSince(afterSequence: number, deviceId: number | null, limi
           .all(after, deviceId, capped + 1)
       : db
           .prepare(
-            `SELECT e.id, e.session_id, e.event_id, e.event_type, e.summary, e.payload_json, e.delivery_state, e.created_at
+            `SELECT e.id, e.session_id, e.event_id, e.event_type, e.summary, e.payload_json, e.delivery_state, e.created_at, p.provider AS provider_key
              FROM agent_events e
+             LEFT JOIN agent_providers p ON p.id = e.provider_id
              WHERE e.id > ? AND e.delivery_state != 'acked'
              ORDER BY e.id ASC LIMIT ?`,
           )
@@ -461,6 +566,7 @@ export function eventsSince(afterSequence: number, deviceId: number | null, limi
     payload_json: string
     delivery_state: string
     created_at: number
+    provider_key: string | null
   }>
 
   const hasMore = rows.length > capped
@@ -481,6 +587,7 @@ export function eventsSince(afterSequence: number, deviceId: number | null, limi
       payload,
       deliveryState: asState(row.delivery_state),
       createdAt: Number(row.created_at),
+      provider: row.provider_key,
     }
   })
   return { events, hasMore }
