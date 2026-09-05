@@ -142,6 +142,17 @@ export function resetEventUplinkState(): void {
 }
 
 /**
+ * 停止/注销（relayClient.stop 路径）：宿主摘除 + relay sink 注销（事件回到
+ * 「只落库、离线回填兜底」语义）+ 注册标记复位（下次 setEventUplinkHost 重新注册）。
+ * 水位不清零（持久层与内存镜像保留——stop/start 往返不回退，docs/18 §6.2 只前进）。
+ */
+export function clearEventUplinkHost(): void {
+  uplinkHost = null
+  sinkRegistered = false
+  setRelayEventSink(null)
+}
+
+/**
  * 注册上行（幂等）：relay sink 注入 eventPipeline 多 sink 缝 + 水位恢复。
  * sink 投递语义：离线（非 ready）→ 只记录（COMMIT 已完成，回填兜底）；在线 →
  * 投帧成功即 markEventDelivered + 水位前进。sink 异常绝不外抛（eventPipeline
