@@ -74,8 +74,12 @@ Android 设备（device 角色）                          Windows relayClient�
 | 撤销即断 | 桌面撤销 → host 通知 ECS 踢线（§3.15）→ 该设备全部连接立即服务端关闭，后续连接 401 | 凭据撤销（`relay_hosts.status=revoked`）→ 全部 host 连接关闭 |
 
 TLS 终结在反代（Caddy/Nginx，443 唯一公网入口，`docs/ecs-security-group-policy.md` §2.1 T1）；
-Relay 本体只绑 `127.0.0.1`。明文 `ws://` 仅限本地模式（docs/14 路径），Relay 模式客户端**必须拒绝**
-非 `wss://` endpoint（G2/G7，docs/21 §1）。
+Relay 本体只绑 `127.0.0.1`。**传输层 = 自签 IP TLS（SAN 含 `IP:59.110.149.11`）+ 双端注入式
+指纹 pinning（Android `CertificatePinner` / Node `tls.checkServerIdentity`，双指纹轮换窗口）**，
+见 docs/19 §10；U1 已裁决无域名（docs/21 §1），上表 `<relay>` 的部署实例 =
+`wss://59.110.149.11`。明文 `ws://` 仅限 (a) 本地模式（docs/14 路径）与 (b) M3 联调时间盒
+（docs/19 §11 精确过期条件，不承载真实配对）；Relay 模式客户端代码层**必须拒绝**非 `wss://`
+endpoint（G2/G7/D7，docs/21 §1）——时间盒属部署期例外，代码层拒绝规则不变。
 
 ---
 

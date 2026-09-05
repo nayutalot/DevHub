@@ -1,5 +1,6 @@
 package com.devhub.mobile.data.remote
 
+import com.devhub.mobile.core.TlsPinningConfig
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -65,16 +66,22 @@ interface ProjectionApi {
  * Gateway REST 客户端（docs/14 §B.1 13 端点的 Android 面）。
  * 同步执行（调用方负责切 Dispatchers.IO）；网络失败以 IOException 上抛
  * （离线队列按 QueueReplayPlanner 分类）；结构化错误统一 ApiError。
+ *
+ * U1 注入缝（docs/21 §1.1 / docs/19 §10.2）：[tlsPinning] 可选指纹配置（无域名 IP TLS）——
+ * null（默认）= 现行为不变（local 模式 http/ws 明文、无 pinning，零回归）；
+ * 非 null 时对 TLS 连接（https）启用 SPKI 指纹锁定（relay 模式接线属 R3 批，docs/20 §2.3）。
  */
 class GatewayApi(
     private val baseUrlProvider: () -> String,
     private val tokenProvider: () -> String?,
+    private val tlsPinning: TlsPinningConfig? = null,
 ) : ProjectionApi {
     val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .addInterceptor(ProtocolHeadersInterceptor(tokenProvider))
+        .apply { tlsPinning?.let { certificatePinner(it.toCertificatePinner()) } }
         .build()
 
     private val jsonMedia = "application/json; charset=utf-8".toMediaType()

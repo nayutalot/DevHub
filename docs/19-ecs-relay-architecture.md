@@ -18,7 +18,7 @@
 │  relay 模式：HTTPS + WSS（docs/18 协议面）                               │
 └───────────────┬──────────────────────────────────┬─────────────────────┘
                 │ relay 模式                        │ local 模式（保留，零改动）
-                │ wss://<域名>/relay/*（443 TLS）    │ 127.0.0.1 / 局域网
+                │ wss://59.110.149.11/relay/*（443 TLS，自签 IP 证书）│ 127.0.0.1 / 局域网
                 ▼                                  ▼
 ┌───────────────────────────────────┐   ┌──────────────────────────────┐
 │ 阿里云 ECS（2C2G/3Mbps，Ubuntu 24） │   │ 家庭 PC（NAT 后，零公网入站）   │
@@ -107,7 +107,7 @@ docs/15 威胁模型全部继续成立（本地 Gateway 面、配对安全、防
 | W-R1 | Relay 凭据被盗（host 身份伪装） | host leg | 凭据仅存机器本地文件（§2.2 红线）；ECS 只存 sha256；撤销即踢；泄露即换发。伪造 host 拿不到 L3 事实源，无法伪造 command_result/事件内容（事件只能来自真 Windows 的 eventPipeline） |
 | W-R2 | ECS 设备注册表泄露 | ECS 存储 | 表内凭据只有 sha256（不可逆推，同 docs/15 §3 论证）；泄露不等于 Token 泄露 |
 | W-R3 | **ECS 服务被攻破（核心论证，§3.2）** | 全 Relay 面 | 分「伪造」「窃听」「重放/拒绝」三问论证——协议根：命令校验权在 Windows |
-| W-R4 | 手机 → ECS 段被动窃听 | device leg | G2 落地后为 TLS（443 唯一入口，正式态 wss://）；明文仅限联调时间盒（docs/21 §1 选项三）；应用层三防线（可撤销 Token/防重放/限流）全程不变 |
+| W-R4 | 手机 → ECS 段被动窃听 | device leg | U1 已裁决后为 TLS（443 唯一入口，`wss://59.110.149.11`，自签 IP 证书 + 双端注入式指纹 pinning，§10）；明文仅限联调时间盒（docs/21 §1.1 第 4 条）；应用层三防线（可撤销 Token/防重放/限流）全程不变 |
 | W-R5 | 中继层重放命令帧 | ECS | 命令帧内嵌 ts/nonce（Windows 侧防重放）+ TTL 300s + 幂等键 UNIQUE——重放已执行命令 = 原结果无副作用；TTL 窗外 = COMMAND_EXPIRED |
 | W-R6 | 双路重复投递（frp 与 relay 并存期） | 迁移期 | App 同一时刻仅一条活跃连接（单连接模型）；事件以 eventId/sequence 幂等 upsert（Room 现机制）；deliveries 设备粒度天然去重（G3 差距项显式回应） |
 | W-R7 | ECS 缓存容量滥用 / DoS | ECS | 缓存硬上限 + TTL 淘汰（§5.4）；命令排队上限（docs/18 §3.9）；限流同参 docs/14 §B.4；2C2G 容量预算显式化（§5.5） |
@@ -243,7 +243,7 @@ ECS command 帧 → commandDownlink：
 - `agents:gatewayStatus` 响应**追加可选字段** `relay?: {enabled, connected, endpoint, hostId?,
   lastError?, queuedCommands?}`（次级决策 D5：不新增 IPC channel，白名单 68 条不动，向后兼容）。
 - settings 新键（`ALLOWED_KEYS` 10→12）：`relay_enabled`（默认 `'0'`，零连接）、
-  `relay_endpoint`（如 `wss://relay.example.com`）。**凭据与注册码绝不入 settings**
+  `relay_endpoint`（如 `wss://59.110.149.11`——U1 已裁决 IP 直连，无域名，docs/21 §1）。**凭据与注册码绝不入 settings**
   （§2.2 红线，文件承载）。
 - `agents:diagnostics` 追加 `relay` 数据源只读探针（凭据文件存在性布尔 + endpoint 可达性），
   零凭据值。
@@ -269,7 +269,7 @@ ECS command 帧 → commandDownlink：
 | HTTP | `node:http` | upgrade 挂 WS；REST 路由轻量手写（无框架，零新依赖纪律延续） |
 | WS | **自研**（`gateway/ws.ts` 编解码为蓝本移植） | Relay 恒为 WS 服务端（两腿都是服务端角色），掩码/分片/心跳参数原样 |
 | 存储 | **node:sqlite 独立库** `/var/lib/devhub-relay/relay.db`（WAL，busy_timeout 5000） | **绝不进 DevHub migration 序列**（G9 裁决）；独立 schema 独立生命周期 |
-| TLS | 不终结（Caddy/Nginx 前置，Relay 只绑 `127.0.0.1:8443`） | 443 唯一公网入口（security-group-policy §2.1） |
+| TLS | 不终结（Caddy/Nginx 前置，以**自签 IP 证书**终结（SAN 含 `IP:59.110.149.11`），Relay 只绑 `127.0.0.1:8443`） | 443 唯一公网入口（security-group-policy §2.1）；信任模型 §10 |
 | 看护 | systemd 单元 `devhub-relay.service`（`Restart=always`）+ journald 日志轮转（logrotate） | frps 部署经验平移（natpierce-setup §7.2 先例） |
 | 密钥面 | 一次性注册码 + Relay 凭据 hash 落其自身 DB；配置文件权限 0600 | 零凭据入日志/审计（约束 #13 同款红线） |
 
@@ -435,7 +435,8 @@ CREATE TABLE relay_meta (key TEXT PRIMARY KEY, value TEXT);  -- schema 版本/�
 ### 5.6 部署形态（概要，操作属主控面）
 
 ```
-Caddy :443（TLS/ACME，域名待用户，docs/21 §1）
+Caddy :443（TLS 终结：**自签 IP 证书**，SAN 含 IP:59.110.149.11；无域名/ACME 依赖，docs/21 §1 U1 已裁决；
+  证书生成 = `docs/ecs-relay-deploy/gen-ip-cert.sh`，反代模板 = `docs/ecs-relay-deploy/Caddyfile.template`）
   reverse_proxy /relay/*  h12://127.0.0.1:8443   # WebSocket 透传
   reverse_proxy /v1/*     http://127.0.0.1:8443
 devhub-relay.service（Node 22，EnvironmentFile=/etc/devhub-relay/env（0600，仅注册码））
@@ -507,7 +508,7 @@ kimi approve 待真机 managed 授权；zcode/deepseek 恒不授予（无通道�
 - 配置单行扩展（Room，android 侧 schema 版本自增，与 DevHub migration 无关）：
   `{ mode: 'local' | 'relay', host?, port?, relayUrl?, deviceName }`。
 - GatewayConfigScreen → 模式选择：local = host:port 表单（现状）；relay = endpoint URL 输入
-  （`https://` 或 `wss://` 域形态）+ 「使用同一设备 Token」说明。
+  （如 `wss://59.110.149.11`，IP 形态——U1 已裁决无域名，docs/21 §1）+ 「使用同一设备 Token」说明。
 - **凭据共用**：同一 Keystore Token 两模式通用（§2.3）；relay 模式首次使用若未配对 → 走
   WS `pair` 帧（UI 复用现 Pairing 页，仅传输层换）。
 
@@ -567,7 +568,80 @@ ConnectionManager（现状态机不动：退避 1s→60s ±20%、hello→sync、
 | D4 | 命令下行直调 L3（submitRemoteCommand），不经 loopback HTTP | §4.4 | 备选=回打 127.0.0.1:8746（复用 handler 全链但引入端口依赖与双重限流）；主控任务书原语即 submitRemoteCommand |
 | D5 | 状态投影走 `agents:gatewayStatus.relay` 可选字段 | 不新增 IPC channel（白名单 68 冻结约束下的最小面） | 备选=新增 `agents:relayStatus` channel（需动白名单计数三处断言）；可选字段零破坏 |
 | D6 | origin 区分以可选列 + 投影字段表达 | `remote_devices.origin`（migration 005 候选，可先以 settings/内存态起步） | G4 差距项「origin 字段类方案」的落地形态；是否开 005 尊重 G9「宁可 settings 先行」原则，docs/20 §2 R1 给出两步走 |
-| D7 | relay 模式强制 wss 于代码层（拒绝保存非 TLS endpoint），cleartext 全局开关暂不收紧 | `usesCleartextTraffic` 现状保留（local 模式必要），relay 模式代码层校验兜底 | 备选=network_security_config 按域区分（更严但配置复杂，待域名落定后一并做，docs/21 §1） |
+| D7 | relay 模式强制 wss 于代码层（拒绝保存非 TLS endpoint），cleartext 全局开关暂不收紧 | `usesCleartextTraffic` 现状保留（local 模式必要），relay 模式代码层校验兜底 | 备选=network_security_config（更严但配置复杂；U1 无域名裁决下无「按域」区分对象，证书信任走注入式 pinning 缝，§10 + docs/21 §1.1） |
 | D8 | command_result 与 command.result 事件双通道并存 | 低延迟直回 + 事实源事件流，Android 按 commandId 去重 | 备选=仅事件通道（多一跳 RTT）；直回帧是 16 帧集成员，语义已冻结 |
 | D9 | ECS 缓存含已脱敏 payload（非仅元数据） | §5.4；host 离线时设备仍可补齐「摘要级」事件 | 备选=仅元数据（更保守但断线补发失去意义）；payload 上游已脱敏+4KB 界，符合「不存敏感」裁决原文 |
 | D10 | REST 中继范围 v1 收敛到 5 端点 | docs/18 §7.2；设备管理/诊断/归档留本地模式 | 最小化经中继写面；扩 rest_proxy 帧族为 backlog |
+
+---
+
+## 10. 证书信任模型（U1 已裁决：无域名 IP TLS + 双端注入式指纹 pinning）
+
+> 用户裁决（2026-09-05，docs/21 §1）：永久不购买域名。443 终结**自签 IP 证书**（SAN 必须含
+> `IP:59.110.149.11`），客户端不依赖系统信任链，以**注入式指纹配置**信任服务端。本节是信任
+> 模型的架构权威；生成/部署操作见 `docs/ecs-relay-deploy/`。
+
+### 10.1 服务端证书（自签 IP 证书）
+
+- 算法：RSA 4096 或 EC P-256（模板默认 EC P-256，`gen-ip-cert.sh` 可选）；有效期 **90 天**
+  （续期提示内置于脚本输出）；SAN 必须含 `IP:59.110.149.11`（自签 IP 证书若无 IP SAN，
+  Node/OkHttp 侧的主机名校验环节无对应对象，只能全靠指纹兜底——SAN 与指纹双保险是裁决要求）。
+- 部署位：Caddy/Nginx 443 装载（Caddyfile/nginx 模板见 `docs/ecs-relay-deploy/`）；Relay 本体
+  只绑 `127.0.0.1:8443` 不感知 TLS（§5.1 不变）。
+- 证书/私钥保管：属凭据红线（约束 #13 同款）——私钥仅存 ECS（0600），不入仓库、不入日志、
+  不入审计；指纹（公开物料）可入文档与客户端配置。
+
+### 10.2 Android 信任 = OkHttp CertificatePinner（注入式）
+
+- 配置模型：`:core` `TlsPinningConfig(fingerprints: List<String>)`——指纹形态
+  `sha256/{hex}`（64 位十六进制，亦接受等价 base64 形态），≥1 个；构造即校验，格式错误
+  fail-fast（IllegalArgumentException）。纯逻辑 + 单测落 `:core`（本批已落，任一匹配即信任）。
+- 挂点：OkHttp 客户端构造处以**可选参数**注入（app 层 `TlsPinningConfig? = null`；
+  null=现行为不变——local 模式明文/无 pinning 零回归）；relay 模式接线属 R3 批（docs/20 §2.3）。
+- 校验对象：OkHttp `CertificatePinner` 的 pin 比对的是**证书 SPKI（SubjectPublicKeyInfo）的
+  SHA-256**——`gen-ip-cert.sh` 输出 `sha256/{hex}` 即 SPKI 指纹（脚本同时输出证书整体指纹，
+  仅作 `openssl x509 -fingerprint` 人工核对用，勿与 pin 混用）。
+- 与 wss 强制校验（D7）叠加：relay endpoint 必须 `wss://`（代码层拒绝保存其他 scheme），
+  指纹 pinning 在 TLS 握手层再加一道端点认证。
+
+### 10.3 Node relayClient 信任 = tls.checkServerIdentity 覆写 + CA 指纹校验（注入式，同双指纹）
+
+- relayClient（R1 批实现）的 WS 客户端以注入式 TLS 选项构造：
+  `tls.checkServerIdentity` 覆写——先按默认规则校验，再校验叶证书/SPKI 指纹 ∈ 配置指纹列表
+  （任一匹配即信任）；同时可 `ca` 装载自签证书完成链校验。示例代码块见
+  `docs/ecs-relay-deploy/README.md`（设计示例，非仓库代码；实现属 R1 批）。
+- 指纹配置与 Android 同形态（`sha256/{hex}`，≥1 个，旧+新双指纹窗口同语义），配置文件属
+  用户外置凭据红线（指纹本身非机密，但配置装载路径与凭据文件同级保管）。
+
+### 10.4 证书轮换 = 双指纹窗口 + 重分发指纹配置
+
+- 轮换流程：① 生成新证书（新密钥对）→ ② **客户端指纹配置同时写入旧+新两枚 SPKI 指纹**
+  （双指纹窗口：任一匹配即信任，轮换期服务端与客户端任一侧先后升级都不断链）→ ③ 服务端
+  443 切载新证书 → ④ 观察期后重分发仅含新指纹的配置并移除旧指纹。
+- 轮换不依赖 App 发版：指纹配置是数据不是代码（Android 侧经配置注入，relayClient 侧经配置
+  文件装载）；「证书轮换=发版」的原选项二顾虑由双指纹轮换机制解除（docs/21 §1 否决痕迹表）。
+- 红线：双指纹窗口期**不得**同时信任「旧+新」之外的第三枚指纹；窗口结束必须收敛回单指纹。
+
+### 10.5 浏览器/系统不受信说明（如实声明，绝不粉饰）
+
+- 自签 IP 证书**不受浏览器与操作系统默认信任**：直接以浏览器访问 `https://59.110.149.11`
+  会出安全告警——**属预期行为**，不是缺陷；任何文档/验收/汇报口径**绝不声称浏览器默认信任
+  该证书**。
+- 本项目的 TLS 消费者只有三类，均已覆盖：Android App（pinning）、Windows relayClient
+  （pinning）、运维调试（`curl --cacert` 显式指定自签 CA）。验收三拒（错误证书/错误指纹/
+  过期证书均被拒）见 docs/21 §1.1 第 5 条与 docs/20 §3。
+
+---
+
+## 11. 明文联调时间盒（ws:// 禁作正式方案，精确过期条件）
+
+- **禁令**：`ws://` 明文**禁止作为正式方案**，仅限临时联调时间盒；这是 U1 裁决的组成部分
+  （docs/21 §1.1 第 4 条），非可选项。
+- **精确生效条件（全部满足才允许）**：(a) 限定 M3 集成联调窗口内（docs/20 §1）；(b) 明文链路
+  **绝不承载真实配对**——配对码明文、`pair`/`pair_accepted` 帧、端到端设备 Token 明文、Relay
+  凭据明文均不得出现在任何 `ws://` 链路上（配对只在 wss 链路或本机回环完成）；(c) 时间盒到期
+  即关闭明文入口。
+- **明确过期条件（写死，先到为准）**：M3 联调窗口结束，或明文链路首次出现承载真实配对/凭据的
+  需求——任一发生即视为时间盒过期，明文入口必须关闭；过期后仍开放的明文入口按事故处理。
+- 与安全组政策的一致性：security-group-policy §3.3 选项三的「≤14 天 + 不承载真实会话内容」
+  限定继续有效，并以本节条件收紧。

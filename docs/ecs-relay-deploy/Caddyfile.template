@@ -1,0 +1,41 @@
+# Caddyfile.template —— DevHub ECS Relay 无域名 IP TLS 反代模板（U1 已裁决，docs/21 §1.1 / docs/19 §5.6）
+#
+# 用法：将 {TLS_DIR} 占位符替换为 gen-ip-cert.sh 的 OUT_DIR（默认 /etc/devhub-relay/tls）后，
+# 装载到 /etc/caddy/Caddyfile 并 `systemctl reload caddy`。
+# 与 docs/19 §5.6 现有反代形态一致：/relay/* WebSocket 透传 + /v1/* REST。
+#   注：docs/19 §5.6 将 /relay/* 上游记作 `h12://127.0.0.1:8443`（语义 = HTTP/1.1 上游，
+#   WebSocket 升级必须走 HTTP/1.1）；Caddy 模板中的等价写法是裸 `http://` 上游。
+# 无域名/ACME 依赖：tls 指令显式给证书文件即不使用 ACME；Caddy 仍监听 443。
+
+{
+	# 无域名部署：auto_https 只影响重定向与 ACME 自动策略；证书已显式指定，无 ACME 尝试
+	# （U1 已裁决永久不购域名，docs/21 §1）
+	auto_https off
+}
+
+https://59.110.149.11:443 {
+	# 自签 IP 证书（SAN 必须含 IP:59.110.149.11 —— gen-ip-cert.sh 生成）
+	tls {TLS_DIR}/server.crt {TLS_DIR}/server.key
+
+	# ---- WebSocket 透传（device leg /relay/device、host leg /relay/host）----
+	# 裸 http:// 上游 = HTTP/1.1 透传，WS 101 升级头自动转发（Caddy reverse_proxy 原生支持）
+	reverse_proxy /relay/* http://127.0.0.1:8443 {
+		header_up Connection {>Connection}
+		header_up Upgrade      {>Upgrade}
+	}
+
+	# ---- REST 面（docs/18 §7 五端点 + /v1/health）----
+	reverse_proxy /v1/* http://127.0.0.1:8443
+
+	# 其余路径一律 404（不放大暴露面）
+	respond 404
+
+	log {
+		output file /var/log/caddy/devhub-relay-access.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+		# 凭据红线：不记录 Authorization 头与查询串（约束 #13）
+		format console
+	}
+}

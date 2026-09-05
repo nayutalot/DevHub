@@ -16,9 +16,9 @@ M1 协议与设计冻结（本批）→ M2 三线并行实现 → M3 集成联�
 
 | 里程碑 | 内容 | 完成判据 | 依赖 |
 | --- | --- | --- | --- |
-| **M1 协议与设计冻结** | docs/18-21 落地（本批次）；G2/G10 用户项并行启动征询（域名/推送，docs/21） | 四文档合入 main；三 worktree 按同一契约开工 | 无 |
+| **M1 协议与设计冻结** | docs/18-21 落地（本批次）；G2 已裁决（无域名 IP TLS，U1 DONE 2026-09-05，docs/21 §1）；G10 征询中（推送，docs/21） | 四文档合入 main；三 worktree 按同一契约开工 | 无 |
 | **M2 三线并行实现** | R1 relay-client ∥ R2 ecs-relay ∥ R3 android-relay（§2），三者接口 = docs/18 冻结协议 | 各批验收线全绿（§2.4） | M1 |
-| **M3 集成联调与验收** | 真机 443 全链路（Relay 版 B1–B8，§3）= security-group-policy §3.2 T1；**稳定 ≥72h 无回退 = T2** | R-B1…R-B8 全过 + 72h 稳定记录 | M2 + docs/21 §1 域名/TLS 至少选项二就绪 |
+| **M3 集成联调与验收** | 真机 443 全链路（Relay 版 B1–B8 + TLS 三拒 R-B9，§3）= security-group-policy §3.2 T1；**稳定 ≥72h 无回退 = T2** | R-B1…R-B9 全过 + 72h 稳定记录 | M2 + **自签 IP TLS + 双端 pinning 就绪**（U1 已裁决，docs/21 §1.1；证书/反代/指纹物料 = `docs/ecs-relay-deploy/`） |
 | **M4 流量切换** | G8 P1（Relay 443 上线）→ P2（App 双模式验证）→ P3（frpc 停用，观察两周） | P1–P3 判据全过（§4） | M3 |
 | **M5 frp 退役收尾** | G8 P4（撤 8746/7000 → 22/3389/ICMP 收敛，security-group-policy S2–S6）；文档收口（natpierce-setup §7 加「已退役」注记、known-limitations 更新、NatPierce 备用标记不动） | 外部探测 8746/7000/3389 filtered、22 限源生效；443 唯一入口复测 | M4 观察期满 |
 
@@ -47,7 +47,7 @@ M1 协议与设计冻结（本批）→ M2 三线并行实现 → M3 集成联�
 | 项 | 内容 |
 | --- | --- |
 | worktree/分支 | 独立仓 `devhub-relay`（或 DevHub 子目录 `ecs-relay/`，**形态=主控裁决**；默认建议独立目录零污染 DevHub 门禁，G11「永远存在的未验证区」隔离原则） |
-| 范围 | Node 22 + node:http + 自研 WS（ws.ts 服务端编解码移植）+ node:sqlite（docs/19 §5.1）；模块 server/ws/rest/auth/pairing/forwarder/cache/store/audit（§5.2）；schema `0001_init.sql`（§5.3）+ 独立迁移脚本；缓存淘汰（TTL 72h + 容量两级，§5.4）；命令排队/过期；限流三件套（同参 docs/14 §B.4）；错误映射（docs/18 §8）；systemd 单元 + Caddy 反代配置模板 + `.backup` 每日滚动备份；`selfcheck.mjs` 自检脚本（§5.7） |
+| 范围 | Node 22 + node:http + 自研 WS（ws.ts 服务端编解码移植）+ node:sqlite（docs/19 §5.1）；模块 server/ws/rest/auth/pairing/forwarder/cache/store/audit（§5.2）；schema `0001_init.sql`（§5.3）+ 独立迁移脚本；缓存淘汰（TTL 72h + 容量两级，§5.4）；命令排队/过期；限流三件套（同参 docs/14 §B.4）；错误映射（docs/18 §8）；systemd 单元 + Caddy 反代配置模板；**自签 IP 证书生成/部署脚本 + 指纹分发物料**（U1 已裁决：`gen-ip-cert.sh` + Caddyfile/nginx 模板 + README，见 `docs/ecs-relay-deploy/`）；`.backup` 每日滚动备份；`selfcheck.mjs` 自检脚本（§5.7） |
 | 明确不做 | 任何 TLS 终结（反代职责）；多 host/多租户；approve 能力语义理解（纯透传） |
 | 门禁 | **独立自测**（DevHub 仓门禁不可达——外部组件如实隔离）：`node --test` 覆盖 §5.7 清单全绿；`tsc --noEmit`（该仓自身 tsconfig）；启动冒烟（systemd --user 或裸进程）+ selfcheck 全过 |
 | 验收线 | ① selfcheck 全绿（帧一致性/配对/排队/淘汰/限流/重启恢复/红线断言）；② 与 R1 夹具对拍：同帧集双端解析一致（契约一致性测试，防三线漂移）；③ 部署演练记录：2C2G 实机（或等容器）启动 → 注册 → 64 连接压测脚本 ≤ 预算（§5.5）→ 优雅停机零帧丢失（排队命令恢复） |
@@ -82,7 +82,7 @@ M1（契约冻结）──┬─► R1 relay-client ──┐
 
 | # | 场景 | 现网 frp 版对照（ac8-blocked §5） | Relay 版判据 |
 | --- | --- | --- | --- |
-| R-B1 | health | B1 health 200（RTT 85–269ms） | `GET https://<域名>/v1/health` 200，`upstream.connected=true` |
+| R-B1 | health | B1 health 200（RTT 85–269ms） | `GET https://59.110.149.11/v1/health` 200（`curl --cacert` 显式信任自签 CA），`upstream.connected=true` |
 | R-B2 | 公网配对 | B2 配对 claim | 桌面签发 → 手机 relay 模式 pair → pair_accepted → 设备双侧列表可见（origin=relay）；post-pairing 自动轮换发生（token_version=2） |
 | R-B3 | 长连 + 实时事件 | B3 WS 长连（300,137ms 零断连先例） | wss 长连 ≥5 分钟零断连；waiting_input 事件实时到达且 requiresUserAction=true |
 | R-B4 | 防重放/限流三态 | B4 三态全做 | REST 面同 nonce 重放 401 / 窗外 401 / 合法 200；命令帧面同 nonce 重放被 Windows 拒（AUTH_REPLAYED） |
@@ -90,8 +90,16 @@ M1（契约冻结）──┬─► R1 relay-client ──┐
 | R-B6 | 断链补发 | B6 未跑（frp 版欠账） | **必跑**：杀 App → 期间产生事件 → 重连 sync_request 补齐零丢失（sequence 连续）；host 断链 → 命令 queued → 上线投递 → result 回流 |
 | R-B7 | token 轮换 | —（frp 版无此面） | 手动触发轮换：Keystore 原子更新 → heartbeat 确认 → 旧 Token 宽限后 401；轮换失败路径（拒更新）→ 重配对引导 |
 | R-B8 | 撤销踢线 | B8 回环限制不可触发（frp 属性） | 桌面 revoke → disconnect(revoked) 到达 → 设备停止重连；再连 401 `DEVICE_REVOKED`；ECS 注册表同步 revoked |
+| R-B9 | TLS 信任三拒 | —（frp 版明文无此面） | 错误证书被拒 / 错误指纹被拒 / 过期证书被拒；正确证书+正确指纹（含双指纹窗口内新旧任一）握手成功（专项说明见表后） |
 
-R-B1…R-B8 全过 + 72h 稳定（T2）= G8 §3.2 删除触发点成立 → 允许进入 M4 P3/P4。
+R-B1…R-B9 全过 + 72h 稳定（T2）= G8 §3.2 删除触发点成立 → 允许进入 M4 P3/P4。
+
+TLS 三拒专项（R-B9，U1 验收标准 docs/21 §1.1 第 5 条）：**错误证书**（客户端指纹配置与实际
+部署证书不匹配或装错证书）被拒；**错误指纹**（指纹列表全部不匹配当前 SPKI）被拒；**过期证书**
+被拒（加载过期证书或前推系统时间演练）。通过形态：Android CertificatePinner 握手失败、Node
+`checkServerIdentity` 拒绝、`curl --cacert` 对错误 CA 报错——三端均拒绝且错误可诊断；反向用例
+（正确证书+正确指纹、双指纹窗口内新旧任一）握手成功。浏览器直接访问 443 出告警属预期
+（docs/19 §10.5），不计为失败。
 
 ---
 
@@ -104,7 +112,7 @@ R-B1…R-B8 全过 + 72h 稳定（T2）= G8 §3.2 删除触发点成立 → 允�
 
 | 项 | 内容 |
 | --- | --- |
-| 前置 | M2 的 R2 部署包就绪；域名/TLS 至少「选项二（自签+pinning）」就绪（正式态推荐选项一，docs/21 §1）；S1（新增 443 规则）已执行 |
+| 前置 | M2 的 R2 部署包就绪；**自签 IP TLS + 双端 pinning 就绪**（U1 已裁决为正式态，docs/21 §1.1；证书生成/反代装载/指纹分发 = `docs/ecs-relay-deploy/`）；S1（新增 443 规则）已执行 |
 | 动作 | 部署 devhub-relay + 反代 → 注册码换发 Relay 凭据 → relayClient 出站连接 ready → R-B1/R-B3 以探针设备过 |
 | 判据 | selfcheck 全绿；R-B1/R-B3 真实链路过；frp 路径（8746）全程不受影响 |
 | 回滚 | 删 443 规则（S1 零风险回滚，policy §5.2）；frp 路径不受影响即业务无损 |
@@ -158,7 +166,7 @@ R-B1…R-B8 全过 + 72h 稳定（T2）= G8 §3.2 删除触发点成立 → 允�
 | PR1 | 3Mbps 带宽扇出饱和（多设备×高事件率） | 事件延迟、心跳挤占 | 容量预算显式化（docs/19 §5.5）+ 背压降速 + sync 补齐（不丢只延迟）；预算护栏告警 |
 | PR2 | ECS 单点故障 | relay 链路全断 | 迁移期 frp 路径为回滚兜底（P3 前一键可回）；systemd Restart + 每日 DB 备份；M5 后单点残余=known-limitations 如实记录（单实例形态，多实例 backlog） |
 | PR3 | 配对/轮换瞬间 Token 过境 ECS（docs/19 §3.2 残余 1） | 持续攻破 ECS 时可被截获 | post-pairing 自动轮换 + ECS 不落盘红线 + 主机加固（22 收敛）+ 桌面随时撤销；端到端加密列 backlog（N-R1） |
-| PR4 | 域名/备案时间线不可控（G2） | M3 起点延迟 | 选项二（自签+pinning）可先满足 M3；代码面 TLS-ready 与用户裁决并行（docs/21 §1 默认路径） |
+| PR4 | ~~域名/备案时间线不可控（G2）~~ **已消除（U1 裁决 2026-09-05：永久不购域名）**；转化的新风险=自签证书运维（过期/轮换失误断链） | M3 后 443 断链 | 90 天有效期 + 续期提示（`gen-ip-cert.sh`）；双指纹轮换窗口（docs/19 §10.4）；TLS 三拒验收含过期证书项（§3 R-B9） |
 | PR5 | 三线契约漂移 | 联调返工 | docs/18 冻结 + 契约 fixture 对拍 + 漂移即停上报（§2.4） |
 | PR6 | WS 客户端编解码缺陷（掩码/分片/半包） | 帧解析崩坏 | ws.ts 镜像移植 + 16 帧 round-trip 用例 + 对拍 fixture；客户端帧必掩码单测 |
 | PR7 | 迁移期双路并存重复投递 | 重复通知 | App 单活跃连接互斥（docs/19 §7.2）+ eventId/sequence 幂等 upsert + deliveries 设备粒度（W-R6） |
@@ -172,7 +180,10 @@ R-B1…R-B8 全过 + 72h 稳定（T2）= G8 §3.2 删除触发点成立 → 允�
 
 ## 7. 待用户项指针
 
-域名+TLS 三选项与费用、FCM/厂商推送分期、Kimi 真机 managed、Claude hooks 注册、approve 的
-reject 语义、双模式自动切换——全部集中 docs/21（含每项「不裁决时的默认推进路径」）。
-本计划在未裁决项上的推进不阻塞：M2 全部批次、M3（选项二路径）、M4 P1–P2 均可在默认路径下执行；
-仅「选项一（购域名+备案）」「FCM」两项的实现落地点依赖用户输入。
+~~域名+TLS 三选项与费用~~（**已裁决 DONE 2026-09-05**：永久不购域名，无域名 IP TLS 部署——
+自签 IP SAN 证书 + 双端注入式指纹 pinning + 双指纹轮换，docs/21 §1.1）、FCM/厂商推送分期、
+Kimi 真机 managed、Claude hooks 注册、approve 的 reject 语义、双模式自动切换——全部集中
+docs/21（含每项「不裁决时的默认推进路径」）。
+本计划在未裁决项上的推进不阻塞：M2 全部批次、M3（自签 IP TLS 路径）、M4 P1–P2 均可执行；
+TLS 面不再依赖用户输入（证书/反代/指纹物料已模板化于 `docs/ecs-relay-deploy/`）；
+仅「FCM」的实现落地点依赖用户输入。

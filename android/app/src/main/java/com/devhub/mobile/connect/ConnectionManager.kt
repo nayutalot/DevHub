@@ -10,6 +10,7 @@ import com.devhub.mobile.core.LogRedactor
 import com.devhub.mobile.core.QueueReplayPlanner
 import com.devhub.mobile.core.QueuedCommand
 import com.devhub.mobile.core.ReplayVerdict
+import com.devhub.mobile.core.TlsPinningConfig
 import com.devhub.mobile.data.SecureStore
 import com.devhub.mobile.data.db.DevHubDb
 import com.devhub.mobile.data.db.EventAckStateEntity
@@ -17,6 +18,7 @@ import com.devhub.mobile.data.db.PendingCommandEntity
 import com.devhub.mobile.data.remote.ApiError
 import com.devhub.mobile.data.remote.GatewayApi
 import com.devhub.mobile.data.remote.ProtocolHeadersInterceptor
+import com.devhub.mobile.data.remote.toCertificatePinner
 import com.devhub.mobile.ws.WsFrames
 import com.devhub.mobile.ws.WsServerFrame
 import kotlinx.coroutines.CompletableDeferred
@@ -113,8 +115,13 @@ object ConnectionManager {
     @Volatile
     private var ackFlushScheduled = false
 
-    /** 初始化（幂等）：Application.onCreate 调用。 */
-    fun init(context: Context) {
+    /**
+     * 初始化（幂等）：Application.onCreate 调用。
+     * U1 注入缝（docs/21 §1.1 / docs/19 §10.2）：[tlsPinning] 可选指纹配置（无域名 IP TLS）——
+     * null（默认）= 现行为不变（local 模式零回归）；非 null 时 REST 与 WS 两条 OkHttp 通道
+     * 同步启用 SPKI 指纹锁定（relay 模式接线属 R3 批，docs/20 §2.3）。
+     */
+    fun init(context: Context, tlsPinning: TlsPinningConfig? = null) {
         if (db != null) return
         appContext = context.applicationContext
         db = DevHubDb.get(context)
@@ -129,6 +136,7 @@ object ConnectionManager {
                 "http://${c?.first ?: "10.0.2.2"}:${c?.second ?: 8746}"
             },
             tokenProvider = { appContext?.let { SecureStore.loadToken(it) } },
+            tlsPinning = tlsPinning,
         )
         wsClient = OkHttpClient.Builder()
             .pingInterval(30, TimeUnit.SECONDS) // 客户端 30s 保活 ping；服务端 ping 由 OkHttp 自动回 pong
@@ -136,6 +144,7 @@ object ConnectionManager {
             .addInterceptor(
                 ProtocolHeadersInterceptor { appContext?.let { SecureStore.loadToken(it) } },
             )
+            .apply { tlsPinning?.let { certificatePinner(it.toCertificatePinner()) } }
             .build()
     }
 
