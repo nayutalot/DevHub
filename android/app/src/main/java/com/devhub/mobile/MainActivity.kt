@@ -130,7 +130,15 @@ fun DevHubRoot(startSessionId: Long?, onLinkConsumed: () -> Unit) {
         ) {
             composable("gateway") {
                 GatewayConfigScreen(
-                    onConfigured = { navController.navigate("pairing") },
+                    onConfigured = {
+                        // M2-R3：已配对（从主界面进配置页切模式）→ 返回主界面（保存已断旧连新）；
+                        // 未配对（首装流程）→ 配对页（docs/19 §7.1 凭据共用，两模式同流程）。
+                        if (SecureStore.loadToken(context) != null) {
+                            navController.popBackStack()
+                        } else {
+                            navController.navigate("pairing")
+                        }
+                    },
                     onDiagnostics = { navController.navigate("main?tab=diagnostics") },
                     onDemoMode = {
                         navController.navigate("main") {
