@@ -359,6 +359,31 @@ fun SessionDetailScreen(
                     }
                 }) { Text("恢复") }
             }
+            // M2-R3 门控路径（docs/18 §5.1 / docs/19 §6.1/§7.3）：approve/interrupt 按钮纯数据驱动
+            // ——仅当 CapabilitySet.granted 含对应能力才显示。判定源（agent 投影 granted）与执行
+            // 通道双双真实验证通过前恒不含二者 → 按钮恒不显示（当前现实态）；绝不硬编码放开。
+            if (controls.approve) {
+                OutlinedButton(onClick = {
+                    scope.launch {
+                        submitStatus = when (val r = ConnectionManager.submitAction(sessionId, "approve")) {
+                            is SubmitResult.Accepted -> "approve 已接受（commandId=${r.commandId}）"
+                            SubmitResult.QueuedOffline -> "当前离线：approve 已入离线队列"
+                            is SubmitResult.Rejected -> "approve 被拒绝：[${r.code}] ${r.message}"
+                        }
+                    }
+                }) { Text("批准") }
+            }
+            if (controls.interrupt) {
+                OutlinedButton(onClick = {
+                    scope.launch {
+                        submitStatus = when (val r = ConnectionManager.submitAction(sessionId, "interrupt")) {
+                            is SubmitResult.Accepted -> "interrupt 已接受（commandId=${r.commandId}）"
+                            SubmitResult.QueuedOffline -> "当前离线：interrupt 已入离线队列"
+                            is SubmitResult.Rejected -> "interrupt 被拒绝：[${r.code}] ${r.message}"
+                        }
+                    }
+                }) { Text("中断") }
+            }
         }
         submitStatus?.let { Text(it, fontSize = 12.sp) }
 

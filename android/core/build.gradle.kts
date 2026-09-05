@@ -19,5 +19,8 @@ kotlin {
 }
 
 dependencies {
+    // M2-R3（docs/19 §7.2）：RelayCodec 16 帧编解码纯逻辑落 :core；org.json 为
+    // implementation（进 test 运行时类路径；Android 侧运行时用平台实现，API 面一致）。
+    implementation(libs.org.json)
     testImplementation(libs.junit)
 }

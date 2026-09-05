@@ -63,6 +63,9 @@ fun DiagnosticsScreen() {
     val connState by ConnectionManager.state.collectAsState()
     val lastEventAt by ConnectionManager.lastEventAtMs.collectAsState()
     val lastWsError by ConnectionManager.lastWsError.collectAsState()
+    // M2-R3：模式与 relay 降级信标投影（docs/19 §7.3 容错降级纪律：绝不显示为正常态）
+    val activeMode by ConnectionManager.activeMode.collectAsState()
+    val upstreamBeacon by ConnectionManager.upstreamBeacon.collectAsState()
 
     Column(
         Modifier
@@ -82,6 +85,16 @@ fun DiagnosticsScreen() {
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text("本机连接状态（WebSocket）", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Text(
+                "连接面：" + when (activeMode) {
+                    "relay" -> "Relay（${ConnectionManager.connectionDisplay()}）" +
+                        (upstreamBeacon?.let { " · 电脑端 $it" } ?: "")
+
+                    "local" -> "本地（${ConnectionManager.connectionDisplay()}）"
+                    else -> "未连接"
+                },
+                fontSize = 12.sp,
+            )
             Text("状态：${ConnectionManager.diagnosticsSnapshot()}", fontSize = 12.sp)
             Text(
                 "最近事件：" + if (lastEventAt > 0) java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date(lastEventAt)) else "（尚未收到事件）",

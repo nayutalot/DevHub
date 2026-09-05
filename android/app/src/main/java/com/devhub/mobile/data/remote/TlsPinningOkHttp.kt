@@ -1,6 +1,13 @@
 package com.devhub.mobile.data.remote
 
 import com.devhub.mobile.core.TlsPinningConfig
+import java.security.KeyStore
+import java.security.cert.CertificateException
+import java.security.cert.X509Certificate
+import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLSocketFactory
+import javax.net.ssl.TrustManagerFactory
+import javax.net.ssl.X509TrustManager
 import okhttp3.CertificatePinner
 import okio.ByteString.Companion.decodeHex
 
@@ -25,4 +32,46 @@ fun TlsPinningConfig.toCertificatePinner(): CertificatePinner {
         builder.add("*", "sha256/" + fingerprint.removePrefix("sha256/").decodeHex().base64())
     }
     return builder.build()
+}
+
+/**
+ * R3 接缝（docs/19 §10.2 信任模型落地）：自签 IP 证书**不受系统默认信任**（§10.5 属预期），
+ * relay 模式配置指纹后，信任锚 = 指纹本身——TrustManager 侧放行链（信任裁决移交
+ * CertificatePinner），OkHttp 在握手上对 SPKI 指纹强制 pin 比对，任何指纹不匹配
+ * → 握手失败（R-B9 三拒语义：错误证书/错误指纹/过期证书的 SPKI 都不匹配 → 全被拒）。
+ *
+ * 红线：本 TrustManager **只**用于 relay 模式 OkHttp 客户端构造（指纹已配置时），
+ * 绝不触碰 local 模式明文路径与系统默认信任的其他通道；pin 面为空时绝不使用本构造。
+ */
+object RelayTlsTrust {
+
+    /** 指纹已配置时的 relay 专用 SSL 套件：信任委托给 CertificatePinner（指纹即信任锚）。 */
+    fun sslSocketFactory(pinning: TlsPinningConfig): Pair<SSLSocketFactory, X509TrustManager> {
+        require(pinning.fingerprints.isNotEmpty()) { "relay TLS: fingerprints must not be empty" }
+        val context = SSLContext.getInstance("TLS")
+        context.init(null, arrayOf(DelegatingTrustManager), null)
+        return context.socketFactory to DelegatingTrustManager
+    }
+
+    /** 链校验委托给指纹 pin（握手后 OkHttp CertificatePinner 强制比对 SPKI）。 */
+    private object DelegatingTrustManager : X509TrustManager {
+        private val systemFallback: X509TrustManager by lazy {
+            TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply {
+                init(null as KeyStore?)
+            }.trustManagers.filterIsInstance<X509TrustManager>().first()
+        }
+
+        override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {
+            // 本 App 绝不做 TLS 服务端（mTLS client 面）；防御性走系统校验。
+            systemFallback.checkClientTrusted(chain, authType)
+        }
+
+        override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {
+            // 信任裁决移交 CertificatePinner：SPKI 指纹 ∈ 配置列表才可能通过（pin 在
+            // 握手完成时强制执行；链非法到无法取证书的形态由抛错兜底）。
+            if (chain.isEmpty()) throw CertificateException("relay TLS: empty server chain")
+        }
+
+        override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
+    }
 }

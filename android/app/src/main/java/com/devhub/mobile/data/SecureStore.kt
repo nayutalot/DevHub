@@ -80,6 +80,27 @@ object SecureStore {
             .apply()
     }
 
+    /**
+     * M2-R3（docs/18 §3.14 / docs/19 §7.3）：token_rotation 的 TokenStore 原子写入合同：
+     * 单条目单事务写入 + 写后读回校验 + 校验失败回滚旧密文（失败 = 旧值原样保留，
+     * 调用方按「回退旧值 + 重连」继续，docs/18 §3.14）。零日志红线对 Token 恒成立。
+     * @return true = 写入成功且读回一致；false = 失败（旧值仍在）。
+     */
+    fun rotateToken(context: Context, newToken: String): Boolean {
+        val prefs = prefs(context)
+        val oldEnc = prefs.getString(KEY_TOKEN, null)
+        val newEnc = try {
+            encryptToBase64(newToken.toByteArray(Charsets.UTF_8))
+        } catch (err: Exception) {
+            return false
+        }
+        prefs.edit().putString(KEY_TOKEN, newEnc).apply()
+        // 写后读回校验（合同：不等即回滚）
+        if (loadToken(context) == newToken) return true
+        if (oldEnc != null) prefs.edit().putString(KEY_TOKEN, oldEnc).apply()
+        return false
+    }
+
     fun loadToken(context: Context): String? {
         val enc = prefs(context).getString(KEY_TOKEN, null) ?: return null
         return decryptFromBase64(enc)?.toString(Charsets.UTF_8)

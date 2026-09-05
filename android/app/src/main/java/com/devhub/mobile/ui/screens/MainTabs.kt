@@ -98,15 +98,27 @@ fun MainTabs(
     }
 }
 
-/** 顶部连接状态条：WS 状态（已连接 / 连接中 / 退避 / 未启动）一目了然。 */
+/** 顶部连接状态条：WS 状态（已连接 / 连接中 / 退避 / 未启动）一目了然；relay 模式区分降级信标。 */
 @Composable
 private fun ConnectionStatusBar(onGatewayConfig: () -> Unit) {
     val state by ConnectionManager.state.collectAsState()
+    val activeMode by ConnectionManager.activeMode.collectAsState()
+    val upstreamBeacon by ConnectionManager.upstreamBeacon.collectAsState()
     // 打磨批 D：钉深色主题后默认文字为主题浅色，与浅色状态底对比失效 →
     // 各状态显式配对 fg 色（取色与 StatusBadge 同源语义）。
+    // M2-R3（docs/19 §7.3）：relay 降级态（upstream disconnected）=「Relay 已连接，电脑离线
+    // （命令将排队）」结构化文案，琥珀底高亮，绝不显示为正常态——容错降级纪律。
     val (bg, fg, label) = when (val s = state) {
-        is ConnState.Connected ->
-            Triple(Color(0xFFDDEBDD), Color(0xFF1B5E20), "已连接 · 心跳 ${s.heartbeatSec}s")
+        is ConnState.Connected -> when {
+            activeMode == "relay" && upstreamBeacon == "disconnected" ->
+                Triple(Color(0xFFFFECB3), Color(0xFF7A4F00), "Relay 已连接，电脑离线（命令将排队）")
+
+            activeMode == "relay" ->
+                Triple(Color(0xFFDDEBDD), Color(0xFF1B5E20), "Relay 已连接 · 心跳 ${s.heartbeatSec}s")
+
+            else -> Triple(Color(0xFFDDEBDD), Color(0xFF1B5E20), "已连接 · 心跳 ${s.heartbeatSec}s")
+        }
+
         is ConnState.Connecting -> Triple(Color(0xFFFFECB3), Color(0xFF7A4F00), "连接中…")
         is ConnState.Backing ->
             Triple(Color(0xFFFFAB91), Color(0xFF7A2400), "退避重连（第 ${s.attempt} 次，${s.nextDelayMs / 1000}s 后）")
