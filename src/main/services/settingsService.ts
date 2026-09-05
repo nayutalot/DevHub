@@ -6,9 +6,12 @@
  * deepseekHarnessRoot（S3：版本中心 DeepSeek Harness 安装目录，docs/09 §7.1）/
  * gateway_port / gateway_enabled / agents_monitor_enabled / login_autostart
  * （AC2：004 种子的 4 个 AC 域键，docs/13 §6——settings:set 通道白名单同步 6→10）/
- * relay_enabled / relay_endpoint（M2-R1：ECS Relay 两键，docs/19 §4.7——白名单
- * 同步 10→12；Relay 凭据/注册码绝不入 settings，凭据走
- * %LOCALAPPDATA%\DevHub\relay\credential 机器本地文件，docs/19 §2.2 红线）；
+ * relay_enabled / relay_endpoint（M2-R1：ECS Relay 两键，docs/19 §4.7）/
+ * relay_last_sent_seq（M2-R1：eventUplink 断线回填水位，docs/19 §4.3 明文指定
+ * 的 settings 普通键值非凭据——三键并落，白名单 10→13；对 §4.7「10→12」的
+ * 计数偏离 = §4.3 该键的明文授权，非凭据属性经本注记声明。Relay 凭据/注册码
+ * 绝不入 settings，凭据走 %LOCALAPPDATA%\DevHub\relay\credential 机器本地文件，
+ * docs/19 §2.2 红线）；
  * 一切 SQL 参数绑定（约束 #11）。
  */
 
@@ -27,9 +30,11 @@ const ALLOWED_KEYS: readonly string[] = [
   'gateway_enabled',
   'agents_monitor_enabled',
   'login_autostart',
-  // M2-R1 批次（docs/19 §4.7）：ECS Relay 两键（默认 '0'/''——零连接）
+  // M2-R1 批次（docs/19 §4.7 + §4.3）：ECS Relay 键（enabled/endpoint 默认 '0'/''——
+  // 零连接；last_sent_seq 为 eventUplink 回填水位，普通键值非凭据）
   'relay_enabled',
   'relay_endpoint',
+  'relay_last_sent_seq',
 ]
 
 function assertAllowedKey(key: string): void {
