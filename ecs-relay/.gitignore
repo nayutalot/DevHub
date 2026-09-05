@@ -1,0 +1,16 @@
+# 依赖与构建产物（自含 .gitignore，docs/19 §5.1 零新依赖纪律 + 任务书铁律）
+node_modules/
+build/
+dist/
+*.tsbuildinfo
+
+# 运行数据（relay.db 独立库，绝不入仓库）
+data/
+*.db
+*.db-wal
+*.db-shm
+*.log
+
+# 部署期本地产物（凭据红线：注册码 env、备份）
+.env
+backups/

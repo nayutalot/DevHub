@@ -1,0 +1,15 @@
+# devhub-relay-backup.service —— relay.db 每日备份（docs/19 §5.6：滚动 7 份）
+[Unit]
+Description=DevHub ECS Relay DB daily backup (rolling 7)
+After=devhub-relay.service
+
+[Service]
+Type=oneshot
+User=devhub-relay
+Group=devhub-relay
+ExecStart=/opt/devhub-relay/scripts/backup.sh
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/devhub-relay

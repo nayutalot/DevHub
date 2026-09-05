@@ -1,0 +1,41 @@
+# devhub-relay.service —— systemd 单元（docs/19 §5.1/§5.6）
+#
+# 安装：
+#   sudo cp deploy/devhub-relay.service /etc/systemd/system/
+#   sudo install -d -o devhub-relay -g devhub-relay /opt/devhub-relay /var/lib/devhub-relay
+#   sudo install -m 600 -o devhub-relay -g devhub-relay deploy/devhub-relay.env /etc/devhub-relay/env
+#   sudo systemctl daemon-reload && sudo systemctl enable --now devhub-relay
+#
+# 前提：Node 22 LTS（≥22.18，type stripping 默认启用；22.6–22.17 需在 ExecStart 追加
+# --experimental-strip-types）。TLS 永远由 Caddy/Nginx 反代终结（docs/19 §5.1），本服务只绑 127.0.0.1。
+
+[Unit]
+Description=DevHub ECS Relay (16-frame WS + REST relay, docs/18-19)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=devhub-relay
+Group=devhub-relay
+WorkingDirectory=/opt/devhub-relay
+# 注册码经 EnvironmentFile 注入（0600，仅该项；用后可移除——docs/19 §2.2 外置凭据红线）
+EnvironmentFile=/etc/devhub-relay/env
+ExecStart=/usr/bin/node src/server.ts
+Restart=always
+RestartSec=2
+
+# 加固（frps 部署先例平移，natpierce-setup §7.2）
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/devhub-relay
+
+# 日志 → journald（结构化、零凭据——约束 #13；logrotate 由 journald 自管）
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=devhub-relay
+
+[Install]
+WantedBy=multi-user.target

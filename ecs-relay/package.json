@@ -1,0 +1,23 @@
+{
+  "name": "devhub-relay",
+  "version": "1.0.0",
+  "description": "DevHub ECS Relay service — 16-frame WS relay + REST relay + pairing + queue + cache (docs/18-19, M2-R2)",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --experimental-strip-types src/server.ts",
+    "migrate": "node scripts/migrate.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/",
+    "selfcheck": "node --experimental-strip-types src/selfcheck.mjs",
+    "smoke": "node --experimental-strip-types scripts/smoke.mjs",
+    "loadtest": "node scripts/loadtest.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.3"
+  }
+}

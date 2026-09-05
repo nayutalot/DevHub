@@ -1,0 +1,578 @@
+{
+  "meta": {
+    "name": "devhub-relay-16-frame-fixture",
+    "version": "1.0.0",
+    "authority": "docs/18-ecs-relay-protocol.md §3（16 帧全表）",
+    "purpose": "M2 三线契约一致性对拍（docs/20 §2.4/§5：R1 relay-client × R2 ecs-relay × R3 android-relay 同帧集双端解析一致，防漂移）",
+    "createdAt": "2026-09-05",
+    "directionLegend": "D→E=Android→ECS；E→D=ECS→Android；H→E=relayClient→ECS；E→H=ECS→relayClient",
+    "conventions": {
+      "eventFrameTypeResolution": "docs/18 §3.6 示例中 'type' 键出现两次（discriminator 'event' 与事件类型，JSON 重复键非法）。fixture 裁定：帧判别字段 type='event'（docs/18 §3.0 总表 #6 与 docs/19 §7.2 RelayCodec 帧清单的稳定判别面），事件类型承载于 'eventType' 字段（docs/14 原名，§4.1 改名的值语义保留）。R1/R3 对拍以此为准；契约修订须回 docs/18 广播（docs/20 §2.4）。",
+      "tokenRotationRouting": "docs/18 §3.14 H→E token_rotation 帧形未含路由目标。R2 实现要求帧携带 'deviceId'（Windows 侧 remote_devices.id）以定位 relay_devices 行（sha256(newToken) 同步），否则回 BAD_PAYLOAD error 帧（见 ecs-relay/README.md 偏离单）。",
+      "hostControlFrames": "16 帧集之外存在 host 腿控制帧 register_pairing / register_pairing_ack（docs/19 §4.5 pairingBridge：同步 {pairingId, code_hash, expiresAt} 给 ECS 落 pairing_codes），不属于 16 帧协议面、不入本 fixture 正集，见 frames 之外的 hostControlFrames 数组。",
+      "redline": "样例中的 token/code/credential 均为占位符，真实凭据绝不入 fixture/日志/审计（约束 #13）"
+    }
+  },
+  "frames": [
+    {
+      "no": 1,
+      "type": "hello",
+      "source": "docs/18 §3.1（服务端首帧；§3.0 总表 #1）",
+      "directions": "E→D / E→H",
+      "notes": "sequence = ECS 缓存最高 sequence（Windows 全局 sequence 镜像）；裸 pair 连接缺省 deviceId；upstream = host leg 连接态信标",
+      "samples": [
+        {
+          "leg": "device-authenticated",
+          "note": "E→D（已鉴权设备连接）",
+          "frame": {
+            "type": "hello",
+            "sequence": 14871,
+            "deviceId": 4,
+            "heartbeatSec": 30,
+            "relayVersion": "1.0.0",
+            "upstream": "connected"
+          }
+        },
+        {
+          "leg": "device-bare",
+          "note": "E→D（裸 pair 连接：deviceId 缺省）",
+          "frame": {
+            "type": "hello",
+            "sequence": 14871,
+            "heartbeatSec": 30,
+            "relayVersion": "1.0.0",
+            "upstream": "disconnected"
+          }
+        },
+        {
+          "leg": "host",
+          "note": "E→H（hostId = relay_hosts.id；sequence 供 relayClient 断线回填起点判定，docs/19 §4.3）",
+          "frame": {
+            "type": "hello",
+            "sequence": 14871,
+            "hostId": 1,
+            "heartbeatSec": 30,
+            "relayVersion": "1.0.0",
+            "upstream": "connected"
+          }
+        }
+      ]
+    },
+    {
+      "no": 2,
+      "type": "pair",
+      "source": "docs/18 §3.2（配对请求；§3.0 总表 #2；校验归属表）",
+      "directions": "D→E →（E→H 中继）",
+      "notes": "ECS 校验 TTL 300s/一次性/失败 5 次作废/claim 限流 5 次每 5min；明文码不出 device leg（E→H 帧无 code 字段）",
+      "samples": [
+        {
+          "leg": "device-to-ecs",
+          "note": "D→E（裸连接首帧）",
+          "frame": {
+            "type": "pair",
+            "requestId": "0d3f2a10-7c1a-4a5e-9a2b-000000000001",
+            "code": "A3K7M9XY",
+            "deviceName": "Pixel 8",
+            "platform": "android",
+            "clientVersion": "1.0.0"
+          }
+        },
+        {
+          "leg": "ecs-to-host",
+          "note": "E→H（ECS 已完成码校验；ecsDeviceId = ECS 已登记设备行）",
+          "frame": {
+            "type": "pair",
+            "requestId": "0d3f2a10-7c1a-4a5e-9a2b-000000000001",
+            "ecsDeviceId": 7,
+            "pairingId": "pair-2b6a1c9e-8f4d-4f3a-9c1b-000000000002",
+            "deviceName": "Pixel 8",
+            "platform": "android"
+          }
+        }
+      ]
+    },
+    {
+      "no": 3,
+      "type": "pair_accepted",
+      "source": "docs/18 §3.3（配对成功；§3.0 总表 #3）",
+      "directions": "H→E →（E→D）",
+      "notes": "deviceToken 明文仅出现于 pair_accepted 与 token_rotation 两帧（红线受控面 docs/19 §3 W-R3）；ECS 记 sha256(deviceToken) 后转发",
+      "samples": [
+        {
+          "leg": "host-to-ecs",
+          "note": "H→E（Token 由 Windows 签发；device.deviceId = Windows remote_devices.id）",
+          "frame": {
+            "type": "pair_accepted",
+            "requestId": "0d3f2a10-7c1a-4a5e-9a2b-000000000001",
+            "ecsDeviceId": 7,
+            "device": { "deviceId": 12, "deviceName": "Pixel 8", "platform": "android", "tokenVersion": 1 },
+            "deviceToken": "<256-bit-base64url-device-token>",
+            "gatewayName": "devhub-gateway"
+          }
+        },
+        {
+          "leg": "ecs-to-device",
+          "note": "E→D（去掉 ECS 内部字段后的设备视图）",
+          "frame": {
+            "type": "pair_accepted",
+            "requestId": "0d3f2a10-7c1a-4a5e-9a2b-000000000001",
+            "deviceId": 12,
+            "deviceToken": "<256-bit-base64url-device-token>",
+            "tokenVersion": 1,
+            "heartbeatSec": 30
+          }
+        }
+      ]
+    },
+    {
+      "no": 4,
+      "type": "agent_list",
+      "source": "docs/18 §3.4（provider 列表；§3.0 总表 #4）",
+      "directions": "D→E →（E→H）/ H→E →（E→D）",
+      "notes": "响应体 = docs/14 §B.1 GET /v1/agents 响应 JSON 原样内嵌",
+      "samples": [
+        {
+          "leg": "device-to-ecs",
+          "frame": { "type": "agent_list", "requestId": "0d3f2a10-7c1a-4a5e-9a2b-000000000004" }
+        },
+        {
+          "leg": "ecs-to-device",
+          "frame": {
+            "type": "agent_list",
+            "requestId": "0d3f2a10-7c1a-4a5e-9a2b-000000000004",
+            "providers": [
+              {
+                "id": "codex",
+                "displayName": "Codex",
+                "health": "ok",
+                "capabilities": {
+                  "mode": "managed",
+                  "granted": ["reply", "pause", "resume"],
+                  "verifiedAt": 1757000000,
+                  "evidence": "app-server handshake ok"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "no": 5,
+      "type": "session_list",
+      "source": "docs/18 §3.5（会话列表；§3.0 总表 #5）",
+      "directions": "D→E →（E→H）/ H→E →（E→D）",
+      "notes": "query 语义 = REST GET /v1/sessions（providerId?/status?/limit?/parentId?/includeArchived?）；stale:true 仅 host 断开时 ECS 缓存降级应答（缺失字段缺省绝不构造）",
+      "samples": [
+        {
+          "leg": "device-to-ecs",
+          "frame": {
+            "type": "session_list",
+            "requestId": "0d3f2a10-7c1a-4a5e-9a2b-000000000005",
+            "query": { "providerId": "codex", "limit": 100 }
+          }
+        },
+        {
+          "leg": "ecs-to-device",
+          "frame": {
+            "type": "session_list",
+            "requestId": "0d3f2a10-7c1a-4a5e-9a2b-000000000005",
+            "stale": false,
+            "sessions": [
+              {
+                "id": 337,
+                "providerId": "codex",
+                "nativeId": "codex-native-session-9f2",
+                "sessionMode": "managed",
+                "status": "waiting_input",
+                "title": "修复 relay 编解码",
+                "lastActivityAt": 1757000000
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "no": 6,
+      "type": "event",
+      "source": "docs/18 §3.6（事件帧；§4.1 字段映射 / §4.2 requiresUserAction 投影）",
+      "directions": "H→E →（E→D）",
+      "notes": "见 meta.conventions.eventFrameTypeResolution：判别 type='event'，事件类型在 eventType；deviceId 由 ECS 扇出填充；payload 已脱敏有界 ≤4KB",
+      "samples": [
+        {
+          "leg": "host-to-ecs",
+          "note": "H→E（deviceId 可省略，ECS 扇出时填充）",
+          "frame": {
+            "type": "event",
+            "sequence": 14871,
+            "eventId": "codex:native-9f2:session.waiting_input:0f81b2c4d5e60718",
+            "provider": "codex",
+            "sessionId": 337,
+            "eventType": "session.waiting_input",
+            "timestamp": 1757000000,
+            "summary": "Codex 会话等待输入（≤120 字符脱敏摘要）",
+            "payload": { "sessionId": 337, "status": "waiting_input" },
+            "requiresUserAction": true
+          }
+        },
+        {
+          "leg": "ecs-to-device",
+          "note": "E→D（deviceId 必填）",
+          "frame": {
+            "type": "event",
+            "sequence": 14871,
+            "eventId": "codex:native-9f2:session.waiting_input:0f81b2c4d5e60718",
+            "deviceId": 4,
+            "provider": "codex",
+            "sessionId": 337,
+            "eventType": "session.waiting_input",
+            "timestamp": 1757000000,
+            "summary": "Codex 会话等待输入（≤120 字符脱敏摘要）",
+            "payload": { "sessionId": 337, "status": "waiting_input" },
+            "requiresUserAction": true
+          }
+        }
+      ]
+    },
+    {
+      "no": 7,
+      "type": "message",
+      "source": "docs/18 §3.7（消息分页取数；§3.0 总表 #7）",
+      "directions": "D→E →（E→H）/ H→E →（E→D）",
+      "notes": "取数语义 = REST GET /v1/sessions/{id}/messages（after/last/before 互斥 → BAD_PAYLOAD，ux A R10）；响应绝无 sourceRef",
+      "samples": [
+        {
+          "leg": "device-to-ecs",
+          "frame": {
+            "type": "message",
+            "requestId": "0d3f2a10-7c1a-4a5e-9a2b-000000000007",
+            "sessionId": 337,
+            "last": 200,
+            "limit": 200
+          }
+        },
+        {
+          "leg": "ecs-to-device",
+          "frame": {
+            "type": "message",
+            "requestId": "0d3f2a10-7c1a-4a5e-9a2b-000000000007",
+            "items": [
+              {
+                "id": 9001,
+                "role": "assistant",
+                "contentRedacted": "（脱敏投影全文）",
+                "occurredAt": 1757000000,
+                "segments": [{ "kind": "thinking", "content": "（结构化分段投影）" }]
+              }
+            ],
+            "prevAfter": 8800
+          }
+        }
+      ]
+    },
+    {
+      "no": 8,
+      "type": "command",
+      "source": "docs/18 §3.8（命令帧，端到端 Bearer 内嵌；§5.1 action 映射）",
+      "directions": "D→E →（E→H）",
+      "notes": "ECS 不校验 auth、不理解 approve 语义（纯透传）；幂等键 (deviceId, idempotencyKey)；超时未 ack 同 key 重试 2s/4s/8s ×3",
+      "samples": [
+        {
+          "leg": "device-to-ecs",
+          "note": "D→E（E→H 原样中继，帧形相同）",
+          "frame": {
+            "type": "command",
+            "requestId": "0d3f2a10-7c1a-4a5e-9a2b-000000000008",
+            "idempotencyKey": "b1e2c3d4-1111-4a5e-9a2b-000000000008",
+            "sessionId": 337,
+            "action": "send_message",
+            "payload": { "text": "继续" },
+            "auth": {
+              "token": "<256-bit-base64url-device-token>",
+              "ts": 1757000000,
+              "nonce": "f81b2c4d5e6071809a1b2c3d4e5f6071"
+            },
+            "createdAt": 1757000000
+          }
+        }
+      ]
+    },
+    {
+      "no": 9,
+      "type": "command_ack",
+      "source": "docs/18 §3.9（受理回执；§3.0 总表 #9）",
+      "directions": "H→E →（E→D）",
+      "notes": "对应 REST 202/4xx；queued:true 为 Relay 新增语义（host 断线期间 ECS 排队受理；上限每设备 100/全局 1000 → RELAY_QUEUE_FULL）",
+      "samples": [
+        {
+          "leg": "accepted",
+          "frame": {
+            "type": "command_ack",
+            "requestId": "0d3f2a10-7c1a-4a5e-9a2b-000000000008",
+            "idempotencyKey": "b1e2c3d4-1111-4a5e-9a2b-000000000008",
+            "commandId": "cmd-6a1b2c3d-0000-4a5e-9a2b-000000000009",
+            "status": "accepted"
+          }
+        },
+        {
+          "leg": "rejected",
+          "frame": {
+            "type": "command_ack",
+            "requestId": "0d3f2a10-7c1a-4a5e-9a2b-000000000008",
+            "idempotencyKey": "b1e2c3d4-1111-4a5e-9a2b-000000000008",
+            "commandId": "cmd-6a1b2c3d-0000-4a5e-9a2b-000000000009",
+            "status": "rejected",
+            "errorCode": "AGENT_CAPABILITY_MISSING"
+          }
+        },
+        {
+          "leg": "queued",
+          "note": "host 断线期间 ECS 排队受理（Windows 尚未见到该命令）",
+          "frame": {
+            "type": "command_ack",
+            "requestId": "0d3f2a10-7c1a-4a5e-9a2b-000000000008",
+            "idempotencyKey": "b1e2c3d4-1111-4a5e-9a2b-000000000008",
+            "status": "accepted",
+            "queued": true
+          }
+        }
+      ]
+    },
+    {
+      "no": 10,
+      "type": "command_result",
+      "source": "docs/18 §3.10（终态回执；§3.0 总表 #10）",
+      "directions": "H→E →（E→D）",
+      "notes": "与 command.result 事件双通道并存（D8），Android 按 commandId 去重保留先到者；status ∈ executed|rejected|expired|failed",
+      "samples": [
+        {
+          "leg": "host-to-ecs",
+          "note": "H→E（E→D 帧形相同）",
+          "frame": {
+            "type": "command_result",
+            "commandId": "cmd-6a1b2c3d-0000-4a5e-9a2b-000000000009",
+            "idempotencyKey": "b1e2c3d4-1111-4a5e-9a2b-000000000008",
+            "sessionId": 337,
+            "action": "send_message",
+            "status": "executed",
+            "errorCode": null,
+            "timestamp": 1757000100
+          }
+        }
+      ]
+    },
+    {
+      "no": 11,
+      "type": "sync_request",
+      "source": "docs/18 §3.11（补同步 + 累计 ACK；§6.2 Windows 侧回写）",
+      "directions": "D→E（E→H 转发 ack 部分）",
+      "notes": "after = 本机已持久处理的最高 contiguous sequence（只前进）；E→H 仅 ACK 部分中继（relayClient → markEventAcked ≤ after）",
+      "samples": [
+        {
+          "leg": "device-to-ecs",
+          "frame": {
+            "type": "sync_request",
+            "requestId": "0d3f2a10-7c1a-4a5e-9a2b-000000000011",
+            "after": 14800
+          }
+        },
+        {
+          "leg": "ecs-to-host",
+          "note": "E→H（仅 ACK 部分中继；deviceId = ECS 注册表 id）",
+          "frame": {
+            "type": "sync_request",
+            "requestId": "0d3f2a10-7c1a-4a5e-9a2b-000000000012",
+            "after": 14800,
+            "deviceId": 4
+          }
+        }
+      ]
+    },
+    {
+      "no": 12,
+      "type": "sync_response",
+      "source": "docs/18 §3.12（补发事件页；§6.3 hasGaps）",
+      "directions": "E→D（H→E = 对齐探测，恒空页）",
+      "notes": "按 sequence > after 升序补发，页上限 100（EVENTS_SINCE_DEFAULT_LIMIT）；hasGaps:true = 缓存洞显式标注（绝不静默跳号）",
+      "samples": [
+        {
+          "leg": "ecs-to-device",
+          "frame": {
+            "type": "sync_response",
+            "requestId": "0d3f2a10-7c1a-4a5e-9a2b-000000000011",
+            "upTo": 14860,
+            "hasMore": true,
+            "hasGaps": false,
+            "events": [
+              {
+                "type": "event",
+                "sequence": 14861,
+                "eventId": "codex:native-9f2:message.appended:0f81b2c4d5e60719",
+                "deviceId": 4,
+                "provider": "codex",
+                "sessionId": 337,
+                "eventType": "message.appended",
+                "timestamp": 1757000001,
+                "summary": "消息已追加（脱敏摘要）",
+                "payload": { "sessionId": 337, "messageId": 9001 },
+                "requiresUserAction": false
+              }
+            ]
+          }
+        },
+        {
+          "leg": "host-to-ecs",
+          "note": "H→E（host 腿对齐探测；host 不消费事件，恒空页）",
+          "frame": {
+            "type": "sync_response",
+            "requestId": "0d3f2a10-7c1a-4a5e-9a2b-000000000013",
+            "upTo": 14871,
+            "hasMore": false,
+            "events": []
+          }
+        }
+      ]
+    },
+    {
+      "no": 13,
+      "type": "heartbeat",
+      "source": "docs/18 §3.13（应用层保活 + 状态信标）",
+      "directions": "双向 × 两腿",
+      "notes": "30s 周期（= hello.heartbeatSec）；连丢 2 帧判死；lastAckedSeq = 累计 ACK 兜底；upstream:disconnected = 降级信标；tokenVersion 兼作轮换确认信道",
+      "samples": [
+        {
+          "leg": "device-to-ecs",
+          "frame": { "type": "heartbeat", "ts": 1757000000, "lastAckedSeq": 14800, "tokenVersion": 1 }
+        },
+        {
+          "leg": "ecs-to-device",
+          "frame": { "type": "heartbeat", "ts": 1757000000, "upstream": "connected", "queuedCommands": 0 }
+        },
+        {
+          "leg": "host-to-ecs",
+          "note": "H→E（host 上行进度）",
+          "frame": { "type": "heartbeat", "ts": 1757000000, "lastSentSeq": 14871 }
+        },
+        {
+          "leg": "ecs-to-host",
+          "note": "E→H（ECS 对 host 恒回 ack 进度）",
+          "frame": { "type": "heartbeat", "ts": 1757000000, "lastAckedSeq": 14800 }
+        }
+      ]
+    },
+    {
+      "no": 14,
+      "type": "token_rotation",
+      "source": "docs/18 §3.14（预留帧转正，docs/15 §3；§9.4 时序）",
+      "directions": "H→E →（E→D）",
+      "notes": "ECS 转发同时更新注册表 token_hash=sha256(newToken)、token_version（两平面凭据同步）；宽限 300s 旧 Token 失效；路由需 deviceId（见 meta.conventions.tokenRotationRouting）",
+      "samples": [
+        {
+          "leg": "host-to-ecs",
+          "note": "H→E（含 R2 路由补充字段 deviceId = Windows 侧设备 id）",
+          "frame": {
+            "type": "token_rotation",
+            "requestId": "0d3f2a10-7c1a-4a5e-9a2b-000000000014",
+            "deviceId": 12,
+            "newToken": "<256-bit-base64url-new-device-token>",
+            "tokenVersion": 2,
+            "reason": "post-pairing"
+          }
+        },
+        {
+          "leg": "ecs-to-device",
+          "note": "E→D（docs/18 §3.14 帧形原样：newToken/tokenVersion/reason）",
+          "frame": {
+            "type": "token_rotation",
+            "requestId": "0d3f2a10-7c1a-4a5e-9a2b-000000000014",
+            "newToken": "<256-bit-base64url-new-device-token>",
+            "tokenVersion": 2,
+            "reason": "post-pairing"
+          }
+        }
+      ]
+    },
+    {
+      "no": 15,
+      "type": "disconnect",
+      "source": "docs/18 §3.15（优雅关闭；§9.5 撤销踢线）",
+      "directions": "双向 × 两腿",
+      "notes": "后必须紧跟 WS close（code 1000）；reason:revoked → 对端不得自动重连；撤销链路：L3 revoke → relayClient disconnect → ECS 踢线 + relay_devices.status=revoked",
+      "samples": [
+        {
+          "leg": "ecs-to-device-server-shutdown",
+          "frame": { "type": "disconnect", "reason": "server_shutdown" }
+        },
+        {
+          "leg": "host-to-ecs",
+          "note": "H→E（撤销定点踢线：deviceId = Windows 侧设备 id）",
+          "frame": { "type": "disconnect", "deviceId": 4, "reason": "revoked" }
+        },
+        {
+          "leg": "ecs-to-device-revoked",
+          "note": "E→D（被踢设备最后一帧）",
+          "frame": { "type": "disconnect", "reason": "revoked" }
+        }
+      ]
+    },
+    {
+      "no": 16,
+      "type": "error",
+      "source": "docs/18 §3.16（结构化错误帧；§8 错误码映射）",
+      "directions": "双向 × 两腿",
+      "notes": "零凭据零堆栈；code 取值同 docs/18 §8.2 命名域；协议级违规（非 JSON/未知 type/字段类型错）→ error 帧 + close 1002/1003",
+      "samples": [
+        {
+          "leg": "ecs-to-device",
+          "frame": {
+            "type": "error",
+            "requestId": "0d3f2a10-7c1a-4a5e-9a2b-000000000016",
+            "code": "RELAY_UPSTREAM_OFFLINE",
+            "message": "host offline; try again later",
+            "retryable": true,
+            "retryAfterSec": 30
+          }
+        },
+        {
+          "leg": "connection-level",
+          "note": "requestId 可省（连接级错误）",
+          "frame": {
+            "type": "error",
+            "code": "INTERNAL",
+            "message": "relay internal error"
+          }
+        }
+      ]
+    }
+  ],
+  "hostControlFrames": [
+    {
+      "type": "register_pairing",
+      "source": "docs/19 §4.5（pairingBridge：agents:pairingCreate 签发后同步 ECS 落 pairing_codes；docs/19 §5.3 审计动作 pairing_code_registered）",
+      "directions": "H→E →（E→H ack）",
+      "samples": [
+        {
+          "leg": "host-to-ecs",
+          "frame": {
+            "type": "register_pairing",
+            "requestId": "0d3f2a10-7c1a-4a5e-9a2b-000000000101",
+            "pairingId": "pair-2b6a1c9e-8f4d-4f3a-9c1b-000000000002",
+            "codeHash": "<sha256-hex-of-8-char-code>",
+            "expiresAt": 1757000300
+          }
+        },
+        {
+          "leg": "ecs-to-host",
+          "frame": {
+            "type": "register_pairing_ack",
+            "requestId": "0d3f2a10-7c1a-4a5e-9a2b-000000000101",
+            "pairingId": "pair-2b6a1c9e-8f4d-4f3a-9c1b-000000000002",
+            "accepted": true,
+            "expiresAt": 1757000300
+          }
+        }
+      ]
+    }
+  ]
+}
