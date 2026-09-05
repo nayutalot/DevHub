@@ -30,13 +30,21 @@ object QueueReplayPlanner {
     const val KIND_REPLY = "reply"
     const val KIND_PAUSE = "pause"
     const val KIND_RESUME = "resume"
+    // M2-R3（docs/18 §5.1 五值锁死 / docs/19 §7.4）：approve/interrupt 仅 Relay 命令面存在
+    // （门控：能力恒空 → 按钮恒不显示）；入队面数据驱动放行，出队面按模式分派
+    // （local 面 → 结构化落败 COMMAND_NOT_EXECUTABLE，relay 面 → command 帧）。
+    const val KIND_APPROVE = "approve"
+    const val KIND_INTERRUPT = "interrupt"
 
     /**
      * 取下一批待补发指令：合法 kind 过滤 → 按时间序 → 截取 batch 上限。
      */
     fun nextBatch(queue: List<QueuedCommand>, maxBatchSize: Int = 20): List<QueuedCommand> =
         queue.asSequence()
-            .filter { it.kind == KIND_REPLY || it.kind == KIND_PAUSE || it.kind == KIND_RESUME }
+            .filter {
+                it.kind == KIND_REPLY || it.kind == KIND_PAUSE || it.kind == KIND_RESUME ||
+                    it.kind == KIND_APPROVE || it.kind == KIND_INTERRUPT
+            }
             .sortedWith(compareBy({ it.createdAtMs }, { it.id }))
             .take(maxBatchSize.coerceAtLeast(1))
             .toList()

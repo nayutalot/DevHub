@@ -188,6 +188,10 @@ interface PendingCommandDao {
     @Query("DELETE FROM pending_command WHERE id = :id")
     fun delete(id: Long)
 
+    /** 幂等 key 查询（relay queued 挂起重试路径：同 key 复用行，绝不重复入队）。 */
+    @Query("SELECT * FROM pending_command WHERE idempotencyKey = :key LIMIT 1")
+    fun getByKey(key: String): PendingCommandEntity?
+
     /** 结构化拒绝：落败保留 + 记录错误码（UI 展示）。 */
     @Update
     fun update(command: PendingCommandEntity)
@@ -198,8 +202,16 @@ interface PendingCommandDao {
 
 @Dao
 interface EventAckStateDao {
+    /** local 模式游标（docs/14 {type:'ack',seqs} 逐条空间），固定 id=1。 */
     @Query("SELECT * FROM event_ack_state WHERE id = 1")
     fun get(): EventAckStateEntity?
+
+    /**
+     * relay 模式累计游标（docs/18 §3.11/§6.2 `after = max(连续已处理)`），固定 id=2。
+     * 两模式 sequence 空间互不相同，分行存储防模式切换串扰（R3 双连接互斥红线配套）。
+     */
+    @Query("SELECT * FROM event_ack_state WHERE id = 2")
+    fun getRelay(): EventAckStateEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun upsert(state: EventAckStateEntity)

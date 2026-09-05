@@ -38,8 +38,10 @@ class GatewayConnectionService : Service() {
         }
     }
 
-    private fun connectionText(): String =
-        "远程面 ${ConnectionManager.baseUrl()} · ${ConnectionManager.diagnosticsSnapshot()}"
+    private fun connectionText(): String {
+        val mode = if (ConnectionManager.activeMode.value == "relay") "Relay" else "本地"
+        return "$mode · ${ConnectionManager.connectionDisplay()} · ${ConnectionManager.diagnosticsSnapshot()}"
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startAsForeground()
