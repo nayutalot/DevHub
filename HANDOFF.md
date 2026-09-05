@@ -12,6 +12,7 @@
 - **配额中断应对（本会话实证）**：concurrency limit 反复杀子代理时用「增量提交接力」——任务书强制"每完成一个模块立即 git commit"，中断后新 agent 从 WIP 提交续作，每轮净赚一块（R1 八模块就是这样拼完的）；配额占满时 10-30 分钟退避重试
 - **端口铁律**：smoke 需 8746-8755 全空闲——跑门禁前 `taskkill //IM DevHub.exe //F`，跑完 `cmd //c start "" "F:\Active_Project\DevHub\dist\win-unpacked\DevHub.exe"` 恢复常驻+curl 127.0.0.1:8746/v1/health 确认 200；子代理测试桩一律用段外端口（18443 类）
 - mcp-acceptance 先 commit 再跑（A12 干净树）；Mimosa「env→path→fs」误报不可安抚；绝不 --no-verify
+- **GitHub 增量推送纪律（用户 2026-09-05 定为正式规则）**：①子代理每完成一个可独立验证的模块/里程碑 → 原子提交后**立即 `git push origin <自己的分支>`**（增量接力提交也推，防本地丢失、进度随时可在 GitHub 可见）；②主控每次合并 main 后即推送；③汇报必须带分支名+commit SHA；④推送失败保留本地提交、记录错误、不无限重试，继续不依赖推送的工作并在报告标注未上传项
 - 视觉评审派 omni-agent 看图；先规划后写码；冲突上报裁决
 
 ## 3. M2 状态台账（精确到 commit）
