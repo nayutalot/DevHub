@@ -10135,5 +10135,216 @@ if (isEntrypoint()) {
     assert.equal(clampedLow.nextDelayMs(), 800, 'r<0 clamps to the lower jitter bound')
   })
 
+  // 157. 断线回填幂等 + watermark 前向只进（docs/19 §4.3 三步恢复序① + §4.3 水位行）：
+  //      离线期事件只落库 → hello 水位回填补推（投影对拍 fixture #6 裁定面）→ 同水位
+  //      重回填零重发（幂等）→ 写失败即中止且水位只推进到已交付位 → 恢复续传 →
+  //      水位恢复取大绝不回退（进程重启恢复语义）。
+  registerCase('nb-r1-157: offline backfill idempotency — offline events stay db-only, hello-watermark backfill projects fixture event shape, same-watermark re-backfill is a zero-op, mid-backfill write failure stops at the last delivered sequence then resumes, watermark restore takes max and never regresses', async () => {
+    const m = await r1CaseSetup('devhub-nb-r1-157-')
+    const db = m.dbModule.getDatabase()
+    try {
+      const ep = await import(new URL('../src/main/services/agentControl/eventPipeline.ts', import.meta.url).href)
+      const eventUplink = await import(new URL('../src/main/services/agentControl/relayClient/eventUplink.ts', import.meta.url).href)
+      // provider 行（eventsSince LEFT JOIN agent_providers 的 provider 字段数据源）
+      fixtureProviderRow(db, 'codex')
+      let online = false
+      const sent = []
+      eventUplink.setEventUplinkHost({ isReady: () => online, sendEvent: (frame) => { sent.push(frame); return true } })
+
+      // 离线期事件：COMMIT 落库、零投递（回填兜底）
+      const e1 = ep.recordEvent({ eventType: 'session.waiting_input', providerKey: 'codex', nativeId: 'nb-r1-157', payload: { status: 'waiting_input' }, summary: 'offline waiting input', fingerprint: 'nb-r1-157-fp-1' })
+      const e2 = ep.recordEvent({ eventType: 'message.appended', providerKey: 'codex', nativeId: 'nb-r1-157', payload: { role: 'assistant' }, summary: 'offline appended', fingerprint: 'nb-r1-157-fp-2' })
+      const e3 = ep.recordEvent({ eventType: 'session.status_changed', providerKey: 'codex', nativeId: 'nb-r1-157', payload: { from: 'running', to: 'waiting_input' }, summary: 'offline status', fingerprint: 'nb-r1-157-fp-3' })
+      assert.ok(e1.recorded && e2.recorded && e3.recorded, 'fixture events recorded')
+      assert.equal(sent.length, 0, 'offline: zero frames while not ready')
+      assert.equal(eventUplink.currentLastSentSeq(), 0, 'watermark untouched while offline')
+
+      // hello 水位 0（ECS 空缓存）→ 回填全部三帧；投影对拍 fixture #6 host-to-ecs 裁定面
+      online = true
+      const r1 = eventUplink.backfillFromWatermark(0)
+      assert.equal(r1.sent, 3, 'backfill sends every offline event')
+      assert.ok(r1.pages >= 1, 'at least one page scanned')
+      assert.equal(r1.scannedThrough, e3.sequence, 'scan reaches the newest sequence')
+      const f1 = sent[0]
+      assert.equal(f1.type, 'event', "discriminator type='event' (fixture 裁定)")
+      assert.equal(f1.eventType, 'session.waiting_input', 'eventType carries the event type (fixture 裁定①)')
+      assert.equal(f1.sequence, e1.sequence, 'seq -> sequence')
+      assert.equal(f1.eventId, e1.eventId, 'eventId passthrough')
+      assert.equal(f1.requiresUserAction, true, 'waiting_input whitelist -> requiresUserAction true (docs/18 §4.2)')
+      assert.equal(f1.provider, 'codex')
+      assert.equal(f1.summary, 'offline waiting input')
+      assert.equal(f1.sessionId, undefined, 'absent sessionId is never fabricated')
+      assert.equal(sent[1].requiresUserAction, false, 'message.appended is never requiresUserAction')
+      assert.equal(eventUplink.currentLastSentSeq(), e3.sequence, 'watermark = highest delivered')
+      assert.equal(m.settingsSvc.getSetting('relay_last_sent_seq'), String(e3.sequence), 'watermark persisted (docs/19 §4.3)')
+
+      // 幂等：同水位重回填零重发（ECS 侧另有 sequence UNIQUE 去重双保险）
+      const r2 = eventUplink.backfillFromWatermark(e3.sequence)
+      assert.equal(r2.sent, 0, 'same-watermark re-backfill sends nothing')
+      assert.equal(sent.length, 3, 'no duplicate frames on the wire')
+
+      // 水位前向只进：持久值被 rogue 低位覆写后恢复仍取大（绝不回退）
+      m.settingsSvc.setSetting('relay_last_sent_seq', '1')
+      eventUplink.restoreLastSentSeq()
+      assert.equal(eventUplink.currentLastSentSeq(), e3.sequence, 'restore takes max(persisted, memory)')
+
+      // 断线再现 + 写失败：第二帧写失败即中止，水位只推进到已交付位
+      online = false
+      const e4 = ep.recordEvent({ eventType: 'message.appended', providerKey: 'codex', nativeId: 'nb-r1-157', payload: { role: 'user' }, summary: 'second outage a', fingerprint: 'nb-r1-157-fp-4' })
+      const e5 = ep.recordEvent({ eventType: 'message.appended', providerKey: 'codex', nativeId: 'nb-r1-157', payload: { role: 'assistant' }, summary: 'second outage b', fingerprint: 'nb-r1-157-fp-5' })
+      online = true
+      let deliverCalls = 0
+      eventUplink.setEventUplinkHost({ isReady: () => true, sendEvent: () => { deliverCalls += 1; return deliverCalls < 2 } })
+      const r3 = eventUplink.backfillFromWatermark(e3.sequence)
+      assert.equal(r3.sent, 1, 'write failure stops the backfill after the last success')
+      assert.equal(eventUplink.currentLastSentSeq(), e4.sequence, 'watermark only advanced through the delivered event (never fabricates)')
+
+      // 恢复续传：修好链路后从断点继续，不重发已交付窗口
+      eventUplink.setEventUplinkHost({ isReady: () => true, sendEvent: (frame) => { sent.push(frame); return true } })
+      const r4 = eventUplink.backfillFromWatermark(e4.sequence)
+      assert.equal(r4.sent, 1, 'resume delivers exactly the remaining event')
+      assert.equal(eventUplink.currentLastSentSeq(), e5.sequence, 'watermark converges to the newest')
+      assert.ok(sent.every((f) => f.sequence !== e1.sequence || f === sent[0]), 'earlier window never re-sent')
+
+      // 进程重启恢复：内存归零后从 settings 持久水位恢复（回填起点不回退 → 零重复回填）
+      eventUplink.resetEventUplinkState()
+      assert.equal(eventUplink.currentLastSentSeq(), 0)
+      eventUplink.restoreLastSentSeq()
+      assert.equal(eventUplink.currentLastSentSeq(), e5.sequence, 'restart recovery pulls the persisted high-water mark')
+    } finally {
+      await r1CaseTeardown(m)
+    }
+  })
+
+  // 158. 命令排队→上线投递（docs/18 §3.9 queued 语义 + docs/19 §4.2 三步恢复序②）：
+  //      host 离线期间 ECS 已受理排队的 command（fixture #8 帧形为底，动态字段覆写）
+  //      → relayClient hello/ready 后投递 → auth（同源 Bearer + 防重放）→ action 翻译
+  //      send_message≡reply → L3 submitRemoteCommand 执行 → command_result 回帧。
+  //      fixture #1 host 腿 hello 为握手帧源。
+  registerCase('nb-r1-158: command queued while host offline -> delivered after hello/ready, executed end-to-end (auth -> send_message==reply -> L3 submit -> command_result frame), accepted path never emits command_ack', async () => {
+    const m = await r1CaseSetup('devhub-nb-r1-158-')
+    const db = m.dbModule.getDatabase()
+    const stub = await r1StartRelayStub()
+    try {
+      r1EnableRelay(m, stub, 'nb-r1-relay-cred-158')
+      const { sessionId, calls } = await r1FixtureManagedProvider(m, db, 'nb-r1-158')
+      const deviceToken = `nb-r1-dev-token-158-${randomBytes(8).toString('hex')}`
+      r1FixtureDevice(m, db, 'nb-r1-158-phone', deviceToken)
+      m.relay.configureRelayClientRuntime({ helloTimeoutMs: 3000, baseDelayMs: 50, maxDelayMs: 200 })
+
+      // host 离线期间 ECS 已排队的命令（此刻 host 腿零连接）
+      const nowSec = Math.floor(Date.now() / 1000)
+      const queued = r1FixtureFrame(8, 'device-to-ecs')
+      queued.requestId = 'nb-r1-q-req-1'
+      queued.idempotencyKey = 'nb-r1-cmd-q-158'
+      queued.sessionId = sessionId
+      queued.payload = { text: 'queued while host offline' }
+      queued.auth = { token: deviceToken, ts: nowSec, nonce: randomBytes(16).toString('hex') }
+      queued.createdAt = nowSec
+
+      m.relay.startRelayClient()
+      await r1HelloNewConnection(stub) // fixture #1 host 腿 hello 握手
+      await pollUntil(() => m.relay.getRelayClientDiagnostics().status === 'ready', 5000, 30, 'relay client ready after hello')
+      assert.equal(m.relay.getRelayClientDiagnostics().hostId, 1, 'hello.hostId lands in diagnostics')
+
+      // 上线投递排队命令
+      r1StubSend(stub, queued)
+      const result = await r1StubWait(stub, (f) => f.json?.type === 'command_result' && f.json.idempotencyKey === 'nb-r1-cmd-q-158', 4000, 'queued command result frame')
+      assert.equal(result.json.status, 'executed', 'queued command executed end-to-end')
+      assert.equal(result.json.action, 'send_message', 'command_result action uses the relay name (send_message)')
+      assert.equal(result.json.sessionId, sessionId, 'result carries the session')
+      assert.equal(calls.reply, 1, 'provider executed exactly once')
+      const row = db.prepare('SELECT command_id, status FROM remote_commands WHERE idempotency_key = ?').get('nb-r1-cmd-q-158')
+      assert.equal(result.json.commandId, row.command_id, 'result commandId matches the L3 row')
+      assert.equal(row.status, 'executed', 'L3 row reaches terminal executed')
+      assert.ok(!stub.log.some((e) => e.json?.type === 'command_ack'), 'accepted path emits no command_ack (terminal rides command_result)')
+    } finally {
+      m.relay.resetRelayClientForSmoke()
+      await r1StubClose(stub)
+      await r1CaseTeardown(m)
+    }
+  })
+
+  // 159. 同幂等键重试返回原结果（docs/14 §B.5 + docs/18 §3.8 重试语义）：同 key 同
+  //      payload 新 nonce 重试 → 原 commandId 原结果重放（command_result + command_ack
+  //      accepted），零重复执行；同 key 异 payload → rejected COMMAND_KEY_CONFLICT；
+  //      字面同帧重发（同 nonce）→ error AUTH_REPLAYED（防重放层按传输帧计）；错
+  //      token → error AUTH_INVALID_TOKEN；approve → AGENT_CAPABILITY_MISSING（G6）；
+  //      未知 action → BAD_PAYLOAD。
+  registerCase('nb-r1-159: idempotent retry replays the original result — same key fresh nonce -> replayed command_result + accepted ack with zero re-execution; key/payload conflict rejected; literal same-frame resend -> AUTH_REPLAYED; wrong token -> AUTH_INVALID_TOKEN; approve -> AGENT_CAPABILITY_MISSING; unknown action -> BAD_PAYLOAD', async () => {
+    const m = await r1CaseSetup('devhub-nb-r1-159-')
+    const db = m.dbModule.getDatabase()
+    const stub = await r1StartRelayStub()
+    try {
+      r1EnableRelay(m, stub, 'nb-r1-relay-cred-159')
+      const { sessionId, calls } = await r1FixtureManagedProvider(m, db, 'nb-r1-159')
+      const deviceToken = `nb-r1-dev-token-159-${randomBytes(8).toString('hex')}`
+      r1FixtureDevice(m, db, 'nb-r1-159-phone', deviceToken)
+      m.relay.configureRelayClientRuntime({ helloTimeoutMs: 3000, baseDelayMs: 50, maxDelayMs: 200 })
+      m.relay.startRelayClient()
+      await r1HelloNewConnection(stub)
+      await pollUntil(() => m.relay.getRelayClientDiagnostics().status === 'ready', 5000, 30, 'relay client ready')
+
+      const authFrame = () => ({ token: deviceToken, ts: Math.floor(Date.now() / 1000), nonce: randomBytes(16).toString('hex') })
+      const cmd = r1FixtureFrame(8, 'device-to-ecs')
+      cmd.requestId = 'nb-r1-159-req-1'
+      cmd.idempotencyKey = 'nb-r1-key-159'
+      cmd.sessionId = sessionId
+      cmd.payload = { text: 'first transmission' }
+      cmd.auth = authFrame()
+
+      // 首发：202 语义 accepted → 异步执行 → command_result executed
+      r1StubSend(stub, cmd)
+      const first = await r1StubWait(stub, (f) => f.json?.type === 'command_result' && f.json.idempotencyKey === 'nb-r1-key-159', 4000, 'first command_result')
+      assert.equal(first.json.status, 'executed')
+      const firstCommandId = first.json.commandId
+      assert.equal(calls.reply, 1, 'provider executed once')
+
+      // 同 key 同 payload 重试（新 nonce）→ 原 commandId 原结果重放 + command_ack accepted，零重复执行
+      const retry = { ...cmd, requestId: 'nb-r1-159-req-1-retry', auth: authFrame() }
+      r1StubSend(stub, retry)
+      const replayed = await r1StubWait(stub, (f) => f.json?.type === 'command_result' && f.json.idempotencyKey === 'nb-r1-key-159', 4000, 'replayed command_result')
+      assert.equal(replayed.json.commandId, firstCommandId, 'retry replays the original commandId')
+      assert.equal(replayed.json.status, 'executed', 'retry replays the original result')
+      const ack = await r1StubWait(stub, (f) => f.json?.type === 'command_ack' && f.json.idempotencyKey === 'nb-r1-key-159', 4000, 'replay command_ack')
+      assert.equal(ack.json.status, 'accepted', 'replay ack accepted')
+      assert.equal(ack.json.commandId, firstCommandId, 'ack carries the original commandId')
+      assert.equal(calls.reply, 1, 'no duplicate execution on retry')
+      assert.equal(db.prepare('SELECT COUNT(*) c FROM remote_commands WHERE idempotency_key = ?').get('nb-r1-key-159').c, 1, 'still exactly one command row')
+
+      // 同 key 异 payload → 结构化拒绝 COMMAND_KEY_CONFLICT，不执行（新 nonce：防重放层按传输帧计，幂等层按 key+payload 计）
+      r1StubSend(stub, { ...retry, requestId: 'nb-r1-159-req-1-conflict', payload: { text: 'a different text' }, auth: authFrame() })
+      const conflict = await r1StubWait(stub, (f) => f.json?.type === 'command_ack' && f.json.errorCode === 'COMMAND_KEY_CONFLICT', 4000, 'conflict ack')
+      assert.equal(conflict.json.status, 'rejected')
+      assert.equal(calls.reply, 1, 'conflicting retry never executes')
+
+      // 字面同帧重发（同 nonce）→ 防重放层 error AUTH_REPLAYED（按传输帧计）
+      r1StubSend(stub, cmd)
+      const replayedNonce = await r1StubWait(stub, (f) => f.json?.type === 'error' && f.json.code === 'AUTH_REPLAYED', 4000, 'replayed-nonce error frame')
+      assert.equal(replayedNonce.json.requestId, cmd.requestId, 'error echoes the request id')
+
+      // 错 token → AUTH_INVALID_TOKEN error 帧，绝不触达 L3
+      r1StubSend(stub, { ...cmd, idempotencyKey: 'nb-r1-key-159-b', auth: { token: 'nb-r1-wrong-token', ts: Math.floor(Date.now() / 1000), nonce: randomBytes(16).toString('hex') } })
+      await r1StubWait(stub, (f) => f.json?.type === 'error' && f.json.code === 'AUTH_INVALID_TOKEN', 4000, 'invalid token error frame')
+
+      // approve（G6 默认恒不授予）→ rejected AGENT_CAPABILITY_MISSING；未知 action → BAD_PAYLOAD
+      const approve = { ...cmd, requestId: 'nb-r1-159-req-a', idempotencyKey: 'nb-r1-key-159-a', action: 'approve', auth: authFrame() }
+      delete approve.payload
+      r1StubSend(stub, approve)
+      const approveAck = await r1StubWait(stub, (f) => f.json?.type === 'command_ack' && f.json.errorCode === 'AGENT_CAPABILITY_MISSING', 4000, 'approve rejection ack')
+      assert.equal(approveAck.json.status, 'rejected')
+      r1StubSend(stub, { ...cmd, requestId: 'nb-r1-159-req-d', idempotencyKey: 'nb-r1-key-159-d', action: 'dance', auth: authFrame() })
+      const danceAck = await r1StubWait(stub, (f) => f.json?.type === 'command_ack' && f.json.errorCode === 'BAD_PAYLOAD', 4000, 'unknown action ack')
+      assert.equal(danceAck.json.status, 'rejected')
+
+      // 全程只落地一条命令行（拒绝路径不产生流水行）
+      assert.equal(db.prepare('SELECT COUNT(*) c FROM remote_commands').get().c, 1, 'exactly one command row for the whole case')
+    } finally {
+      m.relay.resetRelayClientForSmoke()
+      await r1StubClose(stub)
+      await r1CaseTeardown(m)
+    }
+  })
+
   await run()
 }
