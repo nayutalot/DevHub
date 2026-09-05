@@ -126,7 +126,9 @@ export class RelayConnection {
     try {
       this.socket.write(encodeServerFrame(OPCODE_TEXT, Buffer.from(JSON.stringify(frame), 'utf8')))
       return true
-    } catch {
+    } catch (err) {
+      // 写帧异常不杀伤调用方（投递失败不回滚 DB）——但绝不静默：打印到 stderr 供诊断
+      console.error(`[ws] sendFrame error (side=${this.identity.side} deviceId=${this.identity.deviceId ?? '-'}): ${err instanceof Error ? err.message : String(err)}`)
       return false
     }
   }
@@ -285,8 +287,9 @@ export class RelayConnection {
         }
         try {
           this.hooks.onText(this, whole.toString('utf8'))
-        } catch {
-          /* 协议处理异常不杀伤连接循环（逐帧隔离） */
+        } catch (err) {
+          // 协议处理异常不杀伤连接循环（逐帧隔离）——但绝不静默：打印到 stderr 供诊断
+          console.error(`[ws] frame handler error (side=${this.identity.side} deviceId=${this.identity.deviceId ?? '-'}): ${err instanceof Error ? err.stack : String(err)}`)
         }
         return
       }
@@ -307,8 +310,8 @@ export class RelayConnection {
           this.fragments = null
           try {
             this.hooks.onText(this, whole.toString('utf8'))
-          } catch {
-            /* 逐帧隔离 */
+          } catch (err) {
+            console.error(`[ws] frame handler error (side=${this.identity.side} deviceId=${this.identity.deviceId ?? '-'}): ${err instanceof Error ? err.stack : String(err)}`)
           }
         }
         return

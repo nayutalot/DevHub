@@ -437,13 +437,17 @@ export class Forwarder {
     )
     const rowId = Number(result.lastInsertRowid)
 
+    // 先武装内存帧再尝试中继——hostOnline 判定存在写入竞态：host socket 已死（RST 到达）
+    // 但 close 事件未处理时 sendToHost 仍会同步返回 true，命令走"等 host 异步回 ack"路径后
+    // 永无回执。武装后：host 未回 ack 即死 → 行保持 queued + 内存帧在 → 下次 host 上线
+    // deliverQueuedCommands 重投（host 幂等去重），设备 QueueReplay 重发也能取到 queued 应答。
+    this.queuedMemory.set(rowId, { frame, deviceId, requestedAt: nowSec })
     if (this.hostOnline && this.sendToHost(frame)) {
-      // 原样中继（内嵌 auth 纯过境）；ack 由 host 异步回流
+      // 原样中继（内嵌 auth 纯过境）；ack 由 host 异步回流（回 ack 时清武装，见 handleHostCommandAck）
       this.audit.write({ category: 'command', action: 'command_relayed', outcome: 'success', deviceId, detail: { idempotencyKey, action } })
       return
     }
     // host 离线 → 排队受理（queued:true；内存持有完整帧待投递）
-    this.queuedMemory.set(rowId, { frame, deviceId, requestedAt: nowSec })
     this.audit.write({ category: 'command', action: 'command_queued', outcome: 'success', deviceId, detail: { idempotencyKey, action, queuedDepth: queued.global + 1 } })
     this.ackToDevice(deviceId, { type: 'command_ack', requestId, idempotencyKey, status: 'accepted', queued: true })
   }
@@ -779,7 +783,8 @@ export class Forwarder {
         nowSec,
         row.id,
       )
-      if (newStatus === 'accepted') this.queuedMemory.delete(row.id)
+      // host 任一回执（accepted/acked/rejected）都证明已收到——清掉中继前武装的内存帧兜底
+      this.queuedMemory.delete(row.id)
       this.audit.write({ category: 'command', action: 'command_relayed', outcome: 'success', deviceId: row.device_id, detail: { idempotencyKey, commandId, status } })
     }
     if (row !== undefined) {
