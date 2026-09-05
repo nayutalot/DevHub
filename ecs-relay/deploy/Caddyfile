@@ -4,28 +4,31 @@
 # 本文件仅将 {TLS_DIR} 实例化为默认值 /etc/devhub-relay/tls，其余零改动。
 # 证书生成：sudo ./docs/ecs-relay-deploy/gen-ip-cert.sh（SAN 含 IP:59.110.149.11，docs/19 §10.1）。
 # 装载：sudo cp 本文件 /etc/caddy/Caddyfile && sudo systemctl reload caddy
-
+# M3-B ECS 实证修正回写（2026-09-06，对照 /etc/caddy/Caddyfile 最终版）：
+#   1) default_sni —— curl/Node/OkHttp 对 IP 字面量不发 SNI，无 SNI 握手需默认证书
+#   2) 三条 handler 包进 route {} —— 适配器内置序会把顶层 respond 排到反代之前，404 遮蔽一切
+#   3) 删 header_up {>Connection}/{>Upgrade} —— Caddy 2 不解析 v1 占位符，WS 升级必败；Caddy 2 原生透传 WS
 {
 	# 无域名部署：证书已显式指定，无 ACME 尝试（U1 已裁决永久不购域名，docs/21 §1）
 	auto_https off
+	default_sni 59.110.149.11
 }
 
 https://59.110.149.11:443 {
 	# 自签 IP 证书（SAN 必须含 IP:59.110.149.11 —— gen-ip-cert.sh 生成；私钥 0600 仅存 ECS）
 	tls /etc/devhub-relay/tls/server.crt /etc/devhub-relay/tls/server.key
 
-	# ---- WebSocket 透传（device leg /relay/device、host leg /relay/host）----
-	# 裸 http:// 上游 = HTTP/1.1 透传，WS 101 升级头自动转发（docs/19 §5.6 h12:// 语义）
-	reverse_proxy /relay/* http://127.0.0.1:8443 {
-		header_up Connection {>Connection}
-		header_up Upgrade      {>Upgrade}
+	route {
+		# ---- WebSocket 透传（device leg /relay/device、host leg /relay/host）----
+		reverse_proxy /relay/* http://127.0.0.1:8443 {
+		}
+
+		# ---- REST 面（docs/18 §7 五端点 + /v1/health）----
+		reverse_proxy /v1/* http://127.0.0.1:8443
+
+		# 其余路径一律 404（不放大暴露面）
+		respond 404
 	}
-
-	# ---- REST 面（docs/18 §7 五端点 + /v1/health）----
-	reverse_proxy /v1/* http://127.0.0.1:8443
-
-	# 其余路径一律 404（不放大暴露面）
-	respond 404
 
 	log {
 		output file /var/log/caddy/devhub-relay-access.log {
