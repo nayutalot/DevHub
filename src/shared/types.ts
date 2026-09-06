@@ -1796,6 +1796,23 @@ export interface RelayStatusView {
   lastError?: string
   /** 结构化告警（非错误）：如 relay 启用但本地 Gateway 未启用（docs/19 §4.8）。 */
   warning?: string
+  /** TLS 信任物料状态（M3-C1b，docs/19 §10；只读展示，零凭据）。 */
+  tls?: RelayTlsTrustStatus
+}
+
+/**
+ * relay TLS 信任物料状态（M3-C1b）：指纹状态行（枚数+来源文件名，只读）+
+ * !ok 结构化建议。指纹是公开物料（docs/19 §10.1），路径/建议可入投影。
+ */
+export interface RelayTlsTrustStatus {
+  /** 指纹+CA 均就绪（wss 连接将以 tls{ca,checkServerIdentity} 构造）。 */
+  ok: boolean
+  /** 归一化后 SPKI 指纹枚数（双指纹窗口 = 2）。 */
+  pins: number
+  /** 指纹来源文件名（如 `fingerprints`）。 */
+  source: string
+  /** !ok 结构化原因与补放建议（含路径；零凭据）。 */
+  error?: string
 }
 
 export interface AgentGatewayStatusPayload extends EmptyPayload {}

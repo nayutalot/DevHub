@@ -6,6 +6,10 @@
  * config 结构化注册态（docs/19 §4.7）优先于连接：disabled / misconfigured /
  * unregistered 一律零连接（结构化投影而非错误）。
  *
+ * TLS 信任装载（M3-C1b，docs/19 §10）：wss endpoint + 指纹/CA 就绪 → 出站连接注入
+ * tls{ca, checkServerIdentity}（默认规则先行 + SPKI pin 双指纹窗口任一命中）；信任物
+ * 缺失 → 结构化告警投影 + 缺省校验 fail-closed 尝试（绝不静默零连接也不崩）。
+ *
  * 帧路由（docs/18 §3 host 腿）：hello（握手 + ECS 缓存水位）/ register_pairing_ack、
  * pair（pairingBridge）/ sync_request（累计 ACK → L3 markEventsAckedThrough，经
  * ecsDeviceId→winDeviceId 映射）/ heartbeat（E→H tokenVersion 容错确认信道 →
@@ -32,10 +36,13 @@ import {
   clearExtraDeviceRevokedListeners,
   setPairingIssuedListener,
 } from '../agentControlService.ts'
+import { createHash, X509Certificate } from 'node:crypto'
+import { checkServerIdentity as tlsDefaultCheckServerIdentity, type PeerCertificate } from 'node:tls'
 import { nowSec } from '../../internal.ts'
 import {
-  readRelayRegistrationState,
   loadRelayCredential,
+  loadRelayTlsTrust,
+  readRelayRegistrationState,
   relayEndpointError,
 } from './config.ts'
 import {
@@ -45,7 +52,9 @@ import {
 } from './backoff.ts'
 import {
   openRelayConnection,
+  parseRelayEndpoint,
   type HostToEcsFrame,
+  type OpenRelayConnectionOptions,
   type RelayClientConnection,
   type RelayClientConnectionHooks,
 } from './wsClient.ts'
@@ -346,6 +355,31 @@ function wireSeams(): void {
 // 连接流（attemptConnect → hello 握手 → 三步恢复序）
 // ---------------------------------------------------------------------------
 
+/**
+ * TLS 信任缝构造（M3-C1b，docs/19 §10.3 + docs/ecs-relay-deploy/README.md §4 形态）：
+ * 先跑 `tls.checkServerIdentity` **默认规则**（主机名/IP SAN 匹配——SAN 与指纹双保险），
+ * 默认规则拒绝即拒绝；再比对叶证书 **SPKI SHA-256** pin（指纹集任一命中即过——
+ * 双指纹窗口语义，docs/19 §10.4）。SPKI DER 按 node:https 实际传入的 peerCertificate
+ * 对象提取（cert.raw = 叶证书 DER → X509Certificate → publicKey.export(spki, der)；
+ * cert.fingerprint256 是整证书摘要非 SPKI，绝不可混用——部署面 spki-sha256.txt 对拍）。
+ */
+export function buildRelayTlsCheckServerIdentity(pins: readonly string[]): NonNullable<OpenRelayConnectionOptions['tls']>['checkServerIdentity'] {
+  const normalized = pins.map((pin) => pin.toLowerCase())
+  return (host, cert) => {
+    const defaultError = tlsDefaultCheckServerIdentity(host, cert as PeerCertificate)
+    if (defaultError) return defaultError // 默认规则先行（IP SAN 不匹配/过期即拒，pin 不兜底）
+    const raw = (cert as { raw?: Buffer }).raw
+    if (raw === undefined) {
+      return new Error(`relay TLS pin check unavailable: peer certificate raw DER missing for ${host}`)
+    }
+    const spkiDer = new X509Certificate(raw).publicKey.export({ type: 'spki', format: 'der' })
+    const spkiHex = createHash('sha256').update(spkiDer).digest('hex')
+    return normalized.includes(spkiHex)
+      ? undefined
+      : new Error(`relay TLS pin mismatch for ${host}: ${spkiHex} (docs/19 §10 dual-fingerprint window)`)
+  }
+}
+
 async function attemptConnect(gen: number): Promise<void> {
   try {
     if (gen !== generation) return
@@ -357,7 +391,26 @@ async function attemptConnect(gen: number): Promise<void> {
       return
     }
     const endpoint = readRelayRegistrationState().endpoint
-    const result = await openRelayConnection({ endpoint, credential: credential.credential }, makeConnectionHooks(gen))
+    // TLS 信任装载（docs/19 §10）：wss endpoint + 指纹/CA 就绪 → 注入
+    // tls{ca, checkServerIdentity}；信任物缺失 → 结构化告警投影（statusProjector
+    // warning 面），连接流仍以缺省校验尝试（自签 IP 证书必被默认链验证拒绝 =
+    // fail-closed，lastError 结构化可见——不静默零连接也不崩），补放 ca.pem 后
+    // 下次重连（退避 ≤60s）自动装载，无需重启。
+    let tls: OpenRelayConnectionOptions['tls'] | undefined
+    const parts = parseRelayEndpoint(endpoint)
+    if (parts !== null && parts.secure) {
+      const trust = loadRelayTlsTrust()
+      if (trust.ok && trust.trust !== undefined) {
+        tls = {
+          ca: trust.trust.ca,
+          checkServerIdentity: buildRelayTlsCheckServerIdentity(trust.trust.fingerprints),
+        }
+      }
+    }
+    const result = await openRelayConnection(
+      { endpoint, credential: credential.credential, ...(tls !== undefined ? { tls } : {}) },
+      makeConnectionHooks(gen),
+    )
     if (gen !== generation) {
       if (result.upgraded) result.connection.close(1000, 'stale connect attempt (superseded)')
       return
