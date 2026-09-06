@@ -159,6 +159,9 @@ fun PairingScreen(onPaired: () -> Unit) {
                                 }
 
                                 is RelayPairingClient.Outcome.Failure -> {
+                                    // M3-C6c 小项#6：失败即清空码输入框（16 位拼接误输之源：
+                                    // 残码 + 新码拼接必败，清空强制整码重输）
+                                    code = ""
                                     error = outcome.message
                                 }
                             }
@@ -188,6 +191,7 @@ fun PairingScreen(onPaired: () -> Unit) {
                             showSecurityNotice = true // 首配对后一次性安全提示
                         }
                     } catch (err: ApiError) {
+                        code = "" // M3-C6c 小项#6：失败即清空码输入框（16 位拼接误输之源）
                         error = when (err.code) {
                             "AUTH_INVALID_TOKEN" -> "配对失败：码无效/已过期/已被使用（一次性）[${err.code}]"
                             "AUTH_RATE_LIMITED" ->
@@ -197,8 +201,10 @@ fun PairingScreen(onPaired: () -> Unit) {
                             else -> "配对失败：[${err.code}] ${err.message}"
                         }
                     } catch (err: IOException) {
+                        code = "" // M3-C6c 小项#6：同上
                         error = "无法连接 Gateway：请先在「Gateway 配置」页测试连接"
                     } catch (err: Exception) {
+                        code = "" // M3-C6c 小项#6：同上
                         error = "配对异常：${err.message}"
                     }
                     busy = false
