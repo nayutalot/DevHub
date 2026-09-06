@@ -281,7 +281,7 @@ object ConnectionManager {
      * - endpoint 解析经 [RelayEndpoint.parse]（**wss 强制**：ws:// 抛 IllegalArgumentException，
      *   docs/19 §11 文案）——非法 = relay 通道不可用（连接层报配置错误，绝不静默降级明文）；
      * - pinFingerprints（docs/19 §10.2 注入式，非机密物料）非空 → 构造 SPKI 指纹锁定
-     *   （TrustManager 信任委托 + CertificatePinner 强制，见 [RelayTlsTrust]）；
+     *   （信任判定单点 = RelayTlsTrust PinTrustManager；pinner 强制层已全量退役）；
      *   空/缺省 = 系统默认信任（fail-fast 纪律：指纹本身非法属配置错误，走 _lastWsError 暴露）。
      */
     private fun rebuildRelayClients(cfg: ConnConfig) {
@@ -304,7 +304,7 @@ object ConnectionManager {
         // M3-C3a 修 2（C2 #3）：pin pattern = 具体 host（IP 字面量直接用）。空/非法 host
         // → fail-fast 不构建 relay 通道（信任锚缺失时宁可不连，绝不静默降级明文/通配符——
         // 曾用 `'*'` 令 OkHttp 抛 IllegalArgumentException，重连协程反复构建致进程死循环）。
-        // pattern 现仅作 GatewayApi（pinner-only 面，无自定义 TM）注入与 fail-fast 判定；
+        // pattern 现仅作 GatewayApi（M3-C6d 起同为 pin-TM 面）注入与 fail-fast 判定；
         // WS 客户端 pin-TM 激活时不装 pinner（M3-C6c bug#1，docs/19 §10.2 勘误）。
         val pinPattern = if (pinning != null) TlsPinningConfig.pinPatternFor(endpoint.host) else null
         if (pinning != null && pinPattern == null) {

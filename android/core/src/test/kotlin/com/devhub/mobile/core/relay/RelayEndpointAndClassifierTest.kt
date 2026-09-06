@@ -91,7 +91,7 @@ class RelayEndpointAndClassifierTest {
 
     @Test
     fun `tls pinning fingerprint model stays fail-fast for relay wiring`() {
-        // Block 7 注入缝的前置合同（:core 模型；app 层 toCertificatePinner 转换）
+        // Block 7 注入缝的前置合同（:core 模型；app 层 RelayTlsTrust pin-TM 消费）
         val hex = "ab".repeat(32) // 64 位十六进制 SPKI 指纹
         val cfg = com.devhub.mobile.core.TlsPinningConfig(listOf("sha256/$hex"))
         assertEquals(1, cfg.fingerprints.size)
