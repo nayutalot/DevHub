@@ -267,6 +267,8 @@ if (isEntrypoint()) {
   // 并升到 user_version 3（覆盖面不变：干净迁移 + 幂等重跑）。
   // AC2 批次 note（docs/13 §3 授权的同一模式就地更新）：004_agent_control.sql
   // 加入后，全新库一次迁移应用 4 个文件并升到 user_version 4（覆盖面不变）。
+  // M3-C7b 批次 note（同一模式）：006_rotation_grace.sql 加入后，全新库一次
+  // 迁移应用 6 个文件并升到 user_version 6（覆盖面不变，逐条已单列批次报告）。
   registerCase('step3: fresh db migrates to user_version 1, idempotent re-run', async () => {
     const { mkdtempSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
@@ -276,9 +278,9 @@ if (isEntrypoint()) {
     const db = dbModule.openDatabase(join(dir, 'test.db'))
     try {
       const applied = dbModule.migrate(db)
-      assert.equal(applied, 5, '001..005 migrations applied on fresh db (ux-a 批次就地更新 4→5)')
+      assert.equal(applied, 6, '001..006 migrations applied on fresh db (c7b 批次就地更新 5→6)')
       const row = db.prepare('PRAGMA user_version').get()
-      assert.equal(Number(row.user_version), 5, 'user_version after migrate (latest = 5, ux-a 批次就地更新 4→5)')
+      assert.equal(Number(row.user_version), 6, 'user_version after migrate (latest = 6, c7b 批次就地更新 5→6)')
       const appliedAgain = dbModule.migrate(db)
       assert.equal(appliedAgain, 0, 'second migrate run applies nothing')
     } finally {
@@ -591,8 +593,8 @@ if (isEntrypoint()) {
     const db = dbModule.openDatabase(join(dir, 'fresh.db'))
     try {
       const applied = dbModule.migrate(db)
-      assert.equal(applied, 5, '001..005 applied on fresh db (ux-a 批次就地更新 4→5)')
-      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 5, 'fresh db at user_version 5 (ux-a 批次就地更新 4→5)')
+      assert.equal(applied, 6, '001..006 applied on fresh db (c7b 批次就地更新 5→6)')
+      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 6, 'fresh db at user_version 6 (c7b 批次就地更新 5→6)')
 
       db.prepare("INSERT INTO environments (name, kind, detected_at, created_at, updated_at) VALUES ('windows', 'windows', 0, 0, 0)").run()
       const envId = Number(db.prepare("SELECT id FROM environments WHERE name = 'windows'").get().id)
@@ -625,8 +627,8 @@ if (isEntrypoint()) {
       ).run()
 
       const applied = dbModule.migrate(db2)
-      assert.equal(applied, 4, 'only 002..005 apply to the v1 library (ux-a 批次就地更新 3→4)')
-      assert.equal(Number(db2.prepare('PRAGMA user_version').get().user_version), 5, 'v1 upgraded to user_version 5 (ux-a 批次就地更新 4→5)')
+      assert.equal(applied, 5, 'only 002..006 apply to the v1 library (c7b 批次就地更新 4→5)')
+      assert.equal(Number(db2.prepare('PRAGMA user_version').get().user_version), 6, 'v1 upgraded to user_version 6 (c7b 批次就地更新 5→6)')
       const seedAfter = db2.prepare("SELECT value FROM settings WHERE key = 'scan_root'").get()
       assert.ok(seedAfter && seedAfter.value === 'F:\\Active_Project', 'settings seed survived the table rebuild')
       const toolRow = db2.prepare("SELECT path, version FROM environment_tools WHERE environment_id = 1 AND tool = 'python'").get()
@@ -649,7 +651,7 @@ if (isEntrypoint()) {
     await makeTempHome('devhub-scan-')
     try {
       const db = dbModule.getDatabase()
-      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 5, 'home db migrated to 5 (ux-a 批次就地更新 4→5)')
+      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 6, 'home db migrated to 6 (c7b 批次就地更新 5→6)')
 
       const root = mkdtempSync(join(tmpdir(), 'devhub-projects-'))
       await withFixtureProject(root, 'alpha-web', { marker: 'package.json', git: true })
@@ -1773,8 +1775,8 @@ if (isEntrypoint()) {
     const db = dbModule.openDatabase(join(dir, 'fresh.db'))
     try {
       const applied = dbModule.migrate(db)
-      assert.equal(applied, 5, '001..005 applied on fresh db (ux-a 批次就地更新 4→5)')
-      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 5, 'fresh db at user_version 5 (ux-a 批次就地更新 4→5)')
+      assert.equal(applied, 6, '001..006 applied on fresh db (c7b 批次就地更新 5→6)')
+      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 6, 'fresh db at user_version 6 (c7b 批次就地更新 5→6)')
 
       const columnsOf = (table) => db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name)
       assert.deepEqual(columnsOf('skill_agents'), ['id', 'name', 'platform', 'skills_dir', 'agents_dir', 'include_json', 'enabled', 'created_at', 'updated_at'], 'skill_agents columns')
@@ -1836,8 +1838,8 @@ if (isEntrypoint()) {
       ).run(now, now)
 
       const applied = dbModule.migrate(db2)
-      assert.equal(applied, 3, 'only 003..005 apply to the v2 library (ux-a 批次就地更新 2→3)')
-      assert.equal(Number(db2.prepare('PRAGMA user_version').get().user_version), 5, 'v2 upgraded to user_version 5 (ux-a 批次就地更新 4→5)')
+      assert.equal(applied, 4, 'only 003..006 apply to the v2 library (c7b 批次就地更新 3→4)')
+      assert.equal(Number(db2.prepare('PRAGMA user_version').get().user_version), 6, 'v2 upgraded to user_version 6 (c7b 批次就地更新 5→6)')
 
       const proj = db2.prepare('SELECT name, win_path FROM projects WHERE id = 1').get()
       assert.ok(proj && proj.name === 'legacy-proj', 'projects row survived')
@@ -2103,7 +2105,7 @@ if (isEntrypoint()) {
       const migrated = Number(db.prepare('PRAGMA user_version').get().user_version)
       // AC2 批次就地更新（docs/13 §3 授权的同一模式）：004 存在后真实库一经任何
       // 进程打开即前移到 4，本断言跟随最新版本 3 → 4。
-      assert.equal(migrated, 5, `real db at user_version 5, got ${migrated} (ux-a 批次就地更新 4→5)`)
+      assert.equal(migrated, 6, `real db at user_version 6, got ${migrated} (c7b 批次就地更新 5→6)`)
       const agents = Number(db.prepare('SELECT COUNT(*) AS c FROM skill_agents').get().c)
       const runs = Number(db.prepare('SELECT COUNT(*) AS c FROM archive_runs').get().c)
       assert.ok(agents >= 1, `real import landed skill_agents rows, got ${agents}`)
@@ -4412,8 +4414,8 @@ if (isEntrypoint()) {
     const db = dbModule.openDatabase(join(dir, 'fresh.db'))
     try {
       const applied = dbModule.migrate(db)
-      assert.equal(applied, 5, '001..005 applied on fresh db (ux-a 批次就地更新 4→5)')
-      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 5, 'fresh db at user_version 5 (ux-a 批次就地更新 4→5)')
+      assert.equal(applied, 6, '001..006 applied on fresh db (c7b 批次就地更新 5→6)')
+      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 6, 'fresh db at user_version 6 (c7b 批次就地更新 5→6)')
 
       const tables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name))
       for (const t of [
@@ -4504,8 +4506,8 @@ if (isEntrypoint()) {
       assert.ok(before.settings.length >= 5, 'v3 settings carry 001/003 seeds + custom row')
 
       const applied = dbModule.migrate(db2)
-      assert.equal(applied, 2, 'only 004+005 apply to the v3 library (ux-a 批次就地更新 1→2)')
-      assert.equal(Number(db2.prepare('PRAGMA user_version').get().user_version), 5, 'v3 upgraded to user_version 5 (ux-a 批次就地更新 4→5)')
+      assert.equal(applied, 3, 'only 004..006 apply to the v3 library (c7b 批次就地更新 2→3)')
+      assert.equal(Number(db2.prepare('PRAGMA user_version').get().user_version), 6, 'v3 upgraded to user_version 6 (c7b 批次就地更新 5→6)')
 
       for (const t of LEGACY_TABLES) {
         const after = db2.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all()
@@ -8923,8 +8925,8 @@ if (isEntrypoint()) {
     const db = dbModule.openDatabase(join(dir, 'fresh.db'))
     try {
       const applied = dbModule.migrate(db)
-      assert.equal(applied, 5, '001..005 applied on fresh db')
-      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 5, 'user_version = 5')
+      assert.equal(applied, 6, '001..006 applied on fresh db (c7b 批次就地更新 5→6)')
+      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 6, 'user_version = 6 (c7b 批次就地更新 5→6)')
       const sessionCols = db.prepare('PRAGMA table_info(agent_sessions)').all().map((c) => c.name)
       assert.ok(sessionCols.includes('parent_session_id'), 'agent_sessions.parent_session_id present')
       assert.ok(sessionCols.includes('archived_at'), 'agent_sessions.archived_at present')
@@ -8938,7 +8940,7 @@ if (isEntrypoint()) {
       db.close()
     }
 
-    // -- 手工构造 v4 库（001..004 SQL + 手动 user_version=4）→ migrate 仅应用 005，数据保留
+    // -- 手工构造 v4 库（001..004 SQL + 手动 user_version=4）→ migrate 仅应用 005+006，数据保留
     const dir2 = mkdtempSync(join(tmpdir(), 'devhub-uxa-143-v4-'))
     const db2 = dbModule.openDatabase(join(dir2, 'v4.db'))
     try {
@@ -8950,8 +8952,8 @@ if (isEntrypoint()) {
       db2.prepare("INSERT INTO agent_providers (provider, display_name, created_at, updated_at) VALUES ('zcode', 'ZCode', ?, ?)").run(now, now)
       db2.prepare("INSERT INTO agent_sessions (provider_id, native_id, session_mode, status, created_at, updated_at) VALUES (1, 'sess_v4_keep', 'observed', 'running', ?, ?)").run(now, now)
       const applied = dbModule.migrate(db2)
-      assert.equal(applied, 1, 'only 005 applies to the v4 library')
-      assert.equal(Number(db2.prepare('PRAGMA user_version').get().user_version), 5, 'v4 upgraded to 5')
+      assert.equal(applied, 2, 'only 005+006 apply to the v4 library (c7b 批次就地更新 1→2)')
+      assert.equal(Number(db2.prepare('PRAGMA user_version').get().user_version), 6, 'v4 upgraded to 6 (c7b 批次就地更新 5→6)')
       const row = db2.prepare("SELECT native_id, parent_session_id, archived_at FROM agent_sessions WHERE native_id = 'sess_v4_keep'").get()
       assert.ok(row !== undefined, 'v4 session row survived the upgrade')
       assert.equal(row.parent_session_id, null, 'parent_session_id NULL for pre-005 rows')
@@ -8968,7 +8970,9 @@ if (isEntrypoint()) {
       try {
         migrateMod.setUserVersionLiteral(db3, 5)
         assert.equal(Number(db3.prepare('PRAGMA user_version').get().user_version), 5, 'case-5 literal statement works')
-        assert.throws(() => migrateMod.setUserVersionLiteral(db3, 6), /no literal user_version statement/, 'unregistered version throws')
+        migrateMod.setUserVersionLiteral(db3, 6) // c7b 批次：case-6 已注册，负向样例顺延 6→7
+        assert.equal(Number(db3.prepare('PRAGMA user_version').get().user_version), 6, 'case-6 literal statement works (c7b 批次)')
+        assert.throws(() => migrateMod.setUserVersionLiteral(db3, 7), /no literal user_version statement/, 'unregistered version throws')
       } finally {
         db3.close()
       }
@@ -11030,6 +11034,237 @@ if (isEntrypoint()) {
       assert.ok(!audit.detail_json.includes(r.json.code), 'audit carries no code plaintext')
     } finally {
       await gw.resetGatewayInMemoryState()
+      m.relay.resetRelayClientForSmoke()
+      await r1StubClose(stub)
+      await r1CaseTeardown(m)
+    }
+  })
+
+  // ====================================================================
+  // M3-C7b 桌面修复批 — nb-c7b 段（任务书 docs/briefs/m3c7b-host-leg.md）：
+  // ① host 腿只读投影三处理器（agent_list/session_list/message，docs/18 §7.1 G5）
+  // ② 轮换宽限桌面镜像三态（migration 006 append-only，docs/18 §3.14）
+  // ③ 命令拒绝设备向回程（docs/18 error 跨腿空白点的最小实现）
+  // 既有 169 用例零改动（append-only，约束 #27）。
+  // ====================================================================
+
+  // 168. 轮换宽限镜像三态（docs/18 §3.14 + migration 006）：无轮换恒认（态三）/
+  //      窗内 v1 仍认（态一）/ 窗外 v1 拒（态二）；撤销即拒对宽限/新值同等生效；
+  //      rotateDeviceToken 落库 previous_token_hash/rotated_at 成对登记（零明文）；
+  //      migration 006 append-only 到位（user_version=6 + 新列存在）。
+  registerCase('nb-c7b-168: rotation grace mirror three-state — no-rotation accepts current token only, in-window old token still accepted (row identity, current version projected), out-of-window old token rejected, revocation dominates both hashes; migration 006 lands user_version=6 with previous_token_hash/rotated_at columns, rotateDeviceToken pairs them with zero plaintext', async () => {
+    const m = await r1CaseSetup('devhub-nb-c7b-168-')
+    const db = m.dbModule.getDatabase()
+    try {
+      // migration 006 append-only 到位
+      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 6, 'migration 006 registered (user_version=6)')
+      const cols = db.prepare("SELECT name FROM pragma_table_info('remote_devices')").all().map((r) => r.name)
+      assert.ok(cols.includes('previous_token_hash'), 'previous_token_hash column exists')
+      assert.ok(cols.includes('rotated_at'), 'rotated_at column exists')
+
+      const v1 = `nb-c7b-168-v1-${randomBytes(8).toString('hex')}`
+      const deviceId = r1FixtureDevice(m, db, 'nb-c7b-168-phone', v1)
+
+      // 态三（无轮换）：当前 token 恒认；无关 token 拒
+      assert.equal(m.auth.authenticateBearerToken(v1).id, deviceId, 'no-rotation: current token accepted')
+      assert.throws(() => m.auth.authenticateBearerToken('nb-c7b-168-wrong-token'), (err) => err.code === 'AUTH_INVALID_TOKEN', 'no-rotation: unknown token rejected')
+
+      // 轮换：v2 落库 + previous_token_hash/rotated_at 成对登记（哈希非明文）
+      const rotated = m.svc.rotateDeviceToken(deviceId, 'manual')
+      assert.equal(rotated.tokenVersion, 2, 'rotation bumps token_version')
+      const row = db.prepare('SELECT previous_token_hash, rotated_at, token_hash, token_version FROM remote_devices WHERE id = ?').get(deviceId)
+      assert.equal(row.previous_token_hash, m.auth.sha256Hex(v1), 'previous hash = sha256(v1)')
+      assert.equal(row.token_hash, m.auth.sha256Hex(rotated.token), 'current hash = sha256(v2)')
+      assert.ok(Math.abs(Number(row.rotated_at) - Math.floor(Date.now() / 1000)) <= 5, 'rotated_at lands at rotation moment')
+
+      // 态一（窗内）：v1 仍认（同一设备行；tokenVersion 投影行现值 v2，绝不伪造 v1）
+      const grace = m.auth.authenticateBearerToken(v1)
+      assert.equal(grace.id, deviceId, 'in-window: v1 accepted')
+      assert.equal(grace.tokenVersion, 2, 'in-window: row current version projected')
+      assert.equal(m.auth.authenticateBearerToken(rotated.token).id, deviceId, 'in-window: v2 accepted')
+
+      // 态二（窗外 301s）：v1 拒；v2 认
+      db.prepare('UPDATE remote_devices SET rotated_at = ? WHERE id = ?').run(Math.floor(Date.now() / 1000) - 301, deviceId)
+      assert.throws(() => m.auth.authenticateBearerToken(v1), (err) => err.code === 'AUTH_INVALID_TOKEN', 'out-of-window: v1 rejected')
+      assert.equal(m.auth.authenticateBearerToken(rotated.token).id, deviceId, 'out-of-window: v2 accepted')
+
+      // 撤销即拒优先（docs/15 §4）：窗内宽限也绝不复活撤销设备；新值同样拒
+      // （ rotated_at 回到窗内——撤销设备只剩 DEVICE_REVOKED，绝不 AUTH_INVALID_TOKEN 冒充）
+      db.prepare('UPDATE remote_devices SET rotated_at = ? WHERE id = ?').run(Math.floor(Date.now() / 1000), deviceId)
+      db.prepare("UPDATE remote_devices SET status = 'revoked' WHERE id = ?").run(deviceId)
+      assert.throws(() => m.auth.authenticateBearerToken(v1), (err) => err.code === 'DEVICE_REVOKED', 'revoked: grace never revives')
+      assert.throws(() => m.auth.authenticateBearerToken(rotated.token), (err) => err.code === 'DEVICE_REVOKED', 'revoked: new hash never revives')
+    } finally {
+      await r1CaseTeardown(m)
+    }
+  }, 'fast')
+
+  // 169. host 腿只读投影三处理器正路径（docs/18 §3.4/§3.5/§3.7 + §7.1 G5，M3-C7b 修 ①）：
+  //      agent_list → REST 四字段投影（本机面字段绝不出境）；session_list（providerId
+  //      业务键形态）→ stale:false + SessionView；message → items 投影绝无 sourceRef、
+  //      segments/occurredAt 可选携带；requestId 原样回显（R2 裁定④）。
+  registerCase('nb-c7b-169: host-leg read-only projection frames over the stub — agent_list mirrors the REST four-field provider shape (no local-only fields), session_list answers stale:false with the SessionView (business-key providerId resolves), message items carry contentRedacted/occurredAt/segments and never sourceRef, requestIds echoed', async () => {
+    const m = await r1CaseSetup('devhub-nb-c7b-169-')
+    const db = m.dbModule.getDatabase()
+    const stub = await r1StartRelayStub()
+    try {
+      r1EnableRelay(m, stub, 'nb-c7b-relay-cred-169')
+      const { providerId, sessionId } = await r1FixtureManagedProvider(m, db, 'nb-c7b-169')
+      const now = Math.floor(Date.now() / 1000)
+      db.prepare("INSERT INTO agent_messages (session_id, native_msg_id, role, content_redacted, occurred_at, created_at) VALUES (?, ?, 'user', ?, ?, ?)")
+        .run(sessionId, 'nb-c7b-169-m1', '第一条（脱敏投影）', now - 10, now - 10)
+      db.prepare("INSERT INTO agent_messages (session_id, native_msg_id, role, content_redacted, segments_json, created_at) VALUES (?, ?, 'assistant', ?, ?, ?)")
+        .run(sessionId, 'nb-c7b-169-m2', '第二条（脱敏投影）', JSON.stringify([{ kind: 'thinking', label: '推理', content: '…' }]), now - 5)
+      r1FixtureDevice(m, db, 'nb-c7b-169-phone', `nb-c7b-169-dev-${randomBytes(6).toString('hex')}`)
+      m.relay.configureRelayClientRuntime({ helloTimeoutMs: 3000, baseDelayMs: 50, maxDelayMs: 200 })
+      m.relay.startRelayClient()
+      await r1HelloNewConnection(stub)
+      await pollUntil(() => m.relay.getRelayClientDiagnostics().status === 'ready', 5000, 30, 'relay ready')
+
+      // agent_list（fixture #4 为底）
+      const agentReq = r1FixtureFrame(4, 'device-to-ecs')
+      agentReq.requestId = 'nb-c7b-169-agents'
+      r1StubSend(stub, agentReq)
+      const agents = await r1StubWait(stub, (f) => f.json?.type === 'agent_list' && f.json.requestId === 'nb-c7b-169-agents', 4000, 'agent_list response')
+      assert.ok(Array.isArray(agents.json.providers), 'providers array')
+      const mine = agents.json.providers.find((p) => p.id === providerId)
+      assert.ok(mine !== undefined, 'fixture provider projected')
+      assert.equal(mine.displayName, 'kimi fixture')
+      assert.equal(mine.health, 'ok')
+      assert.ok(typeof mine.capabilities === 'object' && mine.capabilities !== null, 'capabilities object rides')
+      assert.ok(!('exePath' in mine) && !('lastProbeAt' in mine) && !('installed' in mine), 'local-only fields never leave (REST four-field shape)')
+
+      // session_list（fixture #5 为底；providerId 业务键 = fixture #5 样本形态）
+      const sessReq = r1FixtureFrame(5, 'device-to-ecs')
+      sessReq.requestId = 'nb-c7b-169-sessions'
+      sessReq.query = { providerId: 'kimi', limit: 100 }
+      r1StubSend(stub, sessReq)
+      const sessions = await r1StubWait(stub, (f) => f.json?.type === 'session_list' && f.json.requestId === 'nb-c7b-169-sessions', 4000, 'session_list response')
+      assert.equal(sessions.json.stale, false, 'host online answers stale:false')
+      const sessMine = sessions.json.sessions.find((s) => s.id === sessionId)
+      assert.ok(sessMine !== undefined, 'fixture session projected')
+      assert.equal(sessMine.status, 'running')
+
+      // message（fixture #7 为底）
+      const msgReq = r1FixtureFrame(7, 'device-to-ecs')
+      msgReq.requestId = 'nb-c7b-169-messages'
+      msgReq.sessionId = sessionId
+      msgReq.last = 10
+      msgReq.limit = 10
+      r1StubSend(stub, msgReq)
+      const messages = await r1StubWait(stub, (f) => f.json?.type === 'message' && f.json.requestId === 'nb-c7b-169-messages', 4000, 'message response')
+      assert.equal(messages.json.items.length, 2, 'both messages projected')
+      assert.equal(messages.json.items[0].contentRedacted, '第一条（脱敏投影）', 'ASC order content')
+      assert.ok(messages.json.items.every((it) => !('sourceRef' in it)), 'sourceRef never crosses the leg (docs/15 §6)')
+      assert.ok(!('prevAfter' in messages.json), 'no prevAfter without older rows')
+      assert.ok(Array.isArray(messages.json.items[1].segments), 'segments ride when structured')
+      assert.equal(messages.json.items[1].occurredAt, undefined, 'occurredAt optional (absent when null)')
+    } finally {
+      m.relay.resetRelayClientForSmoke()
+      await r1StubClose(stub)
+      await r1CaseTeardown(m)
+    }
+  })
+
+  // 170. host 腿校验折叠 + 命令拒绝设备向回程（M3-C7b 修 ③）：非法 query/未知资源/
+  //      互斥取数 → error 帧原码（BAD_PAYLOAD/NOT_FOUND）；缺 requestId → error 不回显；
+      // command 拒绝（错 token / 结构缺字段）→ error + command_ack{rejected,errorCode}
+      // 双帧回程（docs/18 error 跨腿空白点最小实现，中继=是；缺幂等键仅 error）。
+  registerCase('nb-c7b-170: host-leg validation folds + device-ward rejection return — bad query/unknown resource/mutually-exclusive paging fold to error frames with echoed ids, missing requestId errors without echo, wrong-token and malformed commands return BOTH the H->E error frame and the relayable command_ack{rejected,errorCode} (docs/18 blank-spot minimal return), missing idempotencyKey emits error only (no routable ack)', async () => {
+    const m = await r1CaseSetup('devhub-nb-c7b-170-')
+    const db = m.dbModule.getDatabase()
+    const stub = await r1StartRelayStub()
+    try {
+      r1EnableRelay(m, stub, 'nb-c7b-relay-cred-170')
+      const { sessionId } = await r1FixtureManagedProvider(m, db, 'nb-c7b-170')
+      const deviceToken = `nb-c7b-170-dev-${randomBytes(8).toString('hex')}`
+      r1FixtureDevice(m, db, 'nb-c7b-170-phone', deviceToken)
+      m.relay.configureRelayClientRuntime({ helloTimeoutMs: 3000, baseDelayMs: 50, maxDelayMs: 200 })
+      m.relay.startRelayClient()
+      await r1HelloNewConnection(stub)
+      await pollUntil(() => m.relay.getRelayClientDiagnostics().status === 'ready', 5000, 30, 'relay ready')
+
+      // A) session_list 非法 status → BAD_PAYLOAD（requestId 回显）
+      const badStatus = r1FixtureFrame(5, 'device-to-ecs')
+      badStatus.requestId = 'nb-c7b-170-req-1'
+      badStatus.query = { status: 'bogus' }
+      r1StubSend(stub, badStatus)
+      const badStatusErr = await r1StubWait(stub, (f) => f.json?.type === 'error' && f.json.requestId === 'nb-c7b-170-req-1', 4000, 'bad status error')
+      assert.equal(badStatusErr.json.code, 'BAD_PAYLOAD')
+
+      // B) session_list 未知业务键 → NOT_FOUND（绝不猜空结果）
+      const ghost = r1FixtureFrame(5, 'device-to-ecs')
+      ghost.requestId = 'nb-c7b-170-req-2'
+      ghost.query = { providerId: 'ghost-provider' }
+      r1StubSend(stub, ghost)
+      const ghostErr = await r1StubWait(stub, (f) => f.json?.type === 'error' && f.json.requestId === 'nb-c7b-170-req-2', 4000, 'ghost provider error')
+      assert.equal(ghostErr.json.code, 'NOT_FOUND')
+
+      // C) message 未知会话 → NOT_FOUND
+      const unknownSession = r1FixtureFrame(7, 'device-to-ecs')
+      unknownSession.requestId = 'nb-c7b-170-req-3'
+      unknownSession.sessionId = 999999
+      r1StubSend(stub, unknownSession)
+      const unknownErr = await r1StubWait(stub, (f) => f.json?.type === 'error' && f.json.requestId === 'nb-c7b-170-req-3', 4000, 'unknown session error')
+      assert.equal(unknownErr.json.code, 'NOT_FOUND')
+
+      // D) message after+last 互斥 → BAD_PAYLOAD（ux A R10 同参）
+      const exclusive = r1FixtureFrame(7, 'device-to-ecs')
+      exclusive.requestId = 'nb-c7b-170-req-4'
+      exclusive.sessionId = sessionId
+      exclusive.after = 1
+      exclusive.last = 5
+      r1StubSend(stub, exclusive)
+      const exclusiveErr = await r1StubWait(stub, (f) => f.json?.type === 'error' && f.json.requestId === 'nb-c7b-170-req-4', 4000, 'exclusive paging error')
+      assert.equal(exclusiveErr.json.code, 'BAD_PAYLOAD')
+
+      // E) agent_list 缺 requestId → BAD_PAYLOAD 且不回显（无关联键不伪造）
+      r1StubSend(stub, { type: 'agent_list' })
+      const noReqErr = await r1StubWait(stub, (f) => f.json?.type === 'error' && f.json.code === 'BAD_PAYLOAD' && !('requestId' in f.json), 4000, 'missing requestId error')
+
+      // F) command 错 token → error AUTH_INVALID_TOKEN + command_ack rejected（修 ③ 回程）
+      const nowSec = Math.floor(Date.now() / 1000)
+      const wrongToken = r1FixtureFrame(8, 'device-to-ecs')
+      wrongToken.requestId = 'nb-c7b-170-req-6'
+      wrongToken.idempotencyKey = 'nb-c7b-170-key-6'
+      wrongToken.sessionId = sessionId
+      wrongToken.payload = { text: 'wrong token probe' }
+      wrongToken.auth = { token: 'nb-c7b-170-wrong-token', ts: nowSec, nonce: randomBytes(16).toString('hex') }
+      r1StubSend(stub, wrongToken)
+      const wtErr = await r1StubWait(stub, (f) => f.json?.type === 'error' && f.json.requestId === 'nb-c7b-170-req-6', 4000, 'wrong token error frame')
+      assert.equal(wtErr.json.code, 'AUTH_INVALID_TOKEN')
+      const wtAck = await r1StubWait(stub, (f) => f.json?.type === 'command_ack' && f.json.requestId === 'nb-c7b-170-req-6', 4000, 'wrong token device-ward ack')
+      assert.equal(wtAck.json.status, 'rejected')
+      assert.equal(wtAck.json.errorCode, 'AUTH_INVALID_TOKEN')
+      assert.equal(wtAck.json.idempotencyKey, 'nb-c7b-170-key-6')
+
+      // G) command 缺 sessionId（幂等键合法）→ error + ack rejected BAD_PAYLOAD
+      const noSession = r1FixtureFrame(8, 'device-to-ecs')
+      noSession.requestId = 'nb-c7b-170-req-7'
+      noSession.idempotencyKey = 'nb-c7b-170-key-7'
+      noSession.payload = { text: 'no session probe' }
+      delete noSession.sessionId
+      noSession.auth = { token: deviceToken, ts: Math.floor(Date.now() / 1000), nonce: randomBytes(16).toString('hex') }
+      r1StubSend(stub, noSession)
+      const nsAck = await r1StubWait(stub, (f) => f.json?.type === 'command_ack' && f.json.requestId === 'nb-c7b-170-req-7', 4000, 'no-session device-ward ack')
+      assert.equal(nsAck.json.status, 'rejected')
+      assert.equal(nsAck.json.errorCode, 'BAD_PAYLOAD')
+
+      // H) command 缺 idempotencyKey → 仅 error（回程帧无处路由，不伪造 ack）
+      const noKey = r1FixtureFrame(8, 'device-to-ecs')
+      noKey.requestId = 'nb-c7b-170-req-8'
+      noKey.sessionId = sessionId
+      noKey.payload = { text: 'no key probe' }
+      delete noKey.idempotencyKey
+      noKey.auth = { token: deviceToken, ts: Math.floor(Date.now() / 1000), nonce: randomBytes(16).toString('hex') }
+      r1StubSend(stub, noKey)
+      const nkErr = await r1StubWait(stub, (f) => f.json?.type === 'error' && f.json.requestId === 'nb-c7b-170-req-8', 4000, 'no-key error frame')
+      assert.equal(nkErr.json.code, 'BAD_PAYLOAD')
+      assert.ok(!stub.log.some((e) => e.json?.type === 'command_ack' && e.json.requestId === 'nb-c7b-170-req-8'), 'no routable ack without idempotencyKey')
+
+      // 全程拒绝路径零命令流水行
+      assert.equal(db.prepare('SELECT COUNT(*) c FROM remote_commands').get().c, 0, 'rejection paths never land command rows')
+    } finally {
       m.relay.resetRelayClientForSmoke()
       await r1StubClose(stub)
       await r1CaseTeardown(m)

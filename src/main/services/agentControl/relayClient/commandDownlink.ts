@@ -23,6 +23,18 @@
  * executeRemoteCommand 的终态通知是 submitRemoteCommand 返回前已排队的微任务，
  * 若在返回后才登记会漏掉同步完成的指令（fixture provider 即此形态）。
  *
+ * M3-C7b 修 ③ —— docs/18 空白点标注（不扩帧面的最小回程，任务书 §1 #3）：
+ * docs/18 §3.0 #16 error 帧「中继 = 否」——error 帧只在单腿内有语义，ECS 不跨腿
+ * 转发；§3.16 定义了帧形（requestId 可关联）却**未定义 Windows 生成的 error 如何
+ * 到达设备**（H→E→D 回程通道 = 协议空白）。后果：命令被桌面拒（auth 失败等不
+ * 触达 L3 的错误）时设备收不到任何回帧，只能等自身超时（C2d 实测 90s 挂起）。
+ * 协议既未冻结回程帧形，本实现按任务书取最小面：**复用 §3.9
+ * command_ack{status:'rejected', errorCode}（中继 = 是，C2d 实证 ECS 会向设备
+ * 转发该帧）承载错误码回程**，errorCode 取同一命名域（docs/18 §8.2）；H→E
+ * error 帧保留发送（主机腿诊断语义不丢）。16 帧集之外零新帧、既有帧形零扩展。
+ * 若后续按 docs/20 §2.4 契约修订流程定义了 error 跨腿回程，应迁移至该帧形并
+ * 撤除本处 command_ack 回程。
+ *
  * electron-free；零直接写库（L3 submitRemoteCommand / getRemoteCommandResultView
  * 只读豁免；gateway/auth 读豁免——约束 #20）。
  */
@@ -134,13 +146,45 @@ function badPayloadError(requestId: unknown, message: string): HostToEcsFrame {
 }
 
 /**
+ * 设备向错误回程（M3-C7b 修 ③，docs/18 空白点最小实现——见文件头标注）：
+ * 同一拒绝同时走 (a) H→E error 帧（主机腿诊断语义，中继=否不到设备）与
+ * (b) command_ack{rejected, errorCode}（中继=是，设备实际收到的回程帧）。
+ * 仅当幂等键为可用非空字符串时才发 (b)——ECS 以 (deviceId, idempotencyKey) 定位
+ * 命令上下文，键缺失时回程帧无处可路由（error 帧原样保留 requestId 诊断）。
+ */
+function rejectWithDeviceReturn(
+  host: CommandDownlinkHost,
+  requestId: unknown,
+  idempotencyKey: string | undefined,
+  code: string,
+  message: string,
+): void {
+  host.sendError({
+    type: 'error',
+    ...(typeof requestId === 'string' && requestId.length > 0 ? { requestId } : {}),
+    code,
+    message,
+  })
+  if (typeof idempotencyKey === 'string' && idempotencyKey.length > 0) {
+    host.sendAck({
+      type: 'command_ack',
+      ...(typeof requestId === 'string' && requestId.length > 0 ? { requestId } : {}),
+      idempotencyKey,
+      status: 'rejected',
+      errorCode: code,
+    })
+  }
+}
+
+/**
  * command 帧处理（E→H；docs/18 §3.8 D→E 原样中继形态）。绝不抛：所有失败
  * 折叠为 error / command_ack 帧回执（业务级错误不断连，docs/18 §3.16）。
  */
 export function handleCommandFrame(frame: unknown, host: CommandDownlinkHost): void {
   if (!isObject(frame)) return
   const requestId = (frame as { requestId?: unknown }).requestId
-  // 1) 结构校验（协议级）——字段缺失/类型错 → error BAD_PAYLOAD
+  // 1) 结构校验（协议级）——字段缺失/类型错 → error BAD_PAYLOAD；幂等键可用时
+  //    同步走 command_ack{rejected,BAD_PAYLOAD} 设备向回程（M3-C7b 修 ③）
   const idempotencyKey = (frame as { idempotencyKey?: unknown }).idempotencyKey
   const sessionId = (frame as { sessionId?: unknown }).sessionId
   const action = (frame as { action?: unknown }).action
@@ -150,27 +194,28 @@ export function handleCommandFrame(frame: unknown, host: CommandDownlinkHost): v
     return
   }
   if (typeof sessionId !== 'number' || !Number.isSafeInteger(sessionId) || sessionId <= 0) {
-    host.sendError(badPayloadError(requestId, 'command.sessionId must be a positive integer (docs/18 §3.8)'))
+    rejectWithDeviceReturn(host, requestId, idempotencyKey, 'BAD_PAYLOAD', 'command.sessionId must be a positive integer (docs/18 §3.8)')
     return
   }
   if (typeof action !== 'string' || action.length === 0) {
-    host.sendError(badPayloadError(requestId, 'command.action must be a non-empty string (docs/18 §3.8)'))
+    rejectWithDeviceReturn(host, requestId, idempotencyKey, 'BAD_PAYLOAD', 'command.action must be a non-empty string (docs/18 §3.8)')
     return
   }
   if (!isObject(auth)) {
-    host.sendError(badPayloadError(requestId, 'command.auth {token, ts, nonce} is required (docs/18 §3.8)'))
+    rejectWithDeviceReturn(host, requestId, idempotencyKey, 'BAD_PAYLOAD', 'command.auth {token, ts, nonce} is required (docs/18 §3.8)')
     return
   }
   const token = (auth as { token?: unknown }).token
   const ts = (auth as { ts?: unknown }).ts
   const nonce = (auth as { nonce?: unknown }).nonce
   if (typeof token !== 'string' || token.length === 0 || typeof ts !== 'number' || typeof nonce !== 'string') {
-    host.sendError(badPayloadError(requestId, 'command.auth fields token/ts/nonce are malformed (docs/18 §3.8)'))
+    rejectWithDeviceReturn(host, requestId, idempotencyKey, 'BAD_PAYLOAD', 'command.auth fields token/ts/nonce are malformed (docs/18 §3.8)')
     return
   }
   const payload = (frame as { payload?: unknown }).payload
 
-  // 2) auth 校验（docs/19 §4.4 第 1 步；失败 → error 帧，不触达 L3）
+  // 2) auth 校验（docs/19 §4.4 第 1 步；失败 → error + command_ack rejected 回程，
+  //    不触达 L3——M3-C7b 修 ③：设备不再 90s 空等）
   let authedDeviceId: number
   try {
     const authed = authenticateBearerToken(token)
@@ -180,12 +225,13 @@ export function handleCommandFrame(frame: unknown, host: CommandDownlinkHost): v
     checkReplayHeaders({ timestamp: String(ts), nonce }, Date.now())
   } catch (err) {
     const code = err instanceof Error && 'code' in err ? String((err as { code: unknown }).code) : 'INTERNAL'
-    host.sendError({
-      type: 'error',
-      ...(typeof requestId === 'string' && requestId.length > 0 ? { requestId } : {}),
+    rejectWithDeviceReturn(
+      host,
+      requestId,
+      idempotencyKey,
       code,
-      message: err instanceof Error ? err.message : 'command authentication failed',
-    })
+      err instanceof Error ? err.message : 'command authentication failed',
+    )
     return
   }
 

@@ -38,6 +38,8 @@ import com.devhub.mobile.data.db.DevHubDb
 import com.devhub.mobile.data.db.GatewayConfigEntity
 import com.devhub.mobile.data.remote.ApiError
 import com.devhub.mobile.data.remote.GatewayApi
+import com.devhub.mobile.data.remote.RelayHealthProbeFactory
+import com.devhub.mobile.data.remote.RelayProbeBuildResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -286,19 +288,14 @@ fun GatewayConfigScreen(
                                 } catch (err: IllegalArgumentException) {
                                     return@withContext err.message ?: RelayEndpoint.REJECT_REASON
                                 }
-                                val pinning = pinFingerprints.split(',', '\n', ';')
-                                    .map { it.trim() }
-                                    .filter { it.isNotEmpty() }
-                                    .takeIf { it.isNotEmpty() }
-                                    ?.let { com.devhub.mobile.core.TlsPinningConfig(it) }
-                                val probe = GatewayApi(
-                                    baseUrlProvider = { "https://${endpoint.host}:${endpoint.port}" },
-                                    tokenProvider = { null },
-                                    tlsPinning = pinning,
-                                    // M3-C3a 修 2：pin pattern = 具体 host（IP 字面量直接用）；
-                                    // 空 host → 不注入（fail-fast，绝不通配符）
-                                    pinHost = endpoint.host,
-                                )
+                                // M3-C7b 修 4（App 崩溃修）：pinning/GatewayApi 构造入 try——
+                                // TlsPinningConfig 构造期归一化对非法指纹体（输入框残留拼接）
+                                // 抛 IllegalArgumentException，此前在 try 外直接杀进程；
+                                // 现折结构化错误提示（保存门 PinFingerprintSaveGate 不受影响）
+                                val probe = when (val built = RelayHealthProbeFactory.buildRelay(endpoint, pinFingerprints)) {
+                                    is RelayProbeBuildResult.Invalid -> return@withContext built.message
+                                    is RelayProbeBuildResult.Ok -> built.api
+                                }
                                 try {
                                     val health = probe.health()
                                     "连接成功：${health.name} v${health.version}（运行 ${health.uptimeSec}s）"
