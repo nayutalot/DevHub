@@ -15,12 +15,14 @@
  *
  * 红线：凭据/注册码绝不入投影（docs/19 §2.2）；结构化告警（warning，非错误）：
  * relay 启用但本地 Gateway 未启用（docs/19 §4.8 表行——gateway_enabled 直读
- * settingsService，不 import agentControlService）+ 未注册/配置坏态（注册态原因）。
+ * settingsService，不 import agentControlService）+ 未注册/配置坏态（注册态原因）
+ * + wss 但 TLS 信任物缺失（M3-C1b，docs/19 §10——指纹状态行 tls 只读展示同面）。
  */
 
 import type { RelayStatusView } from '../../../../shared/types.ts'
 import { getSetting } from '../../settingsService.ts'
-import { readRelayRegistrationState } from './config.ts'
+import { parseRelayEndpoint } from './wsClient.ts'
+import { readRelayRegistrationState, readRelayTlsTrustStatus } from './config.ts'
 
 // ---------------------------------------------------------------------------
 // 运行态镜像（relayClient/index.ts 状态机回报；smoke 可直接注入）
@@ -55,7 +57,8 @@ export function getRelayRuntimeView(): RelayRuntimeView | null {
 /**
  * gatewayStatus.relay 投影：disabled → null（agentControlService.getGatewayStatus
  * 据此省略字段——零噪声向后兼容，AC2 形态逐字节不变）；enabled → 结构化真值
- * （connected/endpoint 运行态镜像 + hostId/lastError 透传 + warning 告警面）。
+ * （connected/endpoint 运行态镜像 + hostId/lastError 透传 + warning 告警面 +
+ * tls 信任物料状态——M3-C1b，docs/19 §10）。
  */
 export function projectRelayStatus(): RelayStatusView | null {
   const registration = readRelayRegistrationState()
@@ -72,6 +75,14 @@ export function projectRelayStatus(): RelayStatusView | null {
   } else if (registration.state === 'misconfigured' && !registration.endpointOk) {
     warnings.push('relay endpoint invalid (wss required, cleartext ws:// is loopback-only, docs/18 §2)')
   }
+  // M3-C1b TLS 信任物料（docs/19 §10）：启用即投影指纹状态行（只读展示）；
+  // wss endpoint + 信任物缺失 → 结构化告警（不静默零连接也不崩——连接流仍按
+  // 缺省校验 fail-closed 尝试，ws:// loopback 联调时间盒则与 TLS 无关不告警）。
+  const tls = readRelayTlsTrustStatus()
+  const parts = parseRelayEndpoint(registration.endpoint)
+  if (!tls.ok && parts !== null && parts.secure) {
+    warnings.push(`relay TLS trust material not loaded (${tls.error ?? 'unavailable'}; wss relay requires fingerprints + ca.pem, docs/19 §10)`)
+  }
   return {
     enabled: true,
     connected: runtimeView?.connected ?? false,
@@ -79,5 +90,6 @@ export function projectRelayStatus(): RelayStatusView | null {
     ...(runtimeView?.hostId !== undefined ? { hostId: runtimeView.hostId } : {}),
     ...(runtimeView?.lastError !== undefined && runtimeView.lastError.length > 0 ? { lastError: runtimeView.lastError } : {}),
     ...(warnings.length > 0 ? { warning: warnings.join('; ') } : {}),
+    tls,
   }
 }
