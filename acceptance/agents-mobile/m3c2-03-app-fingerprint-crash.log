@@ -1,0 +1,31 @@
+09-06 08:14:03.164  4813  4846 E AndroidRuntime: FATAL EXCEPTION: DefaultDispatcher-worker-2
+09-06 08:14:03.164  4813  4846 E AndroidRuntime: Process: com.devhub.mobile, PID: 4813
+09-06 08:14:03.164  4813  4846 E AndroidRuntime: java.lang.IllegalArgumentException: Unexpected pattern: *
+09-06 08:14:03.164  4813  4846 E AndroidRuntime: 	at okhttp3.CertificatePinner$Pin.<init>(CertificatePinner.kt:254)
+09-06 08:14:03.164  4813  4846 E AndroidRuntime: 	at okhttp3.CertificatePinner$Builder.add(CertificatePinner.kt:338)
+09-06 08:14:03.164  4813  4846 E AndroidRuntime: 	at com.devhub.mobile.data.remote.TlsPinningOkHttpKt.toCertificatePinner(TlsPinningOkHttp.kt:32)
+09-06 08:14:03.164  4813  4846 E AndroidRuntime: 	at com.devhub.mobile.data.remote.GatewayApi.<init>(GatewayApi.kt:84)
+09-06 08:14:03.164  4813  4846 E AndroidRuntime: 	at com.devhub.mobile.connect.ConnectionManager.rebuildRelayClients(ConnectionManager.kt:282)
+09-06 08:14:03.164  4813  4846 E AndroidRuntime: 	at com.devhub.mobile.connect.ConnectionManager.access$rebuildRelayClients(ConnectionManager.kt:102)
+09-06 08:14:03.164  4813  4846 E AndroidRuntime: 	at com.devhub.mobile.connect.ConnectionManager$refreshCachedConfig$1.invokeSuspend(ConnectionManager.kt:251)
+09-06 08:14:03.164  4813  4846 E AndroidRuntime: 	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+09-06 08:14:03.164  4813  4846 E AndroidRuntime: 	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+09-06 08:14:03.164  4813  4846 E AndroidRuntime: 	at kotlinx.coroutines.internal.LimitedDispatcher$Worker.run(LimitedDispatcher.kt:124)
+09-06 08:14:03.164  4813  4846 E AndroidRuntime: 	at kotlinx.coroutines.scheduling.TaskImpl.run(Tasks.kt:89)
+09-06 08:14:03.164  4813  4846 E AndroidRuntime: 	at kotlinx.coroutines.scheduling.CoroutineScheduler.runSafely(CoroutineScheduler.kt:586)
+--
+09-06 08:14:53.190  8169  8196 E AndroidRuntime: FATAL EXCEPTION: DefaultDispatcher-worker-3
+09-06 08:14:53.190  8169  8196 E AndroidRuntime: Process: com.devhub.mobile, PID: 8169
+09-06 08:14:53.190  8169  8196 E AndroidRuntime: java.lang.IllegalArgumentException: Unexpected pattern: *
+09-06 08:14:53.190  8169  8196 E AndroidRuntime: 	at okhttp3.CertificatePinner$Pin.<init>(CertificatePinner.kt:254)
+09-06 08:14:53.190  8169  8196 E AndroidRuntime: 	at okhttp3.CertificatePinner$Builder.add(CertificatePinner.kt:338)
+09-06 08:14:53.190  8169  8196 E AndroidRuntime: 	at com.devhub.mobile.data.remote.TlsPinningOkHttpKt.toCertificatePinner(TlsPinningOkHttp.kt:32)
+09-06 08:14:53.190  8169  8196 E AndroidRuntime: 	at com.devhub.mobile.data.remote.GatewayApi.<init>(GatewayApi.kt:84)
+09-06 08:14:53.190  8169  8196 E AndroidRuntime: 	at com.devhub.mobile.connect.ConnectionManager.rebuildRelayClients(ConnectionManager.kt:282)
+09-06 08:14:53.190  8169  8196 E AndroidRuntime: 	at com.devhub.mobile.connect.ConnectionManager.access$rebuildRelayClients(ConnectionManager.kt:102)
+09-06 08:14:53.190  8169  8196 E AndroidRuntime: 	at com.devhub.mobile.connect.ConnectionManager$refreshCachedConfig$1.invokeSuspend(ConnectionManager.kt:251)
+09-06 08:14:53.190  8169  8196 E AndroidRuntime: 	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+09-06 08:14:53.190  8169  8196 E AndroidRuntime: 	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+09-06 08:14:53.190  8169  8196 E AndroidRuntime: 	at kotlinx.coroutines.internal.LimitedDispatcher$Worker.run(LimitedDispatcher.kt:124)
+09-06 08:14:53.190  8169  8196 E AndroidRuntime: 	at kotlinx.coroutines.scheduling.TaskImpl.run(Tasks.kt:89)
+09-06 08:14:53.190  8169  8196 E AndroidRuntime: 	at kotlinx.coroutines.scheduling.CoroutineScheduler.runSafely(CoroutineScheduler.kt:586)

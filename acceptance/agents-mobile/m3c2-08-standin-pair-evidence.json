@@ -1,0 +1,19 @@
+{
+  "batch": "M3-C2",
+  "item": "R-B2 公网配对 — 协议对等 stand-in 设备腿（docs/18 §3.2/§3.3）",
+  "note": "App 侧未实现 relay 模式 WS pair 传输（PairingScreen 仅 REST claim 本地网关，docs/19 §7.1 预期路径未落地），故以协议对等客户端代跑配对腿；本文件为运行时观测汇总（源数据：终端实录 + 双侧 DB/审计只读查询），token 全程零落盘零打印",
+  "transport": {
+    "endpoint": "wss://59.110.149.11/relay/device (443, TLS)",
+    "tlsVerify": "openssl s_client -CAfile ca.pem → Verify return code 0 (ok)，subject=CN=devhub-relay-ip"
+  },
+  "sequence": [
+    { "step": 1, "frame": "D→E pair (bare ws, 101 upgrade ok)", "detail": "code=8位一次性码(桌面 UI 签发→register_pairing 同步 ECS pairing_codes id=7 active)，deviceName=m3c2-standin-client, platform=android" },
+    { "step": 2, "frame": "E→D pair_accepted", "detail": "ecsDeviceId(relay_devices.id)=1, winDeviceId(remote_devices.id)=34, tokenVersion=1, heartbeatSec=30, tokenLen=43 chars" },
+    { "step": 3, "frame": "D→E 升级鉴权重连 (Bearer v1)", "detail": "HTTP 401 — ECS 注册表已被后到的 token_rotation 覆盖为 v2 哈希（pair_accepted 与 token_rotation 在 host 腿背靠背发出，裸连接关闭后 v1 重连必输时序）" },
+    { "step": 4, "frame": "H→E token_rotation (reason=post-pairing, tokenVersion=2)", "detail": "ECS audit: token_rotation_applied success {tokenVersion:2, reason:post-pairing}；设备腿未在线 → 帧无人接收（ECS 无 rotation 投递队列）" },
+    { "step": 5, "audit:win": "device_paired #34 + pairing_claimed #34 source='relay' + token_rotated #34 {reason:post-pairing, tokenVersion:2}" },
+    { "step": 6, "audit:win": "token_rotation_grace_expired #34 (+300s) {windowSec:300, note:'new token stays effective, device re-pairing path'}" },
+    { "step": 7, "ecsdb": "relay_devices id=1 win_device_id=34 token_version=2" }
+  ],
+  "conclusion": "公网配对协议链路（签发→register_pairing→pair→pair_accepted→双侧落库→post-pairing 轮换 v2→注册表同步）全链路真实走通；但 v2 因轮换投递缺口成为孤儿（无人持有），设备腿无法以任何 token 入网 — 详见汇报 R-B2/R-B3 条目"
+}
