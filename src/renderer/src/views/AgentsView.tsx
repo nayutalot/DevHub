@@ -38,6 +38,7 @@ import type {
   AgentProviderView,
   AgentSessionView,
   GatewayStatusView,
+  RelayStatusView,
   SessionMode,
   SessionStatus,
 } from '../../../shared/types.ts'
@@ -868,6 +869,142 @@ function GatewayPanel({ status, loading, error, onRetry, onChanged }: {
 }
 
 // ---------------------------------------------------------------------------
+// 面板 6.5：远程中继（Relay）设置分组（M3-C1b，docs/19 §4.7/§10）
+// ---------------------------------------------------------------------------
+
+/**
+ * wss 前端校验（D7 / docs/18 §2，对齐 R3 App 行为）：仅接受可解析的 wss://，
+ * 输 ws:// 红字拒绝保存（主进程 loopback-ws 联调例外不经 UI——UI 是正式面）。
+ */
+function validateRelayEndpointInput(value: string): string | null {
+  const trimmed = value.trim()
+  if (trimmed.length === 0) return null // 空 = 未配置（清空保存合法，主进程按未配置投影）
+  let parsed: URL
+  try {
+    parsed = new URL(trimmed)
+  } catch {
+    return '无法解析（期望形态 wss://host[:port][/path]，docs/18 §2）'
+  }
+  if (parsed.protocol !== 'wss:') return 'relay endpoint 必须 wss://（明文 ws:// 被拒——D7，与 R3 App 行为一致）'
+  if (parsed.hostname.length === 0) return 'wss:// 后缺主机名'
+  return null
+}
+
+function RelayPanel({ relay, onChanged }: {
+  /** agents:gatewayStatus.relay 投影（disabled → null；状态行数据源）。 */
+  relay: RelayStatusView | null
+  onChanged: () => void
+}) {
+  const { toast, show } = useToast()
+  // settings 两键读写（settings:get/set 白名单既有，M2-R1 起；零新增 channel，PR12 纪律）
+  const enabledSetting = useAsync(() => call('settings:get', { key: 'relay_enabled' }), [])
+  const endpointSetting = useAsync(() => call('settings:get', { key: 'relay_endpoint' }), [])
+  const [endpointInput, setEndpointInput] = useState('')
+  const [endpointTouched, setEndpointTouched] = useState(false)
+  const [busy, setBusy] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (endpointSetting.data !== null && !endpointTouched) setEndpointInput(endpointSetting.data.value)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在设置数据首次到达时回填输入框
+  }, [endpointSetting.data])
+
+  const endpointError = validateRelayEndpointInput(endpointInput)
+  const enabledNow = enabledSetting.data?.value === '1'
+  const tls = relay?.tls
+
+  async function toggleEnabled(next: boolean): Promise<void> {
+    setBusy('enabled')
+    try {
+      await call('settings:set', { key: 'relay_enabled', value: next ? '1' : '0' })
+      show(`relay_enabled = ${next ? '1' : '0'}（relayClient 已按设置收敛）`)
+      onChanged()
+    } catch (err) {
+      show(toAsyncErrorLocal(err).message, 'err')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function saveEndpoint(): Promise<void> {
+    if (endpointError !== null) return
+    setBusy('endpoint')
+    try {
+      await call('settings:set', { key: 'relay_endpoint', value: endpointInput.trim() })
+      show(`relay_endpoint saved（relayClient 已按设置收敛）`)
+      onChanged()
+    } catch (err) {
+      show(toAsyncErrorLocal(err).message, 'err')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <div className="agents-relay">
+      <div className="relay-setting-row">
+        <label className="agents-switch">
+          <input
+            type="checkbox"
+            checked={enabledNow}
+            disabled={enabledSetting.loading || busy !== null}
+            onChange={(e) => void toggleEnabled(e.target.checked)}
+          />
+          启用远程中继 <span className="td-dim mono">relay_enabled</span>
+          {busy === 'enabled' && <Spinner />}
+        </label>
+        <span className="td-dim">启用 = relayClient 按 settings + 凭据/信任物真值收敛（disabled/未注册/配置坏 → 结构化零连接投影）</span>
+      </div>
+      <div className="relay-setting-row">
+        <input
+          className="input relay-endpoint-input mono"
+          placeholder="wss://59.110.149.11/relay/host"
+          value={endpointInput}
+          disabled={endpointSetting.loading || busy !== null}
+          onChange={(e) => {
+            setEndpointInput(e.target.value)
+            setEndpointTouched(true)
+          }}
+          aria-label="relay endpoint"
+        />
+        <button
+          type="button"
+          className="btn btn-small"
+          disabled={endpointSetting.loading || busy !== null || endpointError !== null || endpointInput.trim() === endpointSetting.data?.value}
+          onClick={() => void saveEndpoint()}
+        >
+          {busy === 'endpoint' && <Spinner />} 保存 endpoint
+        </button>
+        {endpointError !== null && <span className="relay-endpoint-error">{endpointError}</span>}
+      </div>
+      <div className="relay-setting-row">
+        <span className="td-dim">TLS 信任物料（docs/19 §10，指纹=公开物料）：</span>
+        {tls === undefined ? (
+          <span className="td-dim">启用后经 agents:gatewayStatus.relay.tls 只读投影</span>
+        ) : tls.ok ? (
+          <Badge tone="ok" title="wss 连接将以 tls{ca, checkServerIdentity} 构造（默认规则先行 + SPKI pin 任一命中）">
+            指纹 {tls.pins} 枚 · 来源 {tls.source} · 就绪
+          </Badge>
+        ) : (
+          <>
+            <Badge tone="err" title={tls.error ?? 'trust material unavailable'}>指纹缺失</Badge>
+            <span className="td-dim mono">{tls.error}</span>
+          </>
+        )}
+      </div>
+      {relay !== null && (
+        <div className="relay-setting-row">
+          <Badge tone={relay.connected ? 'ok' : 'dim'}>connected: {String(relay.connected)}</Badge>
+          <span className="td-dim mono">{relay.endpoint.length > 0 ? relay.endpoint : 'endpoint 未配置'}</span>
+          {relay.hostId !== undefined && <span className="td-dim">hostId {relay.hostId}</span>}
+          {relay.warning !== undefined && <span className="degraded-banner relay-warning">{relay.warning}</span>}
+        </div>
+      )}
+      <Toast toast={toast} />
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // 面板 7：诊断（D12，agents:diagnostics 全字段）
 // ---------------------------------------------------------------------------
 
@@ -1091,6 +1228,11 @@ export function AgentsView() {
           onRetry={gateway.refresh}
           onChanged={refreshAllPanels}
         />
+      </div>
+
+      <h3 className="panel-title">远程中继（Relay）— M3-C1b 设置驱动面（relay_enabled · wss endpoint · TLS 指纹，docs/19 §4.7/§10）</h3>
+      <div className="panel">
+        <RelayPanel relay={gateway.data?.relay ?? null} onChanged={refreshAllPanels} />
       </div>
 
       <h3 className="panel-title">Diagnostics（D12 — 数据源可读性 / 控制通道 / Gateway / 托盘 / 自启）</h3>

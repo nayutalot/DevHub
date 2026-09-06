@@ -1679,6 +1679,35 @@ table.table {
   padding: 4px 12px;
 }
 
+/* 远程中继（Relay）设置分组（M3-C1b，docs/19 §4.7/§10）——样式沿用 Agents 令牌 */
+.agents-relay {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.relay-setting-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.relay-endpoint-input {
+  width: 340px;
+  max-width: 100%;
+}
+
+.relay-endpoint-error {
+  color: var(--status-err);
+  font-size: 12px;
+}
+
+.relay-warning {
+  margin-bottom: 0;
+}
+
 /* Gateway（D9） */
 .agents-gateway {
   display: flex;
