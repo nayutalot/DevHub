@@ -71,30 +71,69 @@ interface ProjectionApi {
  * null（默认）= 现行为不变（local 模式 http/ws 明文、无 pinning，零回归）；
  * 非 null 时对 TLS 连接（https）启用 SPKI 指纹锁定。M3-C3a 修 2（C2 #3）：pin pattern
  * 为**具体 host**——[pinHost] 必须给出（IP 字面量直接作 pattern）；空/非法 host =
- * fail-fast 不注入 pinner（绝不通配符 `'*'`——OkHttp 抛 IllegalArgumentException，
+ * fail-fast 不注入（绝不通配符 `'*'`——OkHttp 抛 IllegalArgumentException，
  * 曾致 relay 配置指纹后进程崩溃死循环）。
+ *
+ * M3-C6d 修 1（docs/19 §10.2 勘误语义覆盖 REST 数据面，与 WS/pair 面同语义）：pinning
+ * 有效且 pattern 可解析 → [RelayTlsTrust.sslSocketFactory] 自定义 TrustManager（信任锚 =
+ * 配置指纹，叶 SPKI 就地裁决），**绝不装 CertificatePinner**——Android 对自定义 TM 的
+ * 链清洗 fallback 返回空链，pinner 只对清洁链配 pin → 空链即拒（空洞拒连）；
+ * HostnameVerifier 默认（IP SAN 第二保险）。pinner-only 旧面已全量退役
+ * （`toCertificatePinner` 随之零消费删除）。
+ *
+ * M3-C6d 修 2（生命周期最小方案）：[tlsPinningProvider] 可选动态注入（ApiProvider relay
+ * 模式用）——client 的 TLS 在构建时固化而 baseUrl 动态，故 client 按（指纹列表摘要+
+ * pinHost）缓存键惰性重建：指纹配置变更后下一次请求自动换用新信任锚，无需外部失效通知；
+ * provider 为 null 时键恒定只建一次（静态参数调用方——ConnectionManager.relayApi 等——
+ * 行为不变，其生命周期仍由 refreshCachedConfig → rebuildRelayClients 自管）。
  */
 class GatewayApi(
     private val baseUrlProvider: () -> String,
     private val tokenProvider: () -> String?,
     private val tlsPinning: TlsPinningConfig? = null,
     private val pinHost: String? = null,
+    private val tlsPinningProvider: (() -> Pair<TlsPinningConfig?, String?>)? = null,
 ) : ProjectionApi {
-    val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .addInterceptor(ProtocolHeadersInterceptor(tokenProvider))
-        .apply {
-            tlsPinning?.let { pin ->
-                // M3-C3a 修 2：pattern 由 :core 纯逻辑解析（IP/域名/空三态）；null = 不注入
-                // （系统默认信任继续生效，自签 IP 证书由握手失败显式暴露，绝不静默放行）。
-                TlsPinningConfig.pinPatternFor(pinHost)?.let { pattern ->
-                    certificatePinner(pin.toCertificatePinner(pattern))
-                }
+
+    private val clientLock = Any()
+
+    /** 缓存键 = 已归一化指纹列表摘要 + pinHost（M3-C6d 生命周期：换键即重建）。 */
+    @Volatile
+    private var clientCache: Pair<String, OkHttpClient>? = null
+
+    val client: OkHttpClient
+        get() {
+            val resolved = tlsPinningProvider?.invoke() ?: (tlsPinning to pinHost)
+            val key = (resolved.first?.fingerprints?.joinToString(",") ?: "") + "|" + (resolved.second ?: "")
+            clientCache?.let { if (it.first == key) return it.second }
+            synchronized(clientLock) {
+                clientCache?.let { if (it.first == key) return it.second }
+                val built = buildClient(resolved.first, resolved.second)
+                clientCache = key to built
+                return built
             }
         }
-        .build()
+
+    /**
+     * M3-C3a 修 2：pattern 由 :core 纯逻辑解析（IP/域名/空三态）；pinHost 空/非法 =
+     * fail-fast 不注入（https 系统默认信任继续生效，自签 IP 证书由握手失败显式暴露，
+     * 绝不静默放行）。M3-C6d 修 1：注入形态 = pin-TM（信任锚 = 指纹），绝不并装 pinner。
+     */
+    private fun buildClient(pinning: TlsPinningConfig?, pinHost: String?): OkHttpClient =
+        OkHttpClient.Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .addInterceptor(ProtocolHeadersInterceptor(tokenProvider))
+            .apply {
+                pinning?.let { pin ->
+                    TlsPinningConfig.pinPatternFor(pinHost)?.let {
+                        val (factory, trustManager) = RelayTlsTrust.sslSocketFactory(pin)
+                        sslSocketFactory(factory, trustManager)
+                    }
+                }
+            }
+            .build()
 
     private val jsonMedia = "application/json; charset=utf-8".toMediaType()
 

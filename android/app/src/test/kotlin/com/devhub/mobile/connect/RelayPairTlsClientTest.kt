@@ -1,18 +1,16 @@
 package com.devhub.mobile.connect
 
 import com.devhub.mobile.core.TlsPinningConfig
-import com.devhub.mobile.data.remote.GatewayApi
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
  * M3-C6c bug#1 单测（C2c 实证：pin-TM 与 CertificatePinner 并装 → 空洞拒连）：
  * - pin-TM 激活（指纹已配置）→ pair 客户端 builder **不装** certificatePinner
  *   （信任判定单点 = PinTrustManager checkServerTrusted；docs/19 §10.2 实现层勘误）；
- * - 无指纹 → 全默认（无 pinning 面，同样零 pinner）；
- * - 对照面：无自定义 TM 的通道（GatewayApi pinner-only 面）仍按契约装 pinner
- *   （具体 host pattern；pinHost 缺失 → fail-fast 不注入）。
+ * - 无指纹 → 全默认（无 pinning 面，同样零 pinner）。
+ * M3-C6d：GatewayApi（REST 数据面）已同语义 pin-TM 化——其注入/生命周期面移至
+ * GatewayApiTlsTest（`toCertificatePinner` pinner-only 旧面全量退役）。
  */
 class RelayPairTlsClientTest {
 
@@ -34,31 +32,5 @@ class RelayPairTlsClientTest {
     fun `no pinning pair client stays all-default without pinner`() {
         val client = RelayPairingClient.relayPairClient(pinning = null, pinPattern = null)
         assertEquals(0, client.certificatePinner.pins.size)
-    }
-
-    @Test
-    fun `gateway api without custom TM still installs pinner for concrete host pattern`() {
-        val pinning = TlsPinningConfig(listOf(fingerprint(0xAB), fingerprint(0xCD)))
-        val api = GatewayApi(
-            baseUrlProvider = { "https://59.110.149.11:443" },
-            tokenProvider = { null },
-            tlsPinning = pinning,
-            pinHost = "59.110.149.11",
-        )
-        // pinner-only 面（无自定义 TM）：双指纹轮换窗口 → 两条 pin，pattern = 具体 host
-        assertEquals(2, api.client.certificatePinner.pins.size)
-        assertTrue(api.client.certificatePinner.pins.all { it.pattern == "59.110.149.11" })
-    }
-
-    @Test
-    fun `gateway api with null pinHost fail-fasts to no pinner injection`() {
-        val pinning = TlsPinningConfig(listOf(fingerprint(0xAB)))
-        val api = GatewayApi(
-            baseUrlProvider = { "https://59.110.149.11:443" },
-            tokenProvider = { null },
-            tlsPinning = pinning,
-            pinHost = null,
-        )
-        assertEquals(0, api.client.certificatePinner.pins.size)
     }
 }

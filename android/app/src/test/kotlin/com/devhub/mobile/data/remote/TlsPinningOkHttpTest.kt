@@ -22,7 +22,8 @@ import org.junit.Test
  * C2b 四步实验闭环的根因：旧 `DelegatingTrustManager` 无状态放行 + `getAcceptedIssuers()`
  * 空数组 → OkHttp CertificateChainCleaner 无信任锚 → 正确指纹也握手失败。修复后
  * `checkServerTrusted` 按**叶证书 SPKI ∈ 配置指纹**就地裁决（任一匹配即信任、不匹配
- * 结构化拒绝），CertificatePinner 保留作强制层，HostnameVerifier 默认不变。
+ * 结构化拒绝），HostnameVerifier 默认不变；CertificatePinner 强制层已随 M3-C6d 全量
+ * 退役（`toCertificatePinner` 删除）——信任判定单点 = TrustManager。
  *
  * 测试证书在代码内生成（[TestCertificates]，test 源集受控夹具；§10.5 CA 绝不入 App）。
  *
@@ -120,26 +121,6 @@ class TlsPinningOkHttpTest {
             fail("empty fingerprints must fail fast")
         } catch (err: IllegalArgumentException) {
             assertTrue(err.message!!.contains("must not be empty"))
-        }
-    }
-
-    // ------------------------------------------------------------------
-    // CertificatePinner 保留作强制层：hex → base64 转换端到端仍正确
-    // ------------------------------------------------------------------
-
-    @Test
-    fun `certificate pinner keeps enforcing - matching pin passes, foreign cert fails`() {
-        val leaf = TestCertificates.selfSigned("relay-pinner")
-        val foreign = TestCertificates.selfSigned("relay-foreign")
-        val host = "127.0.0.1"
-        val pinning = TlsPinningConfig(listOf("sha256/${leaf.spkiSha256Hex}"))
-        val pinner = pinning.toCertificatePinner(TlsPinningConfig.pinPatternFor(host)!!)
-        pinner.check(host, listOf(leaf.certificate)) // 匹配 → 通过（不抛）
-        try {
-            pinner.check(host, listOf(foreign.certificate))
-            fail("foreign SPKI must fail the pinner")
-        } catch (err: javax.net.ssl.SSLPeerUnverifiedException) {
-            assertTrue(err.message!!.contains("Certificate pinning failure"))
         }
     }
 
