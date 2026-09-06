@@ -46,6 +46,29 @@ class TlsPinningConfig(fingerprints: List<String>) {
         private const val SHA256_HEX_LENGTH = 64
         private const val SHA256_BYTES = 32
 
+        /**
+         * M3-C3a 修 2（C2 #3）：OkHttp `CertificatePinner` 的 pin pattern 决策。
+         *
+         * 语义：
+         * - 具体 host pattern：IP 字面量直接作 pattern（OkHttp 支持 IP pattern，U1 无域名裁决），
+         *   域名 host 原样（小写归一化）；
+         * - 空/空白 host → null = **fail-fast 不注入**（调用方必须跳过 pinner 注入，
+         *   绝不回退通配符——`'*'` 会使 OkHttp 抛 IllegalArgumentException，app 进程
+         *   在重连协程里反复构建即死循环，M3-C2 实录 crash）；
+         * - 含通配符/端口/路径等非纯 hostname 字符 → 同样 null（宁可放弃 pinning 交给
+         *   调用方显式暴露，绝不构造会炸的 pattern）。
+         *
+         * 纯逻辑落 :core（零 OkHttp/Android 依赖），三态（IP/域名/空）单测在 TlsPinningTest。
+         */
+        fun pinPatternFor(host: String?): String? {
+            val trimmed = host?.trim()?.lowercase().orEmpty()
+            if (trimmed.isEmpty()) return null
+            if (trimmed.any { it == '*' || it == '/' || it == ':' || it == '\\' || it == '@' || it.isWhitespace() }) {
+                return null
+            }
+            return trimmed
+        }
+
         /** 归一化任意形态指纹到 `sha256/` + 小写 hex；前缀大小写不敏感；非法输入抛 [IllegalArgumentException]。 */
         fun normalize(raw: String): String {
             val trimmed = raw.trim()

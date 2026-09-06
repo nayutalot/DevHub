@@ -69,19 +69,31 @@ interface ProjectionApi {
  *
  * U1 注入缝（docs/21 §1.1 / docs/19 §10.2）：[tlsPinning] 可选指纹配置（无域名 IP TLS）——
  * null（默认）= 现行为不变（local 模式 http/ws 明文、无 pinning，零回归）；
- * 非 null 时对 TLS 连接（https）启用 SPKI 指纹锁定（relay 模式接线属 R3 批，docs/20 §2.3）。
+ * 非 null 时对 TLS 连接（https）启用 SPKI 指纹锁定。M3-C3a 修 2（C2 #3）：pin pattern
+ * 为**具体 host**——[pinHost] 必须给出（IP 字面量直接作 pattern）；空/非法 host =
+ * fail-fast 不注入 pinner（绝不通配符 `'*'`——OkHttp 抛 IllegalArgumentException，
+ * 曾致 relay 配置指纹后进程崩溃死循环）。
  */
 class GatewayApi(
     private val baseUrlProvider: () -> String,
     private val tokenProvider: () -> String?,
     private val tlsPinning: TlsPinningConfig? = null,
+    private val pinHost: String? = null,
 ) : ProjectionApi {
     val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .addInterceptor(ProtocolHeadersInterceptor(tokenProvider))
-        .apply { tlsPinning?.let { certificatePinner(it.toCertificatePinner()) } }
+        .apply {
+            tlsPinning?.let { pin ->
+                // M3-C3a 修 2：pattern 由 :core 纯逻辑解析（IP/域名/空三态）；null = 不注入
+                // （系统默认信任继续生效，自签 IP 证书由握手失败显式暴露，绝不静默放行）。
+                TlsPinningConfig.pinPatternFor(pinHost)?.let { pattern ->
+                    certificatePinner(pin.toCertificatePinner(pattern))
+                }
+            }
+        }
         .build()
 
     private val jsonMedia = "application/json; charset=utf-8".toMediaType()

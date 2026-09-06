@@ -269,6 +269,9 @@ fun GatewayConfigScreen(
                                     baseUrlProvider = { "https://${endpoint.host}:${endpoint.port}" },
                                     tokenProvider = { null },
                                     tlsPinning = pinning,
+                                    // M3-C3a 修 2：pin pattern = 具体 host（IP 字面量直接用）；
+                                    // 空 host → 不注入（fail-fast，绝不通配符）
+                                    pinHost = endpoint.host,
                                 )
                                 try {
                                     val health = probe.health()
