@@ -93,6 +93,52 @@ test('authenticateDeviceToken：活跃设备通过并投影字段', () => {
   assert.equal(device.id, dev.id)
   assert.equal(device.deviceName, 'Pixel 8')
   assert.equal(device.tokenVersion, 3)
+  assert.equal(device.viaGrace, false)
+})
+
+// ---- token_rotation 宽限三态（docs/18 §3.14，M3-C3b 修1；集成面见 forwarder.test.mjs） ----
+
+function seedGrace(store, deviceId, oldTokenHash, expiresInSec) {
+  store.run(
+    'UPDATE relay_devices SET grace_token_hash = ?, grace_expires_at = ? WHERE id = ?',
+    oldTokenHash,
+    Math.floor(Date.now() / 1000) + expiresInSec,
+    deviceId,
+  )
+}
+
+test('authenticateDeviceToken：宽限窗内旧凭据 → 200（viaGrace=true，docs/18 §3.14）', () => {
+  const store = memoryStore()
+  const dev = seedDevice(store, { tokenHash: sha256Hex('tok-new') })
+  seedGrace(store, dev.id, sha256Hex('tok-old'), 300)
+  const device = authenticateDeviceToken(store, 'tok-old')
+  assert.equal(device.id, dev.id)
+  assert.equal(device.viaGrace, true)
+  assert.equal(device.tokenVersion, dev.tokenVersion)
+})
+
+test('authenticateDeviceToken：宽限窗外旧凭据 → 401 RELAY_DEVICE_UNKNOWN（重配对路径）', () => {
+  const store = memoryStore()
+  const dev = seedDevice(store, { tokenHash: sha256Hex('tok-new') })
+  seedGrace(store, dev.id, sha256Hex('tok-old'), -1)
+  assert.throws(() => authenticateDeviceToken(store, 'tok-old'), (err) => err.code === 'RELAY_DEVICE_UNKNOWN')
+  // 新凭据不受影响（维持新 Token 生效，无回滚位）
+  assert.equal(authenticateDeviceToken(store, 'tok-new').viaGrace, false)
+})
+
+test('authenticateDeviceToken：宽限窗内但已撤销 → DEVICE_REVOKED（撤销即拒优先）', () => {
+  const store = memoryStore()
+  const dev = seedDevice(store, { tokenHash: sha256Hex('tok-new'), status: 'revoked' })
+  seedGrace(store, dev.id, sha256Hex('tok-old'), 300)
+  assert.throws(() => authenticateDeviceToken(store, 'tok-old'), (err) => err.code === 'DEVICE_REVOKED')
+})
+
+test('authenticateDeviceToken：存量单哈希行（grace 列 NULL）行为不变（0002 迁移兼容）', () => {
+  const store = memoryStore()
+  const token = 'tok-legacy'
+  seedDevice(store, { tokenHash: sha256Hex(token) })
+  assert.equal(authenticateDeviceToken(store, token).viaGrace, false)
+  assert.throws(() => authenticateDeviceToken(store, 'tok-other'), (err) => err.code === 'RELAY_DEVICE_UNKNOWN')
 })
 
 test('constantTimeEquals：等长比较 + 异长安全', () => {

@@ -14,7 +14,9 @@ ECS Relay 服务：**16 帧 WS 中继 + REST 中继 + 配对 + 命令排队 + �
 ```
 ecs-relay/
 ├─ package.json / tsconfig.json / .gitignore     # 自含（独立 node_modules，不 junction 主仓）
-├─ sql/0001_init.sql                             # relay.db schema（docs/19 §5.3，8 表）
+├─ sql/
+│  ├─ 0001_init.sql                              # relay.db schema（docs/19 §5.3，8 表）
+│  └─ 0002_rotation_grace.sql                    # token_rotation 300s 宽限列（docs/18 §3.14，append-only）
 ├─ scripts/
 │  ├─ migrate.mjs                                # 独立迁移脚本（幂等，relay_meta.schema_version）
 │  ├─ backup.sh                                  # 每日滚动备份（sqlite3 .backup × 7 份）
@@ -40,7 +42,7 @@ ecs-relay/
 │  └─ selfcheck.mjs  # 部署自检（docs/19 §5.7 清单，见下）
 └─ test/
    ├─ fixtures/frames.json   # 16 帧契约 fixture（R1/R2/R3 对拍共用，逐帧标注 docs/18 出处）
-   └─ *.test.mjs             # node --test（76 用例）
+   └─ *.test.mjs             # node --test（89 用例）
 ```
 
 ## 门禁（本目录自含，独立于 DevHub 四门禁）
@@ -48,9 +50,10 @@ ecs-relay/
 ```bash
 npm install          # 独立 node_modules（仅 devDependencies：typescript + @types/node）
 npm run typecheck    # tsc --noEmit（自含 tsconfig，erasable-only TS，Node strip-only 可直载）
-npm test             # node --test（76 用例：编解码/鉴权/配对/缓存/排队/REST/e2e）
+npm test             # node --test（89 用例：编解码/鉴权/配对/缓存/排队/REST/e2e；含轮换宽限三态与
+                     #   disconnect/token_rotation deviceId 单一语义重叠 id 回归）
 npm run smoke        # 启动冒烟：裸进程 → /v1/health → 优雅停机（exit 0）
-npm run selfcheck    # docs/19 §5.7 清单 59 项全过（部署时与版本升级后必跑，结果人工留存）
+npm run selfcheck    # docs/19 §5.7 清单 76 项全过（部署时与版本升级后必跑，结果人工留存）
 npm run loadtest     # 64 连接压测演练（部署机上执行取 RSS 实测；本机已验：64 连接 74ms 建立完毕、
                      #   63 扇出 × 200 突发首达延迟 p50=2ms/p95=3ms）
 ```
@@ -110,7 +113,7 @@ curl -X POST https://59.110.149.11/relay/host \
 # → 201 {hostId, credential}；credential 存 %LOCALAPPDATA%\DevHub\relay\credential（0600，不入仓库/日志）
 
 # 7) 验收
-sudo -u devhub-relay npm run selfcheck   # 59 项全过
+sudo -u devhub-relay npm run selfcheck   # 76 项全过
 curl --cacert ca.crt https://59.110.149.11/v1/health   # 200 {ok,name,version,upstream}
 ```
 
@@ -149,3 +152,17 @@ curl --cacert ca.crt https://59.110.149.11/v1/health   # 200 {ok,name,version,up
    优雅停机路径（Windows 无信号投递，冒烟/自检用；systemd stdin=/dev/null 无影响）。
 10. **测试参数缝**：TTL/淘汰/限流上限等可用 `RELAY_*` env 覆盖（`src/config.ts`），缺省 =
     生产值原样；生产部署不设这些变量即为 docs/18/19 权威值。
+11. **token_rotation 300s 宽限（M3-C3b 修1，docs/18 §3.14）**：rotation 受理时旧哈希原值转入
+    `grace_token_hash`/`grace_expires_at`（迁移 0002，append-only；存量单哈希行 NULL = 行为不变）。
+    宽限三态：新凭据恒 200；旧凭据窗内 200（`viaGrace` 准入，审计 `token_rotation_grace_admitted`）；
+    窗外 401 `RELAY_DEVICE_UNKNOWN`（审计 `token_rotation_grace_expired`，设备走重配对路径）。
+    窗口过期时仍存活的宽限连接由清扫先发 `disconnect{superseded}`（§3.15 E→D 合法 reason）再关闭
+    （审计 `token_rotation_grace_closed`）——「300s 后失效」对热连接同样成立。**离线设备不补投
+    rotation 帧**：契约（docs/18 §3.0 帧表 #14 重发列「—」；§3.12 sync 仅承载 event 帧）未定义
+    补发信道，错过帧的设备 = 宽限窗内重连可继续用、窗外 401 → 重配对（契约明文路径）；若需
+    「重连补投」须先修订 docs/18。
+12. **disconnect/token_rotation deviceId 单一语义（M3-C3b 修2，docs/18 §3.15）**：两帧的
+    `deviceId` 一律 = Windows 侧 `remote_devices.id`（即 `relay_devices.win_device_id`）——
+    仅 win_device_id 命中才路由；未命中（含与 `relay_devices.id` 撞号）→ 丢弃 + 审计
+    `device_disconnect_mismatch` / `token_rotation_route_mismatch`，绝不按行 id 兜底
+    （C2 #6：兜底曾致撤销错位 relay_devices.id=1 级联）。

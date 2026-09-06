@@ -586,6 +586,89 @@ try {
     }
 
     // ===========================================================================
+    step('11. token 轮换宽限三态 + disconnect 单一语义（docs/18 §3.14/§3.15，M3-C3b 修1/修2）')
+    {
+      const port3 = 10000 + Math.floor(Math.random() * 40000)
+      // 同库（win_device_id=101 设备行保留）；专用短宽限实例（300s → 2s，sweep 500ms）
+      const env3 = { ...globalThis.selfcheckEnv, RELAY_PORT: String(port3), RELAY_ROTATION_GRACE_SEC: '2' }
+      const logsC = []
+      const childC = startServerChild(env3, logsC)
+      await serverReady(port3)
+      const hostC = new WsClient()
+      await hostC.connect(port3, '/relay/host', { Authorization: `Bearer ${hostCredential.value}` })
+      await hostC.recvFrame() // hello
+      const deviceC = new WsClient()
+      await deviceC.connect(port3, '/relay/device', { Authorization: `Bearer ${deviceToken}` })
+      await deviceC.recvFrame() // hello
+
+      // ① rotation 受理：E→D 转发 + 旧哈希转宽限（宽限三态基线）
+      hostC.send({ type: 'token_rotation', requestId: 'sc-rot-1', deviceId: 101, newToken, tokenVersion: 2, reason: 'post-pairing' })
+      const rotation = await deviceC.recvFrame(5000)
+      assert(rotation.type === 'token_rotation' && rotation.tokenVersion === 2, 'token_rotation 受理 + E→D 转发（docs/18 §3.14）')
+
+      // ② 宽限窗内旧凭据 → 200（grace 准入）
+      const graceConn = new WsClient()
+      await graceConn.connect(port3, '/relay/device', { Authorization: `Bearer ${deviceToken}` })
+      const graceHello = await graceConn.recvFrame()
+      assert(graceHello.type === 'hello', '宽限窗内旧 Token → 200（docs/18 §9.4「宽限内旧 Token 仍可连」）')
+
+      // ③ 新凭据 → 200（恒定）
+      const withNew = new WsClient()
+      await withNew.connect(port3, '/relay/device', { Authorization: `Bearer ${newToken}` })
+      const newHello = await withNew.recvFrame()
+      assert(newHello.type === 'hello', '新 Token → 200（注册表主哈希已切换）')
+      withNew.destroy()
+
+      // ④ 窗口过期：宽限连接先收 disconnect{superseded} 再关闭（docs/18 §3.14 + §3.15 reason 枚举）
+      const kicked = await graceConn.recv(8000)
+      assert(kicked.kind === 'text' && kicked.frame.type === 'disconnect' && kicked.frame.reason === 'superseded', '宽限过期 → 宽限连接收 disconnect{superseded}（README 偏离单 #11）')
+      const graceClose = await graceConn.recv(3000)
+      assert(graceClose.kind === 'close' && graceClose.code === 1000, '宽限连接 close 1000')
+
+      // ⑤ 窗外旧凭据 → 401（重配对路径）
+      let rejectedHead = ''
+      try {
+        const late = new WsClient()
+        await late.connect(port3, '/relay/device', { Authorization: `Bearer ${deviceToken}` })
+        late.destroy()
+      } catch (err) {
+        rejectedHead = String(err.httpHead ?? err.message)
+      }
+      assert(rejectedHead.includes('401'), '宽限窗外旧 Token → 401 RELAY_DEVICE_UNKNOWN（重配对路径，docs/18 §3.14）')
+
+      // ⑥ disconnect 单一语义：deviceId= ECS 行 id（非任何 win_device_id）→ 不兜底不错位
+      const auditStore = new Store({ path: dbPath })
+      const deviceRow = auditStore.get("SELECT id, win_device_id FROM relay_devices WHERE win_device_id = 101 AND status = 'active'")
+      auditStore.close()
+      assert(deviceRow !== undefined, '设备行定位（win_device_id=101）')
+      const deviceD = new WsClient()
+      await deviceD.connect(port3, '/relay/device', { Authorization: `Bearer ${newToken}` })
+      await deviceD.recvFrame() // hello
+      hostC.send({ type: 'disconnect', deviceId: deviceRow.id, reason: 'revoked' })
+      await sleep(300)
+      deviceD.send({ type: 'heartbeat', ts: Math.floor(Date.now() / 1000), lastAckedSeq: 0, tokenVersion: 2 })
+      const alive = await deviceD.recvFrame(3000)
+      assert(alive.type === 'heartbeat', `disconnect{deviceId:${deviceRow.id}}（ECS 行 id，非 win_device_id）不兜底错位：连接存活（C2 #6 回归）`)
+      deviceD.destroy()
+
+      // ⑦ 审计落库（device 类目：grace/admitted/expired/closed/mismatch，零凭据）
+      const auditStore2 = new Store({ path: dbPath })
+      const graceAudit = auditStore2.all("SELECT action, outcome FROM relay_audit WHERE action IN ('token_rotation_grace_admitted','token_rotation_grace_expired','token_rotation_grace_closed','device_disconnect_mismatch','token_rotation_route_mismatch')")
+      const mismatch = auditStore2.all("SELECT detail_json FROM relay_audit WHERE action = 'device_disconnect_mismatch'")
+      auditStore2.close()
+      assert(graceAudit.some((r) => r.action === 'token_rotation_grace_admitted'), '宽限准入审计落库（device 类目）')
+      assert(graceAudit.some((r) => r.action === 'token_rotation_grace_expired' && r.outcome === 'denied'), '宽限过期拒绝审计落库（docs/18 §3.14「结果审计落库」）')
+      assert(graceAudit.some((r) => r.action === 'token_rotation_grace_closed'), '宽限连接清扫审计落库')
+      assert(mismatch.some((r) => r.detail_json.includes(`"deviceId":${deviceRow.id}`)), 'disconnect 未命中审计 mismatch（C2 #6）')
+
+      deviceC.destroy()
+      hostC.destroy()
+      gracefulStop(childC)
+      await new Promise((resolve) => childC.on('exit', resolve))
+      ok('宽限/单一语义专用实例收尾')
+    }
+
+    // ===========================================================================
     step('4. 缓存淘汰与 hasGaps（进程内验证：TTL 72h + 容量两级 + 缓存洞）')
     {
       const store = new Store({ path: ':memory:' })

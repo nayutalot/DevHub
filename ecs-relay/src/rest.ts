@@ -143,7 +143,7 @@ export async function handleRestRequest(req: IncomingMessage, res: ServerRespons
     }
     let device
     try {
-      device = authenticateDeviceToken(store, readBearerHeaderValue(req.headers.authorization))
+      device = authenticateDeviceToken(store, readBearerHeaderValue(req.headers.authorization), audit)
     } catch (err) {
       if (err instanceof RelayError && err.code !== 'DEVICE_REVOKED') {
         rateLimits.recordAuthFailure(sourceKey, nowMs)

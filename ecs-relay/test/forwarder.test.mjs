@@ -341,7 +341,7 @@ test('device heartbeat 降级信标：host 断开 → upstream:disconnected', as
 
 // ---- 轮换与撤销 -----------------------------------------------------------------
 
-test('token_rotation：注册表 hash 同步 + E→D 转发；新 Token 生效旧 Token 401（docs/18 §3.14）', async (t) => {
+test('token_rotation：注册表 hash 同步 + E→D 转发；宽限窗内新旧 Token 均 200（docs/18 §3.14/§9.4）', async (t) => {
   const world = await setupWorld(t)
   const oldToken = `devtok-${randomHex32()}`
   const { device } = await pairDevice(world, { deviceToken: oldToken })
@@ -356,10 +356,121 @@ test('token_rotation：注册表 hash 同步 + E→D 转发；新 Token 生效�
   const hello = await device2.recvFrame()
   assert.equal(hello.type, 'hello')
   device2.destroy()
+  // 宽限三态②（docs/18 §9.4「300s 宽限内旧 Token 仍可连」；窗外 401 见短窗专项用例）
+  const device3 = new TestWsClient()
+  await device3.connect(world.port, '/relay/device', { Authorization: `Bearer ${oldToken}` })
+  const helloOld = await device3.recvFrame()
+  assert.equal(helloOld.type, 'hello')
+  device3.destroy()
+  device.destroy()
+})
+
+test('token_rotation 300s 宽限三态：窗内旧 200 / 窗外 401 / 新恒 200 + 宽限连接清扫（docs/18 §3.14，M3-C3b 修1）', async (t) => {
+  const world = await setupWorld(t, { RELAY_ROTATION_GRACE_SEC: '2' })
+  const oldToken = `devtok-old-${randomHex32()}`
+  const { device } = await pairDevice(world, { deviceToken: oldToken })
+  const newToken = `devtok-new-${randomHex32()}`
+  world.host.send({ type: 'token_rotation', requestId: 'rot-grace-1', deviceId: 12, newToken, tokenVersion: 2, reason: 'post-pairing' })
+  const rotation = await device.recvFrame()
+  assert.equal(rotation.type, 'token_rotation')
+
+  // ① 新 token 恒 200（注册表主哈希已切换）
+  const withNew = new TestWsClient()
+  await withNew.connect(world.port, '/relay/device', { Authorization: `Bearer ${newToken}` })
+  assert.equal((await withNew.recvFrame()).type, 'hello')
+
+  // ② 窗内旧 token → 200（grace 准入，audit device 类目）
+  const graceConn = new TestWsClient()
+  await graceConn.connect(world.port, '/relay/device', { Authorization: `Bearer ${oldToken}` })
+  assert.equal((await graceConn.recvFrame()).type, 'hello')
+
+  // ③ 窗口过期：宽限连接先收 disconnect{superseded}（§3.15 E→D 合法 reason）再关闭；
+  //    旧 token 重连 401 RELAY_DEVICE_UNKNOWN → 重配对路径（审计 grace_expired 落库）
+  const kick = await graceConn.recvFrame(6000)
+  assert.equal(kick.type, 'disconnect')
+  assert.equal(kick.reason, 'superseded')
+  const close = await graceConn.recvClose(3000)
+  assert.equal(close.code, 1000)
   const rejected = await TestWsClient.readUpgradeRejection(world.port, '/relay/device', { Authorization: `Bearer ${oldToken}` })
   assert.equal(rejected.statusLine.includes('401'), true)
   assert.equal(rejected.body.error.code, 'RELAY_DEVICE_UNKNOWN')
+
+  // ④ 窗外新 token 仍 200（维持新 Token 生效，无回滚位）
+  const withNew2 = new TestWsClient()
+  await withNew2.connect(world.port, '/relay/device', { Authorization: `Bearer ${newToken}` })
+  assert.equal((await withNew2.recvFrame()).type, 'hello')
+  withNew.destroy()
+  withNew2.destroy()
   device.destroy()
+
+  // 审计：admitted / expired / closed 三动作落 device 类目（零凭据 detail）
+  const { Store } = await import('../src/store.ts')
+  const store = new Store({ path: world.config.dbPath })
+  const actions = store.all("SELECT action FROM relay_audit WHERE action LIKE 'token_rotation_grace%'").map((r) => r.action)
+  store.close()
+  assert.equal(actions.includes('token_rotation_grace_admitted'), true, '宽限准入审计')
+  assert.equal(actions.includes('token_rotation_grace_expired'), true, '宽限过期拒绝审计（docs/18 §3.14 结果落库）')
+  assert.equal(actions.includes('token_rotation_grace_closed'), true, '宽限连接清扫审计')
+})
+
+test('token_rotation/disconnect deviceId 单一语义：win_device_id 未命中不按行 id 兜底（重叠 id 回归，M3-C3b 修2）', async (t) => {
+  const world = await setupWorld(t)
+  // 两平面 id 重叠构造：设备 A win_device_id=12 → ECS 行 id=1；设备 B win_device_id=1 → ECS 行 id=2
+  const a = await pairDevice(world, { deviceToken: `devtok-A-${randomHex32()}`, winDeviceId: 12, code: 'A3K7M9XY' })
+  const b = await pairDevice(world, { deviceToken: `devtok-B-${randomHex32()}`, winDeviceId: 1, code: 'B7Q2M4XA' })
+  assert.equal(a.ecsDeviceId, 1)
+  assert.equal(b.ecsDeviceId, 2)
+
+  // disconnect{deviceId:1} → 契约 deviceId = Windows 侧 id：路由到 B（win_device_id=1），
+  // 绝不触碰 ECS 行 id=1（A）——修复前按行 id 兜底曾致撤销错位（C2 #6 实测）
+  world.host.send({ type: 'disconnect', deviceId: 1, reason: 'revoked' })
+  const kick = await b.device.recvFrame()
+  assert.equal(kick.type, 'disconnect')
+  assert.equal(kick.reason, 'revoked')
+  await b.device.recvClose()
+  // A 连接不受影响（心跳往返即存活证明）
+  a.device.send({ type: 'heartbeat', ts: 1, lastAckedSeq: 0, tokenVersion: 1 })
+  assert.equal((await a.device.recvFrame()).type, 'heartbeat')
+
+  const { Store } = await import('../src/store.ts')
+  const readDb = () => {
+    const store = new Store({ path: world.config.dbPath })
+    const rows = store.all('SELECT id, win_device_id, status FROM relay_devices ORDER BY id')
+    store.close()
+    return rows
+  }
+  let rows = readDb()
+  assert.equal(rows.find((r) => r.id === 1)?.status, 'active', 'ECS 行 id=1（win=12）未被错位撤销')
+  assert.equal(rows.find((r) => r.id === 2)?.status, 'revoked', 'win_device_id=1 的行被正确撤销')
+
+  // 未命中（无任何 win_device_id=3 的行）→ 丢弃 + 审计 mismatch；ECS 行 id=3 若存在也绝不兜底
+  const c = await pairDevice(world, { deviceToken: `devtok-C-${randomHex32()}`, winDeviceId: 2, code: 'C9R4N6XB' })
+  assert.equal(c.ecsDeviceId, 3)
+  world.host.send({ type: 'disconnect', deviceId: 3, reason: 'revoked' })
+  await sleep(200)
+  c.device.send({ type: 'heartbeat', ts: 1, lastAckedSeq: 0, tokenVersion: 1 })
+  assert.equal((await c.device.recvFrame()).type, 'heartbeat', '行 id 兜底不复存在：ECS 行 id=3 连接存活')
+  rows = readDb()
+  assert.equal(rows.find((r) => r.id === 3)?.status, 'active', 'ECS 行 id=3（win=2）未被错位撤销')
+
+  // token_rotation 同一语义：deviceId 未命中 → NOT_FOUND + 审计 mismatch，注册表零改动
+  const cToken = `devtok-C-rot-${randomHex32()}`
+  world.host.send({ type: 'token_rotation', requestId: 'rot-miss-1', deviceId: 3, newToken: cToken, tokenVersion: 9, reason: 'post-pairing' })
+  const rotErr = await world.host.recvFrame()
+  assert.equal(rotErr.type, 'error')
+  assert.equal(rotErr.code, 'NOT_FOUND')
+  const c2 = new TestWsClient()
+  await c2.connect(world.port, '/relay/device', { Authorization: `Bearer ${c.deviceToken}` })
+  assert.equal((await c2.recvFrame()).type, 'hello', '错位轮换未发生：C 原 token 仍有效')
+  c2.destroy()
+
+  const auditStore = new Store({ path: world.config.dbPath })
+  const auditActions = auditStore.all("SELECT action, detail_json FROM relay_audit WHERE action LIKE '%mismatch%' ORDER BY id")
+  auditStore.close()
+  assert.equal(auditActions.some((r) => r.action === 'device_disconnect_mismatch' && r.detail_json.includes('"deviceId":3')), true, 'disconnect 未命中审计 mismatch')
+  assert.equal(auditActions.some((r) => r.action === 'token_rotation_route_mismatch' && r.detail_json.includes('"deviceId":3')), true, 'rotation 未命中审计 mismatch')
+  c.device.destroy()
+  a.device.destroy()
 })
 
 test('token_rotation 缺 deviceId → BAD_PAYLOAD（路由缺口显式拒绝，见 README 偏离单）', async (t) => {

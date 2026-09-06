@@ -73,6 +73,8 @@ export class Forwarder {
 
   /** device leg 已鉴权连接（同设备多连接，docs/18 §2）。 */
   private readonly deviceConns = new Map<number, Set<RelayConnection>>()
+  /** device leg 以 rotation 宽限凭据准入的连接（窗口过期由清扫关闭，docs/18 §3.14）。 */
+  private readonly graceAuthedConns = new Map<number, Set<RelayConnection>>()
   /** device leg 裸 pair 连接（未鉴权，首帧必须 pair）。 */
   private readonly bareConns = new Set<RelayConnection>()
   /** host leg 连接（同主机多连接，滚动重启不互踢）。 */
@@ -92,6 +94,9 @@ export class Forwarder {
     this.rateLimits = deps.rateLimits
     const sweepMs = Math.min(30000, Math.max(1000, Math.floor((deps.config.commandTtlSec * 1000) / 10)))
     this.timers.push(setInterval(() => this.sweepExpiredQueued(), sweepMs))
+    // 宽限清扫节奏：窗口的 1/4（下限 500ms 供测试短窗，上限 30s——docs/18 §3.14 300s → 7.5s）
+    const graceSweepMs = Math.min(30000, Math.max(500, Math.floor((deps.config.rotationGraceSec * 1000) / 4)))
+    this.timers.push(setInterval(() => this.sweepExpiredGrace(), graceSweepMs))
     this.timers.push(setInterval(() => {
       this.cache.evict(Math.floor(Date.now() / 1000), (stage, count) => {
         this.audit.write({ category: 'relay', action: 'relay_cache_evicted', outcome: 'success', detail: { stage, count } })
@@ -111,8 +116,8 @@ export class Forwarder {
     return this.deviceConns.size + this.bareConns.size + this.hostConns.length
   }
 
-  /** 注册设备连接（已鉴权）→ 发 hello 首帧。 */
-  admitDeviceConnection(conn: RelayConnection, deviceId: number): void {
+  /** 注册设备连接（已鉴权）→ 发 hello 首帧。viaGrace = rotation 宽限凭据准入（窗口过期清扫）。 */
+  admitDeviceConnection(conn: RelayConnection, deviceId: number, viaGrace = false): void {
     this.guardBudget()
     let set = this.deviceConns.get(deviceId)
     if (set === undefined) {
@@ -120,8 +125,16 @@ export class Forwarder {
       this.deviceConns.set(deviceId, set)
     }
     set.add(conn)
+    if (viaGrace) {
+      let graceSet = this.graceAuthedConns.get(deviceId)
+      if (graceSet === undefined) {
+        graceSet = new Set()
+        this.graceAuthedConns.set(deviceId, graceSet)
+      }
+      graceSet.add(conn)
+    }
     this.store.run('UPDATE relay_devices SET last_seen_at = ?, updated_at = ? WHERE id = ?', Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000), deviceId)
-    this.audit.write({ category: 'device', action: 'connection_opened', outcome: 'success', deviceId, detail: { side: 'device', remoteIp: conn.identity.remoteIp } })
+    this.audit.write({ category: 'device', action: 'connection_opened', outcome: 'success', deviceId, detail: { side: 'device', remoteIp: conn.identity.remoteIp, ...(viaGrace ? { viaGrace: true } : {}) } })
     conn.sendFrame(this.helloFrame(deviceId, undefined))
   }
 
@@ -156,6 +169,11 @@ export class Forwarder {
       if (set !== undefined) {
         set.delete(conn)
         if (set.size === 0) this.deviceConns.delete(deviceId)
+      }
+      const graceSet = this.graceAuthedConns.get(deviceId)
+      if (graceSet !== undefined) {
+        graceSet.delete(conn)
+        if (graceSet.size === 0) this.graceAuthedConns.delete(deviceId)
       }
       this.audit.write({ category: 'device', action: 'connection_closed', outcome: 'success', deviceId, detail: { side: 'device', reason: conn.debugCloseReason() } })
       return
@@ -496,6 +514,29 @@ export class Forwarder {
     }
   }
 
+  /**
+   * 宽限过期清扫（docs/18 §3.14「旧 Token 自帧发出起 300s 后失效」）：窗口过期后，
+   * 仍以旧凭据存活的连接先收 disconnect{superseded}（§3.15 E→D 合法 reason，设备按
+   * 退避重连 → 旧凭据 401 → 重配对路径）再关闭；注册表行消失/已撤销/宽限列已清同样关闭。
+   */
+  sweepExpiredGrace(nowSec: number = Math.floor(Date.now() / 1000)): void {
+    for (const [deviceId, conns] of this.graceAuthedConns) {
+      if (conns.size === 0) {
+        this.graceAuthedConns.delete(deviceId)
+        continue
+      }
+      const row = this.store.get<{ grace_expires_at: number | null }>('SELECT grace_expires_at FROM relay_devices WHERE id = ?', deviceId)
+      const expired = row === undefined || row.grace_expires_at === null || nowSec >= row.grace_expires_at
+      if (!expired) continue
+      this.graceAuthedConns.delete(deviceId)
+      for (const conn of [...conns]) {
+        conn.sendFrame({ type: 'disconnect', reason: 'superseded' })
+        conn.close(1000, 'rotation grace window elapsed (docs/18 §3.14)')
+      }
+      this.audit.write({ category: 'device', action: 'token_rotation_grace_closed', outcome: 'success', deviceId, detail: { connections: conns.size } })
+    }
+  }
+
   // -------------------------------------------------------------------------
   // device leg：sync / heartbeat
   // -------------------------------------------------------------------------
@@ -832,9 +873,12 @@ export class Forwarder {
   }
 
   /**
-   * token_rotation（docs/18 §3.14）：注册表同步（sha256(newToken) + token_version）+ E→D 转发。
-   * 路由需求：帧必须携带 deviceId（Windows 侧设备 id）——docs/18 §3.14 帧形未含该字段，
-   * 无路由目标则注册表无法定位行（实现面缺口，已单列上报，见 README/notes）。
+   * token_rotation（docs/18 §3.14）：注册表同步（sha256(newToken) + token_version）+ E→D 转发
+   * + 旧哈希宽限（grace_token_hash/grace_expires_at，帧发出起 rotationGraceSec 内旧凭据仍可
+   * 鉴权，窗后 401 → 重配对路径；README 偏离单 #11）。
+   * 路由需求：帧必须携带 deviceId（Windows 侧设备 id）——docs/18 §3.14 帧形未含该字段
+   * （README 偏离单 #2）。M3-C3b 修2 单一语义：仅 win_device_id 命中才路由；未命中
+   * （含与 relay_devices.id 撞号）→ 审计 mismatch + NOT_FOUND，绝不按行 id 兜底错位轮换。
    */
   private handleHostTokenRotation(frame: Frame): void {
     const newToken = asString(frame.newToken, 'newToken')
@@ -845,16 +889,26 @@ export class Forwarder {
       this.audit.write({ category: 'device', action: 'token_rotation_dropped', outcome: 'denied', detail: { reason: 'missing_deviceId' } })
       throw new RelayError('BAD_PAYLOAD', 'token_rotation requires deviceId for registry routing (docs/19 §2.4 两平面凭据同步)')
     }
-    const row = this.store.get<{ id: number }>(
-      'SELECT id FROM relay_devices WHERE win_device_id = ? AND status = \'active\'',
+    const row = this.store.get<{ id: number; token_hash: string }>(
+      'SELECT id, token_hash FROM relay_devices WHERE win_device_id = ? AND status = \'active\'',
       winDeviceId,
-    ) ?? this.store.get<{ id: number }>('SELECT id FROM relay_devices WHERE id = ? AND status = \'active\'', winDeviceId)
+    )
     if (row === undefined) {
-      throw new RelayError('NOT_FOUND', `token_rotation: no active device for deviceId ${winDeviceId}`)
+      this.audit.write({ category: 'device', action: 'token_rotation_route_mismatch', outcome: 'denied', detail: { deviceId: winDeviceId, reason: 'no_row_with_win_device_id' } })
+      throw new RelayError('NOT_FOUND', `token_rotation: no active device with win_device_id ${winDeviceId}`)
     }
-    // 红线：newToken 明文只进 sha256（不落盘/落日志/落审计）
-    this.store.run('UPDATE relay_devices SET token_hash = ?, token_version = ?, updated_at = ? WHERE id = ?', sha256Hex(newToken), tokenVersion, Math.floor(Date.now() / 1000), row.id)
-    this.audit.write({ category: 'device', action: 'token_rotation_applied', outcome: 'success', deviceId: row.id, detail: { tokenVersion, reason } })
+    const nowSec = Math.floor(Date.now() / 1000)
+    // 红线：newToken 明文只进 sha256（不落盘/落日志/落审计）；旧哈希原值转入 grace 列（同为 sha256）
+    this.store.run(
+      'UPDATE relay_devices SET grace_token_hash = ?, grace_expires_at = ?, token_hash = ?, token_version = ?, updated_at = ? WHERE id = ?',
+      row.token_hash,
+      nowSec + this.config.rotationGraceSec,
+      sha256Hex(newToken),
+      tokenVersion,
+      nowSec,
+      row.id,
+    )
+    this.audit.write({ category: 'device', action: 'token_rotation_applied', outcome: 'success', deviceId: row.id, detail: { tokenVersion, reason, graceSec: this.config.rotationGraceSec } })
     const out: Frame = {
       type: 'token_rotation',
       requestId: typeof frame.requestId === 'string' ? frame.requestId : randomUUID(),
@@ -868,14 +922,21 @@ export class Forwarder {
     }
   }
 
-  /** disconnect（docs/18 §3.15）：撤销定点踢线 + 注册表同步。 */
+  /**
+   * disconnect（docs/18 §3.15）：撤销定点踢线 + 注册表同步。
+   * M3-C3b 修2 单一语义（docs/18 §3.15 撤销链路 + pair_accepted 设备视图「deviceId =
+   * Windows 侧 id」）：仅 win_device_id 命中才路由；未命中（含与 relay_devices.id 空间
+   * 撞号）→ 丢弃 + 审计 mismatch（C2 #6：行 id 兜底曾致撤销错位 relay_devices.id=1）。
+   */
   private handleHostDisconnect(frame: Frame): void {
     const reason = typeof frame.reason === 'string' ? frame.reason : 'revoked'
     const deviceIdRaw = asOptionalNumber(frame.deviceId, 'deviceId', { min: 0 })
     if (deviceIdRaw === null) return
     const row = this.store.get<{ id: number }>('SELECT id FROM relay_devices WHERE win_device_id = ?', deviceIdRaw)
-      ?? this.store.get<{ id: number }>('SELECT id FROM relay_devices WHERE id = ?', deviceIdRaw)
-    if (row === undefined) return
+    if (row === undefined) {
+      this.audit.write({ category: 'device', action: 'device_disconnect_mismatch', outcome: 'denied', detail: { deviceId: deviceIdRaw, reason: 'no_row_with_win_device_id', frameReason: reason } })
+      return
+    }
     if (reason === 'revoked') {
       const nowSec = Math.floor(Date.now() / 1000)
       this.store.run("UPDATE relay_devices SET status = 'revoked', revoked_at = ?, updated_at = ? WHERE id = ?", nowSec, nowSec, row.id)
