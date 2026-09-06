@@ -1,0 +1,39 @@
+{
+  "cmd": "await-result",
+  "startedAt": "2026-09-06T20:24:58.134Z",
+  "steps": [
+    {
+      "step": "v1_hello",
+      "ok": true,
+      "ts": 1788726298229
+    },
+    {
+      "step": "command_result",
+      "ok": false,
+      "ts": 1788726388239,
+      "err": "timeout awaiting command_result"
+    }
+  ],
+  "frames": [],
+  "framesSeen": [
+    {
+      "type": "hello",
+      "sequence": 20839,
+      "deviceId": 6,
+      "heartbeatSec": 30,
+      "relayVersion": "1.0.0",
+      "upstream": "connected"
+    },
+    {
+      "type": "heartbeat",
+      "ts": 1788726297,
+      "upstream": "connected",
+      "queuedCommands": 1
+    },
+    {
+      "type": "disconnect",
+      "reason": "superseded"
+    }
+  ],
+  "finishedAt": "2026-09-06T20:26:28.239Z"
+}

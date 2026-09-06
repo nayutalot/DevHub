@@ -1,0 +1,75 @@
+{
+  "batch": "M3-C2d",
+  "generatedAt": "2026-09-07T04:45:00+08:00",
+  "base": "main=b176cad (C6c six fixes + C6d GatewayApi pin-TM / ApiProvider injection)",
+  "resident": "fe306b9 win-unpacked (desktop zero-change), started 03:25, gateway 200, m3d-watch connected=true + relay_enabled=1 (C2c 小项#5 面恢复)",
+  "apk": "built 03:20:00 > b176cad 03:13:09 (timestamp gate ok); fresh install on CA-free emulator (cacerts-added empty, conscrypt system-only, fresh boot no snapshot)",
+  "tlsPinFace": {
+    "result": "PASS",
+    "detail": "pair 腿（裸 WS）+ Bearer WS + REST 三面在无注入 CA 模拟器上对公网 wss/https 59.110.149.11:443 握手通过 = PinTrustManager 单点信任（C6c bug#1 + C6d pin-TM）活体",
+    "evidence": [
+      "m3c2d-03-app-relay-connected.png (Relay 已连接 · 心跳 30s)",
+      "m3c2d-09-correct-fingerprint-health-ok.png (App 测试连接 → ECS /v1/health 200 连接成功 devhub-relay v1.0.0)",
+      "m3c2d-08-wrong-fingerprint-tls-reject.png (SPKI 已脱敏)"
+    ]
+  },
+  "devices": [
+    { "ecsRow": 5, "winId": 41, "kind": "app", "pairedAt": "2026-09-07T03:35:27+08:00" },
+    { "ecsRow": 6, "winId": 42, "kind": "standin", "pairedAt": "2026-09-07T04:20:35+08:00" },
+    { "ecsRow": 7, "winId": 43, "kind": "app", "pairedAt": "2026-09-07T04:29:20+08:00" }
+  ],
+  "rb2": {
+    "tlsPinHandshake": "PASS（见 tlsPinFace）",
+    "pairAcceptedSecureStore": "PASS（App 设备 tab：deviceId=41/43、配对时间、gateway=relay:59.110.149.11；桌面 remote_devices #41/#43 active）",
+    "desktopSideVisibility": "PASS（桌面 audit 625/637 pairing_claimed source=\"relay\"；远程设备表 active；ECS win_device_id 回填）",
+    "rotationCaptured": "FAIL — 结构性：pair_accepted 即刻服务端关闭裸连接且不入 deviceConns（ecs-relay forwarder.ts handlePairAccepted close(1000)），token_rotation H→E 到达时无任何设备连接 → 静默丢弃（无队列）；设备常规 WS 在轮换后才建立。C6c 两腿处理器无帧可收。三设备（#5/#6/#7）一致复现",
+    "bothRegistriesTokenVersion2": "PASS（ECS relay_devices token_version=2；桌面 remote_devices token_version=2；桌面 audit token_rotated {reason:post-pairing, tokenVersion:2}）",
+    "appSideList": "部分 — Agents/Sessions 列表经 C6d GatewayApi pin-TM REST 到达 ECS 并认证通过，但 ECS→host 转发后桌面不响应（新缺口：桌面 relayClient routeFrame 无 agent_list/session_list/message E→H 处理分支）→ RELAY_UPSTREAM_TIMEOUT；/v1/devices 不在 docs/18 §7.1 REST 数据面（G5 裁决）→ App 设备列表/自撤销在 relay 模式无协议端点"
+  },
+  "rb3": {
+    "aliveOver300s": "FAIL — 复现 #5：connection_opened 03:35:55 → connection_closed 03:40:33（278s 单连最长，中途中断重连 4 次）；#7：rotation 04:29:20 → grace_expired denied 04:34:35（315s），最长单连 135s（04:31:44→04:33:59，中断源=轮换墙前的模拟器重启事件干扰）。判定主体：连接跨过 grace 窗 300s 存活=未达成，自毁语义仍在（ECS token_rotation_grace_expired denied → App onAuthFatal 清凭据）",
+    "waitingInput": "本轮不可触发（推理/命令面受阻，见 rb5），机制面既有证据 ac7b-12-notification.png"
+  },
+  "rb4": {
+    "restReplaySameNonce": "PASS — 401 AUTH_REPLAYED（m3c2d-standin-restfaces-evidence.json）",
+    "restStaleTs": "PASS — 401（code=AUTH_REPLAYED；窗外与重放同码族，401 判据达成）",
+    "restLegit": "未达 — 认证通过、ECS 转发 host，但 host 不应答 → 504 RELAY_UPSTREAM_TIMEOUT（阻断=桌面 agent_list 处理缺口，非防重放面问题）",
+    "commandFrameReplay": "未达 — 命令帧 auth 由 Windows 端校验（ECS 不解释）；v1 token 在桌面侧即刻失效（桌面 registry 已持 v2 哈希、无 grace 列）→ AUTH_INVALID_TOKEN 先于 AUTH_REPLAYED 判定，本面无法携有效凭据进入"
+  },
+  "rb5": {
+    "observedCommandGate": "未达（同 rb4 commandFrameReplay 阻断：Windows 端 token 校验失败，能力门不可达）",
+    "managedInference": "未达（同上；真实推理无从触发）"
+  },
+  "rb6": {
+    "appOffCatchup": "降级达成 — 杀 App（04:34:02）→ 重启（04:34:12 已重连 Relay 已连接）resync 活体；期间事件源不可用（见下）故 sequence 补零丢失断言降级为 resync 一致性",
+    "eventSourceBlocked": "桌面事件生成需命令面（Windows token 校验）或桌面 UI（锁屏）——均阻断；ECS relay_events 停在 sequence 20839（本批前 5h）",
+    "hostOfflineQueue": "部分 PASS — 杀常驻（04:21:19）→ standin 命令帧 → command_ack{status:accepted, queued:true}（ECS 排队语义活体，m3c2d-standin-queued-evidence.json）→ 常驻回归后 command_relayed success（投递活体）→ 桌面 auth 拒（AUTH_INVALID_TOKEN error 帧）→ **该 error 帧不回程设备**（ECS H→E error 仅关联 host 请求）→ 设备 90s 无回执 → ECS command_expired（audit 160）。断链→排队→投递链路真实走通；终态回流被两缺口（轮换孤儿化 + error 路由）截断"
+  },
+  "rb7": {
+    "result": "PASS（口径同 C2c）— grep 全树：requestTokenRotation 唯一触发点 = relayClient/index.ts:329 'post-pairing'（pairingBridge 回调）；C6c/C6d 未新增 manual/periodic 触发面；rotationBridge reason 值已承载 manual/periodic（触发器属后续批次）"
+  },
+  "rb8": {
+    "mainChain": "阻断上报 — 桌面发起撤销通道：①UI/UIA（工作站锁屏 LogonUI 运行中，UIA 对常驻窗口仅 9 个 shell 元素，DOM a11y 树不暴露，与 C2c 先例一致）②IPC agents:deviceRevoke 仅进程内 renderer 可达 ③gateway REST DELETE 仅自撤销（id!==device.id → DEVICE_FORBIDDEN）④无 admin/ops token 面 → 无外部可达的桌面发起撤销通道",
+    "appSelfRevokeSupplement": "活体 PASS（诚实错误语义）— relay 模式自撤销 → 405 [RELAY_REST_READONLY] this action must go through the WS command face (docs/18 §7.2)，结构化展示、不伪报成功、凭据不清、连接不断（m3c2d-10-app-self-revoke-structured-405.png）；WS command 面无 revoke 动作（§5.1 仅 send_message/approve/pause/resume/interrupt）→ relay 模式自撤销协议性不可达",
+    "leftoverCleanup": "不可行上报 — ECS #2/3/4（win 38/39/40）与桌面 #38/39/40 撤销需桌面发起通道（同上阻断）；ECS 侧零写纪律维持，账面留主控处置。本批新增孤儿行同类别：#5(win41)/#6(win42)/#7(win43) active+token_version=2 但 v2 明文无人持有（轮换孤儿化）",
+    "reconnectAfterRevoke401": "未测 — 需被撤销设备仍持 token 主动重连；全部存量 token 均孤儿化/销毁，无法构造"
+  },
+  "rb9TlsRejectFaces": {
+    "wrongFingerprint": "PASS — App 配置错误指纹（合规 64-hex 错值）→ 测试连接 → javax.net.ssl.SSLHandshakeException: relay TLS: server SPKI <实际> not in configured pins [<配置>] (docs/19 §10.2 pin-only; verify relay fingerprint provisioning / rotation window)——结构化可诊断、进程不崩（m3c2d-08 截图，SPKI 已脱敏）= PinTrustManager 回归守护",
+    "correctCertCorrectPin": "PASS — 同测试连接路径 200 连接成功（m3c2d-09）",
+    "expiredCert": "标注覆盖 — selfcheck 证书日历项（notAfter 2026-12-04，余 89 天，阈值 14；m3d-watch cert.pinOk=true）",
+    "hostWrongFingerprint": "援引 C2c 证据（m3d-watch SPKI MISMATCH 独立检出+恢复自愈），本批未复测",
+    "newCrashFinding": "测试连接路径指纹规范化 IllegalArgumentException 未捕获 → App 崩溃（GatewayConfigScreen.kt:293 GatewayApi 构造位于 try 外；TlsPinning.kt:95 normalizeBody require 抛出）；保存门（PinFingerprintSaveGate）不受影响，仅未保存的现场输入路径；复现向量=输入框残留拼接出非 64-hex、非 32B-base64 体"
+  },
+  "fixVerification": {
+    "c6cBug1PinTM": "PASS（TLS pin face 三面活体 + 错指纹拒面）",
+    "c6cBug2RelayBase": "PASS（App 数据面经 ECS base 认证可达：REST faces 504/401/405 均 ECS 结构化响应；本地 10.0.2.2 不再被误用）",
+    "c6cBug2HonestRevoke": "PASS（405 RELAY_REST_READONLY 结构化，零伪报）",
+    "c6cBug3Rotation": "无效修复实证 — App 两腿 token_rotation 帧处理器存在但帧结构性不可达（ECS pair 连接即闭+无队列），三设备一致性复现 grace_expired",
+    "c6dGatewayApiPinTM": "PASS（App→ECS REST pin-TM：health 200 + agents/sessions 认证通过 + 错指纹 SSL 握手拒）",
+    "c2cMinor5WatchDb": "PASS（m3d-watch relay_enabled=1，非 unknown）",
+    "c2cMinor6PairingInputClear": "未复测（本批码输入全程脚本注入一次性正确）"
+  },
+  "gates": "四门禁绿色状态由主控确认（smoke 169/mcp 27/:core 183/:app 40），本批零代码改动未重跑",
+  "credentialHygiene": "配对码/token 全程零入截图/零入汇报/零入仓；standin token 仅内存+%TEMP%（用毕删）；08 截图 SPKI 全值已脱敏"
+}

@@ -1,0 +1,42 @@
+{
+  "cmd": "pair",
+  "startedAt": "2026-09-06T20:20:36.428Z",
+  "steps": [
+    {
+      "step": "bare_ws_101",
+      "ok": true,
+      "ts": 1788726036545
+    },
+    {
+      "step": "pair_accepted",
+      "ok": true,
+      "ts": 1788726036628,
+      "deviceId": 42,
+      "tokenVersion": 1,
+      "ms": 83
+    },
+    {
+      "step": "v1_ws_101",
+      "ok": true,
+      "ts": 1788726036722
+    },
+    {
+      "step": "v1_hello",
+      "ok": true,
+      "ts": 1788726036726,
+      "sequence": 20839,
+      "upstream": "connected",
+      "heartbeatSec": 30
+    }
+  ],
+  "frames": [],
+  "pairAccepted": {
+    "deviceId": 42,
+    "tokenVersion": 1
+  },
+  "hello": {
+    "sequence": 20839,
+    "upstream": "connected"
+  },
+  "finishedAt": "2026-09-06T20:20:36.727Z"
+}
