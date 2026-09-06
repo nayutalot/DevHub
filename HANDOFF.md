@@ -1,6 +1,6 @@
-# DevHub 会话交接文档（2026-09-06 深夜，M3-C4 收官线·C2b 运行中）
+# DevHub 会话交接文档（2026-09-07 凌晨，M3-C6 修复批并行·C2b 已判未达待复跑）
 
-> 交接范围：……（前史见 git log/docs/HANDOFF 旧版）→ M3-C3a/C3b 合并 → **M3-C4 批：两红环境性结案+四门禁全绿+push main+八分支清理+v3 常驻上线 connected=true**。**新会话从 §4 未决项续接（C2b 代理在跑则先收割其汇报）。**
+> 交接范围：……（前史见 git log/docs/HANDOFF 旧版）→ M3-C4 四门禁全绿+push+v3 常驻 connected → **C2b 全表重跑判"未达"（两缺口根因闭环）→ M3-C6a/C6b 修复批并行中**。**新会话从 §4 未决项续接（两修复批在跑则先收割）。**
 
 ## 0. 新会话开工须知（用户令：严格约束工作流）
 
@@ -12,9 +12,9 @@
 
 ## 1. 当前状态一句话
 
-**四门禁权威全绿（tsc 0/smoke 168/mcp 27/gradle :core 183）已 push（origin=7a6260b）、八分支全清、v3 常驻上线 relay 自动重连 connected=true——C2b 全表重跑（App 真实公网入网 R-B2..R-B8+R3+TLS 拒面）代理运行中，全过即启 M3-D 72h。**
+**C2b 全表重跑判"未达"：两独立缺口根因闭环（①App TLS 信任锚空+叶-only 链→正确指纹也拒；②REST 配对签发绕过 L3 不同步 ECS）→ M3-C6a（本地修：TLS pin 锚化+L3 对齐）/C6b（ECS 修：heartbeat touchHost+重部署）并行中；R-B9 App 错指纹面 PASS、R-B7 按裁定标注、环境零残留。**修复合入后 C2c 复跑→M3-D。
 
-## 2. M3-C4 战果台账（本会话）
+## 2. M3-C4/C2b 战果台账（本会话续）
 
 | 批 | 结果 |
 | --- | --- |
@@ -24,9 +24,11 @@
 | C2b 筹备（C4c） | ECS 预检全绿：**selfcheck 实测 77/77（C3b 增 §11，基线 76→77）**、证书余 89 天、journal 24h 零 error；#34 revoked 留作 R-B8 负面素材不复活不清理；C2b 任务书 m3c2b-app-e2e.md 合入 |
 | M3-D 巡检面（C4d） | `scripts/m3d-watch.mjs` 合入（单周期/loop/t0/summary；gateway+relay 腿+公网健康+证书余量+SPKI pin；研究结论：本地无 relay REST 面，host 腿真值=ECS 公网 /v1/health upstream.connected） |
 | 清理 | 8 条 agent/* 分支本地+远端全删；worktree 只剩 dist-v3（待清）；10 个陈旧目录顺手清 |
-| v3 换装（C5a） | **PASS**：v2 备份 bak-v2-20260906、sha256 逐一比对零差、常驻 PID 42740 纯生产形态（无 debug port）、网关 200、**relay 自动重连首探即成**（m3d-watch: gateway ok+connected=true+cert 89.3d+pin match）、信任三物在位 |
+| v3 换装（C5a） | **PASS**：v2 备份 bak-v2-20260906、sha256 逐一比对零差、常驻纯生产形态、网关 200、**relay 自动重连首探即成**（m3d-watch: gateway ok+connected=true+cert 89.3d+pin match）、信任三物在位 |
+| C2b 全表重跑 | **未达**：R-B2 FAIL（缺口①TLS 根因四步实验闭环：TlsPinningOkHttp getAcceptedIssuers 空+caddy 叶-only 链→ChainCleaner 无锚）；R-B3/4/5/6 依赖链断未达；R-B7 触发面未实现按裁定标注；R-B8 步骤一等价证据链（#34 明文已销毁）+步骤二依赖断；**R-B9 App 错指纹面 PASS**（结构化拒+不崩=C3a 修2 公网回归过）。缺口②：httpServer.ts:631 REST create 绕 L3 码不到 ECS。另发现#4 ECS last_seen 不随 heartbeat、#5 #34 审计口径注释。**主控 review 否决了子代理"Android 装 CA"修法**（违反 docs/19 §10.2 pin-only 裁决），改裁 pin 锚化 |
+| 环境 | 工作站锁屏致 Electron UIA 树不渲染（UI 路径封死，后续需 UI 的批须解锁会话）；evidence 3 截图已合（a8cdbf6）；常驻终态 PID 32240 connected=true（C6a 门禁会杀掉，C2c 拉起） |
 
-## 3. 项目事实基线（main 本地=origin=7a6260b）
+## 3. 项目事实基线（main 本地=origin=703980b）
 
 - 门禁基线：tsc 0 / smoke **168**（fast 82）/ mcp **27/27** / :core **183** / ecs-relay test 89 + **selfcheck 77**（ECS 实测）
 - ECS：devhub-relay C3b 版 active、caddy 443、SPKI 不变、notAfter **2026-12-04**（余 89 天；≤11-20 双指纹窗口）；relay_hosts 仅 hostId=3 active、relay_devices 仅 #34 revoked
@@ -36,10 +38,11 @@
 
 ## 4. ⚠️ 未决项（按序处理）
 
-1. **C2b 全表重跑收割**（代理运行中）：逐条 R-B 表四分类汇报→evidence 分支 agent/m3c2b-evidence 合入；发现的问题清单→修复批
-2. **M3-D 72h 稳定期启动**（C2b 全过后）：重置 t0（现 t0.txt 为 D 批测试值）→ `--loop 15` 起跑 → 巡检节奏/中断判据按 docs/21 裁决
-3. 清理尾巴：worktree dist-v3（C2b 后可清）；gate-fix 目录残留（core.jar 句柄，git 已注销纯磁盘）
-4. C2b 修复项（若 R-B 表有 FAIL）→ 派修复批 → 复跑该条
+1. **收割 M3-C6a/C6b 修复批**（并行中）：review diff（C6a 严守 docs/19 §10.2 pin-only 裁决）→ merge 两分支 → main 干净树复跑四门禁 → push
+2. **C2c 复跑批**（修复合入后）：重启常驻（C6a 门禁杀掉的）→ R-B2 起全表重跑（判据仍 docs/20 §3；#34 审计断言按 C3b 新语义 DEVICE_REVOKED；新设备新配对码——C6a 修复后 REST 签发即可用，UI 签发需解锁会话；顺带验证 C6b last_seen 活体推进）；任务书基于 m3c2b-app-e2e.md 修订
+3. **M3-D 72h 稳定期启动**（C2c 全过后）：重置 t0 → `m3d-watch --loop 15` 起跑
+4. 清理尾巴：worktree dist-v3/c2c-fix-local/c2c-fix-ecs（批毕）；gate-fix 目录残留（core.jar 句柄）
+5. C2c 若仍有 FAIL → 如实入账 + 派修复批
 
 ## 5. 待用户（只排队不代答）
 
