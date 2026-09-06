@@ -16,8 +16,10 @@ import okio.ByteString.Companion.decodeHex
 /**
  * :core `TlsPinningConfig` → OkHttp `CertificatePinner` 转换（app 层注入缝）。
  *
- * U1 已裁决（2026-09-05，docs/21 §1.1）：无域名 IP TLS——Android 侧信任 = OkHttp
- * CertificatePinner 对服务端证书 SPKI sha256 的指纹锁定（docs/19 §10.2）。
+ * U1 已裁决（2026-09-05，docs/21 §1.1）：无域名 IP TLS——Android 侧信任模型见
+ * docs/19 §10.2（M3-C6c 实现层勘误：pin-TM 激活时由自定义 TrustManager 承载，
+ * **不并装 CertificatePinner**——Android 对自定义 TM 链清洗返回空链 → 空洞拒连）；
+ * 本转换服务**未装自定义 TM 的通道**（GatewayApi pinner-only 面——其链清洗走系统 TM）：
  * - :core 模型归一化产物为 `sha256/{hex}`；OkHttp pin 只接受 `sha256/{base64}`，
  *   此处做唯一一处形态转换（hex → base64）；
  * - pin pattern 用**具体 host**（M3-C3a 修 2，C2 #3 崩溃修复）：从 relayUrl 解析出的
@@ -28,8 +30,8 @@ import okio.ByteString.Companion.decodeHex
  *   抛 IllegalArgumentException 表达拒绝，绝不静默产出坏 pinner）；
  * - 双指纹轮换窗口语义（旧+新任一匹配即信任）由 :core `TlsPinningConfig` 的指纹列表
  *   原样映射为多条 pin（docs/19 §10.4）；
- * - **注入式**：relay 模式构造 OkHttpClient 时传入 `TlsPinningConfig`；传 null/不传 =
- *   现行为不变（无 pinning）。relay 模式接线属 R3 批（docs/20 §2.3），本批只铺缝。
+ * - **注入式**：构造 OkHttpClient 时传入 `TlsPinningConfig`；传 null/不传 =
+ *   现行为不变（无 pinning）。
  */
 /**
  * :core `TlsPinningConfig` → OkHttp `CertificatePinner` 转换（app 层注入缝）。
@@ -61,8 +63,10 @@ fun TlsPinningConfig.toCertificatePinner(hostPattern: String): CertificatePinner
  * `getAcceptedIssuers()` 返回空数组 → CertificateChainCleaner 无信任锚 → `clean([leaf])`
  * 抛 "Failed to find a trusted cert"，正确指纹也握手失败。现改为 TrustManager 侧就地
  * 完成 pin-only 信任裁决（Android 侧 CertificateChainCleaner 经 X509TrustManagerExtensions
- * 委托同一 checkServerTrusted——信任判定单点）；CertificatePinner 保留作强制层（双保险），
- * HostnameVerifier 保持默认（IP SAN 校验 = docs/19 §10.1）。**§10.5 红线：自签 CA 绝不
+ * 委托同一 checkServerTrusted——信任判定单点）。M3-C6c bug#1（docs/19 §10.2 实现层勘误）：
+ * **CertificatePinner 不再并装**——Android 对非 Conscrypt 自定义 TM 的链清洗 fallback
+ * 通过后返回空链，pinner 只对清洁链配 pin → 空链即拒（空洞拒连）；HostnameVerifier 保持
+ * 默认（IP SAN 校验 = docs/19 §10.1）作第二保险。**§10.5 红线：自签 CA 绝不
  * 入 App**——信任锚是配置指纹列表，绝非任何 CA 证书。
  *
  * 红线：本 TrustManager **只**用于 relay 模式 OkHttp 客户端构造（指纹已配置时），

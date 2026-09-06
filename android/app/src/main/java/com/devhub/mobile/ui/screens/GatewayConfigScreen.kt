@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.sp
 import com.devhub.mobile.connect.ConnectionManager
 import com.devhub.mobile.core.relay.RelayEndpoint
 import com.devhub.mobile.data.FixtureMode
+import com.devhub.mobile.data.PinFingerprintSaveGate
 import com.devhub.mobile.data.db.DevHubDb
 import com.devhub.mobile.data.db.GatewayConfigEntity
 import com.devhub.mobile.data.remote.ApiError
@@ -170,6 +171,19 @@ fun GatewayConfigScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
+            // M3-C6c bug#4：空指纹引导文案（不硬阻断——留空保存合法，连接层走系统默认信任；
+            // C2c 实录：自签 IP 证书场景该形态直到连接层才 fail-closed「Trust anchor not
+            // found」，引导前置到配置页）
+            if (pinFingerprints.isBlank()) {
+                Text(
+                    "提示：尚未配置证书指纹。自签 IP 证书不受系统默认信任（docs/19 §10.5 属预期），" +
+                        "生产使用请在下方「证书指纹（高级，可选）」填入 SPKI sha256 指纹，否则连接将失败" +
+                        "（Trust anchor not found）。",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+
             // 指纹高级项（docs/19 §10.2 注入式；占位级入口，非空才启用）
             TextButton(onClick = { pinAdvancedOpen = !pinAdvancedOpen }) {
                 Text(if (pinAdvancedOpen) "收起证书指纹（高级）" else "证书指纹（高级，可选）")
@@ -209,7 +223,19 @@ fun GatewayConfigScreen(
                                     return@launch
                                 }
                                 savedRelayUrl = endpoint.url
-                                savedPin = pinFingerprints.trim().takeIf { it.isNotEmpty() }
+                                // M3-C6c bug#4：指纹保存层格式校验（复用 :core TlsPinningConfig
+                                // fail-fast，与连接层绝不双标）——残行（丢前缀/长度错/非 hex）保存
+                                // 即拒，不再后移到 pair 时才 BAD_CONFIG。
+                                when (val verdict = PinFingerprintSaveGate.check(mode, pinFingerprints)) {
+                                    is PinFingerprintSaveGate.Verdict.Invalid -> {
+                                        message = "TLS 指纹格式非法（docs/19 §10.2）：${verdict.message}"
+                                        messageIsError = true
+                                        busy = false
+                                        return@launch
+                                    }
+
+                                    is PinFingerprintSaveGate.Verdict.Ok -> savedPin = verdict.normalized
+                                }
                             } else {
                                 savedRelayUrl = null
                             }

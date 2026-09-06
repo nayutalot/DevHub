@@ -603,6 +603,17 @@ ConnectionManager（现状态机不动：退避 1s→60s ±20%、hello→sync、
   仅作 `openssl x509 -fingerprint` 人工核对用，勿与 pin 混用）。
 - 与 wss 强制校验（D7）叠加：relay endpoint 必须 `wss://`（代码层拒绝保存其他 scheme），
   指纹 pinning 在 TLS 握手层再加一道端点认证。
+- **M3-C6c 实现层勘误（2026-09-06，C2c bug#1 实证闭环；裁决语义不变）**：本节标题的
+  「信任 = CertificatePinner」在 Android 实现层由**自定义 TrustManager 承载**——Android
+  对非 Conscrypt 自定义 X509TrustManager 的链清洗 fallback 经 X509TrustManagerExtensions
+  委托同一 `checkServerTrusted`，通过后返回**空链**；okhttp 4.12 `check$okhttp` 只对清洁链
+  配 pin → **空链即拒**（空洞拒连：PinTrustManager 与 CertificatePinner 并装时正确指纹也
+  握手失败，C2c 四步实验实证）。故实现修正为：**pin-TM（自定义 TrustManager）激活时不装
+  CertificatePinner**——信任判定单点 = `RelayTlsTrust` PinTrustManager `checkServerTrusted`；
+  HostnameVerifier 默认（IP SAN）保留第二保险。挂点：`RelayPairingClient`（pair 专用
+  客户端）与 `ConnectionManager.rebuildRelayClients`（relay WS 客户端）；`GatewayApi` 等
+  未装自定义 TM 的通道仍走 CertificatePinner（其链清洗走系统 TM，不在本勘误面）。
+  「pin-only 不依赖系统信任链」的裁决语义不变。
 
 ### 10.3 Node relayClient 信任 = tls.checkServerIdentity 覆写 + CA 指纹校验（注入式，同双指纹）
 

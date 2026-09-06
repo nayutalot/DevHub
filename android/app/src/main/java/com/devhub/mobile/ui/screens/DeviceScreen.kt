@@ -140,8 +140,11 @@ fun DeviceScreen() {
                         try {
                             withContext(Dispatchers.IO) { ApiProvider.rest(context).revokeSelf(ownId) }
                         } catch (err: ApiError) {
-                            // 401 DEVICE_REVOKED 也属成功语义（已撤销）
-                            if (err.code != "DEVICE_REVOKED" && err.httpCode != 401) {
+                            // M3-C6c bug#2 波及面修正：仅服务端明确回 DEVICE_REVOKED 才算「已撤销」
+                            // 成功语义；其余 401（如 AUTH_INVALID_TOKEN——撤销未在事实源发生：
+                            // relay 模式打错面/Token 已失效等）绝不伪报成功（旧判断把 httpCode==401
+                            // 一律短路成撤销成功而 ECS 侧零撤销，本机凭据被误清）。
+                            if (err.code != "DEVICE_REVOKED") {
                                 error = "[${err.code}] ${err.message}"
                                 revoking = false
                                 return@launch

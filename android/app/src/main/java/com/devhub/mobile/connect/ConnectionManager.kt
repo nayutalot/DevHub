@@ -31,7 +31,6 @@ import com.devhub.mobile.data.remote.ApiError
 import com.devhub.mobile.data.remote.GatewayApi
 import com.devhub.mobile.data.remote.ProtocolHeadersInterceptor
 import com.devhub.mobile.data.remote.RelayTlsTrust
-import com.devhub.mobile.data.remote.toCertificatePinner
 import com.devhub.mobile.ws.WsFrames
 import com.devhub.mobile.ws.WsServerFrame
 import kotlinx.coroutines.CompletableDeferred
@@ -305,6 +304,8 @@ object ConnectionManager {
         // M3-C3a 修 2（C2 #3）：pin pattern = 具体 host（IP 字面量直接用）。空/非法 host
         // → fail-fast 不构建 relay 通道（信任锚缺失时宁可不连，绝不静默降级明文/通配符——
         // 曾用 `'*'` 令 OkHttp 抛 IllegalArgumentException，重连协程反复构建致进程死循环）。
+        // pattern 现仅作 GatewayApi（pinner-only 面，无自定义 TM）注入与 fail-fast 判定；
+        // WS 客户端 pin-TM 激活时不装 pinner（M3-C6c bug#1，docs/19 §10.2 勘误）。
         val pinPattern = if (pinning != null) TlsPinningConfig.pinPatternFor(endpoint.host) else null
         if (pinning != null && pinPattern == null) {
             _lastWsError.value = "relay TLS 指纹已配置但 endpoint host 为空/非法，无法构造 pin pattern（fail-fast 不注入）"
@@ -326,10 +327,13 @@ object ConnectionManager {
             .apply {
                 if (pinning != null && pinPattern != null) {
                     // 信任锚 = 指纹（自签 IP 证书不受系统信任，docs/19 §10.5 属预期）：
-                    // TrustManager 放行链 + CertificatePinner 强制 SPKI 比对（R-B9 三拒语义）。
+                    // TrustManager 就地裁决 SPKI 比对（R-B9 三拒语义）。M3-C6c bug#1
+                    // （docs/19 §10.2 实现层勘误）：**绝不并装 CertificatePinner**——Android 对
+                    // 自定义 TM 的链清洗 fallback 返回空链，pinner 只对清洁链配 pin → 空链即拒
+                    // （空洞拒连）；信任判定单点 = checkServerTrusted，HostnameVerifier 默认
+                    // （IP SAN）保留第二保险。
                     val (factory, trustManager) = RelayTlsTrust.sslSocketFactory(pinning)
                     sslSocketFactory(factory, trustManager)
-                    certificatePinner(pinning.toCertificatePinner(pinPattern))
                 }
             }
             .build()
