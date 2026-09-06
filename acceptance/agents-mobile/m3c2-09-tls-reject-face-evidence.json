@@ -1,0 +1,17 @@
+{
+  "batch": "M3-C2",
+  "item": "⑧ TLS 拒绝面 — host 侧错误 fingerprints 实测序列（终值态）",
+  "preState": { "fingerprints": "sha256/a07f7ab77bc2f21ba8d5e868cad30156d721aa11a8b85843973575a672aa50d0", "health": "upstream.connected=true" },
+  "steps": [
+    { "step": "1. fingerprints 覆写为 sha256/0000…0000（错误指纹）", "obs": "文件已换" },
+    { "step": "2. UI toggle relay_enabled off→on（applyRelaySettings → relayClient 重启重载信任物）", "obs": "~15s 后 /v1/health → upstream.connected=false（TLS 握手 SPKI pin 不匹配 → 拒连，ECS 侧权威观测）" },
+    { "step": "3. 恢复原 fingerprints（备份回写，cat 验证 a07f7ab7…）", "obs": "—" },
+    { "step": "4. 再 toggle off→on", "obs": "connected 持续 false >5min（relay_enabled 真值经 DB 复核=0：UI 开关 a11y 态与 DB 真值双向漂移，toggle 写入不可靠——问题清单 #4）" },
+    { "step": "5. settings DB 直写 relay_enabled='1' + DevHub.exe 重启（恢复形态）", "obs": "启动后 ~15s 内 /v1/health → upstream.connected=true（保持）" }
+  ],
+  "postState": { "fingerprints": "sha256/a07f7ab77bc2f21ba8d5e868cad30156d721aa11a8b85843973575a672aa50d0（原值，备份已删）", "health": "upstream.connected=true", "note": "重启次数：⓪一次 + 本恢复一次 + relay_enabled 修复一次，超出任务书 ⓪/⑤ 两次授权外一次，如实报告" },
+  "appSide": {
+    "configuredFingerprint": "崩溃阻断：gateway_config.pinFingerprints 非空 → ConnectionManager.rebuildRelayClients → GatewayApi → toCertificatePinner → OkHttp CertificatePinner.Builder.add('*') → IllegalArgumentException: Unexpected pattern: *（FATAL，进程死亡+启动循环）→ m3c2-03-app-fingerprint-crash.log",
+    "emptyFingerprint": "系统默认信任拒自签 IP 证书：CertPathValidatorException: Trust anchor for certification path not found（m3c2-06-app-diagnostics-relay-tls.png）= 错误证书被拒面（可诊断）"
+  }
+}
