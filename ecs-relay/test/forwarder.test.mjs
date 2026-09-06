@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { bootRelay, TestWsClient, sleep, randomHex32, setupWorld, pairDevice, rid } from './helpers.mjs'
+import { bootRelay, TestWsClient, sleep, waitFor, randomHex32, setupWorld, pairDevice, rid, sha256hex } from './helpers.mjs'
 
 // ---- 配对 --------------------------------------------------------------------
 
@@ -456,6 +456,156 @@ test('token_rotation 300s 宽限三态：窗内旧 200 / 窗外 401 / 新恒 200
   assert.equal(actions.includes('token_rotation_grace_admitted'), true, '宽限准入审计')
   assert.equal(actions.includes('token_rotation_grace_expired'), true, '宽限过期拒绝审计（docs/18 §3.14 结果落库）')
   assert.equal(actions.includes('token_rotation_grace_closed'), true, '宽限连接清扫审计')
+})
+
+// ---- C7a 轮换投递两腿（裸 pair 窗冲刷 + 重连补偿，零新帧） -------------------------
+
+/** 手工配对流前半（register_pairing → pair → pair_accepted 到达裸连接；不重连不留窗）。 */
+async function pairAcceptedOnBare(world, { code = 'A3K7M9XY', deviceToken, winDeviceId = 12 } = {}) {
+  world.host.send({ type: 'register_pairing', requestId: rid(), pairingId: 'pair-' + randomHex32(), codeHash: sha256hex(code), expiresAt: Math.floor(Date.now() / 1000) + 300 })
+  const regAck = await world.host.recvFrame()
+  assert.equal(regAck.type, 'register_pairing_ack')
+  const bare = new TestWsClient()
+  await bare.connect(world.port, '/relay/device')
+  await bare.recvFrame() // hello
+  bare.send({ type: 'pair', requestId: rid(), code, deviceName: 'Pixel 8', platform: 'android' })
+  const pairRelayed = await world.host.recvFrame()
+  assert.equal(pairRelayed.type, 'pair')
+  world.host.send({
+    type: 'pair_accepted',
+    requestId: pairRelayed.requestId,
+    ecsDeviceId: pairRelayed.ecsDeviceId,
+    device: { deviceId: winDeviceId, deviceName: 'Pixel 8', platform: 'android', tokenVersion: 1 },
+    deviceToken,
+    gatewayName: 'devhub-gateway',
+  })
+  const accepted = await bare.recvFrame()
+  assert.equal(accepted.type, 'pair_accepted')
+  return { bare, ecsDeviceId: pairRelayed.ecsDeviceId }
+}
+
+test('C7a 修①裸 pair 窗冲刷：pair_accepted 后同窗 token_rotation 经裸 pair 腿关闭前投递（C2d 缺口#10）', async (t) => {
+  const world = await setupWorld(t)
+  const oldToken = `devtok-${randomHex32()}`
+  const { bare } = await pairAcceptedOnBare(world, { deviceToken: oldToken })
+  // C2d 场景：pair_accepted 发出同秒 pairingBridge 轮换（裸连接仍在冲刷窗内）
+  const newToken = `devtok-new-${randomHex32()}`
+  world.host.send({ type: 'token_rotation', requestId: 'rot-flush-1', deviceId: 12, newToken, tokenVersion: 2, reason: 'post-pairing' })
+  const flushed = await bare.recvFrame()
+  assert.equal(flushed.type, 'token_rotation', '轮换帧经裸 pair 腿冲刷投递（修复前静默丢弃）')
+  assert.equal(flushed.newToken, newToken)
+  assert.equal(flushed.tokenVersion, 2)
+  const close = await bare.recvClose()
+  assert.equal(close.code, 1000, '冲刷后裸连接收口（引导新凭据重连）')
+  // 注册表已切换：新凭据可连
+  const withNew = new TestWsClient()
+  await withNew.connect(world.port, '/relay/device', { Authorization: `Bearer ${newToken}` })
+  assert.equal((await withNew.recvFrame()).type, 'hello')
+  withNew.destroy()
+  // 审计可追溯：source=pair-window
+  const { Store } = await import('../src/store.ts')
+  const store = new Store({ path: world.config.dbPath })
+  const row = store.get("SELECT detail_json FROM relay_audit WHERE action = 'token_rotation_flushed' ORDER BY id DESC")
+  store.close()
+  assert.notEqual(row, undefined, '冲刷审计落库')
+  assert.equal(row.detail_json.includes('"source":"pair-window"'), true, '审计记 source=pair-window')
+})
+
+test('C7a 修①时序：pair 窗内无 token_rotation → 窗到期裸连接按原语义关闭（1000）', async (t) => {
+  const world = await setupWorld(t, { RELAY_PAIR_ROTATION_FLUSH_SEC: '1' })
+  const { bare } = await pairAcceptedOnBare(world, { deviceToken: `devtok-${randomHex32()}` })
+  const close = await bare.recvClose(3000)
+  assert.equal(close.code, 1000, '无轮换 → 窗到期关闭（原「配对完成」收口语义）')
+  assert.match(close.reason, /pairing complete/)
+})
+
+test('C7a 修①收口：Bearer 准入即触发 pair 窗收口（不待窗到期残留裸连接）', async (t) => {
+  const world = await setupWorld(t)
+  const deviceToken = `devtok-${randomHex32()}`
+  const { bare } = await pairAcceptedOnBare(world, { deviceToken })
+  const device = new TestWsClient()
+  await device.connect(world.port, '/relay/device', { Authorization: `Bearer ${deviceToken}` })
+  assert.equal((await device.recvFrame()).type, 'hello')
+  const close = await bare.recvClose(3000)
+  assert.equal(close.code, 1000, '设备重连 → pair 腿即退役')
+  device.destroy()
+})
+
+test('C7a 修②重连补偿：漏投轮换 + grace 窗内旧 Token 重连 → admit 后补投当前 token_rotation', async (t) => {
+  const world = await setupWorld(t, { RELAY_ROTATION_GRACE_SEC: '4' })
+  const oldToken = `devtok-old-${randomHex32()}`
+  const { device } = await pairDevice(world, { deviceToken: oldToken })
+  device.destroy()
+  await sleep(100)
+  // 设备离线期间轮换（漏投：无任何已注册连接可投）→ 补偿登记
+  const newToken = `devtok-new-${randomHex32()}`
+  world.host.send({ type: 'token_rotation', requestId: 'rot-comp-1', deviceId: 12, newToken, tokenVersion: 2, reason: 'post-pairing' })
+  await sleep(200)
+  assert.equal(world.handle.forwarder.debugPendingRotationCount(), 1, '漏投登记入补偿表')
+  // grace 窗内旧凭据重连 → hello 后立即补投
+  const graceConn = new TestWsClient()
+  await graceConn.connect(world.port, '/relay/device', { Authorization: `Bearer ${oldToken}` })
+  assert.equal((await graceConn.recvFrame()).type, 'hello')
+  const comp = await graceConn.recvFrame()
+  assert.equal(comp.type, 'token_rotation', 'admit 后补投 token_rotation(当前 token)')
+  assert.equal(comp.newToken, newToken)
+  assert.equal(comp.tokenVersion, 2)
+  // 设备切换新凭据 → 准入正常 + 补偿登记清空（正信号撤销登记）
+  const withNew = new TestWsClient()
+  await withNew.connect(world.port, '/relay/device', { Authorization: `Bearer ${newToken}` })
+  assert.equal((await withNew.recvFrame()).type, 'hello')
+  withNew.destroy()
+  graceConn.destroy()
+  assert.equal(world.handle.forwarder.debugPendingRotationCount(), 0, '新凭据准入清补偿登记')
+  // 审计可追溯：source=compensation
+  const { Store } = await import('../src/store.ts')
+  const store = new Store({ path: world.config.dbPath })
+  const row = store.get("SELECT detail_json FROM relay_audit WHERE action = 'token_rotation_flushed' AND detail_json LIKE '%compensation%' ORDER BY id DESC")
+  store.close()
+  assert.notEqual(row, undefined, '补偿审计落库且记 source=compensation')
+})
+
+test('C7a 修②不误发：在线直投成功的轮换，其后 grace 准入连接不收补偿帧（§11 三态基线保持）', async (t) => {
+  const world = await setupWorld(t, { RELAY_ROTATION_GRACE_SEC: '4' })
+  const oldToken = `devtok-old-${randomHex32()}`
+  const { device } = await pairDevice(world, { deviceToken: oldToken })
+  const newToken = `devtok-new-${randomHex32()}`
+  world.host.send({ type: 'token_rotation', requestId: 'rot-online-1', deviceId: 12, newToken, tokenVersion: 2, reason: 'post-pairing' })
+  const rotation = await device.recvFrame()
+  assert.equal(rotation.type, 'token_rotation', '在线直投（契约路径）')
+  assert.equal(world.handle.forwarder.debugPendingRotationCount(), 0, '直投成功不入补偿表')
+  // 同设备另一连接以旧凭据窗内准入（§11 ②形态）：只收 hello，绝无补偿帧
+  const graceConn = new TestWsClient()
+  await graceConn.connect(world.port, '/relay/device', { Authorization: `Bearer ${oldToken}` })
+  assert.equal((await graceConn.recvFrame()).type, 'hello')
+  await assert.rejects(() => graceConn.recv(600), /recv timeout/, '零补偿误发（否则 §11 断言次序被打破）')
+  graceConn.destroy()
+  device.destroy()
+})
+
+test('C7a 修②红线：grace 窗外旧 Token 仍 401 RELAY_DEVICE_UNKNOWN、补偿绝不越窗（不动摇）', async (t) => {
+  const world = await setupWorld(t, { RELAY_ROTATION_GRACE_SEC: '2' })
+  const oldToken = `devtok-old-${randomHex32()}`
+  const { device } = await pairDevice(world, { deviceToken: oldToken })
+  device.destroy()
+  await sleep(100)
+  const newToken = `devtok-new-${randomHex32()}`
+  world.host.send({ type: 'token_rotation', requestId: 'rot-late-1', deviceId: 12, newToken, tokenVersion: 2, reason: 'post-pairing' })
+  await sleep(200)
+  assert.equal(world.handle.forwarder.debugPendingRotationCount(), 1, '漏投已登记（窗内时点）')
+  // 窗过期后：旧凭据 401（重配对路径），补偿不越窗复活旧凭据
+  await sleep(2200)
+  const rejected = await TestWsClient.readUpgradeRejection(world.port, '/relay/device', { Authorization: `Bearer ${oldToken}` })
+  assert.equal(rejected.statusLine.includes('401'), true, '窗外旧 Token → 401')
+  assert.equal(rejected.body.error.code, 'RELAY_DEVICE_UNKNOWN')
+  // 补偿登记随窗过期清扫（明文帧不越窗存活；grace 2s → sweep 500ms）
+  await waitFor(() => world.handle.forwarder.debugPendingRotationCount() === 0, 2000, 50)
+  assert.equal(world.handle.forwarder.debugPendingRotationCount(), 0, '窗过期 → 补偿登记清扫（明文帧零越窗）')
+  // 新凭据不受影响
+  const withNew = new TestWsClient()
+  await withNew.connect(world.port, '/relay/device', { Authorization: `Bearer ${newToken}` })
+  assert.equal((await withNew.recvFrame()).type, 'hello')
+  withNew.destroy()
 })
 
 test('token_rotation/disconnect deviceId 单一语义：win_device_id 未命中不按行 id 兜底（重叠 id 回归，M3-C3b 修2）', async (t) => {
