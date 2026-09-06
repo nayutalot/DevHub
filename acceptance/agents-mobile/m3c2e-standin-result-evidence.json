@@ -1,0 +1,56 @@
+{
+  "cmd": "await-result",
+  "startedAt": "2026-09-06T22:27:26.478Z",
+  "steps": [
+    {
+      "step": "v2_reconnected",
+      "ok": true,
+      "ts": 1788733646584
+    },
+    {
+      "step": "command_ack_on_result_leg",
+      "ok": true,
+      "ts": 1788733652611,
+      "status": "rejected",
+      "errorCode": "COMMAND_NOT_EXECUTABLE",
+      "ms": 6026
+    }
+  ],
+  "frames": [],
+  "result": {
+    "via": "command_ack",
+    "ack": {
+      "type": "command_ack",
+      "requestId": "c3285137-b883-48c8-8d1a-e7e0f67d4ee3",
+      "idempotencyKey": "668ba691-e27a-4c49-bb8c-78fb79b190e7",
+      "status": "rejected",
+      "errorCode": "COMMAND_NOT_EXECUTABLE"
+    },
+    "ms": 6026
+  },
+  "resultViaAck": true,
+  "framesSeenResult": [
+    {
+      "type": "hello",
+      "sequence": 21706,
+      "deviceId": 9,
+      "heartbeatSec": 30,
+      "relayVersion": "1.0.0",
+      "upstream": "disconnected"
+    },
+    {
+      "type": "heartbeat",
+      "ts": 1788733645,
+      "upstream": "disconnected",
+      "queuedCommands": 1
+    },
+    {
+      "type": "command_ack",
+      "requestId": "c3285137-b883-48c8-8d1a-e7e0f67d4ee3",
+      "idempotencyKey": "668ba691-e27a-4c49-bb8c-78fb79b190e7",
+      "status": "rejected",
+      "errorCode": "COMMAND_NOT_EXECUTABLE"
+    }
+  ],
+  "finishedAt": "2026-09-06T22:27:32.612Z"
+}

@@ -1,0 +1,47 @@
+{
+  "batch": "M3-C2e",
+  "generatedAt": "2026-09-07T06:58:00+08:00",
+  "base": "main=94d7804 (C7a rotation delivery pair-window flush + reconnect compensation; C7b host-leg handlers + rotation grace mirror migration 006 + error return via command_ack + app crash wrap)",
+  "resident": "win-unpacked rebuilt from main 94d7804 (DevHub.exe 05:57 local > da3fd5a 05:41 merge), swapped via C5a method (backup win-unpacked.v4-fe306b9-bak), gateway 200, m3d-watch connected=true (source=ecs-upstream), PRAGMA user_version=6 (migration 006_rotation_grace applied; remote_devices has previous_token_hash + rotated_at)",
+  "apk": "app-debug.apk 05:49 > 94d7804 05:42 (gradle 40 tasks up-to-date, android sources last changed 05:28 < apk); fresh CA-free emulator (system cacerts=145 stock, cacerts-added empty, no snapshot load); pm clear before pairing for pristine app state",
+  "devices": [
+    { "ecsRow": 8, "winId": 46, "kind": "app", "pairedAt": "2026-09-06T22:05:33Z", "endState": "active v2 (token in Keystore; legit paired device)" },
+    { "ecsRow": 9, "winId": 47, "kind": "standin", "pairedAt": "2026-09-06T22:19:05Z", "endState": "revoked both sides via protocol self-revoke (REST DELETE /v1/devices/47 with own token), token files deleted" }
+  ],
+  "rb2": {
+    "appSideListViaHostLeg": "PASS — Agents tab renders real agent list (Codex managed + Claude/Kimi/ZCode/DeepSeek observed, health states); Sessions tab count=200 real rows incl. real session titles via host-leg session_list; C2d RELAY_UPSTREAM_TIMEOUT eliminated (C7b routeFrame agent_list/session_list/message handlers live). Screenshots m3c2e-03, m3c2e-04",
+    "rotationV2ReachesApp": "PASS — C7a pair-window flush leg live: ECS relay_audit id=212 token_rotation_flushed source=\"pair-window\" at 22:05:33Z; App logcat 'pair-leg token rotated → v2 (heartbeat will confirm)' at 22:05:36.791; App local DB device_info token_version=2; ECS token_version=2; second independent proof on standin pair leg (driver pair_window_rotation_flush tokenVersion=2, m3c2e-standin-pair-evidence.json); heartbeat token_rotation_confirmed v2 every 30s in ECS audit ids 214-225"
+  },
+  "rb3": {
+    "aliveOver300s": "PASS — decisive: rotation applied 22:05:33Z + grace 300s = wall at 22:10:33Z; connection_opened 22:05:56Z stayed continuous past the wall (single connection, no close/open pairs in audit); token_rotation_confirmed v2 at 22:10:56 / 22:11:26 / 22:11:56 (post-wall); grace_expired count for device = 0; first continuous leg lasted ~18min (22:05:56→22:24:00 resident restart was tester-initiated for R-B6, not a grace death); deterministic self-destruct chain is BROKEN",
+    "waitingInput": "本轮不可自然触发 — ECS relay_events holds 18 session.waiting_input rows (latest seq 20729 requires_user_action=1, 2026-09-06 08:57) proving the pipeline produces the requiresUserAction=true face; no managed interactive session available this batch (codex CLI not on PATH); prior live notification evidence ac7b-12-notification.png stands"
+  },
+  "rb4": {
+    "restLegit200": "PASS — /v1/agents 200 and /v1/sessions 200 count=100 via ECS→host-leg handlers (C2d 504 RELAY_UPSTREAM_TIMEOUT → 200); evidence m3c2e-standin-restfaces-evidence.json",
+    "restReplaySameNonce": "PASS — 401 AUTH_REPLAYED",
+    "restStaleTs": "PASS — 401 (AUTH_REPLAYED family)",
+    "commandFrameReplay": "未复测（本批未重跑命令帧重放子面；C2d 阻断根因=桌面无 grace 已由 C7b migration 006 镜像消除，桌面 authenticateBearerToken 接受 previous_hash within 300s 已由 :core 单测覆盖 + R-B5 命令面活体证明 post-rotation token 可用）"
+  },
+  "rb5": {
+    "observedCommandGate": "PASS — command frame (pause, observed session 598) → device received command_ack{status:rejected, errorCode:COMMAND_NOT_EXECUTABLE} in 70ms while host online (C7b error-return leg; C2d 90s hang eliminated); evidence m3c2e-standin-command-gate-evidence.json",
+    "managedInference": "未达（诚实标注）— App 启动托管会话 → 启动被拒绝：[RELAY_REST_READONLY] this action must go through the WS command face（App spawn 走 REST 数据面，relay 下只读；截图 m3c2e-06）；codex CLI 不在本机 PATH，无现存 managed 会话可 send_message；真实推理回流需后续批把 spawn 接到 WS command 面"
+  },
+  "rb6": {
+    "hostOfflineQueue": "PASS (closed loop) — kill resident (upstream.connected=false) → command → command_ack{accepted, queued:true} → resident restart → command_relayed queuedDelivery:1 → host rejected (observed) → device leg (connected BEFORE host recovery) received command_ack{rejected, COMMAND_NOT_EXECUTABLE} 6.0s after reconnect; ECS audit ids 281/287/288; evidence m3c2e-standin-queued-evidence.json + m3c2e-standin-result-evidence.json — C2d truncation (error never returned to device) closed by C7b",
+    "appOffCatchup": "FAIL（新缺陷如实上报）— fixture events 21710-21712 injected into desktop agent_events while resident stopped (C7b fixture precedent, SQL-bound, marked synthetic) → resident restart uplink backfill pushed all 3 to ECS relay_events (verified rows) → BUT App resync never pulls them: App logcat 'relay hello seq=21712, upstream=connected, sync after=0' then NO sync_request is ever sent because ConnectionManager.sendRelaySyncRequest() early-returns on after<=0 (『尚无已处理事件：不发』) → cursor stuck at 0, held queue grows (21713-21722 held=10 and 870+ held earlier in batch), event_ack_state never persisted, ack watermark never advances on fresh install; deterministic bootstrap deadlock: gapFill only triggers from sync_response.hasGaps which requires a sync_request which requires cursor>0. Live notifications/UI still work (REST refresh + notification mapping runs regardless of cursor). FIX DIRECTION (for a fix batch, zero code committed here): bootstrap cursor from hello.sequence when restored cursor<=0 (e.g. treat first hello as gapFill(helloSequence) or allow the initial sync_request with after=helloSequence-suppressed semantics) — needs docs/18 §3.11/§6.3 contract review"
+  },
+  "rb8": {
+    "mainChain": "标注（工作站锁屏，LogonUI.exe 运行中）— 桌面 UI revoke 主链按任务书援引 #9 待用户裁决；锁屏下 UI/UIA 通道不可用（C2c/C2d 同款）",
+    "protocolEquivalentLive": "PASS — 经本地回环 REST 自撤销协议通道（loopback-only 允许；DELETE /v1/devices/47 with own token → {revoked:true} 200）: desktop remote_devices #47 status=revoked (security_audit_logs device_revoked via=\"rest-self\" 22:53:44Z) → ECS relay_devices id=9 win47 synced status=revoked 22:53:43Z (registry propagation live) → reconnect probe with revoked token: HTTP 401 Unauthorized error code=DEVICE_REVOKED (new semantics, m3c2e-standin-revoke-reconnect-evidence.json) — R-B8 的撤销/注册表同步/再连 401 三面均有活体等价证据，唯 UI 发起面留 #9",
+    "reconnectAfterRevoke401": "PASS — 见上 (401 DEVICE_REVOKED)"
+  },
+  "rb9TlsRejectFaces": "未复测（C2d 全套 PASS：正确指纹 200/错误指纹 SSLHandshakeException 结构化拒/host 错指纹 C2c 证据/过期证书 selfcheck 日历项）；本批正确证书+正确指纹握手持续成立（全部 WS/REST 流量即活体，m3d-watch cert.pinOk=true 余 88.9 天）",
+  "zeroOrphan": "PASS — 本轮配对 2 设备：46 active v2（App Keystore 持有，合法在役设备）、47 revoked 双侧+审计（v2 明文已删）；ECS active 计数=1。桌面 remote_devices 存量 active 行（#2-7/10-37/44/45，先前批次遗留）非本批产物，清理需桌面通道（锁屏），留主控处置",
+  "newFindings": [
+    "App sync bootstrap deadlock（高优先级，阻断 R-B6 app-off catchup 断言）：sendRelaySyncRequest 对 after<=0 抑制 + gapFill 仅由 hasGaps sync_response 触发 → fresh install 游标永 0、补发永不启动、held 队列只增不减、ack 水位永不动；建议修向：cursor<=0 时以 hello.sequence 为 gapFill 引导（或放开首帧 sync_request），须过 docs/18 §3.11/§6.3 契约修订",
+    "App managed 会话 spawn 走 REST 面被 RELAY_REST_READONLY 拒（错误语义诚实、零伪报）；spawn 应接 WS command face（当前 §5.1 仅 send_message/approve/pause/resume/interrupt，spawn 动作本身可能需契约增补，与 #9 关联）",
+    "App 设备 tab GET /v1/devices NOT_FOUND（relay 数据面无设备路由，同 #9 范畴；结构化展示不崩，维持 C2d 结论）",
+    "App 诊断页 桌面端诊断 /v1/diagnostics NOT_FOUND（同上，G5 范围外，结构化展示）"
+  ],
+  "credentialHygiene": "配对码/token 全程零入截图/零入汇报/零入仓（截图均在配对完成后拍摄）；standin token 仅内存+%TEMP% mode600，测试后删除；驱动证据 JSON 全部经脱敏（deviceToken/newToken/auth.token → 长度占位）；ECS 零写（全程只读 SELECT）"
+}

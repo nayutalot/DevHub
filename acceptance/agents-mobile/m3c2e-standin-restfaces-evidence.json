@@ -1,0 +1,89 @@
+{
+  "cmd": "rest-faces",
+  "startedAt": "2026-09-06T22:19:16.635Z",
+  "steps": [
+    {
+      "step": "rest_legit_agents",
+      "ok": true,
+      "ts": 1788733156768,
+      "status": 200,
+      "code": null,
+      "count": null
+    },
+    {
+      "step": "rest_replay_same_nonce",
+      "ok": true,
+      "ts": 1788733157183,
+      "status": 401,
+      "code": "AUTH_REPLAYED"
+    },
+    {
+      "step": "rest_stale_ts",
+      "ok": true,
+      "ts": 1788733157280,
+      "status": 401,
+      "code": "AUTH_REPLAYED"
+    },
+    {
+      "step": "rest_legit_sessions",
+      "ok": true,
+      "ts": 1788733157451,
+      "status": 200,
+      "code": null,
+      "count": 100
+    }
+  ],
+  "frames": [],
+  "faces": {
+    "legitAgents": {
+      "status": 200,
+      "code": null
+    },
+    "replay": {
+      "status": 401,
+      "code": "AUTH_REPLAYED"
+    },
+    "stale": {
+      "status": 401,
+      "code": "AUTH_REPLAYED"
+    },
+    "legitSessions": {
+      "status": 200,
+      "code": null,
+      "count": 100
+    }
+  },
+  "sessionSample": [
+    {
+      "id": 598,
+      "agent": null,
+      "mode": null,
+      "status": "unknown"
+    },
+    {
+      "id": 590,
+      "agent": null,
+      "mode": null,
+      "status": "completed"
+    },
+    {
+      "id": 580,
+      "agent": null,
+      "mode": null,
+      "status": "completed"
+    },
+    {
+      "id": 577,
+      "agent": null,
+      "mode": null,
+      "status": "completed"
+    },
+    {
+      "id": 576,
+      "agent": null,
+      "mode": null,
+      "status": "completed"
+    }
+  ],
+  "finishedAt": "2026-09-06T22:19:17.451Z"
+}

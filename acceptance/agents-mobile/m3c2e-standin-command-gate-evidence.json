@@ -1,0 +1,37 @@
+{
+  "cmd": "command-gate",
+  "startedAt": "2026-09-06T22:20:01.509Z",
+  "steps": [
+    {
+      "step": "command_ack",
+      "ok": true,
+      "ts": 1788733201689,
+      "status": "rejected",
+      "errorCode": "COMMAND_NOT_EXECUTABLE",
+      "ms": 70
+    }
+  ],
+  "frames": [
+    {
+      "sent": "command",
+      "sessionId": 598,
+      "action": "pause"
+    }
+  ],
+  "ack": {
+    "status": "rejected",
+    "errorCode": "COMMAND_NOT_EXECUTABLE",
+    "ms": 70
+  },
+  "gateRejected": true,
+  "framesSeenGate": [
+    {
+      "type": "command_ack",
+      "requestId": "749b37aa-2d67-47c1-b2ce-f3782ec569ca",
+      "idempotencyKey": "08326bcd-e6a6-433a-a762-61f64f7a940c",
+      "status": "rejected",
+      "errorCode": "COMMAND_NOT_EXECUTABLE"
+    }
+  ],
+  "finishedAt": "2026-09-06T22:20:01.689Z"
+}

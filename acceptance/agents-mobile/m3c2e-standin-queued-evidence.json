@@ -1,0 +1,37 @@
+{
+  "cmd": "command-queued",
+  "startedAt": "2026-09-06T22:27:21.721Z",
+  "steps": [
+    {
+      "step": "command_ack_queued",
+      "ok": true,
+      "ts": 1788733641894,
+      "status": "accepted",
+      "queued": true,
+      "errorCode": null
+    }
+  ],
+  "frames": [
+    {
+      "sent": "command",
+      "idempotencyKey": "668ba691-e27a-4c49-bb8c-78fb79b190e7",
+      "sessionId": 598
+    }
+  ],
+  "idempotencyKey": "668ba691-e27a-4c49-bb8c-78fb79b190e7",
+  "ack": {
+    "status": "accepted",
+    "queued": true,
+    "errorCode": null
+  },
+  "framesSeenQueued": [
+    {
+      "type": "command_ack",
+      "requestId": "c3285137-b883-48c8-8d1a-e7e0f67d4ee3",
+      "idempotencyKey": "668ba691-e27a-4c49-bb8c-78fb79b190e7",
+      "status": "accepted",
+      "queued": true
+    }
+  ],
+  "finishedAt": "2026-09-06T22:27:21.894Z"
+}
