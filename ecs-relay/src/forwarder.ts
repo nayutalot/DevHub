@@ -604,6 +604,15 @@ export class Forwarder {
     }
   }
 
+  /** host 腿活性触点：heartbeat 帧刷新 relay_hosts.last_seen_at（对齐 touchDevice 写路径，SQL 绑定）。 */
+  private touchHost(hostId: number): void {
+    try {
+      this.store.run('UPDATE relay_hosts SET last_seen_at = ? WHERE id = ?', Math.floor(Date.now() / 1000), hostId)
+    } catch {
+      /* last_seen 更新失败不影响连接面（touchDevice 同款） */
+    }
+  }
+
   /** 缓存行 → E→D event 帧（docs/18 §3.6 全形态；payload 已淘汰的行不进补发页）。 */
   private cachedRowToEventFrame(row: {
     sequence: number
@@ -697,6 +706,8 @@ export class Forwarder {
         // host 腿对齐探测（host 不消费事件，恒空页，docs/18 §3.12）——记录水位即可
         return
       case 'heartbeat':
+        // host 心跳刷新 last_seen（C6b 修：此前仅 admit 写入 → last_seen 龄虚高误导排障）
+        if (conn.hostId !== undefined) this.touchHost(conn.hostId)
         conn.sendFrame({ type: 'heartbeat', ts: Math.floor(Date.now() / 1000), lastAckedSeq: this.globalAckedThrough() })
         return
       case 'token_rotation':

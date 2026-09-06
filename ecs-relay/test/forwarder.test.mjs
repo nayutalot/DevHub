@@ -339,6 +339,51 @@ test('device heartbeat 降级信标：host 断开 → upstream:disconnected', as
   assert.equal(hb.upstream, 'disconnected', '降级信标（docs/18 §3.13）')
 })
 
+// ---- host heartbeat 活性触点（C6b 修：relay_hosts.last_seen_at 心跳刷新） --------
+
+/** 独立连接读 relay_hosts.last_seen_at（WAL 只读快照；与既有测试读库惯例同款）。 */
+async function readHostLastSeen(world) {
+  const { Store } = await import('../src/store.ts')
+  const store = new Store({ path: world.config.dbPath })
+  const row = store.get('SELECT last_seen_at FROM relay_hosts WHERE id = ?', world.hostId)
+  store.close()
+  return row?.last_seen_at
+}
+
+/** 独立连接把 last_seen_at 回拨 1h（模拟陈旧值，规避同秒相等闪断的确定性手法）。 */
+async function backdateHostLastSeen(world) {
+  const { Store } = await import('../src/store.ts')
+  const store = new Store({ path: world.config.dbPath })
+  const stale = Math.floor(Date.now() / 1000) - 3600
+  store.run('UPDATE relay_hosts SET last_seen_at = ? WHERE id = ?', stale, world.hostId)
+  store.close()
+  return stale
+}
+
+test('host heartbeat 刷新 relay_hosts.last_seen_at（C6b 修：admit 后心跳帧即活性触点）', async (t) => {
+  const world = await setupWorld(t)
+  const stale = await backdateHostLastSeen(world)
+  world.host.send({ type: 'heartbeat', ts: 1 })
+  assert.equal((await world.host.recvFrame()).type, 'heartbeat')
+  const after = await readHostLastSeen(world)
+  assert.ok(after !== undefined && after > stale, `心跳刷新 last_seen：${stale} → ${after}（修复前滞留 admit 值）`)
+  assert.ok(after >= Math.floor(Date.now() / 1000) - 5, '刷新值 ≈ now（非陈旧残留）')
+})
+
+test('host heartbeat 第二帧也刷新 last_seen_at（每帧心跳均触点，非仅首帧生效）', async (t) => {
+  const world = await setupWorld(t)
+  // 第一帧心跳（admit 后首帧）正常往返
+  world.host.send({ type: 'heartbeat', ts: 1 })
+  assert.equal((await world.host.recvFrame()).type, 'heartbeat')
+  // 回拨后第二帧必须同样刷新——排除「仅第一帧/仅 admit 生效」回归形态
+  const stale = await backdateHostLastSeen(world)
+  world.host.send({ type: 'heartbeat', ts: 2 })
+  assert.equal((await world.host.recvFrame()).type, 'heartbeat')
+  const after = await readHostLastSeen(world)
+  assert.ok(after !== undefined && after > stale, `第二帧心跳同样刷新：${stale} → ${after}`)
+  assert.ok(after >= Math.floor(Date.now() / 1000) - 5, '刷新值 ≈ now')
+})
+
 // ---- 轮换与撤销 -----------------------------------------------------------------
 
 test('token_rotation：注册表 hash 同步 + E→D 转发；宽限窗内新旧 Token 均 200（docs/18 §3.14/§9.4）', async (t) => {
