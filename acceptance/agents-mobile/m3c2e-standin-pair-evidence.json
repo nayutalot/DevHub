@@ -1,0 +1,53 @@
+{
+  "cmd": "pair",
+  "startedAt": "2026-09-06T22:19:07.747Z",
+  "steps": [
+    {
+      "step": "bare_ws_101",
+      "ok": true,
+      "ts": 1788733147847
+    },
+    {
+      "step": "pair_accepted",
+      "ok": true,
+      "ts": 1788733147918,
+      "deviceId": 47,
+      "tokenVersion": 1,
+      "ms": 71
+    },
+    {
+      "step": "pair_window_rotation_flush",
+      "ok": true,
+      "ts": 1788733147923,
+      "tokenVersion": 2
+    },
+    {
+      "step": "hello",
+      "ok": true,
+      "ts": 1788733148017,
+      "sequence": 21683,
+      "upstream": "connected"
+    }
+  ],
+  "frames": [],
+  "pairAccepted": {
+    "deviceId": 47,
+    "tokenVersion": 1
+  },
+  "rotationLeg": "pair-window",
+  "hello": {
+    "sequence": 21683,
+    "upstream": "connected"
+  },
+  "framesSeenPair": [
+    {
+      "type": "hello",
+      "sequence": 21683,
+      "deviceId": 9,
+      "heartbeatSec": 30,
+      "relayVersion": "1.0.0",
+      "upstream": "connected"
+    }
+  ],
+  "finishedAt": "2026-09-06T22:19:08.017Z"
+}
