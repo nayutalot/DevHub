@@ -21,7 +21,7 @@
 
 import { randomBytes, randomUUID } from 'node:crypto'
 import { request as httpRequestFn, type ClientRequestArgs } from 'node:http'
-import { request as httpsRequestFn, type RequestOptions as HttpsRequestOptions } from 'node:https'
+import { Agent as httpsAgentCtor, request as httpsRequestFn, type RequestOptions as HttpsRequestOptions } from 'node:https'
 import type { Duplex } from 'node:stream'
 
 // ---------------------------------------------------------------------------
@@ -520,6 +520,13 @@ export function openRelayConnection(
         if (options.tls?.ca !== undefined) tlsOptions.ca = options.tls.ca
         if (options.tls?.checkServerIdentity !== undefined) {
           tlsOptions.checkServerIdentity = options.tls.checkServerIdentity
+        }
+        // TLS 会话缓存必须关（M3-C1b 实测：node https.Agent 默认缓存 TLS 会话并自动
+        // 复用，复用握手上 checkServerIdentity 整个被跳过——重连若命中缓存会话，
+        // 指纹/默认规则双保险全部失效（docs/19 §10「每次握手」语义）。maxCachedSessions:0
+        // 强制每次握手全新校验；requestOptions.agent 显式传入时不覆盖（测试缝保留）。
+        if (tlsOptions.agent === undefined) {
+          tlsOptions.agent = new httpsAgentCtor({ keepAlive: false, maxCachedSessions: 0 })
         }
         request = httpsRequestFn(tlsOptions)
       } else {
