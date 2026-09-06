@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,6 +31,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.devhub.mobile.connect.ConnectionManager
 import com.devhub.mobile.core.ProviderPalette
 import com.devhub.mobile.core.SessionListOps
 import com.devhub.mobile.data.ApiProvider
@@ -63,7 +65,9 @@ fun ChildSessionsScreen(
     var children by remember { mutableStateOf<List<SessionDto>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(parentSessionId) {
+    // R5.3：事件驱动为主 + 120s 低频兜底（原 3s 轮询退役）
+    val refreshSignal by ConnectionManager.refreshSignal.collectAsState()
+    LaunchedEffect(parentSessionId, refreshSignal) {
         while (isActive) {
             try {
                 val detail = withContext(Dispatchers.IO) {
@@ -76,7 +80,7 @@ fun ChildSessionsScreen(
             } catch (err: IOException) {
                 error = "网络不可达"
             }
-            delay(3000)
+            delay(ConnectionManager.FALLBACK_POLL_MS)
         }
     }
 

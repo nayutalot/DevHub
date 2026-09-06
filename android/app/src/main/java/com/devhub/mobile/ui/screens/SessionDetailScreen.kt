@@ -147,7 +147,8 @@ fun SessionDetailScreen(
         }
     }
 
-    // —— 首屏（R10 尾部取数）+ 详情/增量轮询（3s，现状节奏）——
+    // —— 首屏（R10 尾部取数；仅 sessionId 变化执行一次）——
+    val refreshSignal by ConnectionManager.refreshSignal.collectAsState() // R5.3 事件驱动刷新信号
     LaunchedEffect(sessionId) {
         runCatching {
             val page = withContext(Dispatchers.IO) {
@@ -156,6 +157,11 @@ fun SessionDetailScreen(
             insertPage(page)
             prevAfter = page.prevAfter
         }
+    }
+
+    // —— 详情/增量回流——R5.3：事件驱动为主（refreshSignal 变化即重启立即拉取）+
+    // 120s 低频兜底（原 3s 轮询退役，仅连接健康与补偿）。
+    LaunchedEffect(sessionId, refreshSignal) {
         while (isActive) {
             try {
                 detail = withContext(Dispatchers.IO) { ApiProvider.projection(context).sessionDetail(sessionId) }
@@ -184,7 +190,7 @@ fun SessionDetailScreen(
                     if (prevAfter == null) prevAfter = page.prevAfter
                 }
             }
-            delay(3000)
+            delay(ConnectionManager.FALLBACK_POLL_MS)
         }
     }
 

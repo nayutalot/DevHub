@@ -107,6 +107,12 @@ object ConnectionManager {
     /** command 帧等 command_ack 超时（docs/18 §3.0 #8：10s）。 */
     private const val COMMAND_ACK_TIMEOUT_MS = 10_000L
 
+    /** R5.3 事件驱动刷新信号的节流窗（事件风暴 → 至多每 500ms 一次 UI 拉取触发）。 */
+    private const val REFRESH_BUMP_THROTTLE_MS = 500L
+
+    /** R5.3 事件驱动为主后，轮询兜底周期（仅连接健康与补偿；原 2s/3s 全部退役）。 */
+    const val FALLBACK_POLL_MS = 120_000L
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var loopJob: Job? = null
     private var appContext: Context? = null
@@ -145,6 +151,24 @@ object ConnectionManager {
     /** 最近一次断线/失败原因（诊断页投影；写入日志前经 LogRedactor 护栏）。 */
     private val _lastWsError = MutableStateFlow<String?>(null)
     val lastWsError: StateFlow<String?> = _lastWsError
+
+    /**
+     * R5.3 事件驱动刷新信号（M3-C3a 修 3）：WS 收帧（event / sync_response / 命令回执 /
+     * hello 重连补偿）即自增；UI 各列表页收集该信号触发**立即**拉取（会话/事件/设备投影），
+     * 原轮询降为 120s 低频兜底（仅连接健康与补偿）。500ms 节流：事件风暴不放大为 REST 风暴。
+     */
+    private val _refreshSignal = MutableStateFlow(0L)
+    val refreshSignal: StateFlow<Long> = _refreshSignal
+
+    @Volatile
+    private var lastRefreshBumpMs = 0L
+
+    private fun bumpRefreshSignal() {
+        val now = System.currentTimeMillis()
+        if (now - lastRefreshBumpMs < REFRESH_BUMP_THROTTLE_MS) return
+        lastRefreshBumpMs = now
+        _refreshSignal.value = now
+    }
 
     private var webSocket: WebSocket? = null
     private var helloSequence = 0L
@@ -524,6 +548,7 @@ object ConnectionManager {
                 val after = lastAckedSeq
                 Log.i(TAG, "ws hello seq=${frame.sequence}, sync after=$after")
                 webSocket?.send(WsFrames.sync(after))
+                bumpRefreshSignal() // R5.3：重连补偿——断线期遗漏的投影变化立即回补
             }
 
             is WsServerFrame.Event -> handleEvent(frame)
@@ -562,6 +587,7 @@ object ConnectionManager {
                 sendRelaySyncRequest()
                 startRelayHeartbeat()
                 if (frame.upstream != "disconnected") scheduleRelayFlush()
+                bumpRefreshSignal() // R5.3：重连补偿
             }
 
             is RelayFrame.Event -> handleRelayEvent(frame)
@@ -574,6 +600,7 @@ object ConnectionManager {
                     if (relayCursor.gapFill(frame.upTo)) persistRelayCursor()
                     scheduleRelayAck()
                 }
+                bumpRefreshSignal() // R5.3：补发页即投影变化信号
             }
 
             is RelayFrame.Heartbeat -> {
@@ -616,6 +643,7 @@ object ConnectionManager {
     /** relay 事件帧 → 通知/缓存推进（与 local 同映射面；requiresUserAction 白名单布尔直通分叉）。 */
     private fun handleRelayEvent(frame: RelayFrame.Event) {
         _lastEventAtMs.value = System.currentTimeMillis()
+        bumpRefreshSignal() // R5.3：事件即刷新信号（UI 立即拉取，轮询只作 120s 兜底）
         // 累计游标（docs/18 §3.11/§6.2）：仅接续前进；空洞挂起（held），重复/旧序绝不回退
         if (relayCursor.observe(frame.sequence)) {
             scheduleRelayAck()
@@ -752,6 +780,7 @@ object ConnectionManager {
 
     /** command_ack 落账：挂起请求结算；无挂起请求的迟到 ack 按 ACCEPTED 兜底清理队列行。 */
     private fun settleCommandAck(ack: RelayFrame.CommandAck) {
+        bumpRefreshSignal() // R5.3：命令回执亦为刷新信号（brief 明列）
         val deferred = pendingAcks.remove(ack.idempotencyKey)
         if (deferred != null) {
             deferred.complete(ack)
@@ -772,6 +801,7 @@ object ConnectionManager {
     /** command_result 终态（docs/18 §3.10 双通道去重：按 commandId 先到为准）。 */
     private fun settleCommandResult(frame: RelayFrame.CommandResult) {
         if (relaySeenResults.seenAndRecord(frame.commandId)) return
+        bumpRefreshSignal() // R5.3：命令回执亦为刷新信号（brief 明列）
         frame.idempotencyKey?.let { key ->
             scope.launch(Dispatchers.IO) {
                 runCatching {
@@ -789,6 +819,7 @@ object ConnectionManager {
 
     private fun handleEvent(frame: WsServerFrame.Event) {
         _lastEventAtMs.value = System.currentTimeMillis()
+        bumpRefreshSignal() // R5.3：事件即刷新信号（UI 立即拉取，轮询只作 120s 兜底）
         bufferAck(frame.seq)
 
         // 事件 → 通知映射（waiting_input 两值 / status_changed 终态；summary 脱敏直显）

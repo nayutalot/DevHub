@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -62,7 +63,9 @@ fun DeviceScreen() {
     var confirmingRevoke by remember { mutableStateOf(false) }
     var revoking by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
+    // R5.3：事件驱动为主（refreshSignal 变化即立即拉取服务端状态）+ 120s 低频兜底（原 3s 退役）
+    val refreshSignal by ConnectionManager.refreshSignal.collectAsState()
+    LaunchedEffect(refreshSignal) {
         own = withContext(Dispatchers.IO) { db.deviceDao().get() }
         val ownId = own?.deviceId ?: SecureStore.loadDeviceId(context)
         while (ownId != null && isActive) {
@@ -76,7 +79,7 @@ fun DeviceScreen() {
             } catch (err: IOException) {
                 error = "网络不可达（显示本地身份）"
             }
-            delay(3000)
+            delay(ConnectionManager.FALLBACK_POLL_MS)
         }
     }
 

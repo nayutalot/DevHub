@@ -22,6 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.devhub.mobile.core.IdempotencyKeys
 import com.devhub.mobile.core.InteractionHonesty
+import com.devhub.mobile.connect.ConnectionManager
 import com.devhub.mobile.data.ApiProvider
 import com.devhub.mobile.data.FixtureMode
 import com.devhub.mobile.data.remote.AgentDto
@@ -71,7 +73,9 @@ fun AgentsScreen(onOpenSession: (Long) -> Unit = {}) {
     var error by remember { mutableStateOf<String?>(null) }
     val fixtureOn = remember { FixtureMode.enabled(context) }
 
-    LaunchedEffect(Unit) {
+    // R5.3：事件驱动为主（refreshSignal 变化即立即拉取）+ 120s 低频兜底（原 2s 轮询退役）
+    val refreshSignal by ConnectionManager.refreshSignal.collectAsState()
+    LaunchedEffect(refreshSignal) {
         while (isActive) {
             try {
                 agents = withContext(Dispatchers.IO) { ApiProvider.rest(context).agents() }
@@ -81,7 +85,7 @@ fun AgentsScreen(onOpenSession: (Long) -> Unit = {}) {
             } catch (err: IOException) {
                 error = "网络不可达"
             }
-            delay(2000)
+            delay(ConnectionManager.FALLBACK_POLL_MS)
         }
     }
 

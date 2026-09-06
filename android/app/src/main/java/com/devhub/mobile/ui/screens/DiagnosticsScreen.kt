@@ -46,6 +46,8 @@ fun DiagnosticsScreen() {
     var diag by remember { mutableStateOf<DiagnosticsDto?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
 
+    // R5.3：本页属「连接健康」面 → REST 探测保留 120s 低频节奏（WS 状态/最近事件/错误
+    // 已由 ConnectionManager StateFlow 实时驱动，本 effect 只补桌面诊断投影）。
     LaunchedEffect(Unit) {
         while (isActive) {
             try {
@@ -56,7 +58,7 @@ fun DiagnosticsScreen() {
             } catch (err: IOException) {
                 error = "网络不可达"
             }
-            delay(3000)
+            delay(ConnectionManager.FALLBACK_POLL_MS)
         }
     }
 

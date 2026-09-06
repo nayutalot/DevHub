@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.devhub.mobile.core.ProviderPalette
 import com.devhub.mobile.core.SessionListOps
+import com.devhub.mobile.connect.ConnectionManager
 import com.devhub.mobile.data.ApiProvider
 import com.devhub.mobile.data.FixtureMode
 import com.devhub.mobile.data.db.DevHubDb
@@ -88,18 +89,20 @@ fun SessionsScreen(onOpenSession: (Long) -> Unit) {
     var menuFor by remember { mutableStateOf<SessionCacheEntity?>(null) }
     var confirmDelete by remember { mutableStateOf<SessionCacheEntity?>(null) }
 
-    // provider 名录轮询（R4 过滤 chips 数据源；15s 节奏即可）
-    LaunchedEffect(fixtureOn) {
+    // provider 名录（R4 过滤 chips 数据源）——R5.3：事件驱动为主 + 120s 兜底（原 15s 轮询退役）
+    val refreshSignal by ConnectionManager.refreshSignal.collectAsState()
+    LaunchedEffect(fixtureOn, refreshSignal) {
         while (isActive) {
             runCatching { withContext(Dispatchers.IO) { ApiProvider.projection(context).agents() } }
                 .onSuccess { agents = it }
-            delay(15000)
+            delay(ConnectionManager.FALLBACK_POLL_MS)
         }
     }
 
-    // 会话轮询（2s）→ Room 缓存；includeArchived 切换即重启轮询（R3 契约参数）
-    LaunchedEffect(fixtureOn, showArchived, refreshTick) {
-        var tick = 0
+    // 会话投影 → Room 缓存——R5.3：事件驱动为主（refreshSignal 变化即重启本 effect 立即拉取，
+    // WS 事件→UI 延迟从「轮询周期 2s 上限」降到亚秒级）；120s 低频兜底仅连接健康与补偿
+    // （includeArchived 切换/操作后 refreshTick 重启语义保持，R3 契约参数）
+    LaunchedEffect(fixtureOn, showArchived, refreshTick, refreshSignal) {
         while (isActive) {
             try {
                 val sessions = withContext(Dispatchers.IO) {
@@ -138,8 +141,7 @@ fun SessionsScreen(onOpenSession: (Long) -> Unit) {
                 error = "网络不可达（离线显示缓存）"
             }
             loading = false
-            tick += 1
-            delay(2000)
+            delay(ConnectionManager.FALLBACK_POLL_MS)
         }
     }
 
