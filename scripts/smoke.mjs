@@ -10989,5 +10989,52 @@ if (isEntrypoint()) {
     }
   })
 
+  // 167. M3-C6a：REST POST /v1/pairing/create 统一走 L3 签发缝（agentControlService.createPairing，
+  //      与 IPC agents:pairingCreate 同源）——回环 REST 签发即触发 notifyPairingIssued →
+  //      pairingBridge register_pairing（码现场 sha256 上帧，明文绝不上线/落审计），
+  //      响应契约（201 {pairingId, code, expiresAt}）与回环/防重放/TTL/审计面零变化。
+  //      C2b 实证缺口回归面：C2b 批 5 次实测 REST 签发 pairing_codes 停在 Windows 侧、
+  //      无 pairing_code_registered（httpServer 直调 gateway/pairing 绕过 L3）。
+  registerCase('nb-c6a-167: REST pairing/create rides the L3 issuance seam — loopback create syncs register_pairing onto the relay (code hashed on-site, plaintext never framed), response contract unchanged (201 {pairingId, 8-char Crockford code, expiresAt ~ now+300}), pairing_code_created audit intact', async () => {
+    const m = await r1CaseSetup('devhub-nb-c6a-167-')
+    const gw = await import(new URL('../src/main/services/agentControl/gateway/httpServer.ts', import.meta.url).href)
+    const db = m.dbModule.getDatabase()
+    const stub = await r1StartRelayStub()
+    try {
+      const relayCred = `nb-c6a-RELAY-CRED-${randomBytes(12).toString('hex')}`
+      r1EnableRelay(m, stub, relayCred)
+      m.relay.configureRelayClientRuntime({ helloTimeoutMs: 3000, baseDelayMs: 50, maxDelayMs: 200 })
+      m.relay.startRelayClient()
+      await r1HelloNewConnection(stub)
+      await pollUntil(() => m.relay.getRelayClientDiagnostics().status === 'ready', 5000, 30, 'relay ready')
+      const started = await gw.startGateway()
+      assert.equal(started.running, true, 'gateway listening for the REST create')
+      assert.equal(started.actualPort, 8746, 'gateway on default port')
+
+      // 回环 REST 签发（与 ac6-122 pairingCreateHttp 同形：防重放头必带）
+      const r = await gwRequest(8746, 'POST', '/v1/pairing/create', { body: { deviceName: 'nb-c6a-phone' }, headers: replayHeaders() })
+      assert.equal(r.status, 201, `pairing/create -> 201, got ${r.status} ${r.raw}`)
+      // 响应契约不变：{pairingId, 8 位 Crockford 码, expiresAt ≈ now+300}
+      assert.match(r.json.pairingId, /^pair-/, 'pairingId shape unchanged')
+      assert.match(r.json.code, /^[0-9A-HJ-NP-TV-Z]{8}$/, '8-char Crockford code unchanged')
+      assert.ok(Math.abs(r.json.expiresAt - (Math.floor(Date.now() / 1000) + 300)) <= 5, 'TTL 300s unchanged')
+
+      // L3 签发同步被调：relay 桩收到 register_pairing（pairingId 对齐 + 码现场哈希 + TTL 透传）
+      const reg = await r1StubWait(stub, (f) => f.json?.type === 'register_pairing' && f.json.pairingId === r.json.pairingId, 3000, 'register_pairing')
+      assert.equal(reg.json.codeHash, m.auth.sha256Hex(r.json.code), 'code hashed on-site (sha256), plaintext never framed')
+      assert.equal(reg.json.expiresAt, r.json.expiresAt, 'expiresAt carried to the ECS sync frame')
+
+      // 审计路径完好：pairing_code_created 落库且零码明文（docs/15 §2）
+      const audit = db.prepare("SELECT detail_json FROM security_audit_logs WHERE category='pairing' AND action='pairing_code_created' ORDER BY id DESC LIMIT 1").get()
+      assert.ok(audit, 'pairing_code_created audited')
+      assert.ok(!audit.detail_json.includes(r.json.code), 'audit carries no code plaintext')
+    } finally {
+      await gw.resetGatewayInMemoryState()
+      m.relay.resetRelayClientForSmoke()
+      await r1StubClose(stub)
+      await r1CaseTeardown(m)
+    }
+  })
+
   await run(parseTierArg())
 }
