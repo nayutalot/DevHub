@@ -1,58 +1,54 @@
-# DevHub 会话交接文档（2026-09-06 晨，M3-A 收官·M3-B 就绪·等 S1）
+# DevHub 会话交接文档（2026-09-06 晚，M3-C 中段·C2b 待跑·门禁两红待定位）
 
-> 交接范围：项目重建 → Phase 1 → MCP → 并库 S1-S6 → AC0-AC9 → ECS+frp → UX R1-R11 → 夜间迭代 → IP TLS 裁决 → M2 三批收官 → **M3-A 部署+验收线③闭环（本会话）+ M3-B 服务端就绪 + P0a/P0b 落地 + dist 重打包**。新会话按本文档续接。
+> 交接范围：……（前史见 git log/docs）→ M2 收官 → M3-A/B 部署+验收线③闭环 → C1 整链点亮（host 腿公网 17min+ 零断连）→ C2 联调（协议腿全绿/实证 App 三缺口）→ C3a/C3b 修复已合 main。**新会话从 §5 未决项续接。**
+
+## 0. 新会话开工须知（用户令：严格约束工作流）
+
+- **主控只 plan/review/merge + 只读核验；一切执行（写码/改测试/部署/排障/UI 驱动/重打包）派 omni-agent，一 Agent 一 Worktree 一任务**——排障任务书必须携带主控已查明的事实链
+- 增量提交接力+每 commit 即 push 分支；主控合并 main 后门禁绿才 push main；任务书落盘 docs/briefs/（含未跟踪任务书要先入册——A12 会被未跟踪文件打挂）
+- 端口铁律（**升级版**）：跑门禁前 `taskkill //IM DevHub.exe //F` **加 `taskkill //IM electron.exe //F`**（dev 二进制名残留曾占 8746 卡死 smoke）；跑毕恢复常驻+curl 200（**核对 PID/镜像名**——残留 electron 会伪装常驻）
+- 阻塞上报前必实测；凭据三零；绝不 --no-verify；mcp 全量 27/27 只在 main 干净树跑（任务分支 26/27+A12 环境性=惯例）
 
 ## 1. 当前状态一句话
 
-**ECS Relay 已在 59.110.149.11 上生产就绪**：devhub-relay 服务（127.0.0.1:8443）+ 自签 IP TLS + Caddy 443 反代全部部署验证通过（服务端本地 R-B1 等价 200/WS 101/TLS1.3）；R2 验收线③（64 连压测+优雅停机+零丢失）真机闭环；桌面常驻已换含 relayClient 的新包。**唯一挡在 M3-C 联调前的 = S1 安全组 443 规则（用户控制台操作）**——加了它就能跑 R-B1..R-B9 全表。
+**App 侧三缺口已修、协议侧宽限/语义已补、双双合入 main（本地 ddd6bbc）——但统一门禁出现两条未定位红（smoke 167/168 + mcp A05）、main 未推、桌面常驻 DOWN**。下一跳：定位门禁红 → 补齐门禁 → push → C2b 全表重跑（App 真实入网）→ M3-D 72h 稳定期。
 
-## 2. 协作模式（用户铁律，滚动有效）
-
-- 主控只 plan/review/merge，**执行一律派 omni-agent（含部署运维和排障——2026-09-06 用户当场纠偏）**；一 Agent 一 Worktree 一任务，机器资源登记互斥，主控独占 merge
-- 增量提交接力（配额中断应对）；GitHub 增量推送纪律（子代理每 commit 即 push 分支；主控合并即 push main；汇报带分支+SHA；失败不无限重试）
-- 端口铁律：smoke 需 8746-8755 空闲——跑前 taskkill DevHub.exe，跑毕恢复+curl 200；测试桩用段外端口
-- mcp-acceptance 先 commit 树净（A12 会被未跟踪文件打挂——任务书也要先入册）
-- 契约先行+fixture 对拍；任务书落盘 docs/briefs/；自主长跑：仅用户明示授权、红线不豁免、四分类收尾
-- 排障任务书必须携带主控已查明的事实链（子代理从结论续做）；**ECS SSH：`ssh -i ~/.ssh/devhub_ecs -o BatchMode=yes root@59.110.149.11`（密钥直连；root 密码从未使用、勿用；加固收口时会禁密码登录）**
-
-## 3. 本会话 M3 战果台账
+## 2. M3-C 战果台账（本会话）
 
 | 批次 | 结果 |
 | --- | --- |
-| M3-A 部署（主控执行，已被纠偏） | Node 22.23.2+服务用户+systemd+127.0.0.1:8443+selfcheck 59/59 |
-| M3-A⑤ loadtest 整改（agent/m3a-drill-fix→c86afe2） | ⑤ 客户端持续读者重写+hostOnline 写入竞态武装兜底+Caddyfile 三缺陷回写+探针退役 |
-| M3-B TLS 装载（纯 ECS 态，无仓内分支） | 证书 SAN 验证过；**SPKI=`sha256/a07f7ab77bc2f21ba8d5e868cad30156d721aa11a8b85843973575a672aa50d0`；notAfter=2026-12-04（双指纹窗口 ≤2026-11-20 启动）**；Caddy 2.6.2 active 443 监听、80 关闭；本地 curl --cacert 200/WS 101/401 鉴权路径 |
-| M3-A⑥ 活跃性修复+P0a（agent/m3a-liveness→362feac） | **终极根因三连修**：①TestWsClient/自检 WsClient 超时 waiter 泄漏（静默吞帧真凶）②服务器 hostOnline 僵尸窗口（TCP keepalive 5s 根治+重发路径同步 queued ack+武装帧保留）③证书日历 selfcheck 项（<14 天 FAIL）。ECS：selfcheck **64/64**、loadtest ×2 绿、**RSS 108.6/108.8MB**、竞态→重发→立即 queued:true 闭环 |
-| M3-P0b smoke 分层（agent/smoke-tiers→7aeb736） | fast 80/full 84、append-only、fast 实测 27.4s、`npm run smoke:fast` |
-| dist 重打包（无仓内提交） | 新包含 relayClient（asar 字符串级证据）；旧版备份 `dist/win-unpacked.bak-20260906`；常驻 health 200；relay_enabled 默认关 |
-| 统一门禁（main 每次） | tsc 0 / smoke 164/164 / mcp 27/27 / build 绿 |
+| C1 注册/接线调查 | hostId=3 注册（凭据/指纹/后补 ca.pem 落盘 %LOCALAPPDATA%\DevHub\relay\）；查明设置通道+TLS 装载两缺口 |
+| C1b 驱动面+TLS 装载（020548b 合并） | loadRelayTlsTrust+SPKI pin+设置 UI 分组（零新 channel）；**白捡真安全修复：TLS 会话恢复跳过 checkServerIdentity（maxCachedSessions=0）**；smoke 164→168 |
+| C1c 点亮 | dist 重打包 v2+UI 驱动启用 → **host 腿公网 17min+ 零断连、R-B1 双证据、四截图**（agent/m3c1c-evidence） |
+| C2 App 联调 | 协议腿全绿（stand-in：pair 全链/origin=relay/轮换 v2/撤销同步/TLS 两拒）；**App 三缺口实证**（WS pair 传输缺失/pin 通配符崩溃/轮换孤儿化）+桌面两缺口（toggle 刷新/撤销自动化错位）；R-B 表 3 部分 5 未达（agent/m3c2-evidence） |
+| C3a App 三修+R5.3（ddd6bbc 合并） | RelayPairingMachine/RelayPairingClient/PairingScreen 模式感知；pinPatternFor fail-fast；R5.3 事件驱动（最差 1.8s→0.1s，18×）；:core 167→**183** |
+| C3b 协议补全（adb056e 合并） | 轮换 300s 宽限（迁移 0002+三态鉴权+grace 审计+窗满 superseded）+disconnect deviceId 单一语义+RelayPanel toggle 修复；ecs-relay 83→**89**/selfcheck 63→**76**；**ECS 已重部署全套复验绿** |
+| 统一门禁（C3 合并后） | typecheck ✓ / smoke:fast 82/82 ✓ / build ✓ / **smoke 全量 167/168 ✖ / mcp A05 ✖ / gradle 未跑** |
 
-**main = 98910cb**（已推 GitHub）；本地+远端无残留分支/worktree。
+## 3. 项目事实基线（main 本地=ddd6bbc，**领先 origin 4 提交未推**）
 
-## 4. 项目事实基线（main @ 98910cb）
+- 门禁基线（应为）：tsc 0 / smoke **168**（fast 82/full 86）/ mcp 27/27 / :core **183** / ecs-relay test **89** + selfcheck **76**（ECS 同套复验过）
+- ECS：devhub-relay=C3b 版 active（8443）、caddy 443、S1 已开、SPKI=`sha256/a07f7ab7...50d0`、notAfter 2026-12-04；frps 兼容通道照旧
+- **桌面常驻 DOWN**（交接时）；dist 现包=C1c 版（不含 C3b renderer 修复）；relay settings：enabled=1+endpoint 已持久化（常驻起来自动重连）
+- Windows 侧测试残留：remote_devices #31/32/33 revoked 留观、#34 active（C2b 或复用或撤销）；ECS relay_hosts=1 行(main-desktop active)、relay_devices=1 行(#34 已 revoked)
 
-- 门禁基线：tsc 0 / smoke **164**（fast 80/full 84，27.4s/207s）/ mcp 27/27 / :core 167 / assembleDebug；白名单 70；MCP 16 tools；migration 005（user_version=5）
-- ecs-relay 自测：node --test **83**/selfcheck **64**（ECS root 跑）/loadtest 全绿
-- 常驻=新打包版（relayClient 在包内、relay 未启用）；ECS：devhub-relay 8443 + caddy 443 + frps 兼容通道照旧
-- 公网通道现役仍 frp(8746)；**443 服务端就绪，等 S1 放行**
+## 4. ⚠️ 未决项（新会话按序处理，全部派子代理）
 
-## 5. 下一步（S1 后的 M3-C 编排，docs/briefs/m3-deploy-plan.md §5）
+1. **定位门禁两红**（第一优先）：smoke 全量 167/168 失败用例未识别（识别跑三次被打断；怀疑 C3b 的 AgentsView/共享类型面或环境残留）+ mcp A05 详情；修复→四门禁+gradle 全绿
+2. **push main**（门禁绿后，本地 4 提交：6c7d5f2 briefs/adb056e C3b/ddd6bbc C3a/HANDOFF 提交）
+3. evidence 合入：agent/m3c1c-evidence(4d02ac7) + agent/m3c2-evidence(0ee2837) → main
+4. 清理：worktree app-relayjoin；本地+远端分支 agent/m3c-relay-wiring/agent/app-relayjoin/agent/relay-protocol-fix（均已合）+ evidence 分支
+5. **重启常驻**（dist 现包即可）→ 验证 relay 自动重连 connected=true；随后 dist 重打包 v3（含 C3b renderer 修复）择机换装
+6. **C2b 全表重跑**（主任务，任务书可基于 docs/briefs/m3c2-app-e2e.md 修订：三缺口已修+宽限已上，App 走真实公网 pair）：R-B2..R-B8 全表+R3 信标真帧+R-B7 按新裁定（触发面未实现=如实标注）
+7. **M3-D 72h 稳定期启动**（C2b 全过后 T0 记时；巡检脚本/日志面交子代理搭）
 
-1. **用户控制台：S1 加 443/tcp**（80 保持关）——唯一硬阻塞
-2. S1 后立即派：公网 R-B1（curl --cacert 外网 200）+ host 首装注册（注册码在 ECS `/etc/devhub-relay/env`，远端管道用、零打印；credential 落 `%LOCALAPPDATA%\DevHub\relay\credential`）+ relayClient 指纹配置（SPKI 见 §3）+ relay_enabled 启用联调
-3. M3-C：R-B1..R-B9 全表+TLS 三拒（错误证书/指纹/过期）∥ M3-C2 R5.3 事件驱动刷新 ∥ R3 信标遗留（upstream:disconnected 真帧截图）
-4. M3-D：72h 稳定 → M4 P1-P4（SG 动作全为用户人工）
-5. ECS 加固收口（四建议之一）：等用户**固定管理 IP** → 确认密钥可登→禁 root 密码→22 限源→3389 残留核查（docs/ecs-security-group-policy.md）
+## 5. 待用户（只排队不代答）
 
-## 6. 遗留与待用户
+1. **固定管理 IP** → ECS 加固收口（确认密钥可登→禁 root 密码→22 限源→3389 残留）
+2. docs/21 追加裁决：离线设备 token_rotation 补投（契约空白；现按 401→重配对，协议扩展需修订 docs/18）
+3. docs/21 旧三项（FCM 分期/Kimi 真机/hooks）；delivery 聚合语义
+4. 证书轮换日历：**2026-11-20 前启动双指纹窗口**（notAfter 12-04，selfcheck 证书项 <14 天 FAIL 会兜底）
 
-1. **S1 443/tcp 规则（控制台）——M3-C 唯一门槛**
-2. **固定管理 IP**——22 收缩+ECS 加固收口用
-3. 知情项：ECS relay_hosts 有 2 行 dormant 临时记录（凭据已弃，无安全影响，M3-C 可顺手清）；ECS selfcheck 证书项需 root 跑（或 M3-B 目录 o+x，未动）；dist 旧版备份 389M 在 `dist/win-unpacked.bak-20260906`（确认新版稳定后可删）
-4. docs/21 既有三项（FCM/Kimi 真机/hooks）不阻塞；delivery 聚合语义小裁决仍挂
-5. 旧已知项：relativeTime 中英混排、ZCode approval 判定源未实测、DeepSeek 未接入
-6. Mimosa hook 持续报扫描结论不完整——不宣称项目安全，深审归用户
+## 6. 关键约束速查
 
-## 7. 关键约束速查
-
-28 条合同（docs/00）+ docs/11-21 + docs/briefs/*（含 m3-deploy-plan v2）；exec.ts 唯一 spawn；SQL 绑定；migration append-only；ecs-relay/ 子目录自含；android 工程禁挪走；私钥/凭据零入仓库/日志/审计；ws:// 明文仅限 docs/19 §11 时间盒。
+28 条合同+docs/11-21+docs/briefs/m3c*；exec.ts 唯一 spawn；SQL 绑定；migration append-only（ECS schema 已到 0002）；ecs-relay 子目录自含；android 禁挪走；私钥/凭据零入仓库/日志；ECS 零 Agent/零 Key；SSH 密钥 `~/.ssh/devhub_ecs`（密码勿用）。
