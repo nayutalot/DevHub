@@ -344,14 +344,18 @@ try {
     })
     const accepted = await bare.recvFrame()
     assert(accepted.type === 'pair_accepted' && accepted.deviceToken === deviceToken && accepted.deviceId === 101, 'pair_accepted E→D（Token 一次性过境）')
-    const bareClose = await bare.recv()
-    assert(bareClose.kind === 'close' && bareClose.code === 1000, '配对完成裸连接关闭（引导 Bearer 重连）')
 
+    // C7a 修①后 pair_accepted 不再即刻关闭裸连接（保留 pair 冲刷短窗等待同秒
+    // token_rotation），裸连接关闭改由 Bearer 准入即触（admit 收口 pair 窗）——
+    // 先重连再断言关闭，close 1000 语义不变、零窗等。
     const device = new WsClient()
     await device.connect(port, '/relay/device', { Authorization: `Bearer ${deviceToken}` })
     const deviceHello = await device.recvFrame()
     assert(deviceHello.type === 'hello' && deviceHello.deviceId === pairRelayed.ecsDeviceId, 'Bearer 重连 hello（ECS 注册表 id）')
     assert(deviceHello.upstream === 'connected', 'hello.upstream = connected（host leg 在线）')
+
+    const bareClose = await bare.recv()
+    assert(bareClose.kind === 'close' && bareClose.code === 1000, '配对完成裸连接关闭（引导 Bearer 重连）')
 
     // 事件扇出 + REST 中继（数据面）
     host.send({ type: 'event', sequence: 100, eventId: 'selfcheck-ev-100', provider: 'codex', sessionId: 7, eventType: 'session.waiting_input', timestamp: Math.floor(Date.now() / 1000), summary: 'selfcheck', payload: { sessionId: 7 }, requiresUserAction: true })

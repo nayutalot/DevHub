@@ -22,6 +22,11 @@ export interface RelayConfig {
   pongTimeoutMs: number
   /** 裸 pair 连接首帧时限（docs/18 §2：10s 内必须 pair）。 */
   barePairTimeoutMs: number
+  /**
+   * 裸 pair 窗冲刷窗口（M3-C7a 修①：pair_accepted 发出后裸连接保留此时长，
+   * 等待同秒到达的 token_rotation 在关闭前冲刷投递；App 侧 PairLegFrameRouter 接帧）。
+   */
+  pairRotationFlushMs: number
   /** 配对码 TTL（docs/18 §3.2：300s）。 */
   pairingTtlSec: number
   /** 配对失败作废阈值（5 次）。 */
@@ -82,6 +87,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RelayConfig {
     heartbeatIntervalMs: intEnv(env, 'RELAY_HEARTBEAT_SEC', 30) * 1000,
     pongTimeoutMs: intEnv(env, 'RELAY_PONG_TIMEOUT_SEC', 10) * 1000,
     barePairTimeoutMs: intEnv(env, 'RELAY_BARE_PAIR_TIMEOUT_SEC', 10) * 1000,
+    pairRotationFlushMs: intEnv(env, 'RELAY_PAIR_ROTATION_FLUSH_SEC', 5) * 1000,
     pairingTtlSec: intEnv(env, 'RELAY_PAIRING_TTL_SEC', 300),
     pairingMaxFailures: intEnv(env, 'RELAY_PAIRING_MAX_FAILURES', 5),
     commandTtlSec: intEnv(env, 'RELAY_COMMAND_TTL_SEC', 300),

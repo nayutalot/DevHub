@@ -77,6 +77,20 @@ export class Forwarder {
   private readonly graceAuthedConns = new Map<number, Set<RelayConnection>>()
   /** device leg 裸 pair 连接（未鉴权，首帧必须 pair）。 */
   private readonly bareConns = new Set<RelayConnection>()
+  /**
+   * 裸 pair 窗冲刷注册表（M3-C7a 修①，row id → 裸连接 + 到期 timer）：pair_accepted
+   * 发出后裸连接不再即刻关闭，保留 pairRotationFlushMs 短窗——同秒到达的 token_rotation
+   * 在关闭前冲刷投递（App 侧 PairLegFrameRouter 已就位接帧；docs/18 §3.14 精神：
+   * 轮换帧允许投递于该设备任一活跃 device-leg 连接）。
+   */
+  private readonly pairWindowConns = new Map<number, { conn: RelayConnection; timer: NodeJS.Timeout }>()
+  /**
+   * 漏投 token_rotation 补偿表（M3-C7a 修②，row id → 完整帧；安全网语义）：轮换发生时
+   * 该设备无任何可投连接（pair 窗已收口/无已鉴权连接）→ 完整帧（含明文 Token）仅存内存
+   * （绝不落盘/落日志/落审计），grace 窗内旧凭据重连即补投；窗外 auth 层 401
+   * （token_rotation_grace_expired）路径不动摇。设备以新凭据准入/撤销/窗过期即清。
+   */
+  private readonly pendingRotations = new Map<number, { frame: Frame; tokenVersion: number; expiresAtSec: number }>()
   /** host leg 连接（同主机多连接，滚动重启不互踢）。 */
   private readonly hostConns: RelayConnection[] = []
   /** host leg 请求-响应挂起表（ECS 内部 requestId → 宿）。 */
@@ -135,7 +149,13 @@ export class Forwarder {
     }
     this.store.run('UPDATE relay_devices SET last_seen_at = ?, updated_at = ? WHERE id = ?', Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000), deviceId)
     this.audit.write({ category: 'device', action: 'connection_opened', outcome: 'success', deviceId, detail: { side: 'device', remoteIp: conn.identity.remoteIp, ...(viaGrace ? { viaGrace: true } : {}) } })
+    // C7a 修②（重连补偿）：viaGrace = 设备仍持旧凭据（token version < current 且 grace 窗内
+    // 准入——窗外 auth 层已 401 token_rotation_grace_expired，补偿绝不越窗）→ 补投漏投的
+    // token_rotation(当前 token)；新凭据准入 = 设备已持当前版本 → 撤销补偿登记。
+    this.closePairRotationWindow(deviceId, true, 'device reconnected with token; pair leg retired')
     conn.sendFrame(this.helloFrame(deviceId, undefined))
+    if (viaGrace) this.compensatePendingRotation(conn, deviceId)
+    else this.pendingRotations.delete(deviceId)
   }
 
   /** 注册裸 pair 连接（未鉴权；10s 内必须 pair，docs/18 §2）。 */
@@ -151,6 +171,51 @@ export class Forwarder {
     timer.unref?.()
   }
 
+  // -------------------------------------------------------------------------
+  // M3-C7a：轮换投递两腿（裸 pair 窗冲刷 + 重连补偿，零新帧）
+  // -------------------------------------------------------------------------
+
+  /**
+   * 开启裸 pair 冲刷窗（C7a 修①）：pair_accepted 已发出 → 裸连接保留
+   * pairRotationFlushMs 短窗等待同秒 token_rotation；窗到期无轮换 → 按原语义关闭
+   * （「pairing complete; reconnect with device token」，引导 Bearer 重连）。
+   */
+  private openPairRotationWindow(ecsDeviceId: number, conn: RelayConnection): void {
+    this.closePairRotationWindow(ecsDeviceId, true) // 同行重复配对防御：旧窗先收口
+    const timer = setTimeout(() => {
+      this.closePairRotationWindow(ecsDeviceId, true)
+    }, this.config.pairRotationFlushMs)
+    timer.unref?.()
+    this.pairWindowConns.set(ecsDeviceId, { conn, timer })
+  }
+
+  /** 收口 pair 冲刷窗（清 timer；closeBare = 是否顺带关闭裸连接——投递/收口路径传 true）。 */
+  private closePairRotationWindow(ecsDeviceId: number, closeBare: boolean, reason = 'pairing complete; reconnect with device token'): void {
+    const entry = this.pairWindowConns.get(ecsDeviceId)
+    if (entry === undefined) return
+    clearTimeout(entry.timer)
+    this.pairWindowConns.delete(ecsDeviceId)
+    if (closeBare && !entry.conn.closed) entry.conn.close(1000, reason)
+  }
+
+  /**
+   * 重连补偿（C7a 修②）：grace 准入连接补投漏投的 token_rotation(当前 token)。
+   * 仅窗内生效（expiresAtSec = grace_expires_at 同源；窗外 auth 层已 401，本方法
+   * 只可能被窗内准入调用）；补投不删登记——设备确认切换（新凭据准入）前，同一设备
+   * 后续 grace 重连仍可取帧（投递不回滚 DB 同款「尽力面」语义，窗过期由清扫收口）。
+   */
+  private compensatePendingRotation(conn: RelayConnection, deviceId: number): void {
+    const pending = this.pendingRotations.get(deviceId)
+    if (pending === undefined) return
+    const nowSec = Math.floor(Date.now() / 1000)
+    if (nowSec >= pending.expiresAtSec) {
+      this.pendingRotations.delete(deviceId)
+      return
+    }
+    conn.sendFrame(pending.frame)
+    this.audit.write({ category: 'device', action: 'token_rotation_flushed', outcome: 'success', deviceId, detail: { source: 'compensation', tokenVersion: pending.tokenVersion } })
+  }
+
   /** 注册 host 连接 → hello + 三步恢复序之②（排队命令按 requested_at 序投递）。 */
   admitHostConnection(conn: RelayConnection, hostId: number): void {
     this.guardBudget()
@@ -163,6 +228,13 @@ export class Forwarder {
 
   removeConnection(conn: RelayConnection): void {
     this.bareConns.delete(conn)
+    // pair 冲刷窗内的裸连接先行关闭（客户端断开）→ 收口登记（timer 一并清）
+    for (const [id, entry] of this.pairWindowConns) {
+      if (entry.conn === conn) {
+        clearTimeout(entry.timer)
+        this.pairWindowConns.delete(id)
+      }
+    }
     const deviceId = conn.deviceId
     if (deviceId !== undefined) {
       const set = this.deviceConns.get(deviceId)
@@ -520,6 +592,10 @@ export class Forwarder {
    * 退避重连 → 旧凭据 401 → 重配对路径）再关闭；注册表行消失/已撤销/宽限列已清同样关闭。
    */
   sweepExpiredGrace(nowSec: number = Math.floor(Date.now() / 1000)): void {
+    // C7a 修②配套：漏投补偿登记与 grace 窗同寿命，过期即清（明文帧绝不越过窗界存活）
+    for (const [deviceId, pending] of this.pendingRotations) {
+      if (nowSec >= pending.expiresAtSec) this.pendingRotations.delete(deviceId)
+    }
     for (const [deviceId, conns] of this.graceAuthedConns) {
       if (conns.size === 0) {
         this.graceAuthedConns.delete(deviceId)
@@ -777,8 +853,10 @@ export class Forwarder {
     }
     if (deviceConn !== undefined && !deviceConn.closed) {
       deviceConn.sendFrame(outFrame)
-      // 配对完成：裸连接使命结束（设备以 Bearer 重连走 hello/sync 面）
-      deviceConn.close(1000, 'pairing complete; reconnect with device token')
+      // C7a 修①（裸 pair 窗冲刷）：不即刻关闭裸连接——保留短窗（pairRotationFlushMs），
+      // 同秒到达的 token_rotation 在关闭前冲刷投递（App 侧 PairLegFrameRouter 接帧；
+      // C2d 定案：即刻关闭 + 不注册 deviceConns 曾致轮换帧结构性不可达，缺口 #10）。
+      this.openPairRotationWindow(ecsDeviceId, deviceConn)
     }
   }
 
@@ -927,9 +1005,28 @@ export class Forwarder {
       tokenVersion,
       reason,
     }
+    // 投递三路（C7a 定案「零新帧」：轮换帧允许投递于该设备任一活跃 device-leg 连接）：
+    // ① 已鉴权连接直投（契约路径）；② pair 冲刷窗内的裸连接关闭前冲刷（C7a 修①）；
+    // ③ 两路皆不可达 → 登记内存补偿表（C7a 修②安全网），grace 窗内重连即补投。
+    let deliveredToRegistered = false
     const conns = this.deviceConns.get(row.id)
     if (conns !== undefined) {
-      for (const conn of conns) conn.sendFrame(out)
+      for (const conn of conns) {
+        if (conn.sendFrame(out)) deliveredToRegistered = true
+      }
+    }
+    if (deliveredToRegistered) {
+      // 直投成功 = 契约路径已覆盖；撤销补偿登记（设备已持当前版本的正信号由
+      // 新凭据准入再确认，此前残留登记一并清除）
+      this.pendingRotations.delete(row.id)
+    } else {
+      const pairEntry = this.pairWindowConns.get(row.id)
+      if (pairEntry !== undefined && !pairEntry.conn.closed && pairEntry.conn.sendFrame(out)) {
+        this.closePairRotationWindow(row.id, true, 'token_rotation flushed on pair leg; reconnect with new token')
+        this.audit.write({ category: 'device', action: 'token_rotation_flushed', outcome: 'success', deviceId: row.id, detail: { source: 'pair-window', tokenVersion } })
+      }
+      // 明文帧仅内存（绝不落盘/落日志/落审计）；寿命 = grace 窗（与 grace_expires_at 同源）
+      this.pendingRotations.set(row.id, { frame: out, tokenVersion, expiresAtSec: nowSec + this.config.rotationGraceSec })
     }
   }
 
@@ -952,6 +1049,10 @@ export class Forwarder {
       const nowSec = Math.floor(Date.now() / 1000)
       this.store.run("UPDATE relay_devices SET status = 'revoked', revoked_at = ?, updated_at = ? WHERE id = ?", nowSec, nowSec, row.id)
       this.audit.write({ category: 'device', action: 'device_revoked', outcome: 'success', deviceId: row.id, detail: { source: 'host_disconnect' } })
+      // 撤销即拒（C7a 红线配套）：漏投补偿登记与 pair 冲刷窗一并作废——已撤销设备
+      // 绝不在此后经任何路径取得轮换帧
+      this.pendingRotations.delete(row.id)
+      this.closePairRotationWindow(row.id, true, 'device revoked')
     }
     const conns = this.deviceConns.get(row.id)
     if (conns !== undefined) {
@@ -1041,6 +1142,8 @@ export class Forwarder {
   shutdown(): void {
     for (const timer of this.timers) clearInterval(timer)
     this.timers = []
+    // pair 冲刷窗 timer 一并清（裸连接属 bareConns，由下方循环统一断连告知）
+    for (const id of [...this.pairWindowConns.keys()]) this.closePairRotationWindow(id, false)
     for (const [deviceId, conns] of this.deviceConns) {
       for (const conn of conns) {
         conn.sendFrame({ type: 'disconnect', reason: 'server_shutdown' })
@@ -1062,5 +1165,10 @@ export class Forwarder {
   /** 测试探针：排队命令内存帧数。 */
   debugQueuedMemoryCount(): number {
     return this.queuedMemory.size
+  }
+
+  /** 测试探针：漏投轮换补偿登记数（C7a 修②；明文帧内容绝不外泄，仅计数）。 */
+  debugPendingRotationCount(): number {
+    return this.pendingRotations.size
   }
 }

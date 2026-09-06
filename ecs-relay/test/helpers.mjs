@@ -79,15 +79,18 @@ export async function pairDevice(world, { code = 'A3K7M9XY', deviceToken = `devt
   assert.equal(accepted.type, 'pair_accepted')
   assert.equal(accepted.deviceId, winDeviceId)
   assert.equal(accepted.deviceToken, deviceToken)
-  const closeInfo = await bare.recvClose()
-  assert.equal(closeInfo.code, 1000)
 
-  // 带 Token 重连（鉴权连接）
+  // 带 Token 重连（鉴权连接）。C7a 修①后 pair_accepted 不再即刻关闭裸连接（保留
+  // pair 冲刷短窗等待同秒 token_rotation），裸连接关闭改由 Bearer 准入即触
+  // （admit 收口 pair 窗）——先重连再断言关闭，语义不变（close 1000）、零窗等。
   const device = new TestWsClient()
   await device.connect(world.port, '/relay/device', { Authorization: `Bearer ${deviceToken}` })
   const hello = await device.recvFrame()
   assert.equal(hello.type, 'hello')
   assert.equal(hello.deviceId, pairRelayed.ecsDeviceId, 'hello.deviceId = ECS 注册表 id（docs/18 §3.1）')
+
+  const closeInfo = await bare.recvClose()
+  assert.equal(closeInfo.code, 1000)
   return { bare, device, deviceToken, ecsDeviceId: pairRelayed.ecsDeviceId, winDeviceId, accepted, hello }
 }
 
