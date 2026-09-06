@@ -55,7 +55,7 @@ class RelayHealthProbeFactoryTest {
     @Test
     fun `valid mixed hex and base64 fingerprints build Ok`() {
         val b64 = Base64.getEncoder().encodeToString(ByteArray(32) { it.toByte() })
-        val raw = "sha256/${hex64(2).uppercase()}, $b64"
+        val raw = "sha256/${hex64(2).uppercase()}, sha256/$b64"
         val result = RelayHealthProbeFactory.buildRelay(endpoint(), raw)
         assertTrue("expected Ok, got $result", result is RelayProbeBuildResult.Ok)
     }
