@@ -19,10 +19,13 @@
  *      /v1/pairing/{create,claim}、/v1/diagnostics、/v1/devices、/v1/agents、
  *      /v1/sessions（httpServer.ts:609-730）；含状态面的端点全部 requireDevice
  *      （Bearer 设备 token，本脚本按凭据三零不持有）。
- *    - settings relay_enabled 存 SQLite：路径 %LOCALAPPDATA%\DevHub\devhub.db，
- *      表 settings key='relay_enabled'（'1'=启用，默认 '0'）——settingsService.ts:31-44。
+ *    - settings relay_enabled 存 SQLite：实际路径 %APPDATA%\DevHub\devhub.db
+ *      （src/main/core/paths.ts getDataDir：Windows = %APPDATA%/<productName>；
+ *      C2c 实录 %LOCALAPPDATA% 下无库 → relay_enabled=unknown），表 settings
+ *      key='relay_enabled'（'1'=启用，默认 '0'）——settingsService.ts:31-44。
  *      无 REST 读法；本脚本用 node:sqlite（Node ≥22.5 内置）以 readOnly 打开只读
- *      单键 SELECT，DB 缺席/锁死 → null（绝不写、绝不 busy-wait）。
+ *      单键 SELECT，两候选路径（Roaming 权威 + Local 旧记载）探测取存在者，
+ *      均缺席/锁死 → null（绝不写、绝不 busy-wait）。
  *    - **"relayClient connected" 日志标记不存在**：relayClient 状态机只经内存投影
  *      setRelayRuntimeView（relayClient/index.ts:166-186 setStatus → statusProjector
  *      内存镜像）回报，不经 logger；src/main 全量 grep 仅一条启动失败行
@@ -107,11 +110,24 @@ function localAppDataDir() {
   return process.platform === 'win32' ? join(homedir(), 'AppData', 'Local') : join(homedir(), '.local', 'share')
 }
 
+/** Roaming %APPDATA%（src/main/core/paths.ts getDataDir Windows 面 = %APPDATA%/<productName>）。 */
+function appDataDir() {
+  const raw = process.env.APPDATA
+  if (typeof raw === 'string' && raw.trim().length > 0) return raw.trim()
+  return process.platform === 'win32' ? join(homedir(), 'AppData', 'Roaming') : join(homedir(), '.config')
+}
+
 const DEVHUB_DATA_DIR = join(localAppDataDir(), 'DevHub')
 const RELAY_CA_PATH = join(DEVHUB_DATA_DIR, 'relay', 'ca.pem') // config.ts:198 权威路径
 const RELAY_FINGERPRINTS_PATH = join(DEVHUB_DATA_DIR, 'relay', 'fingerprints') // config.ts:186
 const RELAY_CREDENTIAL_PATH = join(DEVHUB_DATA_DIR, 'relay', 'credential') // 只存在性判断，绝不读内容
-const SETTINGS_DB_PATH = join(DEVHUB_DATA_DIR, 'devhub.db') // settingsService → db/index.ts 数据面
+// M3-C6c 小项#5：settings DB 实际 = %APPDATA%\DevHub\devhub.db（paths.ts:127 getDbPath；
+// C2c 实录 LOCALAPPDATA 下无库 → relay_enabled=unknown）。两候选探测取存在者：
+// Roaming 权威在前，Local 旧记载保留探测（防部署变体）。
+const SETTINGS_DB_CANDIDATES = [
+  join(appDataDir(), 'DevHub', 'devhub.db'),
+  join(DEVHUB_DATA_DIR, 'devhub.db'),
+]
 const WATCH_DIR = join(DEVHUB_DATA_DIR, 'm3d-watch')
 const DEFAULT_NDJSON = join(WATCH_DIR, 'watch.ndjson')
 const T0_MARKER = join(WATCH_DIR, 't0.txt')
@@ -291,20 +307,28 @@ function readExpectedPin() {
 
 /**
  * settings relay_enabled 只读单键（node:sqlite readOnly；零写入零锁等待）。
- * 返回 '1'/'0'/null（DB 缺席/不可读 → null，结构化而非异常）。
+ * M3-C6c 小项#5：两候选路径探测取存在者（Roaming 权威在前）。
+ * 返回 '1'/'0'/null（均缺席/不可读 → null，结构化而非异常）。
  */
 function readRelayEnabledSetting() {
   try {
-    if (!existsSync(SETTINGS_DB_PATH)) return { value: null, error: `settings db missing (${SETTINGS_DB_PATH}; resident never ran here)` }
     // node:sqlite（Node ≥22.5 内置，零新依赖）；readOnly 打开：零写入零锁等待
     const { DatabaseSync } = require('node:sqlite')
-    const db = new DatabaseSync(SETTINGS_DB_PATH, { readOnly: true })
-    try {
-      const row = db.prepare("SELECT value FROM settings WHERE key = 'relay_enabled'").get()
-      return { value: typeof row?.value === 'string' ? row.value : null, error: null }
-    } finally {
-      db.close()
+    const missing = []
+    for (const dbPath of SETTINGS_DB_CANDIDATES) {
+      if (!existsSync(dbPath)) {
+        missing.push(dbPath)
+        continue
+      }
+      const db = new DatabaseSync(dbPath, { readOnly: true })
+      try {
+        const row = db.prepare("SELECT value FROM settings WHERE key = 'relay_enabled'").get()
+        return { value: typeof row?.value === 'string' ? row.value : null, error: null }
+      } finally {
+        db.close()
+      }
     }
+    return { value: null, error: `settings db missing (probed: ${missing.join(' | ')}; resident never ran here)` }
   } catch (err) {
     return { value: null, error: `settings db unreadable: ${err.message}` }
   }
