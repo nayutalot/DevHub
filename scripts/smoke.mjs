@@ -10603,5 +10603,391 @@ if (isEntrypoint()) {
     }
   })
 
+  // ====================================================================
+  // M3-C1b 批 — relay TLS 信任装载 smoke 段（docs/19 §10 + docs/briefs/m3c1b-relay-wiring.md）。
+  // 指纹文件归一化（hex/base64/大小写/注释空行/fail-fast 格式错）+ ca.pem 缺失结构化
+  // 错误 + tls{ca,checkServerIdentity} 构造正负用例（临时自签 IP SAN 证书纯 node:crypto
+  // 生成，零 openssl spawn；本地 TLS WS 桩监听 18543+ 段外回环端口，绝不碰 8746-8755
+  // 门禁段）。既有 164 用例零改动（append-only，约束 #27）。
+  // ====================================================================
+
+  /** DER TLV（短/长度通用编码；证书生成唯一用，勿挪作他用）。 */
+  function c1bDer(tag, body) {
+    if (body.length < 0x80) return Buffer.concat([Buffer.from([tag]), Buffer.from([body.length]), body])
+    const bytes = []
+    for (let v = body.length; v > 0; v >>= 8) bytes.unshift(v & 0xff)
+    return Buffer.concat([Buffer.from([tag, 0x80 | bytes.length]), Buffer.from(bytes), body])
+  }
+  const c1bDerSeq = (...parts) => c1bDer(0x30, Buffer.concat(parts))
+  const c1bDerInt = (buf) => c1bDer(0x02, buf)
+  const c1bDerOid = (bytes) => c1bDer(0x06, bytes)
+  const c1bDerUtc = (time) => {
+    const p = (n) => String(n).padStart(2, '0')
+    const s = `${p(time.getUTCFullYear() % 100)}${p(time.getUTCMonth() + 1)}${p(time.getUTCDate())}${p(time.getUTCHours())}${p(time.getUTCMinutes())}${p(time.getUTCSeconds())}Z`
+    return c1bDer(0x17, Buffer.from(s, 'ascii'))
+  }
+  const C1B_OID_SHA256_ECDSA = Buffer.from([0x2a, 0x86, 0x48, 0xce, 0x3d, 0x04, 0x03, 0x02]) // 1.2.840.10045.4.3.2
+  const C1B_OID_CN = Buffer.from([0x55, 0x04, 0x03]) // 2.5.4.3 commonName
+  const C1B_OID_SAN = Buffer.from([0x55, 0x1d, 0x11]) // 2.5.29.17 subjectAltName
+  const C1B_OID_BASIC = Buffer.from([0x55, 0x1d, 0x13]) // 2.5.29.19 basicConstraints
+
+  const c1bName = (cn) =>
+    c1bDerSeq(c1bDer(0x31, c1bDerSeq(c1bDerOid(C1B_OID_CN), c1bDer(0x0c, Buffer.from(cn, 'utf8')))))
+  const c1bSanExt = (ips) =>
+    c1bDerSeq(c1bDerOid(C1B_OID_SAN), c1bDer(0x04, c1bDerSeq(...ips.map((ip) => c1bDer(0x87, Buffer.from(ip.split('.').map(Number)))))))
+  const c1bBasicExt = () => c1bDerSeq(c1bDerOid(C1B_OID_BASIC), c1bDer(0x04, c1bDerSeq(Buffer.from([0x01, 0x01, 0xff]))))
+  const c1bToPem = (label, der) => {
+    const lines = der.toString('base64').match(/.{1,64}/g) ?? []
+    return `-----BEGIN ${label}-----\n${lines.join('\n')}\n-----END ${label}-----\n`
+  }
+
+  /**
+   * 临时自签 IP SAN 证书（EC P-256 / sha256WithECDSA / SAN 含 IP；与
+   * docs/ecs-relay-deploy/gen-ip-cert.sh 产出同形态——SPKI SHA-256 即 pin 物料）。
+   * 纯 node:crypto 手工 DER 组装，零 spawn（exec 外 spawn 禁令不触碰）。
+   */
+  async function c1bSelfSignedCert({ cn, ips }) {
+    const { generateKeyPairSync, sign, createHash } = await import('node:crypto')
+    const { publicKey, privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' })
+    const spkiDer = publicKey.export({ type: 'spki', format: 'der' })
+    const now = Date.now()
+    const tbs = c1bDerSeq(
+      c1bDer(0xa0, c1bDerInt(Buffer.from([0x02]))), // [0] EXPLICIT version v3
+      c1bDerInt(Buffer.from([0x01])), // serialNumber = 1
+      c1bDerSeq(c1bDerOid(C1B_OID_SHA256_ECDSA)), // signature algorithm
+      c1bName(cn), // issuer（自签 = subject 同名）
+      c1bDerSeq(c1bDerUtc(new Date(now - 3_600_000)), c1bDerUtc(new Date(now + 90 * 86_400_000))),
+      c1bName(cn), // subject
+      spkiDer, // subjectPublicKeyInfo（DER 已是 SEQUENCE，原样嵌入）
+      c1bDer(0xa3, c1bDerSeq(c1bBasicExt(), c1bSanExt(ips))), // [3] EXPLICIT extensions
+    )
+    const certDer = c1bDerSeq(tbs, c1bDerSeq(c1bDerOid(C1B_OID_SHA256_ECDSA)), c1bDer(0x03, Buffer.concat([Buffer.from([0x00]), sign('sha256', tbs, privateKey)])))
+    return {
+      certDer,
+      certPem: c1bToPem('CERTIFICATE', certDer),
+      keyPem: privateKey.export({ type: 'sec1', format: 'pem' }).toString(),
+      spkiHex: createHash('sha256').update(spkiDer).digest('hex'),
+    }
+  }
+
+  /**
+   * 本地 TLS WS 桩（host 腿，r1StartRelayStub 的 TLS 变体）：自签证书终结 TLS +
+   * RFC6455 upgrade；18543 起 EADDRINUSE 顺延 +9（绝不占用 8746-8755 门禁段）。
+   * 连接对象形状与 r1HelloNewConnection/r1StubSend/r1StubWait 兼容（复用段内夹具）。
+   */
+  async function c1bStartTlsRelayStub(certPem, keyPem, portHint = 18543) {
+    const { createServer } = await import('node:https')
+    const { createHash } = await import('node:crypto')
+    const stub = { server: null, port: null, connections: [] }
+    const handleUpgrade = (req, socket) => {
+      const accept = createHash('sha1').update(String(req.headers['sec-websocket-key']) + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64')
+      socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ' + accept + '\r\n\r\n')
+      socket.setNoDelay(true)
+      const conn = { socket, received: [], closeCode: null, alive: true, helloSent: false, headers: { authorization: req.headers.authorization ?? null } }
+      stub.connections.push(conn)
+      let buffer = Buffer.alloc(0)
+      socket.on('data', (chunk) => {
+        buffer = buffer.length === 0 ? Buffer.from(chunk) : Buffer.concat([buffer, chunk])
+        while (true) {
+          const parsed = r1ParseMaskedClientFrame(buffer)
+          if (parsed.frame === null) break
+          buffer = parsed.rest
+          const { opcode, payload } = parsed.frame
+          if (opcode === 0x8) {
+            conn.closeCode = payload.length >= 2 ? payload.readUInt16BE(0) : null
+            conn.alive = false
+            try { socket.destroy() } catch { /* 已关 */ }
+            return
+          }
+          if (opcode === 0x9) {
+            try { socket.write(encodeClientFrame(0xa, payload, { mask: false })) } catch { /* 已关 */ }
+            continue
+          }
+          if (opcode === 0xa) continue
+          if (opcode === 0x1 || opcode === 0x2) {
+            const text = payload.toString('utf8')
+            let json
+            try { json = JSON.parse(text) } catch { json = undefined }
+            conn.received.push({ opcode, text, json })
+          }
+        }
+      })
+      socket.on('error', () => { conn.alive = false })
+      socket.on('close', () => { conn.alive = false })
+    }
+    const tryListen = (port) =>
+      new Promise((resolve, reject) => {
+        const server = createServer({ cert: certPem, key: keyPem })
+        server.on('tlsClientError', () => { /* 校验失败的握手：正负用例预期面 */ })
+        server.on('error', reject)
+        server.on('upgrade', handleUpgrade)
+        server.listen(port, '127.0.0.1', () => resolve(server))
+      })
+    let lastErr = null
+    for (let p = portHint; p < portHint + 10; p += 1) {
+      try {
+        stub.server = await tryListen(p)
+        stub.port = p
+        return stub
+      } catch (err) {
+        lastErr = err
+      }
+    }
+    throw lastErr ?? new Error('tls relay stub listen failed')
+  }
+
+  /** 指纹/CA 夹具 env 缝装配（r1CaseSetup 的 credential 缝同款纪律；返回还原函数）。 */
+  function c1bUseTrustEnv(fpPath, caPath) {
+    const prevFp = process.env.DEVHUB_RELAY_FINGERPRINTS_FILE
+    const prevCa = process.env.DEVHUB_RELAY_CA_FILE
+    process.env.DEVHUB_RELAY_FINGERPRINTS_FILE = fpPath
+    if (caPath === undefined) delete process.env.DEVHUB_RELAY_CA_FILE
+    else process.env.DEVHUB_RELAY_CA_FILE = caPath
+    return () => {
+      if (prevFp === undefined) delete process.env.DEVHUB_RELAY_FINGERPRINTS_FILE
+      else process.env.DEVHUB_RELAY_FINGERPRINTS_FILE = prevFp
+      if (prevCa === undefined) delete process.env.DEVHUB_RELAY_CA_FILE
+      else process.env.DEVHUB_RELAY_CA_FILE = prevCa
+    }
+  }
+
+  // 163. 指纹归一化（docs/19 §10.2 + deploy README §2 形态）：sha256/{hex} 大小写
+  //      不敏感 → 小写；裸 64 hex；sha256/{base64(32B)} 与裸 base64（标准/URL-safe
+  //      字母表，解码恰 32 字节）；文件解析注释/空行/CRLF 跳过；格式错 fail-fast
+  //      抛错（绝不产出半枚 pin 集），loadRelayTlsTrust 折叠为带路径的结构化错误。
+  registerCase('nb-c1b-163: relay fingerprint normalization — sha256/<hex> case-insensitive to lowercase, bare hex, base64(32B) standard and URL-safe forms (with or without sha256/ prefix), file parsing skips comments/blank lines/CRLF, malformed line is fail-fast (throws; loader folds into a structured path-carrying error, never a partial pin set)', async () => {
+    const m = await r1CaseSetup('devhub-nb-c1b-163-')
+    try {
+      const cfg = await import(new URL('../src/main/services/agentControl/relayClient/config.ts', import.meta.url).href)
+      const hexLower = '0123456789abcdef'.repeat(4)
+      // hex 形态：sha256/ 前缀可选 + 大小写归一化
+      assert.equal(cfg.normalizeRelayFingerprint(`sha256/${hexLower}`), hexLower, 'sha256/<lower-hex> identity')
+      assert.equal(cfg.normalizeRelayFingerprint(`sha256/${hexLower.toUpperCase()}`), hexLower, 'uppercase hex normalized to lowercase (dual-fingerprint window input form)')
+      assert.equal(cfg.normalizeRelayFingerprint(hexLower.toUpperCase()), hexLower, 'bare uppercase hex accepted (no prefix)')
+      // base64(32B) 形态：标准 + URL-safe 字母表，前缀可选，解码恰 32 字节
+      const { randomBytes } = await import('node:crypto')
+      const bytes = Buffer.concat([Buffer.from([0xff, 0xfe, 0xfd]), randomBytes(29)]) // 32B，base64 含 '+/' 字符
+      const b64 = bytes.toString('base64')
+      assert.equal(b64.length, 44, 'base64(32B) is 44 chars with padding')
+      assert.ok(/[+/]/.test(b64), 'fixture base64 exercises the standard alphabet')
+      const hexOfBytes = bytes.toString('hex')
+      assert.equal(cfg.normalizeRelayFingerprint(`sha256/${b64}`), hexOfBytes, 'sha256/<base64(32B)> decodes to hex')
+      assert.equal(cfg.normalizeRelayFingerprint(b64), hexOfBytes, 'bare base64 accepted')
+      const b64url = b64.replaceAll('+', '-').replaceAll('/', '_')
+      assert.equal(cfg.normalizeRelayFingerprint(b64url), hexOfBytes, 'URL-safe base64 accepted')
+      // fail-fast：63 hex / md5 前缀 / 31B base64 / 空串 / 64 字符 base64（解码 48B ≠ 32B）
+      for (const bad of [`sha256/${'ab'.repeat(31) + 'a'}`, `md5/${hexLower}`, Buffer.from('short').toString('base64'), '', 'z'.repeat(64)]) {
+        assert.throws(() => cfg.normalizeRelayFingerprint(bad), /invalid relay SPKI fingerprint/, `fail-fast rejects ${JSON.stringify(bad.slice(0, 16))}…`)
+      }
+      // 文件解析：注释/空行/CRLF/首尾空白全部容忍，逐行归一化保持顺序
+      const fpPath = join(m.credentialFile, '..', 'fingerprints')
+      writeFileSync(fpPath, [`# devhub relay spki pins (public material)`, '', `  sha256/${hexLower.toUpperCase()}  `, `   # trailing comment line`, b64url, ''].join('\r\n'), 'utf8')
+      assert.deepEqual(cfg.parseRelayFingerprintFile(readFileSync(fpPath, 'utf8')), [hexLower, hexOfBytes], 'CRLF + comments + blanks + whitespace tolerated, order preserved, all normalized')
+      assert.deepEqual(cfg.parseRelayFingerprintFile('# only comments\n\n'), [], 'comments-only file parses to an empty pin list')
+      // 装载折叠：格式错 → 带路径的结构化错误（绝不抛、绝不出半枚 pin 集）
+      writeFileSync(fpPath, `${hexLower}\nnot-a-fingerprint\n`, 'utf8')
+      const restore = c1bUseTrustEnv(fpPath, join(fpPath, '..', 'ca.pem'))
+      try {
+        const bad = cfg.loadRelayTlsTrust()
+        assert.equal(bad.ok, false, 'malformed line never loads a partial pin set')
+        assert.equal(bad.reason, 'fingerprints-malformed')
+        assert.match(bad.error ?? '', /fingerprints/, 'structured error carries the file path (public material)')
+        assert.match(bad.error ?? '', /invalid relay SPKI fingerprint/)
+      } finally {
+        restore()
+      }
+    } finally {
+      await r1CaseTeardown(m)
+    }
+  }, 'fast')
+
+  // 164. 信任物料装载与投影（docs/19 §10「不采用仅 pin 绕链验证」）：指纹齐备 +
+  //      ca.pem 齐备 → ok{fingerprints,ca}；指纹文件缺失/空 → 结构化失败；ca.pem
+  //      缺失 → 结构化错误提示补放（错误携带路径）；statusProjector：wss + 信任物
+  //      缺失 → 结构化告警（不静默零连接也不崩）；ws:// loopback 时间盒不告警；
+  //      disabled → null 投影零噪声。
+  registerCase('nb-c1b-164: TLS trust load + projection — ready fingerprints+ca.pem load ok, missing/empty fingerprints and missing ca.pem are structured failures (ca-missing error prompts provision and states pin-only bypass is not adopted), statusProjector warns only for secure (wss) endpoints when trust is missing, tls status row always projected while enabled, disabled projects null', async () => {
+    const m = await r1CaseSetup('devhub-nb-c1b-164-')
+    try {
+      const cfg = await import(new URL('../src/main/services/agentControl/relayClient/config.ts', import.meta.url).href)
+      const statusProjector = await import(new URL('../src/main/services/agentControl/relayClient/statusProjector.ts', import.meta.url).href)
+      const hexOld = 'ab'.repeat(32)
+      const hexNew = Buffer.concat([Buffer.from([0xcd, 0xef]), (await import('node:crypto')).randomBytes(30)]).toString('hex')
+      const dir = join(m.credentialFile, '..')
+      const fpPath = join(dir, 'fingerprints')
+      const caPath = join(dir, 'ca.pem')
+      const caPem = `-----BEGIN CERTIFICATE-----\n${'c1b'.repeat(4)}\n-----END CERTIFICATE-----\n` // 形态夹具（握手正例用真证书，见 165）
+      // 双指纹窗口物料（旧 hex + 新 base64 形态）
+      writeFileSync(fpPath, `sha256/${hexOld}\nsha256/${Buffer.from(hexNew, 'hex').toString('base64')}\n`, 'utf8')
+      writeFileSync(caPath, caPem, 'utf8')
+      const restore = c1bUseTrustEnv(fpPath, caPath)
+      try {
+        // 齐备 → ok
+        const ok = cfg.loadRelayTlsTrust()
+        assert.equal(ok.ok, true, 'fingerprints + ca.pem ready')
+        assert.deepEqual(ok.trust?.fingerprints, [hexOld, hexNew], 'dual-fingerprint window normalized (hex + base64 forms)')
+        assert.equal(ok.trust?.ca, caPem.trim(), 'ca.pem content passed through')
+        assert.deepEqual(cfg.readRelayTlsTrustStatus(), { ok: true, pins: 2, source: 'fingerprints' }, 'fingerprint status row data: pins + source filename')
+        // 指纹缺失 → 结构化
+        process.env.DEVHUB_RELAY_FINGERPRINTS_FILE = join(dir, 'absent-fingerprints')
+        const fpMissing = cfg.loadRelayTlsTrust()
+        assert.equal(fpMissing.ok, false)
+        assert.equal(fpMissing.reason, 'fingerprints-missing')
+        assert.match(fpMissing.error ?? '', /provision/, 'missing fingerprints error suggests provisioning')
+        // 全注释空 pin 集 → 结构化 empty（env 缝先指回刚写入的文件）
+        writeFileSync(fpPath, '# nothing here\n', 'utf8')
+        process.env.DEVHUB_RELAY_FINGERPRINTS_FILE = fpPath
+        const fpEmpty = cfg.loadRelayTlsTrust()
+        assert.equal(fpEmpty.ok, false)
+        assert.equal(fpEmpty.reason, 'fingerprints-empty')
+        // ca.pem 缺失 → 结构化错误提示补放（仅 pin 绕默认链验证不采用）
+        writeFileSync(fpPath, `sha256/${hexOld}\n`, 'utf8')
+        process.env.DEVHUB_RELAY_CA_FILE = join(dir, 'absent-ca.pem')
+        const caMissing = cfg.loadRelayTlsTrust()
+        assert.equal(caMissing.ok, false)
+        assert.equal(caMissing.reason, 'ca-missing')
+        assert.match(caMissing.error ?? '', /provision .*ca\.pem/, 'structured error names the ca.pem path to provision')
+        assert.match(caMissing.error ?? '', /pin-only bypass of chain verification is not adopted/, 'docs/19 §10: no pin-only mode')
+
+        // 投影面（gateway_enabled 种子 0 → 其告警行共存；只断言 TLS 文本有无）
+        m.settingsSvc.setSetting('relay_enabled', '1')
+        m.settingsSvc.setSetting('relay_endpoint', 'wss://59.110.149.11/relay/host')
+        // 信任缺失 + wss → 结构化告警 + tls 状态行（ok:false 只读展示）
+        let view = statusProjector.projectRelayStatus()
+        assert.ok(view !== null && view.tls !== undefined, 'tls status row projected while relay enabled')
+        assert.equal(view.tls.ok, false)
+        assert.match(view.warning ?? '', /TLS trust material not loaded/, 'structured warning projected (never silent)')
+        assert.match(view.tls.error ?? '', /ca\.pem/)
+        // 信任齐备 → 无 TLS 告警，tls 状态行就绪
+        process.env.DEVHUB_RELAY_FINGERPRINTS_FILE = fpPath
+        process.env.DEVHUB_RELAY_CA_FILE = caPath
+        view = statusProjector.projectRelayStatus()
+        assert.equal(view?.tls.ok, true)
+        assert.equal(view?.tls.pins, 1, 'single-pin steady state')
+        assert.ok(!(view?.warning ?? '').includes('TLS trust material'), 'no TLS warning once trust is ready')
+        // ws:// loopback（docs/19 §11 时间盒）+ 信任缺失 → 不告警（TLS 与明文无关）
+        process.env.DEVHUB_RELAY_CA_FILE = join(dir, 'absent-ca.pem')
+        m.settingsSvc.setSetting('relay_endpoint', 'ws://127.0.0.1:18443')
+        view = statusProjector.projectRelayStatus()
+        assert.ok(!(view?.warning ?? '').includes('TLS trust material'), 'loopback ws timebox does not trigger TLS warnings')
+        assert.equal(view?.tls.ok, false, 'status row still shows the raw trust state')
+        // disabled → null 投影（零噪声向后兼容）
+        m.settingsSvc.setSetting('relay_enabled', '0')
+        assert.equal(statusProjector.projectRelayStatus(), null, 'disabled projects null')
+      } finally {
+        restore()
+      }
+    } finally {
+      await r1CaseTeardown(m)
+    }
+  }, 'fast')
+
+  // 165. tls{ca, checkServerIdentity} 构造正负用例（真实 TLS 栈，临时自签 IP SAN
+  //      证书 + 本地 TLS WS 桩段外端口）：对指纹通过（upgrade + 掩码帧双向）；错
+  //      指纹拒绝（pin mismatch 结构化）；双指纹窗口任一命中即过；默认规则先行——
+  //      IP SAN 不匹配即拒（pin 正确也不兜底，SAN 与指纹双保险 docs/19 §10.1）。
+  registerCase('nb-c1b-165: relay TLS wiring positive/negative over a real handshake — matching SPKI pin upgrades and frames flow masked both ways, wrong pin refused with structured pin mismatch, dual-fingerprint window passes on either pin, and default rules run first (IP SAN mismatch refuses even with the correct pin — SAN and pin are independent guards)', async () => {
+    const m = await r1CaseSetup('devhub-nb-c1b-165-')
+    const wsClient = await import(new URL('../src/main/services/agentControl/relayClient/wsClient.ts', import.meta.url).href)
+    const relayIndex = await import(new URL('../src/main/services/agentControl/relayClient/index.ts', import.meta.url).href)
+    const good = await c1bSelfSignedCert({ cn: 'devhub-c1b-good', ips: ['127.0.0.1'] })
+    const wrongSan = await c1bSelfSignedCert({ cn: 'devhub-c1b-wrongsan', ips: ['10.9.9.9'] })
+    let stubA = null
+    let stubB = null
+    try {
+      stubA = await c1bStartTlsRelayStub(good.certPem, good.keyPem)
+      const hooks = { onText: () => {}, onClosed: () => {} }
+      const endpoint = `wss://127.0.0.1:${stubA.port}`
+      // 对指纹通过：upgrade 成功 + 客户端掩码帧抵达桩 + Bearer 头同源
+      const okResult = await wsClient.openRelayConnection(
+        { endpoint, credential: 'nb-c1b-cred-165', tls: { ca: good.certPem, checkServerIdentity: relayIndex.buildRelayTlsCheckServerIdentity([good.spkiHex]) } },
+        hooks,
+      )
+      assert.equal(okResult.upgraded, true, `matching pin upgrades over the real TLS stack (${okResult.upgraded ? '' : okResult.error})`)
+      assert.ok(stubA.connections.length >= 1, 'TLS stub saw the upgraded connection')
+      okResult.connection.sendFrame({ type: 'heartbeat', ts: 1, lastSentSeq: 0 })
+      await pollUntil(() => (stubA.connections[0]?.received.length ?? 0) >= 1, 3000, 20, 'masked client frame arrives over TLS')
+      assert.equal(stubA.connections[0].received[0].json?.type, 'heartbeat', 'WS frame semantics intact over wss')
+      okResult.connection.close(1000, 'c1b positive done')
+      // 错指纹拒绝：结构化 pin mismatch
+      const badPin = await wsClient.openRelayConnection(
+        { endpoint, credential: 'nb-c1b-cred-165', tls: { ca: good.certPem, checkServerIdentity: relayIndex.buildRelayTlsCheckServerIdentity(['f'.repeat(64)]) } },
+        hooks,
+      )
+      assert.equal(badPin.upgraded, false, 'wrong pin refused')
+      assert.match(badPin.error ?? '', /pin mismatch/, 'structured pin mismatch error')
+      // 双指纹窗口：旧+新任一命中即过（新指纹列前，旧指纹命中）
+      const dual = await wsClient.openRelayConnection(
+        { endpoint, credential: 'nb-c1b-cred-165', tls: { ca: good.certPem, checkServerIdentity: relayIndex.buildRelayTlsCheckServerIdentity(['e'.repeat(64), good.spkiHex]) } },
+        hooks,
+      )
+      assert.equal(dual.upgraded, true, `dual-fingerprint window passes on either pin (${dual.upgraded ? '' : dual.error})`)
+      dual.connection.close(1000, 'c1b dual-window done')
+      // 默认规则先行：IP SAN 不匹配即拒（pin 正确也不兜底）
+      stubB = await c1bStartTlsRelayStub(wrongSan.certPem, wrongSan.keyPem, 18553)
+      const sanResult = await wsClient.openRelayConnection(
+        { endpoint: `wss://127.0.0.1:${stubB.port}`, credential: 'nb-c1b-cred-165', tls: { ca: wrongSan.certPem, checkServerIdentity: relayIndex.buildRelayTlsCheckServerIdentity([wrongSan.spkiHex]) } },
+        hooks,
+      )
+      assert.equal(sanResult.upgraded, false, 'IP SAN mismatch refused even with the matching pin')
+      assert.doesNotMatch(sanResult.error ?? '', /pin mismatch/, 'default rules fire BEFORE the pin check')
+      assert.match(sanResult.error ?? '', /altnames|does not match/i, 'refusal is the default IP SAN verdict')
+    } finally {
+      if (stubA !== null) await r1StubClose(stubA)
+      if (stubB !== null) await r1StubClose(stubB)
+      await r1CaseTeardown(m)
+    }
+  })
+
+  // 166. 状态机 wss 端到端 + 信任物缺失 fail-closed + 补放自愈（index.ts 接线）：
+  //      信任物缺失 + relay_enabled=1 → 连接流仍以缺省校验尝试（自签证书被默认链
+  //      验证拒绝 = fail-closed，lastError 结构化可见，绝不静默零连接也不崩）；
+  //      补放指纹/CA（env 缝）→ applyRelaySettings → tls 注入 → hello → ready；
+  //      statusProjector 告警随之消除。
+  registerCase('nb-c1b-166: state machine over wss end-to-end — missing trust material fails closed under default verification (structured lastError, reconnecting, warning projected, never crash), then provisioning fingerprints+ca.pem heals on the next apply without restart (tls injected, hello, ready, warning cleared)', async () => {
+    const m = await r1CaseSetup('devhub-nb-c1b-166-')
+    const statusProjector = await import(new URL('../src/main/services/agentControl/relayClient/statusProjector.ts', import.meta.url).href)
+    const dir = join(m.credentialFile, '..')
+    const fpPath = join(dir, 'fingerprints')
+    const caPath = join(dir, 'ca.pem')
+    const { certPem, keyPem, spkiHex } = await c1bSelfSignedCert({ cn: 'devhub-c1b-e2e', ips: ['127.0.0.1'] })
+    writeFileSync(fpPath, `sha256/${spkiHex}\n`, 'utf8')
+    writeFileSync(caPath, certPem, 'utf8')
+    const stub = await c1bStartTlsRelayStub(certPem, keyPem, 18563)
+    const restoreEnv = c1bUseTrustEnv(join(dir, 'absent-fingerprints'), join(dir, 'absent-ca.pem'))
+    try {
+      m.settingsSvc.setSetting('gateway_enabled', '1')
+      m.settingsSvc.setSetting('relay_enabled', '1')
+      m.settingsSvc.setSetting('relay_endpoint', `wss://127.0.0.1:${stub.port}`)
+      writeFileSync(m.credentialFile, 'nb-c1b-RELAY-CRED-166\n', 'utf8')
+      m.relay.configureRelayClientRuntime({ helloTimeoutMs: 3000, baseDelayMs: 50, maxDelayMs: 200 })
+      // 阶段一：信任物缺失 → 缺省校验 fail-closed（自签证书被拒），结构化可见
+      m.relay.startRelayClient()
+      await pollUntil(() => m.relay.getRelayClientDiagnostics().status === 'waiting-retry', 6000, 30, 'fail-closed waiting-retry (default verification refuses the self-signed cert)')
+      const diag = m.relay.getRelayClientDiagnostics()
+      assert.match(diag.lastError ?? '', /relay connect failed/, 'structured lastError carries the TLS refusal')
+      assert.match(statusProjector.projectRelayStatus()?.warning ?? '', /TLS trust material not loaded/, 'trust-missing warning stays visible while connecting')
+      // 阶段二：补放信任物（env 缝指向真物料）→ settings 收敛 → tls 注入 → ready
+      restoreEnv()
+      const restoreReady = c1bUseTrustEnv(fpPath, caPath)
+      try {
+        await m.relay.applyRelaySettings()
+        await r1HelloNewConnection(stub)
+        await pollUntil(() => m.relay.getRelayClientDiagnostics().status === 'ready', 6000, 30, 'ready after trust provisioning (no restart)')
+        const view = statusProjector.projectRelayStatus()
+        assert.equal(view?.connected, true, 'connected over wss with injected tls options')
+        assert.deepEqual(view?.tls, { ok: true, pins: 1, source: 'fingerprints' }, 'fingerprint status row ready (pins + source)')
+        assert.ok(!(view?.warning ?? '').includes('TLS trust material'), 'trust warning cleared once provisioned')
+      } finally {
+        restoreReady()
+      }
+    } finally {
+      m.relay.resetRelayClientForSmoke()
+      await r1StubClose(stub)
+      restoreEnv()
+      await r1CaseTeardown(m)
+    }
+  })
+
   await run(parseTierArg())
 }
