@@ -278,11 +278,20 @@ object ConnectionManager {
             _lastWsError.value = "relay TLS 指纹配置非法（docs/19 §10.2）：${err.message}"
             return
         }
+        // M3-C3a 修 2（C2 #3）：pin pattern = 具体 host（IP 字面量直接用）。空/非法 host
+        // → fail-fast 不构建 relay 通道（信任锚缺失时宁可不连，绝不静默降级明文/通配符——
+        // 曾用 `'*'` 令 OkHttp 抛 IllegalArgumentException，重连协程反复构建致进程死循环）。
+        val pinPattern = if (pinning != null) TlsPinningConfig.pinPatternFor(endpoint.host) else null
+        if (pinning != null && pinPattern == null) {
+            _lastWsError.value = "relay TLS 指纹已配置但 endpoint host 为空/非法，无法构造 pin pattern（fail-fast 不注入）"
+            return
+        }
         relayEndpointDisplay = endpoint.url
         relayApi = GatewayApi(
             baseUrlProvider = { "https://${endpoint.host}:${endpoint.port}" },
             tokenProvider = { appContext?.let { SecureStore.loadToken(it) } },
             tlsPinning = pinning,
+            pinHost = pinPattern,
         )
         relayWsClient = OkHttpClient.Builder()
             .pingInterval(30, TimeUnit.SECONDS)
@@ -291,19 +300,20 @@ object ConnectionManager {
                 ProtocolHeadersInterceptor { appContext?.let { SecureStore.loadToken(it) } },
             )
             .apply {
-                if (pinning != null) {
+                if (pinning != null && pinPattern != null) {
                     // 信任锚 = 指纹（自签 IP 证书不受系统信任，docs/19 §10.5 属预期）：
                     // TrustManager 放行链 + CertificatePinner 强制 SPKI 比对（R-B9 三拒语义）。
                     val (factory, trustManager) = RelayTlsTrust.sslSocketFactory(pinning)
                     sslSocketFactory(factory, trustManager)
-                    certificatePinner(pinning.toCertificatePinner())
+                    certificatePinner(pinning.toCertificatePinner(pinPattern))
                 }
             }
             .build()
     }
 
-    /** pinFingerprints 拆分（逗号/换行/分号）；空 → null（不启用 pinning）；非法条目 fail-fast。 */
-    private fun parsePinning(raw: String?): TlsPinningConfig? {
+    /** pinFingerprints 拆分（逗号/换行/分号）；空 → null（不启用 pinning）；非法条目 fail-fast。
+     *  M3-C3a 修 1 起供 RelayPairingClient（裸连接 pair 的 WS 客户端）复用（internal 同模块）。 */
+    internal fun parsePinning(raw: String?): TlsPinningConfig? {
         val entries = raw
             ?.split(',', '\n', ';')
             ?.map { it.trim() }

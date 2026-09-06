@@ -153,4 +153,37 @@ class TlsPinningTest {
             // 预期：候选来自受控解码路径，格式异常应立即暴露
         }
     }
+
+    // ---- M3-C3a 修 2（C2 #3）：OkHttp CertificatePinner pin pattern 三态 ----
+    // 通配符 '*' 曾直接进 CertificatePinner.Builder → OkHttp IllegalArgumentException
+    // → relay 配指纹后重连协程反复构建 → 进程死循环。pattern 必须为具体 host。
+
+    @Test
+    fun `pin pattern - IP literal used directly`() {
+        // U1 无域名裁决：relay endpoint 为 IP 形态，IP 字面量直接作 pattern（OkHttp 支持）
+        assertEquals("59.110.149.11", TlsPinningConfig.pinPatternFor("59.110.149.11"))
+        assertEquals("10.0.2.2", TlsPinningConfig.pinPatternFor(" 10.0.2.2 "))
+    }
+
+    @Test
+    fun `pin pattern - domain host kept lowercase`() {
+        assertEquals("relay.example.com", TlsPinningConfig.pinPatternFor("relay.example.com"))
+        assertEquals("relay.example.com", TlsPinningConfig.pinPatternFor("Relay.Example.COM"))
+    }
+
+    @Test
+    fun `pin pattern - empty host returns null (fail-fast, no injection)`() {
+        // 空 host → null = 调用方必须跳过 pinner 注入，绝不回退通配符
+        for (bad in listOf(null, "", "   ")) {
+            assertEquals(null, TlsPinningConfig.pinPatternFor(bad))
+        }
+    }
+
+    @Test
+    fun `pin pattern - wildcard or non-hostname shapes rejected as null`() {
+        // 通配符/端口/路径/URL 形态绝不做 pattern（OkHttp 会抛 IllegalArgumentException）
+        for (bad in listOf("*", "*.example.com", "example.com:443", "example.com/path", "wss://example.com")) {
+            assertEquals("pattern '$bad' must be rejected", null, TlsPinningConfig.pinPatternFor(bad))
+        }
+    }
 }
