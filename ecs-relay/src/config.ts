@@ -28,6 +28,8 @@ export interface RelayConfig {
   pairingMaxFailures: number
   /** 命令 TTL（docs/18 §5.2：expires = 收帧 + 300s；排队 TTL 同步）。 */
   commandTtlSec: number
+  /** token_rotation 宽限窗口（docs/18 §3.14：旧 Token 自帧发出起 300s 后失效）。 */
+  rotationGraceSec: number
   /** 命令排队上限（docs/18 §3.9：每设备 100 / 全局 1000）。 */
   queueLimitPerDevice: number
   queueLimitGlobal: number
@@ -83,6 +85,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RelayConfig {
     pairingTtlSec: intEnv(env, 'RELAY_PAIRING_TTL_SEC', 300),
     pairingMaxFailures: intEnv(env, 'RELAY_PAIRING_MAX_FAILURES', 5),
     commandTtlSec: intEnv(env, 'RELAY_COMMAND_TTL_SEC', 300),
+    rotationGraceSec: intEnv(env, 'RELAY_ROTATION_GRACE_SEC', 300),
     queueLimitPerDevice: intEnv(env, 'RELAY_QUEUE_LIMIT_PER_DEVICE', 100),
     queueLimitGlobal: intEnv(env, 'RELAY_QUEUE_LIMIT_GLOBAL', 1000),
     relayResponseTimeoutMs: intEnv(env, 'RELAY_RESPONSE_TIMEOUT_SEC', 10) * 1000,

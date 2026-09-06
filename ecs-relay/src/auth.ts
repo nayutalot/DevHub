@@ -14,6 +14,7 @@
  */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import type { Store } from './store.ts'
+import type { Audit } from './audit.ts'
 import { RelayError } from './errors.ts'
 
 /** sha256 hex（Token/凭据/配对码共用哈希管道；明文绝不落日志/DB——红线）。 */
@@ -49,6 +50,8 @@ export interface RelayDevice {
   deviceName: string
   platform: string
   tokenVersion: number
+  /** true = 以 rotation 宽限窗口内的旧凭据通过（docs/18 §3.14；连接期满被清扫关闭）。 */
+  viaGrace: boolean
 }
 
 export interface RelayHost {
@@ -60,18 +63,45 @@ export interface RelayHost {
  * L1 设备注册表校验（docs/19 §2.1）：sha256(token) ∈ relay_devices 且 status='active'。
  * 无此身份 → RELAY_DEVICE_UNKNOWN（不泄漏设备存在性：对占位等长哈希做常数时间比较）；
  * 撤销 → DEVICE_REVOKED（W8 撤销即拒）。
+ *
+ * token_rotation 宽限三态（docs/18 §3.14「旧 Token 自帧发出起 300s 后失效」，M3-C3b 修1）：
+ *   ① 新哈希（token_hash）命中 → 200（恒定）；
+ *   ② 旧哈希（grace_token_hash）命中且 now < grace_expires_at → 200（viaGrace=true，
+ *      连接登记宽限面，窗口过期由 forwarder 清扫关闭——README 偏离单 #11）；
+ *   ③ 旧哈希命中但窗口已过 → 401 RELAY_DEVICE_UNKNOWN（设备走重配对路径，docs/18 §3.14；
+ *      该结果审计落 device 类目）。撤销设备即使在窗内也恒 DEVICE_REVOKED（撤销即拒优先）。
+ * 存量单哈希行（grace 列 NULL，0002 迁移兼容）→ 行为与升级前一致。
  */
-export function authenticateDeviceToken(store: Store, token: string | null): RelayDevice {
+export function authenticateDeviceToken(store: Store, token: string | null, audit?: Audit): RelayDevice {
   if (token === null) {
     throw new RelayError('AUTH_INVALID_TOKEN', 'relay: missing or malformed Authorization: Bearer header')
   }
   const tokenHash = sha256Hex(token)
-  const row = store.get<{ id: number; win_device_id: number | null; device_name: string; platform: string; token_hash: string; token_version: number; status: string }>(
-    'SELECT id, win_device_id, device_name, platform, token_hash, token_version, status FROM relay_devices WHERE token_hash = ?',
+  const deviceColumns = 'id, win_device_id, device_name, platform, token_hash, token_version, status, grace_token_hash, grace_expires_at'
+  const row = store.get<{ id: number; win_device_id: number | null; device_name: string; platform: string; token_hash: string; token_version: number; status: string; grace_token_hash: string | null; grace_expires_at: number | null }>(
+    `SELECT ${deviceColumns} FROM relay_devices WHERE token_hash = ?`,
     tokenHash,
   )
   if (row === undefined) {
     constantTimeEquals(tokenHash, '0'.repeat(64))
+    const graceRow = store.get<{ id: number; win_device_id: number | null; device_name: string; platform: string; token_hash: string; token_version: number; status: string; grace_token_hash: string | null; grace_expires_at: number | null }>(
+      `SELECT ${deviceColumns} FROM relay_devices WHERE grace_token_hash = ?`,
+      tokenHash,
+    )
+    if (graceRow !== undefined && graceRow.grace_token_hash !== null && constantTimeEquals(tokenHash, graceRow.grace_token_hash)) {
+      if (graceRow.status === 'revoked') {
+        // 撤销优先于宽限（docs/18 §3.15：撤销后任何连接 401 DEVICE_REVOKED）
+        throw new RelayError('DEVICE_REVOKED', `relay: device ${graceRow.id} is revoked (token permanently rejected)`)
+      }
+      const nowSec = Math.floor(Date.now() / 1000)
+      if (graceRow.grace_expires_at !== null && nowSec < graceRow.grace_expires_at) {
+        audit?.write({ category: 'device', action: 'token_rotation_grace_admitted', outcome: 'success', deviceId: graceRow.id, detail: { graceRemainingSec: graceRow.grace_expires_at - nowSec } })
+        return { id: graceRow.id, winDeviceId: graceRow.win_device_id, deviceName: graceRow.device_name, platform: graceRow.platform, tokenVersion: graceRow.token_version, viaGrace: true }
+      }
+      // 窗口已过：旧凭据失效 → 重配对路径（docs/18 §3.14「401 → 走重配对路径」；审计 device 类目）
+      audit?.write({ category: 'device', action: 'token_rotation_grace_expired', outcome: 'denied', deviceId: graceRow.id, detail: {} })
+      throw new RelayError('RELAY_DEVICE_UNKNOWN', `relay: rotation grace window elapsed for device ${graceRow.id} (old token no longer accepted; re-pair required, docs/18 §3.14)`)
+    }
     throw new RelayError('RELAY_DEVICE_UNKNOWN', 'relay: device is not enrolled in the relay registry')
   }
   if (!constantTimeEquals(tokenHash, row.token_hash)) {
@@ -80,7 +110,7 @@ export function authenticateDeviceToken(store: Store, token: string | null): Rel
   if (row.status === 'revoked') {
     throw new RelayError('DEVICE_REVOKED', `relay: device ${row.id} is revoked (token permanently rejected)`)
   }
-  return { id: row.id, winDeviceId: row.win_device_id, deviceName: row.device_name, platform: row.platform, tokenVersion: row.token_version }
+  return { id: row.id, winDeviceId: row.win_device_id, deviceName: row.device_name, platform: row.platform, tokenVersion: row.token_version, viaGrace: false }
 }
 
 /** L2 主机凭据校验（docs/19 §2.2）：sha256(credential) ∈ relay_hosts 且 active。 */

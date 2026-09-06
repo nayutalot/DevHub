@@ -916,6 +916,10 @@ function RelayPanel({ relay, onChanged }: {
     setBusy('enabled')
     try {
       await call('settings:set', { key: 'relay_enabled', value: next ? '1' : '0' })
+      // M3-C3b 修3（C2 #4/C1c 遗留）：settings:set relay 键成功后失效本查询——勾选态由
+      // 查询真值重渲染。此前 enabledSetting deps=[] 永不回刷（refreshAllPanels 只刷兄弟
+      // 面板查询），checkbox 显示态与 DB 真值漂移。
+      enabledSetting.refresh()
       show(`relay_enabled = ${next ? '1' : '0'}（relayClient 已按设置收敛）`)
       onChanged()
     } catch (err) {
@@ -930,6 +934,9 @@ function RelayPanel({ relay, onChanged }: {
     setBusy('endpoint')
     try {
       await call('settings:set', { key: 'relay_endpoint', value: endpointInput.trim() })
+      // 同修3：endpoint 写入后失效查询并复位 touched——输入框回填 DB 真值（显示态=查询真值）
+      endpointSetting.refresh()
+      setEndpointTouched(false)
       show(`relay_endpoint saved（relayClient 已按设置收敛）`)
       onChanged()
     } catch (err) {

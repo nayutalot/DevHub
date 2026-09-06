@@ -224,9 +224,9 @@ export function startRelayServer(options: { config?: ReturnType<typeof loadConfi
         return
       }
       try {
-        const device = authenticateDeviceToken(store, bearer)
+        const device = authenticateDeviceToken(store, bearer, audit)
         const conn = completeUpgrade(socket, check.clientKey, { side: 'device', bare: false, deviceId: device.id, remoteIp })
-        forwarder.admitDeviceConnection(conn, device.id)
+        forwarder.admitDeviceConnection(conn, device.id, device.viaGrace)
         if (head.length > 0) conn.feed(head)
       } catch (err) {
         const code = err instanceof RelayError ? err.code : 'AUTH_INVALID_TOKEN'
