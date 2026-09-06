@@ -148,6 +148,12 @@ fun PairingScreen(onPaired: () -> Unit) {
                                                 pairedAtSec = System.currentTimeMillis() / 1000,
                                             ),
                                         )
+                                        // M3-C6c bug#3：pair 腿捕获的 token_rotation 在 v1 落库**之后**
+                                        // 逐帧应用（保序；tokenVersion 单调门防旧帧）——消 ≤300s grace
+                                        // 到期自毁竞态（C2c #38/39/40）。newToken 明文零日志红线适用。
+                                        for (rotation in outcome.pendingRotations) {
+                                            RelayPairingClient.applyRotation(context, db, rotation)
+                                        }
                                     }
                                     showSecurityNotice = true // 首配对后一次性安全提示
                                 }
