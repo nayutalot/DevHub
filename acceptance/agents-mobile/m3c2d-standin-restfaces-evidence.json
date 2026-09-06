@@ -1,0 +1,43 @@
+{
+  "cmd": "rest-faces",
+  "startedAt": "2026-09-06T20:20:48.295Z",
+  "steps": [
+    {
+      "step": "rest_legit",
+      "ok": true,
+      "ts": 1788726058408,
+      "status": 504,
+      "code": "RELAY_UPSTREAM_TIMEOUT"
+    },
+    {
+      "step": "rest_replay_same_nonce",
+      "ok": true,
+      "ts": 1788726058798,
+      "status": 401,
+      "code": "AUTH_REPLAYED"
+    },
+    {
+      "step": "rest_stale_ts",
+      "ok": true,
+      "ts": 1788726059217,
+      "status": 401,
+      "code": "AUTH_REPLAYED"
+    }
+  ],
+  "frames": [],
+  "faces": {
+    "legit": {
+      "status": 504,
+      "code": "RELAY_UPSTREAM_TIMEOUT"
+    },
+    "replay": {
+      "status": 401,
+      "code": "AUTH_REPLAYED"
+    },
+    "stale": {
+      "status": 401,
+      "code": "AUTH_REPLAYED"
+    }
+  },
+  "finishedAt": "2026-09-06T20:20:59.217Z"
+}

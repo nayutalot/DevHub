@@ -1,0 +1,28 @@
+{
+  "cmd": "command-queued",
+  "startedAt": "2026-09-06T20:21:35.040Z",
+  "steps": [
+    {
+      "step": "command_ack",
+      "ok": true,
+      "ts": 1788726095186,
+      "status": "accepted",
+      "queued": true,
+      "errorCode": null
+    }
+  ],
+  "frames": [
+    {
+      "sent": "command",
+      "idempotencyKey": "15895069-24ae-48e3-beb6-7f5420cfc82a",
+      "sessionId": 506
+    }
+  ],
+  "idempotencyKey": "15895069-24ae-48e3-beb6-7f5420cfc82a",
+  "ack": {
+    "status": "accepted",
+    "queued": true,
+    "errorCode": null
+  },
+  "finishedAt": "2026-09-06T20:21:35.187Z"
+}
