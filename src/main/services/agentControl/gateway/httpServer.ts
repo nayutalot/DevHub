@@ -36,7 +36,8 @@
  * （零凭据——约束 #13）；限流/防重放参数见 auth.ts（docs/14 §B.4 落值）。
  *
  * 写库纪律：本模块零直接写库——读投影直查/L3 读函数，配对/命令/审计/last_seen
- * 全部经 L3 函数（recordSecurityAudit/pairDevice/submitRemoteCommand/revokeDevice/
+ * 全部经 L3 函数（createPairing(M3-C6a 起 REST 与 IPC 同源，含 notifyPairingIssued
+ * 签发同步)/recordSecurityAudit/pairDevice/submitRemoteCommand/revokeDevice/
  * touchDeviceLastSeen，约束 #20）。事件投递接线：eventPipeline 投递回调 →
  * WS 在线设备推送；markDelivered/markAcked 由 ws.ts 调 L3 eventPipeline。
  * electron-free（node:http/node:crypto），.ts 直载可被 smoke 加载。
@@ -50,6 +51,7 @@ import type { SessionStatus } from '../../../../shared/types.ts'
 import {
   AGENT_LIST_LIMIT_MAX,
   AGENT_SESSION_STATUSES,
+  createPairing,
   getAgentSessionDetail,
   getDiagnostics,
   isGatewayEnabled,
@@ -78,7 +80,7 @@ import {
   sourceKeyFromRemoteAddress,
   type AuthenticatedDevice,
 } from './auth.ts'
-import { createPairingCode, claimPairingCode } from './pairing.ts'
+import { claimPairingCode } from './pairing.ts'
 import { attachWebSocketServer, type GatewayWsHandle, type GatewayWsOptions } from './ws.ts'
 
 // ---------------------------------------------------------------------------
@@ -628,7 +630,11 @@ async function route(
     }
     const body = (await readJsonBody(req)) ?? {}
     const deviceName = optionalStringField(body, 'deviceName', 100)
-    const created = createPairingCode(deviceName)
+    // M3-C6a：签发统一走 L3 createPairing（与 IPC agents:pairingCreate 同源）——
+    // 签发后 notifyPairingIssued → pairingBridge register_pairing 同步 ECS
+    // pairing_codes（docs/19 §4.5，relay 离线自动退化本地模式，绝不影响签发）。
+    // 响应契约不变（{pairingId, code, expiresAt}）；回环/防重放/TTL/审计零变化。
+    const created = await createPairing(deviceName)
     sendJson(res, 201, created)
     return 201
   }

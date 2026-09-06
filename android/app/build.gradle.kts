@@ -54,6 +54,8 @@ dependencies {
 
     implementation(libs.okhttp)
 
+    testImplementation(libs.junit)
+
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)

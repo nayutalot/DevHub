@@ -2,10 +2,12 @@ package com.devhub.mobile.data.remote
 
 import com.devhub.mobile.core.TlsPinningConfig
 import java.security.KeyStore
+import java.security.MessageDigest
 import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocketFactory
+import javax.net.ssl.TrustManager
 import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
 import okhttp3.CertificatePinner
@@ -53,25 +55,38 @@ fun TlsPinningConfig.toCertificatePinner(hostPattern: String): CertificatePinner
 
 /**
  * R3 接缝（docs/19 §10.2 信任模型落地）：自签 IP 证书**不受系统默认信任**（§10.5 属预期），
- * relay 模式配置指纹后，信任锚 = 指纹本身——TrustManager 侧放行链（信任裁决移交
- * CertificatePinner），OkHttp 在握手上对 SPKI 指纹强制 pin 比对，任何指纹不匹配
- * → 握手失败（R-B9 三拒语义：错误证书/错误指纹/过期证书的 SPKI 都不匹配 → 全被拒）。
+ * relay 模式配置指纹后，**信任锚 = 配置指纹本身**——[PinTrustManager.checkServerTrusted]
+ * 按叶证书 SPKI sha256 ∈ 配置指纹列表裁决信任（任一匹配即信任；不匹配 = 结构化拒绝）。
+ * M3-C6a（C2b 四步实验闭环）：旧实现把信任裁决整体移交 OkHttp CertificatePinner、
+ * `getAcceptedIssuers()` 返回空数组 → CertificateChainCleaner 无信任锚 → `clean([leaf])`
+ * 抛 "Failed to find a trusted cert"，正确指纹也握手失败。现改为 TrustManager 侧就地
+ * 完成 pin-only 信任裁决（Android 侧 CertificateChainCleaner 经 X509TrustManagerExtensions
+ * 委托同一 checkServerTrusted——信任判定单点）；CertificatePinner 保留作强制层（双保险），
+ * HostnameVerifier 保持默认（IP SAN 校验 = docs/19 §10.1）。**§10.5 红线：自签 CA 绝不
+ * 入 App**——信任锚是配置指纹列表，绝非任何 CA 证书。
  *
  * 红线：本 TrustManager **只**用于 relay 模式 OkHttp 客户端构造（指纹已配置时），
  * 绝不触碰 local 模式明文路径与系统默认信任的其他通道；pin 面为空时绝不使用本构造。
+ * 保持既有面：错误指纹 → 握手拒 + 错误结构化可诊断 + 进程不崩（R-B9 三拒语义）；
+ * 指纹格式 fail-fast 不变；local 模式 null 配置零回归（docs/19 §10.2 / D7）。
  */
 object RelayTlsTrust {
 
-    /** 指纹已配置时的 relay 专用 SSL 套件：信任委托给 CertificatePinner（指纹即信任锚）。 */
+    /** 指纹已配置时的 relay 专用 SSL 套件：信任锚 = 配置指纹（[PinTrustManager] 就地裁决）。 */
     fun sslSocketFactory(pinning: TlsPinningConfig): Pair<SSLSocketFactory, X509TrustManager> {
         require(pinning.fingerprints.isNotEmpty()) { "relay TLS: fingerprints must not be empty" }
+        val trustManager = PinTrustManager(pinning)
         val context = SSLContext.getInstance("TLS")
-        context.init(null, arrayOf(DelegatingTrustManager), null)
-        return context.socketFactory to DelegatingTrustManager
+        context.init(null, arrayOf<TrustManager>(trustManager), null)
+        return context.socketFactory to trustManager
     }
 
-    /** 链校验委托给指纹 pin（握手后 OkHttp CertificatePinner 强制比对 SPKI）。 */
-    private object DelegatingTrustManager : X509TrustManager {
+    /**
+     * pin-only 信任裁决（docs/19 §10.2）：checkServerTrusted 按**叶证书** SPKI sha256
+     * ∈ 配置指纹列表放行/拒绝。双指纹轮换窗口（旧+新任一匹配即信任）由 :core
+     * `TlsPinningConfig.matches` 原样承载（docs/19 §10.4）。
+     */
+    private class PinTrustManager(private val pinning: TlsPinningConfig) : X509TrustManager {
         private val systemFallback: X509TrustManager by lazy {
             TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply {
                 init(null as KeyStore?)
@@ -84,11 +99,28 @@ object RelayTlsTrust {
         }
 
         override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {
-            // 信任裁决移交 CertificatePinner：SPKI 指纹 ∈ 配置列表才可能通过（pin 在
-            // 握手完成时强制执行；链非法到无法取证书的形态由抛错兜底）。
+            // 信任锚 = 配置指纹本身：叶 SPKI ∈ pins 才信任；不匹配 → 结构化拒绝
+            // （指纹形态可诊断；零码/零凭据面——SPKI 哈希非秘密）。链深度不做要求：
+            // 服务端可发叶-only（caddy 443 实测 chainLen=1），信任判定只看叶 SPKI。
             if (chain.isEmpty()) throw CertificateException("relay TLS: empty server chain")
+            val fingerprint = spkiSha256Fingerprint(chain[0])
+            if (pinning.matches(fingerprint)) return
+            throw CertificateException(
+                "relay TLS: server SPKI $fingerprint not in configured pins " +
+                    "${pinning.fingerprints} (docs/19 §10.2 pin-only; verify relay fingerprint provisioning / rotation window)",
+            )
         }
 
+        /**
+         * 信任锚 = 配置指纹列表，**不是**任何 issuer DN 证书集（§10.5：自签 CA 绝不
+         * 入 App）。Android 侧 CertificateChainCleaner 经 X509TrustManagerExtensions
+         * 委托 [checkServerTrusted]（信任判定单点），不消费本列表。
+         */
         override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
     }
+
+    /** 证书 SPKI（SubjectPublicKeyInfo DER）sha256 → `sha256/` + 小写 hex（:core 同形态）。 */
+    internal fun spkiSha256Fingerprint(cert: X509Certificate): String =
+        "sha256/" + MessageDigest.getInstance("SHA-256").digest(cert.publicKey.encoded)
+            .joinToString("") { "%02x".format(it) }
 }
