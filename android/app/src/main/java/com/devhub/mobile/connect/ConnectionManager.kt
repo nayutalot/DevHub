@@ -12,13 +12,13 @@ import com.devhub.mobile.core.QueuedCommand
 import com.devhub.mobile.core.ReplayVerdict
 import com.devhub.mobile.core.TlsPinningConfig
 import com.devhub.mobile.core.relay.BoundedSeenSet
-import com.devhub.mobile.core.relay.CumulativeAckCursor
 import com.devhub.mobile.core.relay.RelayAckVerdict
 import com.devhub.mobile.core.relay.RelayActions
 import com.devhub.mobile.core.relay.RelayCodec
 import com.devhub.mobile.core.relay.RelayCommandClassifier
 import com.devhub.mobile.core.relay.RelayEndpoint
 import com.devhub.mobile.core.relay.RelayFrame
+import com.devhub.mobile.core.relay.RelaySyncEngine
 import com.devhub.mobile.core.relay.RelayTokenRotation
 import com.devhub.mobile.core.relay.RotationOutcome
 import com.devhub.mobile.core.relay.StoredToken
@@ -184,9 +184,12 @@ object ConnectionManager {
     @Volatile
     private var ackFlushScheduled = false
 
-    // relay 累计游标（docs/18 §3.11/§6.2：after = max(连续已处理)；持久化 row2，ack 只前进）
+    // relay 同步引擎（docs/18 §3.11/§6.2：after = max(连续已处理)；持久化 row2，ack 只前进）。
+    // M3-C8a：游标 + sync 引导出帧决策委托 RelaySyncEngine（纯逻辑 :core 单测直测）——
+    // 旧实现在 sendRelaySyncRequest 对 after<=0 早退 → fresh 游标永 0 → sync_request 永不发
+    // → 补发永不启动 → held 只增、ack 不落盘（C2e 实证死锁链，修复见 helloSyncFrame 出帧处）。
     @Volatile
-    private var relayCursor = CumulativeAckCursor()
+    private var relaySync = RelaySyncEngine()
 
     @Volatile
     private var relayAckScheduled = false
@@ -368,7 +371,7 @@ object ConnectionManager {
             lastAckedSeq = runCatching { db!!.eventAckStateDao().get()?.lastAckedSeq ?: 0L }.getOrDefault(0L)
             // relay 累计游标恢复（row2 独立 sequence 空间；ack 只前进，docs/18 §6.2）
             val relayRestored = runCatching { db!!.eventAckStateDao().getRelay()?.lastAckedSeq ?: 0L }.getOrDefault(0L)
-            relayCursor = CumulativeAckCursor(relayRestored)
+            relaySync = RelaySyncEngine(relayRestored)
             runLoop()
         }
     }
@@ -587,8 +590,12 @@ object ConnectionManager {
                 heartbeatSec = frame.heartbeatSec
                 _upstreamBeacon.value = frame.upstream
                 _state.value = ConnState.Connected(frame.heartbeatSec, frame.sequence)
-                Log.i(TAG, "relay hello seq=${frame.sequence}, upstream=${frame.upstream}, sync after=${relayCursor.value}")
-                sendRelaySyncRequest()
+                Log.i(TAG, "relay hello seq=${frame.sequence}, upstream=${frame.upstream}, sync after=${relaySync.after}")
+                // M3-C8a 引导修复（docs/18 §6.1.2）：hello 后必发 sync_request {after = 本地游标}——
+                // fresh install（after=0）也必须发出（ECS 以 sequence>after 升序补页 + upTo/hasGaps
+                // 暴露水位，§3.12/forwarder.ts 实证）。旧实现 sendRelaySyncRequest 对 after<=0 早退
+                // → fresh 引导死锁（sync_request 永不发 → 补发永不启动 → held 只增、ack 不落盘）。
+                if (webSocket?.send(relaySync.helloSyncFrame()) == true) persistRelayCursor()
                 startRelayHeartbeat()
                 if (frame.upstream != "disconnected") scheduleRelayFlush()
                 bumpRefreshSignal() // R5.3：重连补偿
@@ -601,7 +608,7 @@ object ConnectionManager {
                 for (event in frame.events) handleRelayEvent(event)
                 if (frame.hasGaps) {
                     Log.w(TAG, "relay sync_response hasGaps upTo=${frame.upTo} → explicit gapFill")
-                    if (relayCursor.gapFill(frame.upTo)) persistRelayCursor()
+                    if (relaySync.gapFill(frame.upTo)) persistRelayCursor()
                     scheduleRelayAck()
                 }
                 bumpRefreshSignal() // R5.3：补发页即投影变化信号
@@ -649,10 +656,10 @@ object ConnectionManager {
         _lastEventAtMs.value = System.currentTimeMillis()
         bumpRefreshSignal() // R5.3：事件即刷新信号（UI 立即拉取，轮询只作 120s 兜底）
         // 累计游标（docs/18 §3.11/§6.2）：仅接续前进；空洞挂起（held），重复/旧序绝不回退
-        if (relayCursor.observe(frame.sequence)) {
+        if (relaySync.observe(frame.sequence)) {
             scheduleRelayAck()
         } else {
-            Log.d(TAG, "relay seq=${frame.sequence} not contiguous (cursor=${relayCursor.value}, held=${relayCursor.heldCount()})")
+            Log.d(TAG, "relay seq=${frame.sequence} not contiguous (cursor=${relaySync.after}, held=${relaySync.heldCount()})")
         }
 
         // 事件 → 通知映射（waiting_input 两 status / status_changed 终态；relay 帧带
@@ -705,7 +712,7 @@ object ConnectionManager {
                     RelayCodec.encode(
                         RelayFrame.Heartbeat(
                             ts = System.currentTimeMillis() / 1000,
-                            lastAckedSeq = relayCursor.value,
+                            lastAckedSeq = relaySync.after,
                             tokenVersion = tokenVersion,
                         ),
                     ),
@@ -726,18 +733,21 @@ object ConnectionManager {
         }
     }
 
+    /**
+     * 节流回调的 sync_request 发送（after = 游标；兼任累计 ACK，docs/18 §3.11）。
+     * M3-C8a：hello 引导出帧已改走 [relaySync.helloSyncFrame]（after=0 必发，§6.1.2）——本函数
+     * 只服务「游标前进/hasGaps 推进」后的 ACK 面（此时 after>0 由 observe/gapFill 前进语义保证）。
+     */
     private fun sendRelaySyncRequest() {
         val ws = webSocket ?: return
-        val after = relayCursor.value
-        if (after <= 0) return // 尚无已处理事件：不发（after=0 语义上等同初始态，避免无谓帧）
-        if (ws.send(RelayCodec.encode(RelayFrame.SyncRequest(requestId = null, after = after)))) {
+        if (ws.send(relaySync.ackSyncFrame())) {
             persistRelayCursor()
         }
     }
 
     /** 游标持久化（row2；与 local row1 分空间，防模式串扰）。 */
     private fun persistRelayCursor() {
-        val value = relayCursor.value
+        val value = relaySync.after
         runCatching { db?.eventAckStateDao()?.upsert(EventAckStateEntity(id = 2, lastAckedSeq = value)) }
             .onFailure { Log.w(TAG, "relay cursor persist failed: ${LogRedactor.scrub(it.message ?: "?")}") }
     }
