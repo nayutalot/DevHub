@@ -19,7 +19,7 @@
 
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { getDatabase } from '../../../db/index.ts'
-import { ServiceError } from '../../internal.ts'
+import { nowSec, ServiceError } from '../../internal.ts'
 
 // ---------------------------------------------------------------------------
 // Token 校验（docs/15 §3：SHA-256 只存哈希；撤销即拒）
@@ -75,9 +75,28 @@ export interface AuthenticatedDevice {
 }
 
 /**
+ * 轮换宽限窗（docs/18 §3.14 权威值 300s，M3-C7b 修 ② 桌面镜像）：旧 Token 自
+ * token_rotation 帧发出（= rotateDeviceToken 落库 rotated_at）起 300s 内仍被
+ * 认可，窗外拒绝；无轮换（previous_token_hash IS NULL）恒只认当前 token_hash。
+ */
+export const ROTATION_GRACE_SEC = 300
+
+/** 轮换宽限判定（rotated_at 缺失视为已出窗——绝不猜；只前进不回拨）。 */
+export function isWithinRotationGrace(rotatedAt: number | null, now: number = nowSec()): boolean {
+  return rotatedAt !== null && Number.isSafeInteger(rotatedAt) && now - rotatedAt <= ROTATION_GRACE_SEC
+}
+
+/**
  * Bearer Token 校验（docs/15 §3/§4）：sha256(token) 查 remote_devices（token_hash
  * 唯一索引）；常数时间二次比对防时序；撤销 → DEVICE_REVOKED（W8 撤销即拒）。
  * 抛 ServiceError：AUTH_INVALID_TOKEN / DEVICE_REVOKED（docs/14 Part C）。
+ *
+ * M3-C7b 修 ②（docs/18 §3.14 轮换宽限桌面镜像）：主哈希未命中时按
+ * previous_token_hash（migration 006 append-only 新列）二次查表——命中且
+ * (now - rotated_at) ≤ ROTATION_GRACE_SEC → 宽限放行（设备侧 v1 在窗内仍有效，
+ * R-B4/R-B5 解锁根）；窗外/rotated_at 缺失 → AUTH_INVALID_TOKEN。撤销即拒对
+ * 两条命中路径同等生效（宽限绝不复活已撤销设备，docs/15 §4）。tokenVersion
+ * 返回行现值（新版本号）——设备自己的 v1 视图由其本地状态承载，本侧不伪造。
  */
 export function authenticateBearerToken(token: string | null): AuthenticatedDevice {
   if (token === null) {
@@ -89,20 +108,46 @@ export function authenticateBearerToken(token: string | null): AuthenticatedDevi
     .get(tokenHash) as
     | { id: number; device_name: string; platform: string; token_hash: string; token_version: number; status: string }
     | undefined
-  if (row === undefined) {
-    // 行不存在与哈希不一致同一口径（不泄漏设备存在性）：对占位等长哈希做一次
-    // 常数时间比较保持恒定路径，再统一 AUTH_INVALID_TOKEN
-    constantTimeEquals(tokenHash, '0'.repeat(64))
-    throw new ServiceError('AUTH_INVALID_TOKEN', 'gateway: device token is invalid')
+  if (row !== undefined) {
+    // 常数时间二次比对：sha256(提交 Token) 与库存 token_hash 逐字节比对（防时序）
+    if (!constantTimeEquals(tokenHash, row.token_hash)) {
+      throw new ServiceError('AUTH_INVALID_TOKEN', 'gateway: device token is invalid')
+    }
+    if (row.status === 'revoked') {
+      throw new ServiceError('DEVICE_REVOKED', `gateway: device ${row.id} is revoked (token permanently rejected, docs/15 §4)`)
+    }
+    return { id: row.id, deviceName: row.device_name, platform: row.platform, tokenVersion: row.token_version }
   }
-  // 常数时间二次比对：sha256(提交 Token) 与库存 token_hash 逐字节比对（防时序）
-  if (!constantTimeEquals(tokenHash, row.token_hash)) {
-    throw new ServiceError('AUTH_INVALID_TOKEN', 'gateway: device token is invalid')
+  // 轮换宽限镜像（docs/18 §3.14）：旧 Token 窗内仍认（M3-C7b 修 ②）
+  const prevRow = getDatabase()
+    .prepare(
+      'SELECT id, device_name, platform, previous_token_hash, rotated_at, token_version, status FROM remote_devices WHERE previous_token_hash = ?',
+    )
+    .get(tokenHash) as
+    | {
+        id: number
+        device_name: string
+        platform: string
+        previous_token_hash: string
+        rotated_at: number | null
+        token_version: number
+        status: string
+      }
+    | undefined
+  if (
+    prevRow !== undefined &&
+    constantTimeEquals(tokenHash, prevRow.previous_token_hash) &&
+    isWithinRotationGrace(prevRow.rotated_at === null || prevRow.rotated_at === undefined ? null : Number(prevRow.rotated_at))
+  ) {
+    if (prevRow.status === 'revoked') {
+      throw new ServiceError('DEVICE_REVOKED', `gateway: device ${prevRow.id} is revoked (token permanently rejected, docs/15 §4)`)
+    }
+    return { id: prevRow.id, deviceName: prevRow.device_name, platform: prevRow.platform, tokenVersion: prevRow.token_version }
   }
-  if (row.status === 'revoked') {
-    throw new ServiceError('DEVICE_REVOKED', `gateway: device ${row.id} is revoked (token permanently rejected, docs/15 §4)`)
-  }
-  return { id: row.id, deviceName: row.device_name, platform: row.platform, tokenVersion: row.token_version }
+  // 行不存在与哈希不一致同一口径（不泄漏设备存在性）：对占位等长哈希做一次
+  // 常数时间比较保持恒定路径，再统一 AUTH_INVALID_TOKEN
+  constantTimeEquals(tokenHash, '0'.repeat(64))
+  throw new ServiceError('AUTH_INVALID_TOKEN', 'gateway: device token is invalid')
 }
 
 /** 256-bit Token 签发（base64url 明文仅 claim 响应一次性出现；docs/15 §3）。 */

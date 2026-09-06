@@ -568,6 +568,18 @@ export interface AgentSessionsFilter {
 }
 
 /**
+ * provider 业务键 → agent_providers 行数字 id（M3-C7b host 腿 session_list 查询
+ * 的字符串 providerId 解析；docs/14 §B.1「providerId 受理数字 id 或业务键」先例
+ * 的读镜像）。未知引用 → null（调用方折 NOT_FOUND，绝不猜空结果）。
+ */
+export function resolveAgentProviderRef(ref: string): number | null {
+  const row = getDatabase().prepare('SELECT id FROM agent_providers WHERE provider = ?').get(ref) as
+    | { id: number }
+    | undefined
+  return row === undefined ? null : Number(row.id)
+}
+
+/**
  * agents:sessions（docs/14 §A.1 #2；filters 全参数绑定）。
  * ux 批 A：默认过滤 = 主会话（parent IS NULL，保留 8442e9d 意图）+ 未归档
  * （R3）；parentId= 指定时返回该会话的子会话（含已结束/归档——子会话页是
@@ -1608,14 +1620,19 @@ export type DeviceTokenRotationReason = 'post-pairing' | 'manual' | 'periodic'
  * 撤销设备 → DEVICE_REVOKED（轮换对撤销设备无意义，撤销即拒不可复活）；成功 =
  * sha256(newToken) 覆盖 token_hash + token_version+1 + 审计 device/token_rotated
  * （detail 零 Token 明文）。宽限跟踪（300s 确认窗口）与帧发送归 rotationBridge。
+ *
+ * M3-C7b 修 ②（docs/18 §3.14 宽限桌面镜像）：覆盖前把旧 token_hash 存入
+ * previous_token_hash 并登记 rotated_at（unix 秒）——gateway/auth.ts 据此在
+ * 300s 宽限窗内仍认旧 Token（窗外拒；无轮换行恒认当前值）。migration 006
+ * append-only 新列承载，零重建。
  */
 export function rotateDeviceToken(
   deviceId: number,
   reason: DeviceTokenRotationReason,
 ): { deviceId: number; tokenVersion: number; token: string } {
   const db = getDatabase()
-  const row = db.prepare('SELECT id, status, token_version FROM remote_devices WHERE id = ?').get(deviceId) as
-    | { id: number; status: string; token_version: number }
+  const row = db.prepare('SELECT id, status, token_version, token_hash FROM remote_devices WHERE id = ?').get(deviceId) as
+    | { id: number; status: string; token_version: number; token_hash: string }
     | undefined
   if (row === undefined) {
     throw new ServiceError('NOT_FOUND', `remote device ${deviceId} not found`)
@@ -1626,12 +1643,9 @@ export function rotateDeviceToken(
   const token = generateDeviceToken()
   const tokenVersion = Number(row.token_version) + 1
   const now = nowSec()
-  db.prepare('UPDATE remote_devices SET token_hash = ?, token_version = ?, updated_at = ? WHERE id = ?').run(
-    sha256Hex(token),
-    tokenVersion,
-    now,
-    deviceId,
-  )
+  db.prepare(
+    'UPDATE remote_devices SET previous_token_hash = token_hash, rotated_at = ?, token_hash = ?, token_version = ?, updated_at = ? WHERE id = ?',
+  ).run(now, sha256Hex(token), tokenVersion, now, deviceId)
   insertSecurityAudit('device', 'token_rotated', deviceId, 'success', JSON.stringify({ reason, tokenVersion }))
   return { deviceId, tokenVersion, token }
 }

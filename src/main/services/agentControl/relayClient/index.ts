@@ -12,9 +12,11 @@
  *
  * 帧路由（docs/18 §3 host 腿）：hello（握手 + ECS 缓存水位）/ register_pairing_ack、
  * pair（pairingBridge）/ sync_request（累计 ACK → L3 markEventsAckedThrough，经
- * ecsDeviceId→winDeviceId 映射）/ heartbeat（E→H tokenVersion 容错确认信道 →
- * rotationBridge）/ error（结构化 lastError）/ disconnect（reason:revoked → 不得
- * 自动重连，docs/18 §3.15）。未知 type 静默忽略（绝不猜）。
+ * ecsDeviceId→winDeviceId 映射）/ agent_list、session_list、message（M3-C7b 修 ①
+ * host 腿只读投影三处理器，App REST 数据面解锁，docs/18 §7.1 G5）/ heartbeat
+ * （E→H tokenVersion 容错确认信道 → rotationBridge）/ error（结构化 lastError）/
+ * disconnect（reason:revoked → 不得自动重连，docs/18 §3.15）。未知 type 静默忽略
+ * （绝不猜）。
  *
  * 三步恢复序（docs/19 §4.2，hello 后）：① 按 hello.sequence 回填 ECS 缺失事件
  * （eventUplink.backfillFromWatermark）；② ECS 排队命令按 requested_at 序在 ready
@@ -80,6 +82,12 @@ import {
   setRotationBridgeHost,
 } from './rotationBridge.ts'
 import { clearCommandDownlinkState, handleCommandFrame, setCommandDownlinkHost, type CommandDownlinkHost } from './commandDownlink.ts'
+import {
+  handleAgentListFrame,
+  handleMessageFrame,
+  handleSessionListFrame,
+  type HostLegRequestHost,
+} from './hostLegRequests.ts'
 import { setRelayRuntimeView } from './statusProjector.ts'
 
 // ---------------------------------------------------------------------------
@@ -114,6 +122,8 @@ const deviceMappings = new Map<number, number>()
 let pairingHost: PairingBridgeHost | null = null
 /** 命令下行宿主（wireSeams 构建；command 帧路由复用同一实例，docs/18 §3.8 E→H）。 */
 let commandDownlinkHost: CommandDownlinkHost | null = null
+/** host 腿只读投影请求宿主（wireSeams 构建；agent_list/session_list/message 响应出口）。 */
+let hostLegRequestHost: HostLegRequestHost | null = null
 let backoff = new BackoffCalculator()
 let seamsWired = false
 
@@ -292,6 +302,7 @@ export function resetRelayClientForSmoke(): void {
   clearPairingBridgeState()
   clearCommandDownlinkState()
   clearRotationBridgeState()
+  hostLegRequestHost = null
   resetEventUplinkState()
   clearExtraDeviceRevokedListeners()
   setPairingIssuedListener(null)
@@ -340,6 +351,14 @@ function wireSeams(): void {
     sendError: (frame) => sendFrame(frame),
   }
   setCommandDownlinkHost(commandDownlinkHost)
+  // host 腿只读投影请求（M3-C7b 修 ①，docs/18 §7.1 G5）：三响应帧出口
+  // （鉴权沿用 host 腿 Relay 凭据信任，docs/18 §2；写面校验仍归 commandDownlink）
+  hostLegRequestHost = {
+    sendAgentList: (frame) => sendFrame(frame),
+    sendSessionList: (frame) => sendFrame(frame),
+    sendMessage: (frame) => sendFrame(frame),
+    sendError: (frame) => sendFrame(frame),
+  }
   // L3 配对码签发同步（createPairing → register_pairing；离线 false → 本地模式退化）
   setPairingIssuedListener((event) => {
     handlePairingIssued(event)
@@ -535,6 +554,15 @@ function routeFrame(text: string): void {
     case 'sync_request':
       handleSyncRequestFrame(frame)
       return
+    case 'agent_list':
+      handleAgentListFrameSafe(frame)
+      return
+    case 'session_list':
+      handleSessionListFrameSafe(frame)
+      return
+    case 'message':
+      handleMessageFrameSafe(frame)
+      return
     case 'command':
       handleCommandFrameSafe(frame)
       return
@@ -613,6 +641,42 @@ function handleCommandFrameSafe(frame: unknown): void {
   if (host === null) return
   try {
     handleCommandFrame(frame, host)
+  } catch {
+    /* 逐帧隔离 */
+  }
+}
+
+/**
+ * host 腿只读投影请求三处理器（M3-C7b 修 ①，docs/18 §3.4/§3.5/§3.7 E→H，
+ * App REST 数据面请求的帧承载——此前整体 10s 超时的缺口）。宿主缺席
+ * （wireSeams 前的早到帧）→ 忽略（绝不猜）；处理异常逐帧隔离（校验/业务失败
+ * 已折 error 帧，绝不杀伤连接循环）。鉴权沿用 host 腿 Relay 凭据信任（docs/18 §2）。
+ */
+function handleAgentListFrameSafe(frame: unknown): void {
+  const host = hostLegRequestHost
+  if (host === null) return
+  try {
+    handleAgentListFrame(frame, host)
+  } catch {
+    /* 逐帧隔离 */
+  }
+}
+
+function handleSessionListFrameSafe(frame: unknown): void {
+  const host = hostLegRequestHost
+  if (host === null) return
+  try {
+    handleSessionListFrame(frame, host)
+  } catch {
+    /* 逐帧隔离 */
+  }
+}
+
+function handleMessageFrameSafe(frame: unknown): void {
+  const host = hostLegRequestHost
+  if (host === null) return
+  try {
+    handleMessageFrame(frame, host)
   } catch {
     /* 逐帧隔离 */
   }

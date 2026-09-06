@@ -148,10 +148,25 @@ export type HostToEcsFrame =
   | { type: 'disconnect'; deviceId: number; reason: 'revoked' }
   /**
    * docs/18 §3.16：error 帧为双向 × 两腿——H→E 形态（commandDownlink auth 失败
-   * docs/19 §4.4、pair 复核失败 docs/18 §3.3 失败路径、sync_request 未知设备）。
-   * 零凭据零堆栈（约束 #14）。
+   * docs/19 §4.4、pair 复核失败 docs/18 §3.3 失败路径、sync_request 未知设备、
+   * hostLegRequests 只读投影请求校验失败）。零凭据零堆栈（约束 #14）。
    */
   | { type: 'error'; requestId?: string; code: string; message: string; retryable?: boolean; retryAfterSec?: number }
+  /**
+   * docs/18 §3.4 H→E 响应（M3-C7b host 腿请求处理器）：providers = docs/14 §B.1
+   * GET /v1/agents 响应 JSON 原样内嵌（id/displayName/health/capabilities 四字段投影）。
+   */
+  | { type: 'agent_list'; requestId: string; providers: Array<Record<string, unknown>> }
+  /**
+   * docs/18 §3.5 H→E 响应：sessions = SessionView（docs/14 §B.1）原样内嵌；
+   * stale 恒 false（host 在线应答；true 仅 ECS 缓存降级时由 ECS 改写）。
+   */
+  | { type: 'session_list'; requestId: string; stale: boolean; sessions: Array<Record<string, unknown>> }
+  /**
+   * docs/18 §3.7 H→E 响应：items = REST messages 响应投影原样内嵌
+   * （contentRedacted 可选 segments；绝无 sourceRef）；prevAfter 可选游标。
+   */
+  | { type: 'message'; requestId: string; items: Array<Record<string, unknown>>; prevAfter?: number }
 
 /**
  * ECS → relayClient（E→H）。hello 的 sequence = ECS 缓存水位（断线回填起点判定，
@@ -177,6 +192,25 @@ export type EcsToHostFrame =
     }
   /** E→H 仅 ACK 部分中继（docs/18 §3.11）：deviceId = ECS 注册表 id（R2 实现面）。 */
   | { type: 'sync_request'; requestId: string; after: number; deviceId: number }
+  /**
+   * docs/18 §3.4 D→E 的 E→H 中继形态（M3-C7b host 腿请求处理器）：provider 列表
+   * 只读投影请求，requestId 原样回显（客户端契约，R2 裁定④）。
+   */
+  | { type: 'agent_list'; requestId: string }
+  /**
+   * docs/18 §3.5 E→H 中继形态：query 语义 = REST GET /v1/sessions
+   * （providerId?/status?/limit?/parentId?/includeArchived?，docs/14 §B.1；缺省 = 无 query）。
+   */
+  | {
+      type: 'session_list'
+      requestId: string
+      query?: { providerId?: number | string; status?: string; limit?: number; parentId?: number; includeArchived?: boolean }
+    }
+  /**
+   * docs/18 §3.7 E→H 中继形态：取数语义 = REST GET /v1/sessions/{id}/messages
+   * （after/last/before 互斥 → BAD_PAYLOAD，docs/14 §B.1 / ux A R10）。
+   */
+  | { type: 'message'; requestId: string; sessionId: number; after?: number; before?: number; last?: number; limit?: number }
   | { type: 'heartbeat'; ts: UnixSec; lastAckedSeq?: number }
   | { type: 'error'; requestId?: string; code: string; message: string; retryable?: boolean; retryAfterSec?: number }
   | { type: 'disconnect'; reason: string; deviceId?: number }
