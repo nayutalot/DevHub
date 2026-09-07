@@ -109,6 +109,15 @@ endpoint（G2/G7/D7，docs/21 §1）——时间盒属部署期例外，代码�
 | 15 | `disconnect` | 双向 × 两腿 | 优雅关闭 | 部分（携 deviceId 时定点） | — | — | — | 关闭前告知原因（撤销/维护/被替代） |
 | 16 | `error` | 双向 × 两腿 | 错误 | 否 | requestId（可关联） | — | — | 结构化错误（§8 映射表） |
 
+> **M3-C7b 实现层现状（2026-09-07，待裁决；增补注，不改上表规范性语义）**：本表 #16 行 error 帧
+> 「中继 = 否」——error 只在单腿内有语义，而协议未定义 H（Windows）生成的 error 如何回程设备
+> （跨腿通道空白；C2d 实证：无回程时设备侧命令 90s 挂起）。现行最小实现**复用 §3.9
+> `command_ack{status:'rejected', errorCode}`（中继 = 是）承载错误码回程**，errorCode 取 §8.2 同一
+> 命名域；同一拒绝仍发送 H→E error 帧（主机腿诊断语义不丢，不达设备）。本注非新帧宣告、帧形零
+> 扩展；**若后续按契约修订流程（docs/20 §2.4）定义专用跨腿回程帧形，应迁移至该帧形并撤除
+> command_ack 载体**。实现锚点：`src/main/services/agentControl/relayClient/commandDownlink.ts`
+> （M3-C7b 修③ 文件头标注）。
+
 ### 3.1 hello（服务端首帧）
 
 ```json
@@ -310,6 +319,16 @@ endpoint（G2/G7/D7，docs/21 §1）——时间盒属部署期例外，代码�
   面合并为**累计游标**一帧（映射表见 §10）。累计游标是 `ack seqs[]` 的超集：`after = max(连续已处理)`；
   事件按 leg 内 TCP 有序到达，无乱序空洞；若 ECS 缓存本身有洞（§6.3），以 `hasGaps` 显式标注。
 - 设备本地尚未持久化的事件**不得**计入 `after`（ACK 只前进语义与现 `delivery_state` 一致，docs/12 §6）。
+- **M3-C8a 实现层澄清（2026-09-07；照本节与 §6.1.2 契约实施，帧形/字段零扩展）**：
+  ①`requestId` 必填（uuid 形态，与帧示例同源）——ECS 以必填字符串校验强制（缺失/类型错/空串 →
+  `error BAD_PAYLOAD` 拒绝，绝不猜）；②fresh 设备（本地游标 0）`after = 0` 合法且**必须发出**——
+  §6.1.2 引导语义要求 hello 后无论水位高低都发 `sync_request`（本地为准不回退），M3-C8a 修复了
+  「`after=0` 早退不发」的违约实现并实证 fresh 设备全量回填（§3.12 页上限 100 翻页直至
+  `hasMore:false`）。已知实现空白如实注明：「ECS 缓存全空（`hello.sequence = 0`）+ fresh 设备」的
+  live 流基线对齐本协议未定义——`after=0` 应答空页、游标无从推进，其后到达的 live 事件挂起至
+  断线重连再次引导（§6.1.2 循环）收口；设备侧保持最小面、不跳号、不伪造连续性（§6.3 纪律），
+  本注不对此扩权处理。实现锚点：`ecs-relay/src/forwarder.ts`（handleDeviceSyncRequest）、
+  `android/core/src/main/kotlin/com/devhub/mobile/core/relay/RelaySyncEngine.kt`（类注释留档）。
 
 ### 3.12 sync_response
 
@@ -358,6 +377,14 @@ host 曾离线且事件未回填/已被淘汰）→ 事件缺口的权威补齐�
   docs/15 §3）；该结果审计落库（Windows 与 ECS 双侧 `device` 类目）。
 - Windows 侧落库：`remote_devices.token_hash` 覆盖 + `token_version+1`（现 schema 已备字段，
   零 migration）。
+- **M3-C7a 实现层增补（2026-09-07；帧形不变、无新帧，本节裁决语义不变）**：轮换帧的 E→D 投递通道
+  允许于该设备**任一活跃 device-leg 连接**——①已鉴权连接直投（契约路径，上两行）；②裸 pair 连接
+  的配对完成窗口：`pair_accepted` 发出后裸连接保留短窗（默认 5s，`RELAY_PAIR_ROTATION_FLUSH_SEC`）
+  flush 同秒未投递的轮换帧再按原语义关闭（引导 Bearer 重连）；③两路皆不可达 → 登记内存补偿表
+  （明文帧不落盘/不落日志/不落审计，仅计数可观测），设备在 300s grace 窗内以旧凭据重连
+  （viaGrace 准入）时服务端**补投**当前 token（compensation；窗过期由 auth 层 401 收口，补投绝不
+  越窗），三路合计轮换投递两腿闭环。实现锚点：`ecs-relay/src/forwarder.ts`（M3-C7a 修①/修②）；
+  自检覆盖：`ecs-relay/src/selfcheck.mjs` §11（token 轮换宽限三态 + disconnect 单一语义）。
 
 ### 3.15 disconnect（优雅关闭）
 
