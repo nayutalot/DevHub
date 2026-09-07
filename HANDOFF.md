@@ -1,6 +1,6 @@
-# DevHub 会话交接文档（2026-09-07 清晨，C2e 终验过·C8a sync 修运行中·M3-D 点火在望）
+# DevHub 会话交接文档（2026-09-07 上午，M3-D 72h 运行中·T0=09-07 08:49:27·终点 09-10 08:49）
 
-> 交接范围：……（前史见 git log/docs/HANDOFF 旧版）→ C2c/C2d 两轮未达（共 10 缺口根因闭环）→ C6a-C6d/C7a/C7b 六修复批全合 → **C2e 终验：R-B 表 6 PASS/2 部分（残项=1 新缺陷+用户裁决项）→ C8a（sync 引导死锁修）运行中，过即 M3-D T0**。**新会话从 §4 续接（C8a 在跑先收割）。**
+> 交接范围：……（前史见 git log/docs/HANDOFF 旧版）→ 四轮联调修复弧线（C2b/C2c/C2d/C2e + C6a-d/C7a/C7b/C8a 共 9 修复批）→ **R-B 表收口至"除用户裁决项外全过" → M3-D 72h 已点火**。**72h 窗内新会话只做巡检（一行命令见 §4.1），勿动常驻/巡检进程/ECS。**
 
 ## 0. 新会话开工须知（用户令：严格约束工作流）
 
@@ -12,7 +12,7 @@
 
 ## 1. 当前状态一句话
 
-**C2e 终验里程碑：自毁链断（>300s 跨墙存活 ~18min）、host 腿真数据 200、rotation v2 经 pair 窗冲刷到达 App、command 回执 70ms、host 断链回流 6s、撤销协议等价三面活体（401 DEVICE_REVOKED 新口径）、零孤儿——R-B 表 6 PASS / R-B5 部分（managed spawn=契约项）/ R-B6 部分（app-off=新缺陷 C8a 修中）/ R-B8 UI 面（#9 用户裁决）。C8a 过 → M3-D T0。**
+**M3-D 72h 稳定期运行中（T0=2026-09-07 08:49:27 本地，终点 09-10 08:49）**：巡检进程 node PID 31300（分离，15min 周期）落 `%LOCALAPPDATA%\DevHub\m3d-watch\watch-m3d-72h.ndjson`，首周期四检查全 ok（gateway/relay connected/publicRelay/cert 88.8 天 pin match）；常驻=main 桌面全量包 PID 39856 connected=true；R-B 表 6 PASS+R-B6 app-off 复验全过（C8a）——**残项仅用户裁决项**（R-B5 managed 回流/R-B8 UI 发起面=#9；R-B7 触发面=裁定标注）。
 
 ## 2. C2c→C2e 修复弧线台账（本会话续）
 
@@ -35,11 +35,11 @@
 
 ## 4. ⚠️ 未决项（按序处理）
 
-1. **收割 C8a**（运行中，任务书 m3c8a-sync-bootstrap.md）→ review（契约结论重点核）→ merge → main 门禁 → push
-2. **M3-D T0 点火**（C8a 过后）：重置 t0（%LOCALAPPDATA%\DevHub\m3d-watch\t0.txt）→ 分离进程起 `node scripts/m3d-watch.mjs --loop 15`（日志仓外 ndjson）→ 首周期入档确认 → 72h 窗（至 ~09-10 同时刻）；期间各会话用 `--summary` 巡检；**判据面**=gateway/relay/publicRelay/cert 全 ok 率、网关 down 时段、journal error（--deep）
-3. dist 根 NSIS 统一（现 win-unpacked=main 版、NSIS 仍 v3——收尾批一次 electron-builder 全套）
-4. worktree 清理尾巴：dist-v3（detached 旧基线）、gate-fix 目录残留（core.jar 句柄）
-5. docs 增补批（择机）：docs/18 §3.14 轮换投递两腿语义 + §3.11 sync 引导（C8a 结论）+ §3.0 #16 error 回程——均已有 KDoc 标注，正式入册待修符合并
+1. **M3-D 72h 观察（运行中，至 09-10 08:49）**：巡检一行命令 `node scripts/m3d-watch.mjs --summary "C:\Users\sakuya\AppData\Local\DevHub\m3d-watch\watch-m3d-72h.ndjson"`——判读面=ok 率/网关 down 时段/证书余量趋势；巡检进程若随宿主重启丢失，用 Start-Process 同款重拉（**勿带 --t0**）；窗内勿动常驻/ECS/巡检进程；窗毕出 72h 总结（ok 率+事件时间线+证书日历复核）
+2. **#9 裁决后收尾批**：设备自管理通道实现 + App managed spawn 接 WS command face（R-B5 回流/R-B8 UI 面闭环）→ 单面复验
+3. dist 根 NSIS 统一重打包（现 win-unpacked=main 桌面全量运行中、NSIS 仍 v3——M3-D 窗内不动包，窗毕一批搞定）
+4. worktree 尾巴：dist-v3（detached 旧基线）、gate-fix 目录残留（core.jar 句柄）
+5. docs 增补批（择机）：docs/18 §3.14 轮换投递两腿 + §3.11 requestId/引导实录 + §3.0 #16 error 回程——均有 KDoc 标注，正式入册待用户裁决方向定
 
 ## 5. 待用户裁决（只排队不代答）
 
