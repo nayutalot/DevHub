@@ -27,7 +27,8 @@
 | C8a | **完成**（4f7c8a8 合并）：RelaySyncEngine 化——§6.1.2 契约引导（hello 必发 sync_request，早退违约修复）+requestId §3.11 强制；:core 183→**189**；R-B6 app-off 活体复验**全过**（fresh 全量回填 0→21792、杀 App→3 夹具事件→重连游标正确→零丢失连续推进至 21834、双侧 ack 落盘、held 清零）；桌面存量 37 行清账（active 仅剩 #46/#52 在役） |
 | M3-D 点火 | **T0=09-07 08:49 本地起跑**：巡检 node PID 31300 分离进程 15min 周期、独立 ndjson、首周期四检查全 ok；**12h 定时巡检自动化已建（窗毕自删+自动终报）** |
 | 窗内尾巴 W1/W2 | W1 dist 根五件归一（09-07 19:02 构建、常驻零扰动实证同 4 PID/uptime 连续）+dist-v3/gate-fix 清理；W2 docs/18 三处实现层增补注合入（90206f6 纯插入） |
-| 用户裁决（09-07 晚） | **#9=B**（复用 WS command 通道补设备自管理+managed spawn，闭环 R-B5/R-B8；**先文档后编码，编码部署等窗毕**）；**GitHub Release 压后**（终报过→B 复验→安装包更新→统一发）；dist-final worktree 留窗毕清。M3-E0 文档批已派（docs/18/20/21+实施任务书草案） |
+| 用户裁决（09-07 晚） | **#9=B**（复用 WS command 通道补设备自管理+managed spawn，闭环 R-B5/R-B8；**先文档后编码，编码部署等窗毕**）；**GitHub Release 压后**（终报过→B 复验→安装包更新→统一发）；dist-final worktree 留窗毕清 |
+| M3-E0 文档批（2c6bfbb 合入） | B 裁决四件套落档：docs/18 §5.3（spawn_session+revoke_device，能力门/终态语义/帧形零扩展/零新 REST 端点）+docs/20 R-B5/R-B8 判据（标"待 M3-E 复验"）+docs/21 §7/§8（裁决原文+硬时序+Release 条件链）+m3e1-self-mgmt.md 实施任务书（**开工前置=M3-D 终报通过；窗内零编码零部署**） |
 
 ## 3. 项目事实基线（main=6062cd0 已推；终局门禁 tsc 0/smoke 172/mcp 27/:core **189**/:app 47/ecs-relay 97）
 
