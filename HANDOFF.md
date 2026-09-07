@@ -24,14 +24,17 @@
 | C7a ECS | 投递两腿（pair 窗 5s 冲刷+重连补偿，零新帧）；91→97 测试；孤儿 #2-7 清账；3.1s 停机部署 |
 | C7b 桌面 | host 腿三处理器+grace 镜像（migration 006）+error 回程（复用 command_ack，docs/18 空白标注）+App 崩溃包裹+桌面孤儿清账；smoke 172/:app 47 |
 | **C2e 终验** | **R-B2/3/4/7/9 PASS + R-B8 协议等价三面 PASS**；R-B3 头号判据过（跨 grace 墙存活）；R-B5 指令门 PASS（70ms 回执）+managed 回流未达（App spawn 走 REST 被拒=契约项）；**R-B6 host 断链闭环 PASS+app-off FAIL（sync 引导死锁=C8a 修中）**；常驻已重打包换装（05:57 main 版，schema v6） |
-| C8a（运行中） | sync 引导死锁修（契约先行 §3.11/§6.3）+R-B6 app-off 单面复验+桌面存量行清账 |
+| C8a | **完成**（4f7c8a8 合并）：RelaySyncEngine 化——§6.1.2 契约引导（hello 必发 sync_request，早退违约修复）+requestId §3.11 强制；:core 183→**189**；R-B6 app-off 活体复验**全过**（fresh 全量回填 0→21792、杀 App→3 夹具事件→重连游标正确→零丢失连续推进至 21834、双侧 ack 落盘、held 清零）；桌面存量 37 行清账（active 仅剩 #46/#52 在役） |
+| M3-D 点火 | **T0=09-07 08:49 本地起跑**：巡检 node PID 31300 分离进程 15min 周期、独立 ndjson、首周期四检查全 ok；**12h 定时巡检自动化已建（窗毕自删+自动终报）** |
+| 窗内尾巴 W1/W2 | W1 dist 根五件归一（09-07 19:02 构建、常驻零扰动实证同 4 PID/uptime 连续）+dist-v3/gate-fix 清理；W2 docs/18 三处实现层增补注合入（90206f6 纯插入） |
+| 用户裁决（09-07 晚） | **#9=B**（复用 WS command 通道补设备自管理+managed spawn，闭环 R-B5/R-B8；**先文档后编码，编码部署等窗毕**）；**GitHub Release 压后**（终报过→B 复验→安装包更新→统一发）；dist-final worktree 留窗毕清。M3-E0 文档批已派（docs/18/20/21+实施任务书草案） |
 
-## 3. 项目事实基线（main=93d0d04 已推）
+## 3. 项目事实基线（main=6062cd0 已推；终局门禁 tsc 0/smoke 172/mcp 27/:core **189**/:app 47/ecs-relay 97）
 
-- 门禁基线：tsc 0 / smoke **172**（fast 83）/ mcp 27/27 / :core 183 / :app **47** / ecs-relay **97** / selfcheck 77(root 口径)
-- ECS：C7a 版 active（投递两腿）；证书余 88 天 notAfter 2026-12-04；relay_devices active=1（win46 在役）/revoked=9
-- 桌面常驻：main 重建 win-unpacked（05:57，含 host 腿+grace 镜像，schema v6）运行中 connected=true；备份链 v1/v2/v3/v4-fe306b9
-- 设备账面：ECS win46 active（App Keystore 持有=合法在役）+win47 双侧 revoked；桌面存量 active 行清账归 C8a
+- 门禁基线（终局）：tsc 0 / smoke **172**（fast 83）/ mcp 27/27 / :core **189** / :app **47** / ecs-relay **97** / selfcheck 77(root 口径)
+- ECS：C7a 版 active（投递两腿）；证书余 88 天 notAfter 2026-12-04；relay_devices active=win46（在役）+revoked 9
+- 桌面常驻：main 桌面全量 win-unpacked（05:57 构建，schema v6）运行中 connected=true（主 PID 39856）；**dist 根五件已归一**（09-07 19:02 构建=W1）；备份链 v1/v2/v3/v4-fe306b9；dist-final worktree 留窗毕清
+- 设备账面：ECS win46 active+revoked 9；桌面 active 仅 #46/#52 在役（37 存量行已清账）；配对零孤儿
 
 ## 4. ⚠️ 未决项（按序处理）
 
@@ -42,14 +45,18 @@
 5. ~~docs/18 增补注入册~~ ✅ 已毕（W2 合入 90206f6：§3.0#16/§3.11/§3.14 三注，纯插入零规范性改动）
 6. dist-final worktree 处置（产物已部署根件，worktree 可清——留待 M3-D 窗毕顺手）；GitHub Release 发布与否待用户一句话
 
-## 5. 待用户裁决（只排队不代答）
+## 5. 裁决与待办（#9/Release 已裁，余下排队不代答）
 
-1. **#9 relay 模式设备自管理协议通道**（docs/18 §7.1 G5 之外：设备列表/自撤销/诊断页端点——ECS admin REST vs WS revoke 命令 vs 桌面独占；连带 App managed spawn 接 WS command face 是否需 §5.1 增补）
-2. **固定管理 IP** → ECS 加固收口
-3. docs/21：离线设备 token_rotation 补投（docs/18 修订）
-4. docs/21 旧三项（FCM/Kimi/hooks/delivery）
-5. **证书轮换 2026-11-20 前双指纹窗口**（notAfter 12-04）
-6. （建议）M3-D 观察期是否要定时自动巡检唤醒（cron 方案）
+**已裁（2026-09-07，docs/21 正式入档归 M3-E0 批）**：
+- **#9 = B**：复用 WS command 通道补设备自管理+managed spawn，闭环 R-B5/R-B8——先文档（M3-E0 在跑）后编码（**等 M3-D 窗毕**）
+- **GitHub Release 压后**：稳定性终报通过 → B 方案复验 → 安装包更新 → 统一发布
+
+**仍待用户**：
+1. **固定管理 IP** → ECS 加固收口
+2. docs/21：离线设备 token_rotation 补投（docs/18 修订）
+3. docs/21 旧三项（FCM/Kimi/hooks/delivery）
+4. **证书轮换 2026-11-20 前双指纹窗口**（notAfter 12-04）
+5. 物理真机复跑插期（需用户手机）
 
 ## 6. 关键约束速查
 
