@@ -1,0 +1,467 @@
+--------- beginning of main
+09-07 00:23:59.555  4546  4546 D AndroidRuntime: >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+09-07 00:23:59.559  4546  4546 I AndroidRuntime: Using default boot image
+09-07 00:23:59.559  4546  4546 I AndroidRuntime: Leaving lock profiling enabled
+09-07 00:23:59.561  4546  4546 I app_process: Core platform API reporting enabled, enforcing=false
+09-07 00:23:59.561  4546  4546 I app_process: Using CollectorTypeCMC GC.
+09-07 00:23:59.607  4546  4546 D nativeloader: InitDefaultPublicLibraries for_preload=1: libandroid.so:libaaudio.so:libamidi.so:libbinder_ndk.so:libc.so:libcamera2ndk.so:libdl.so:libEGL.so:libGLESv1_CM.so:libGLESv2.so:libGLESv3.so:libicu.so:libicui18n.so:libicuuc.so:libjnigraphics.so:liblog.so:libmediandk.so:libm.so:libnativehelper.so:libnativewindow.so:libOpenMAXAL.so:libOpenSLES.so:libRS.so:libstdc++.so:libsync.so:libvulkan.so:libwebviewchromium_plat_support.so:libz.so
+09-07 00:23:59.612  4546  4546 D nativeloader: Load libicu_jni.so using APEX ns com_android_art for caller /apex/com.android.art/javalib/core-oj.jar: ok
+09-07 00:23:59.613  4546  4546 D app_process: u_setTimeZoneFilesDirectory("/apex/com.android.tzdata/etc/tz/versioned/8/icu") succeeded. 
+09-07 00:23:59.613  4546  4546 D app_process: I18n APEX ICU file found: /apex/com.android.i18n/etc/icu/icudt75l.dat
+09-07 00:23:59.613  4546  4546 D nativeloader: Load libjavacore.so using APEX ns com_android_art for caller /apex/com.android.art/javalib/core-oj.jar: ok
+09-07 00:23:59.614  4546  4546 D nativeloader: Load libopenjdk.so using APEX ns com_android_art for caller /apex/com.android.art/javalib/core-oj.jar: ok
+09-07 00:23:59.615  4546  4546 W app_process: Unexpected CPU variant for x86: x86_64.
+09-07 00:23:59.615  4546  4546 W app_process: Known variants: atom, sandybridge, silvermont, goldmont, goldmont-plus, goldmont-without-sha-xsaves, tremont, kabylake, default
+09-07 00:23:59.627  4546  4546 D nativeloader: Load libframework-connectivity-tiramisu-jni.so using APEX ns com_android_tethering for caller /apex/com.android.tethering/javalib/framework-connectivity-t.jar: ok
+09-07 00:23:59.627  4546  4546 D AndroidRuntime: Calling main entry com.android.commands.monkey.Monkey
+09-07 00:23:59.627  4546  4546 W Monkey  : args: [-p, com.devhub.mobile, -c, android.intent.category.LAUNCHER, 1]
+09-07 00:23:59.628  4546  4546 W Monkey  :  arg: "-p"
+09-07 00:23:59.628  4546  4546 W Monkey  :  arg: "com.devhub.mobile"
+09-07 00:23:59.628  4546  4546 W Monkey  :  arg: "-c"
+09-07 00:23:59.628  4546  4546 W Monkey  :  arg: "android.intent.category.LAUNCHER"
+09-07 00:23:59.629  4546  4546 W Monkey  :  arg: "1"
+09-07 00:23:59.629  4546  4546 W Monkey  : data="com.devhub.mobile"
+09-07 00:23:59.629  4546  4546 W Monkey  : data="android.intent.category.LAUNCHER"
+--------- beginning of system
+09-07 00:23:59.638   595  1500 W ActivityManager: registerReceiverWithFeature: no app for null
+09-07 00:23:59.644   595  1500 W ActivityTaskManager: callingPackage for (uid=2000, pid=4546) has no WPC
+09-07 00:23:59.645   595  1500 W OptProp : Cannot read opt property android.window.PROPERTY_COMPAT_ALLOW_USER_ASPECT_RATIO_OVERRIDE
+09-07 00:23:59.645   595  1500 W OptProp : Cannot read opt property android.window.PROPERTY_COMPAT_ALLOW_USER_ASPECT_RATIO_FULLSCREEN_OVERRIDE
+09-07 00:23:59.645   595  1500 W OptProp : Cannot read opt property android.window.PROPERTY_COMPAT_ALLOW_ORIENTATION_OVERRIDE
+09-07 00:23:59.645   595  1500 V GrammaticalInflectionUtils: AttributionSource: AttributionSource { uid = 10211, packageName = null, attributionTag = null, token = android.os.Binder@f8b0c81, deviceId = 0, next = null } does not have READ_SYSTEM_GRAMMATICAL_GENDER permission.
+09-07 00:23:59.645   595  1500 W OptProp : Cannot read opt property android.window.PROPERTY_COMPAT_ALLOW_RESIZEABLE_ACTIVITY_OVERRIDES
+09-07 00:23:59.646   595  1500 W OptProp : Cannot read opt property android.window.PROPERTY_COMPAT_ALLOW_MIN_ASPECT_RATIO_OVERRIDE
+09-07 00:23:59.649   595  1500 V SplashScreenExceptionList: SplashScreen checking exception for package com.devhub.mobile (target sdk:35) -> false
+09-07 00:23:59.650   595   888 D CompatChangeReporter: Compat change id reported: 309578419; UID 10211; state: ENABLED
+09-07 00:23:59.652   595  1500 I ActivityTaskManager: START u0 {act=android.intent.action.MAIN cat=[android.intent.category.LAUNCHER] flg=0x10200000 cmp=com.devhub.mobile/.MainActivity} with LAUNCH_SINGLE_TASK from uid 2000 (BAL_ALLOW_PERMISSION) result code=0
+09-07 00:23:59.652   840   876 V WindowManagerShell: Transition requested (#13): android.os.BinderProxy@964f917 TransitionRequestInfo { type = OPEN, triggerTask = TaskInfo{userId=0 taskId=34 displayId=0 isRunning=true baseIntent=Intent { act=android.intent.action.MAIN cat=[android.intent.category.LAUNCHER] flg=0x10200000 cmp=com.devhub.mobile/.MainActivity } baseActivity=ComponentInfo{com.devhub.mobile/com.devhub.mobile.MainActivity} topActivity=ComponentInfo{com.devhub.mobile/com.devhub.mobile.MainActivity} origActivity=null realActivity=ComponentInfo{com.devhub.mobile/com.devhub.mobile.MainActivity} numActivities=1 lastActiveTime=2033031 supportsMultiWindow=true resizeMode=1 isResizeable=true minWidth=-1 minHeight=-1 defaultMinSize=220 token=WCT{android.window.IWindowContainerToken$Stub$Proxy@2ad4104} topActivityType=1 pictureInPictureParams=null shouldDockBigOverlays=false launchIntoPipHostTaskId=-1 lastParentTaskIdBeforePip=-1 displayCutoutSafeInsets=Rect(0, 136 - 0, 0) topActivityInfo=ActivityInfo{aac16ed com.devhub.mobile.MainActivity} launchCookies=[] positionInParent=Point(0, 0) parentTaskId=-1 isFocused=false isVisible=false isVisibleRequested=false isSleeping=false locusId=null displayAreaFeatureId=1 isTopActivityTransparent=false appCompatTaskInfo=AppCompatTaskInfo { topActivityInSizeCompat=false topActivityEligibleForLetterboxEducation= falseisLetterboxEducationEnabled= true isLetterboxDoubleTapEnabled= false topActivityEligibleForUserAspectRatioButton= false topActivityBoundsLetterboxed= false isFromLetterboxDoubleTap= false topActivityLetterboxVerticalPosition= -1 topActivityLetterboxHorizontalPosition= -1 topActivityLetterboxWidth=1080 topActivityLetterboxHeight=2400 isUserFullscreenOverrideEnabled=false isSystemFullscreenOverrideEnabled=false cameraCompatTaskInfo=CameraCompatTaskInfo { cameraCompatControlState=hidden freeformCameraCompatMode=inactive}}}, pipTask = null, remoteTransition = null, displayChange = null, flags = 0, debugId = 13 }
+09-07 00:23:59.652   514   577 W IPCThreadState: Sending oneway calls to frozen process.
+09-07 00:23:59.653   595   635 V GrammaticalInflectionUtils: AttributionSource: AttributionSource { uid = 10211, packageName = null, attributionTag = null, token = android.os.Binder@f8b0c81, deviceId = 0, next = null } does not have READ_SYSTEM_GRAMMATICAL_GENDER permission.
+09-07 00:23:59.654  1047  1047 W SplitSelectStateCtor: Missing session instanceIds
+09-07 00:23:59.654  1047  1047 D StatsLog: LAUNCHER_SPLIT_SELECTION_EXIT_INTERRUPTED
+09-07 00:23:59.655   840   905 D SplashScreenView: Build android.window.SplashScreenView{53f6970 V.E...... ......ID 0,0-0,0}
+09-07 00:23:59.655   840   905 D SplashScreenView: Icon: view: android.widget.ImageView{ac034e9 V.ED..... ......I. 0,0-0,0 #1020504 android:id/splashscreen_icon_view} drawable: com.android.wm.shell.startingsurface.SplashscreenIconDrawableFactory$ImmobileIconDrawable@92bb56e size: 420
+09-07 00:23:59.655   840   905 D SplashScreenView: Branding: view: android.view.View{9f7f40f G.ED..... ......I. 0,0-0,0 #1020503 android:id/splashscreen_branding_view} drawable: null size w: 0 h: 0
+09-07 00:23:59.657   840   876 D WindowManagerShell: setLauncherKeepClearAreaHeight: visible=false, height=527
+09-07 00:23:59.658  4546  4546 I Monkey  : Events injected: 1
+09-07 00:23:59.660   595  1993 I AppsFilter: interaction: PackageSetting{c5c107e com.android.microdroid.empty_payload/10188} -> PackageSetting{ae50d5e com.devhub.mobile/10211} BLOCKED
+09-07 00:23:59.662   595   783 I AppWidgetServiceImpl: Received broadcast: android.intent.action.PACKAGE_UNSTOPPED on user 0
+09-07 00:23:59.662   595   783 I AppWidgetServiceImpl: Updating package stopped masked state for uid 10211 package com.devhub.mobile isStopped false
+09-07 00:23:59.663  1047  1047 I TopTaskTracker: onTaskMovedToFront: (moved taskInfo to front) taskId=34, baseIntent=Intent { act=android.intent.action.MAIN cat=[android.intent.category.LAUNCHER] flg=0x10200000 cmp=com.devhub.mobile/.MainActivity }
+09-07 00:23:59.664   396   396 D Zygote  : Forked child process 4557
+09-07 00:23:59.665  4546  4546 I Monkey  : ## Network stats: elapsed time=22ms (0ms mobile, 0ms wifi, 22ms not connected)
+09-07 00:23:59.665  4546  4546 I app_process: System.exit called, status: 0
+09-07 00:23:59.665  4546  4546 I AndroidRuntime: VM exiting with result code 0.
+09-07 00:23:59.667   595   645 I ActivityManager: Start proc 4557:com.devhub.mobile/u0a211 for next-top-activity {com.devhub.mobile/com.devhub.mobile.MainActivity}
+09-07 00:23:59.669   468   468 I BpBinder: onLastStrongRef automatically unlinking death recipients: 
+09-07 00:23:59.671  4557  4557 I m.devhub.mobile: Late-enabling -Xcheck:jni
+09-07 00:23:59.675   595  1500 D CoreBackPreview: Window{4c9a3e0 u0 Splash Screen com.devhub.mobile}: Setting back callback OnBackInvokedCallbackInfo{mCallback=android.window.IOnBackInvokedCallback$Stub$Proxy@89f22a4, mPriority=0, mIsAnimationCallback=false}
+09-07 00:23:59.677   395   452 I netd    : tetherGetStats() -> {[]} <0.57ms>
+09-07 00:23:59.684  4557  4557 I m.devhub.mobile: Using CollectorTypeCMC GC.
+09-07 00:23:59.684  4557  4557 W m.devhub.mobile: Unexpected CPU variant for x86: x86_64.
+09-07 00:23:59.684  4557  4557 W m.devhub.mobile: Known variants: atom, sandybridge, silvermont, goldmont, goldmont-plus, goldmont-without-sha-xsaves, tremont, kabylake, default
+09-07 00:23:59.700   477   490 I adbd    : jdwp connection from 4557
+09-07 00:23:59.707  4557  4557 D nativeloader: Load libframework-connectivity-tiramisu-jni.so using APEX ns com_android_tethering for caller /apex/com.android.tethering/javalib/framework-connectivity-t.jar: ok
+09-07 00:23:59.725  4557  4557 W ziparchive: Unable to open '/data/app/~~mfuCiFuqqvsGIjSm-sDk9Q==/com.devhub.mobile-PTygM9M2QbzkttSrJu44kQ==/base.dm': No such file or directory
+09-07 00:23:59.726  4557  4557 W ziparchive: Unable to open '/data/app/~~mfuCiFuqqvsGIjSm-sDk9Q==/com.devhub.mobile-PTygM9M2QbzkttSrJu44kQ==/base.dm': No such file or directory
+09-07 00:23:59.753   840  1190 V WindowManagerShell: onTransitionReady(transaction=2555505542427)
+09-07 00:23:59.754   840   876 V WindowManagerShell: onTransitionReady (#13) android.os.BinderProxy@964f917: {id=13 t=OPEN f=0x0 trk=0 r=[0@Point(0, 0)] c=[{WCT{android.window.IWindowContainerToken$Stub$Proxy@6e24ba3} m=OPEN f=NONE leash=Surface(name=Task=34)/@0xfe4f334 sb=Rect(0, 0 - 1080, 2400) eb=Rect(0, 0 - 1080, 2400) d=0 taskParent=-1},{WCT{android.window.IWindowContainerToken$Stub$Proxy@4780ea0} m=TO_BACK f=SHOW_WALLPAPER leash=Surface(name=Task=1)/@0x4cd955d sb=Rect(0, 0 - 1080, 2400) eb=Rect(0, 0 - 1080, 2400) d=0 taskParent=-1}]}
+09-07 00:23:59.754   840   876 V WindowManagerShell: Playing animation for (#13) android.os.BinderProxy@964f917@0
+09-07 00:23:59.754   840   876 V WindowManagerShell:  try handler com.android.wm.shell.transition.DefaultMixedHandler@2f071df
+09-07 00:23:59.754   840   876 V WindowManagerShell:  try handler com.android.wm.shell.keyguard.KeyguardTransitionHandler@48c9e2c
+09-07 00:23:59.754   840   876 V WindowManagerShell:  try handler com.android.wm.shell.pip.PipTransition@a18f0f5
+09-07 00:23:59.754   840   876 V WindowManagerShell:  try handler com.android.wm.shell.activityembedding.ActivityEmbeddingController@8876e8a
+09-07 00:23:59.755   595   632 V WindowManager: Sent Transition (#13) createdAt=09-07 00:23:59.646 via request=TransitionRequestInfo { type = OPEN, triggerTask = TaskInfo{userId=0 taskId=34 displayId=0 isRunning=true baseIntent=Intent { act=android.intent.action.MAIN cat=[android.intent.category.LAUNCHER] flg=0x10200000 cmp=com.devhub.mobile/.MainActivity } baseActivity=ComponentInfo{com.devhub.mobile/com.devhub.mobile.MainActivity} topActivity=ComponentInfo{com.devhub.mobile/com.devhub.mobile.MainActivity} origActivity=null realActivity=ComponentInfo{com.devhub.mobile/com.devhub.mobile.MainActivity} numActivities=1 lastActiveTime=2033031 supportsMultiWindow=true resizeMode=1 isResizeable=true minWidth=-1 minHeight=-1 defaultMinSize=220 token=WCT{RemoteToken{29f0bc5 Task{3705447 #34 type=standard A=10211:com.devhub.mobile}}} topActivityType=1 pictureInPictureParams=null shouldDockBigOverlays=false launchIntoPipHostTaskId=-1 lastParentTaskIdBeforePip=-1 displayCutoutSafeInsets=Rect(0, 136 - 0, 0) topActivityInfo=ActivityInfo{2ac391a com.devhub.mobile.MainActivity} launchCookies=[] positionInParent=Point(0, 0) parentTaskId=-1 isFocused=false isVisible=false isVisibleRequested=false isSleeping=false locusId=null displayAreaFeatureId=1 isTopActivityTransparent=false appCompatTaskInfo=AppCompatTaskInfo { topActivityInSizeCompat=false topActivityEligibleForLetterboxEducation= falseisLetterboxEducationEnabled= true isLetterboxDoubleTapEnabled= false topActivityEligibleForUserAspectRatioButton= false topActivityBoundsLetterboxed= false isFromLetterboxDoubleTap= false topActivityLetterboxVerticalPosition= -1 topActivityLetterboxHorizontalPosition= -1 topActivityLetterboxWidth=1080 topActivityLetterboxHeight=2400 isUserFullscreenOverrideEnabled=false isSystemFullscreenOverrideEnabled=false cameraCompatTaskInfo=CameraCompatTaskInfo { cameraCompatControlState=hidden freeformCameraCompatMode=inactive}}}, pipTask = null, remoteTransition = null, displayChange = null, flags = 0, debugId = 13 }
+09-07 00:23:59.755   595   632 V WindowManager:     startWCT=WindowContainerTransaction { changes = {} hops = [] errorCallbackToken=null taskFragmentOrganizer=null }
+09-07 00:23:59.755   595   632 V WindowManager:     info={id=13 t=OPEN f=0x0 trk=0 r=[0@Point(0, 0)] c=[
+09-07 00:23:59.755   595   632 V WindowManager:         {WCT{RemoteToken{29f0bc5 Task{3705447 #34 type=standard A=10211:com.devhub.mobile}}} m=OPEN f=NONE leash=Surface(name=Task=34)/@0x70c15d3 sb=Rect(0, 0 - 1080, 2400) eb=Rect(0, 0 - 1080, 2400) d=0 taskParent=-1},
+09-07 00:23:59.755   595   632 V WindowManager:         {WCT{RemoteToken{e91f4cf Task{ac034e9 #1 type=home}}} m=TO_BACK f=SHOW_WALLPAPER leash=Surface(name=Task=1)/@0x1a0ff19 sb=Rect(0, 0 - 1080, 2400) eb=Rect(0, 0 - 1080, 2400) d=0 taskParent=-1}
+09-07 00:23:59.755   595   632 V WindowManager:     ]}
+09-07 00:23:59.757   840   876 V WindowManagerShell:  try handler com.android.wm.shell.recents.RecentsTransitionHandler@e144cfb
+09-07 00:23:59.757   840   876 V ShellRecents: RecentsTransitionHandler.startAnimation: no controller found
+09-07 00:23:59.757   840   876 V WindowManagerShell:  try handler com.android.wm.shell.splitscreen.StageCoordinator@33b7118
+09-07 00:23:59.757   840   876 V WindowManagerShell:  try handler com.android.wm.shell.transition.RemoteTransitionHandler@d54a771
+09-07 00:23:59.757   840   876 V WindowManagerShell: Transition doesn't have explicit remote, search filters for match for {id=13 t=OPEN f=0x0 trk=0 r=[0@Point(0, 0)] c=[{WCT{android.window.IWindowContainerToken$Stub$Proxy@6e24ba3} m=OPEN f=NONE leash=Surface(name=Task=34)/@0xfe4f334 sb=Rect(0, 0 - 1080, 2400) eb=Rect(0, 0 - 1080, 2400) d=0 taskParent=-1},{WCT{android.window.IWindowContainerToken$Stub$Proxy@4780ea0} m=TO_BACK f=SHOW_WALLPAPER leash=Surface(name=Task=1)/@0x4cd955d sb=Rect(0, 0 - 1080, 2400) eb=Rect(0, 0 - 1080, 2400) d=0 taskParent=-1}]}
+09-07 00:23:59.757   840   876 V WindowManagerShell:  Checking filter Pair{{types=[] flags=0x0] notFlags=0x0 checks=[{atype=undefined independent=true modes=[OPEN,TO_FRONT] flags=IN_TASK_WITH_EMBEDDED_ACTIVITY mustBeTask=false order=ANY topActivity=ComponentInfo{com.google.android.apps.nexuslauncher/com.google.android.apps.nexuslauncher.NexusLauncherActivity} launchCookie=null},{atype=undefined independent=true modes=[CLOSE,TO_BACK] flags=IN_TASK_WITH_EMBEDDED_ACTIVITY mustBeTask=false order=ANY topActivity=null launchCookie=null}]} RemoteTransition { remoteTransition = android.window.IRemoteTransition$Stub$Proxy@a75e956, appThread = android.app.IApplicationThread$Stub$Proxy@fd0bdd7, debugName = OverlaySwipeBack }}
+09-07 00:23:59.757   840   876 V WindowManagerShell:  Checking filter Pair{{types=[] flags=0x0] notFlags=0x0 checks=[{atype=dream independent=true modes=[OPEN,TO_FRONT] flags=NONE mustBeTask=false order=ANY topActivity=null launchCookie=null},{atype=home independent=true modes=[CLOSE,TO_BACK] flags=NONE mustBeTask=false order=ANY topActivity=null launchCookie=null}]} RemoteTransition { remoteTransition = android.window.IRemoteTransition$Stub$Proxy@10286c4, appThread = android.app.IApplicationThread$Stub$Proxy@2bb49ad, debugName = LauncherToDream }}
+09-07 00:23:59.757   840   876 V WindowManagerShell:  Checking filter Pair{{types=[] flags=0x0] notFlags=0x100 checks=[{atype=home independent=true modes=[OPEN,TO_FRONT] flags=NONE mustBeTask=false order=TOP topActivity=ComponentInfo{com.google.android.apps.nexuslauncher/com.google.android.apps.nexuslauncher.NexusLauncherActivity} launchCookie=null},{atype=standard independent=true modes=[CLOSE,TO_BACK] flags=NONE mustBeTask=false order=ANY topActivity=null launchCookie=null}]} RemoteTransition { remoteTransition = android.window.IRemoteTransition$Stub$Proxy@2ff44e2, appThread = android.app.IApplicationThread$Stub$Proxy@6796073, debugName = QuickstepLaunchHome }}
+09-07 00:23:59.757   840   876 V WindowManagerShell:  Delegate animation for (#13) to null
+09-07 00:23:59.757   840   876 V WindowManagerShell:  try handler com.android.wm.shell.transition.DefaultTransitionHandler@9034b30
+09-07 00:23:59.757   840   876 V WindowManagerShell: start default transition animation, info = {id=13 t=OPEN f=0x0 trk=0 r=[0@Point(0, 0)] c=[{WCT{android.window.IWindowContainerToken$Stub$Proxy@6e24ba3} m=OPEN f=NONE leash=Surface(name=Task=34)/@0xfe4f334 sb=Rect(0, 0 - 1080, 2400) eb=Rect(0, 0 - 1080, 2400) d=0 taskParent=-1},{WCT{android.window.IWindowContainerToken$Stub$Proxy@4780ea0} m=TO_BACK f=SHOW_WALLPAPER leash=Surface(name=Task=1)/@0x4cd955d sb=Rect(0, 0 - 1080, 2400) eb=Rect(0, 0 - 1080, 2400) d=0 taskParent=-1}]}
+09-07 00:23:59.757   840   876 V WindowManagerShell: loadAnimation: anim=android.view.animation.AnimationSet@5031315 animAttr=0x13 type=OPEN isEntrance=false
+09-07 00:23:59.758   840   876 V WindowManagerShell: loadAnimation: anim=android.view.animation.AnimationSet@a8ecb91 animAttr=0x12 type=OPEN isEntrance=true
+09-07 00:23:59.760   840   876 V WindowManagerShell:  animated by com.android.wm.shell.transition.DefaultTransitionHandler@9034b30
+09-07 00:23:59.766   595  1993 W UserManagerService: Requested status bar icon for non-badged user 0
+09-07 00:23:59.777  1047  1468 D EGL_emulation: app_time_stats: avg=59753.76ms min=59753.76ms max=59753.76ms count=1
+09-07 00:23:59.782   840   928 D EGL_emulation: app_time_stats: avg=17922.18ms min=17922.18ms max=17922.18ms count=1
+09-07 00:23:59.801   840   847 I ndroid.systemui: Background concurrent mark compact GC freed 14MB AllocSpace bytes, 120(3072KB) LOS objects, 50% free, 14MB/28MB, paused 1.260ms,1.942ms total 123.687ms
+09-07 00:23:59.810   595   634 I DropBoxManagerService: add tag=system_app_strictmode isTagEnabled=true flags=0x2
+09-07 00:23:59.826  1047  1468 D EGL_emulation: app_time_stats: avg=3917.03ms min=0.74ms max=74151.59ms count=19
+09-07 00:23:59.860  4557  4557 D nativeloader: Configuring clns-7 for other apk /data/app/~~mfuCiFuqqvsGIjSm-sDk9Q==/com.devhub.mobile-PTygM9M2QbzkttSrJu44kQ==/base.apk. target_sdk_version=35, uses_libraries=, library_path=/data/app/~~mfuCiFuqqvsGIjSm-sDk9Q==/com.devhub.mobile-PTygM9M2QbzkttSrJu44kQ==/lib/x86_64:/data/app/~~mfuCiFuqqvsGIjSm-sDk9Q==/com.devhub.mobile-PTygM9M2QbzkttSrJu44kQ==/base.apk!/lib/x86_64, permitted_path=/data:/mnt/expand:/data/user/0/com.devhub.mobile
+09-07 00:23:59.864  4557  4557 D CompatChangeReporter: Compat change id reported: 202956589; UID 10211; state: ENABLED
+09-07 00:23:59.872  4557  4557 V GraphicsEnvironment: Currently set values for:
+09-07 00:23:59.873  4557  4557 V GraphicsEnvironment:   angle_gl_driver_selection_pkgs=[]
+09-07 00:23:59.873  4557  4557 V GraphicsEnvironment:   angle_gl_driver_selection_values=[]
+09-07 00:23:59.873  4557  4557 V GraphicsEnvironment: Global.Settings values are invalid: number of packages: 0, number of values: 0
+09-07 00:23:59.873  4557  4557 V GraphicsEnvironment: Neither updatable production driver nor prerelease driver is supported.
+09-07 00:23:59.902  4557  4557 D CompatChangeReporter: Compat change id reported: 279646685; UID 10211; state: ENABLED
+09-07 00:24:00.003  1327  1451 I AiAiEcho: Predicting[0]:  [CONTEXT sampling_count=5 ]
+09-07 00:24:00.003  1327  1451 I AiAiEcho: EchoTargets: 
+09-07 00:24:00.003  1327  1451 I AiAiEcho: Filtered by AiAi flag check: 
+09-07 00:24:00.003  1327  1451 I AiAiEcho: [CONTEXT ratelimit_period="10 SECONDS" ]
+09-07 00:24:00.003  1327  1451 I AiAiEcho: Ranked targets strategy: SORT, count: 0, ranking metadata:  [CONTEXT ratelimit_period="10 SECONDS" ]
+09-07 00:24:00.003  1327  1451 I AiAiEcho: #remoteViewsTwiddler: feature disabled.
+09-07 00:24:00.003  1327  1451 I AiAiEcho: Predicting[0]:  [CONTEXT sampling_count=5 ]
+09-07 00:24:00.003  1327  1451 I AiAiEcho: EchoTargets: 
+09-07 00:24:00.003  1327  1451 I AiAiEcho: Filtered by AiAi flag check: 
+09-07 00:24:00.003  1327  1451 I AiAiEcho: [CONTEXT ratelimit_period="10 SECONDS" ]
+09-07 00:24:00.003  1327  1451 I AiAiEcho: Ranked targets strategy: SORT, count: 0, ranking metadata:  [CONTEXT ratelimit_period="10 SECONDS" ]
+09-07 00:24:00.004  1327  1451 I AiAiEcho: #remoteViewsTwiddler: feature disabled.
+09-07 00:24:00.004  1327  1451 I AiAiEcho: #postPredictionTargets: Sending updates to UISurface lockscreen with targets# 0 (types=[])
+09-07 00:24:00.004  1327  1451 I AiAiEcho: #postPredictionTargets: Sending updates to UISurface home with targets# 0 (types=[])
+09-07 00:24:00.008  1047  1047 D SsBaseTemplateCard: No text view can be set up
+09-07 00:24:00.009  1047  1047 D SsBaseTemplateCard: Passed-in item info is null
+09-07 00:24:00.009  1047  1047 D SsBaseTemplateCard: Passed-in item info is null
+09-07 00:24:00.009  1047  1047 D SsBaseTemplateCard: Passed-in item info is null
+09-07 00:24:00.009  1047  1047 I SsBaseTemplateCard: Secondary card pane is null
+09-07 00:24:00.025   840   840 W PageIndicator: Total number of pages invalid: 0. Assuming 1 page.
+09-07 00:24:00.072   840   876 V WindowManagerShell: Transition animation finished (aborted=false), notifying core (#13) android.os.BinderProxy@964f917@0
+09-07 00:24:00.073   595   632 V WindowManager: Finish Transition (#13): created at 09-07 00:23:59.646 collect-started=0.031ms request-sent=5.464ms started=10.382ms ready=103.11ms sent=104.124ms finished=426.72ms
+09-07 00:24:00.076  1047  1047 D VRI[NexusLauncherActivity]: visibilityChanged oldVisibility=true newVisibility=false
+09-07 00:24:00.076   840   876 V WindowManagerShell: Track 0 became idle
+09-07 00:24:00.076   840   876 V WindowManagerShell: All active transition animations finished
+09-07 00:24:00.076   595  1546 W UserManagerService: Requested status bar icon for non-badged user 0
+09-07 00:24:00.077   595  1546 W UserManagerService: Requested status bar icon for non-badged user 0
+09-07 00:24:00.086  1047  1047 D NexusLauncherModelDelegate: notifySmartspaceEvent: SmartspaceTargetEvent{mSmartspaceTarget=null, mSmartspaceActionId='null', mEventType=7}
+09-07 00:24:00.108   595  1526 W OptProp : Cannot read opt property android.window.PROPERTY_COMPAT_ENABLE_FAKE_FOCUS
+09-07 00:24:00.108   595  1526 D CompatChangeReporter: Compat change id reported: 324203798; UID 10211; state: ENABLED
+09-07 00:24:00.166  4557  4557 D CompatChangeReporter: Compat change id reported: 309578419; UID 10211; state: ENABLED
+09-07 00:24:00.193  4557  4557 W HWUI    : Unknown dataspace 0
+09-07 00:24:00.285   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:00.285   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:00.286   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:00.478  4557  4562 I m.devhub.mobile: Compiler allocated 5174KB to compile void android.view.ViewRootImpl.performTraversals()
+09-07 00:24:00.667   595  1526 D CoreBackPreview: Window{52a6958 u0 com.devhub.mobile/com.devhub.mobile.MainActivity}: Setting back callback OnBackInvokedCallbackInfo{mCallback=android.window.IOnBackInvokedCallback$Stub$Proxy@ebe70ed, mPriority=0, mIsAnimationCallback=false}
+09-07 00:24:01.023  4557  4574 I EGL_emulation: Opening libGLESv1_CM_emulation.so
+09-07 00:24:01.023  4557  4574 I EGL_emulation: Opening libGLESv2_emulation.so
+09-07 00:24:01.056  4557  4574 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+09-07 00:24:01.057  4557  4574 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+09-07 00:24:01.105   180   180 I hwservicemanager: getTransport: Cannot find entry android.hardware.graphics.mapper@4.0::IMapper/default in either framework or device VINTF manifest.
+09-07 00:24:01.106  4557  4574 I Gralloc4: mapper 4.x is not supported
+--------- beginning of kernel
+09-07 00:24:01.156     0     0 I servicemanager: Caller(pid=4557,uid=10211,sid=u:r:untrusted_app:s0:c211,c256,c512,c768) Could not find android.hardware.graphics.allocator.IAllocator/default in the VINTF manifest. No alternative instances declared in VINTF.
+09-07 00:24:01.178   595   632 W ziparchive: Unable to open '/data/app/~~mfuCiFuqqvsGIjSm-sDk9Q==/com.devhub.mobile-PTygM9M2QbzkttSrJu44kQ==/base.dm': No such file or directory
+09-07 00:24:01.179   595   632 I ActivityTaskManager: Displayed com.devhub.mobile/.MainActivity for user 0: +1s534ms
+09-07 00:24:01.190  4557  4571 I HWUI    : Davey! duration=963ms; Flags=1, FrameTimelineVsyncId=58041, IntendedVsync=2033582371586, Vsync=2033582371586, InputEventId=0, HandleInputStart=2033583761232, AnimationStart=2033583791232, PerformTraversalsStart=2033583815732, DrawStart=2034502112832, FrameDeadline=2033599038252, FrameInterval=2033583725732, FrameStartTime=16666666, SyncQueued=2034512649432, SyncStart=2034533978932, IssueDrawCommandsStart=2034534572932, SwapBuffers=2034555533632, FrameCompleted=2034567078532, DequeueBufferDuration=18000, QueueBufferDuration=149900, GpuCompleted=2034567078532, SwapBuffersCompleted=2034556076932, DisplayPresentTime=72904454231359566, CommandSubmissionCompleted=2034555533632, 
+09-07 00:24:01.190   595  1526 D CompatChangeReporter: Compat change id reported: 311208749; UID 10211; state: ENABLED
+09-07 00:24:01.190   595  1526 I ActivityManager: Background started FGS: Allowed [callingPackage: com.devhub.mobile; callingUid: 10211; uidState: TOP ; uidBFSL: [BFSL]; intent: Intent { cmp=com.devhub.mobile/.connect.GatewayConnectionService }; code:PROC_STATE_TOP; tempAllowListReason:<null>; targetSdkVersion:35; callerTargetSdkVersion:35; startForegroundCount:0; bindFromPackage:null: isBindService:false]
+09-07 00:24:01.190   595  1526 D CompatChangeReporter: Compat change id reported: 311208629; UID 10211; state: ENABLED
+09-07 00:24:01.206  4557  4557 I Choreographer: Skipped 55 frames!  The application may be doing too much work on its main thread.
+09-07 00:24:01.232   595  1526 D CompatChangeReporter: Compat change id reported: 296558535; UID 10211; state: ENABLED
+09-07 00:24:01.233   595  1526 D CompatChangeReporter: Compat change id reported: 317799821; UID 10211; state: ENABLED
+09-07 00:24:01.233   595  1526 D CompatChangeReporter: Compat change id reported: 313677553; UID 10211; state: ENABLED
+09-07 00:24:01.233   595  1526 W ForegroundServiceTypeLoggerModule: Foreground service start for UID: 10211 does not have any types
+09-07 00:24:01.238  4557  4570 I HWUI    : Davey! duration=951ms; Flags=0, FrameTimelineVsyncId=58056, IntendedVsync=2033665704916, Vsync=2034582371546, InputEventId=0, HandleInputStart=2034586869932, AnimationStart=2034586884732, PerformTraversalsStart=2034598884532, DrawStart=2034599924532, FrameDeadline=2034599038212, FrameInterval=2034586548332, FrameStartTime=16666666, SyncQueued=2034600299632, SyncStart=2034600380932, IssueDrawCommandsStart=2034601676532, SwapBuffers=2034602391932, FrameCompleted=2034616903432, DequeueBufferDuration=17400, QueueBufferDuration=264300, GpuCompleted=2034616903432, SwapBuffersCompleted=2034606369532, DisplayPresentTime=144115222452437076, CommandSubmissionCompleted=2034602391932, 
+09-07 00:24:01.243  1129  1923 I FontLog : Received query Noto Color Emoji Compat, URI content://com.google.android.gms.fonts [CONTEXT service_id=132 ]
+09-07 00:24:01.243  1129  1923 I FontLog : Query [emojicompat-emoji-font] resolved to {Noto Color Emoji Compat, wdth 100.0, wght 400, ital 0.0, bestEffort false} [CONTEXT service_id=132 ]
+09-07 00:24:01.243  1129  1923 I FontLog : Fetch {Noto Color Emoji Compat, wdth 100.0, wght 400, ital 0.0, bestEffort false} end status Status{statusCode=SUCCESS, resolution=null} [CONTEXT service_id=132 ]
+09-07 00:24:01.248  1129  1923 I FontLog : Pulling font file for id = 15, cache size = 6 [CONTEXT service_id=132 ]
+09-07 00:24:01.248   595   722 I ImeTracker: com.devhub.mobile:ccc3e6d2: onRequestHide at ORIGIN_SERVER reason HIDE_UNSPECIFIED_WINDOW fromUser false
+09-07 00:24:01.249   595   722 I ImeTracker: com.devhub.mobile:ccc3e6d2: onCancelled at PHASE_SERVER_SHOULD_HIDE
+09-07 00:24:01.250  1226  1226 I GoogleInputMethodService: GoogleInputMethodService.onFinishInput():3157 
+09-07 00:24:01.252  1226  1226 I GoogleInputMethodService: GoogleInputMethodService.updateDeviceLockedStatus():2248 repeatCheckTimes = 0, locked = false
+09-07 00:24:01.252  1047  1047 D BaseDepthController: setSurface:
+09-07 00:24:01.252  1047  1047 D BaseDepthController: 	mWaitingOnSurfaceValidity: false
+09-07 00:24:01.252  1047  1047 D BaseDepthController: 	mSurface: null
+09-07 00:24:01.253  1226  1226 I GoogleInputMethodService: GoogleInputMethodService.onStartInput():1986 onStartInput(EditorInfo{EditorInfo{packageName=com.devhub.mobile, inputType=0, inputTypeString=NULL, enableLearning=false, autoCorrection=false, autoComplete=false, imeOptions=0, privateImeOptions=null, actionName=UNSPECIFIED, actionLabel=null, initialSelStart=-1, initialSelEnd=-1, initialCapsMode=0, label=null, fieldId=0, fieldName=null, extras=null, hintText=null, hintLocales=[]}}, false)
+09-07 00:24:01.253  1047  1047 D BaseDepthController: mSurface is null and mCurrentBlur is: 0
+09-07 00:24:01.254  1226  1226 I GoogleInputMethodService: GoogleInputMethodService.updateDeviceLockedStatus():2248 repeatCheckTimes = 1, locked = false
+09-07 00:24:01.254  1226  1226 I AndroidIME: InputBundleManager.loadActiveInputBundleId():450 loadActiveInputBundleId: und-Latn-x-password, password_floating_hard_qwerty
+09-07 00:24:01.255  1047  1047 D StateManager: goToState - fromState: Normal, toState: Normal, partial trace:
+09-07 00:24:01.255  1047  1047 D StateManager: 	at com.android.launcher3.statemanager.StateManager.moveToRestState(go/retraceme 31f9979659277bb965985aff1272c33e3c3c9e755b77166d20a2465454178f2c:4)
+09-07 00:24:01.255  1047  1047 D StateManager: 	at com.android.launcher3.statemanager.StateManager.moveToRestState(go/retraceme 31f9979659277bb965985aff1272c33e3c3c9e755b77166d20a2465454178f2c:1)
+09-07 00:24:01.255  1047  1047 D StateManager: 	at com.android.launcher3.statemanager.StatefulActivity.onStop(go/retraceme 31f9979659277bb965985aff1272c33e3c3c9e755b77166d20a2465454178f2c:34)
+09-07 00:24:01.257   395   452 I netd    : tetherGetStats() -> {[]} <0.42ms>
+09-07 00:24:01.258  1047  1047 D StatsLog: LAUNCHER_ONSTOP
+09-07 00:24:01.258   595  1993 W PackageConfigPersister: App-specific configuration not found for packageName: com.devhub.mobile and userId: 0
+09-07 00:24:01.260   595  1993 I AppWidgetServiceImpl: setAppWidgetHidden() 0
+09-07 00:24:01.260  1047  1585 D OneSearchSuggestProvider: Shut down the binder channel
+09-07 00:24:01.261  1047  1047 D StatsLog: LAUNCHER_GOOGLE_SEARCH_RESTORE_LIST_SIZE_AFTER_ACTIVITY_RESTART
+09-07 00:24:01.269  1129  1923 I FontLog : Pulling font file for id = 15, cache size = 6 [CONTEXT service_id=132 ]
+09-07 00:24:01.290   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:01.291   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:01.293   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:01.311  4557  4585 D TrafficStats: tagSocket(128) with statsTag=0xffffffff, statsUid=-1
+09-07 00:24:01.312  4557  4583 D TrafficStats: tagSocket(138) with statsTag=0xffffffff, statsUid=-1
+09-07 00:24:01.319  4557  4594 D TrafficStats: tagSocket(133) with statsTag=0xffffffff, statsUid=-1
+09-07 00:24:01.502  4557  4594 I ConnManager: relay hello seq=21795, upstream=connected, sync after=21792
+09-07 00:24:01.543   514   577 W IPCThreadState: Sending oneway calls to frozen process.
+09-07 00:24:01.547   840   904 W WindowOnBackDispatcher: sendCancelIfRunning: isInProgress=false callback=android.view.ViewRootImpl$$ExternalSyntheticLambda11@c49c22b
+09-07 00:24:01.547   595  1546 D CoreBackPreview: Window{4c9a3e0 u0 Splash Screen com.devhub.mobile EXITING}: Setting back callback null
+09-07 00:24:01.547   595  1993 W InputManager-JNI: Input channel object '4c9a3e0 Splash Screen com.devhub.mobile (client)' was disposed without first being removed with the input manager!
+09-07 00:24:01.560  1047  1468 D EGL_emulation: app_time_stats: avg=60.41ms min=0.78ms max=1355.15ms count=24
+09-07 00:24:01.596   840   904 W FrameTracker: Missing HWUI jank callback for vsyncId: 58237, CUJ=J<SPLASHSCREEN_EXIT_ANIM>
+09-07 00:24:01.596   840   904 W FrameTracker: Missing HWUI jank callback for vsyncId: 58387, CUJ=J<SPLASHSCREEN_EXIT_ANIM>
+09-07 00:24:01.596   840   904 W FrameTracker: Missing SF jank callback for vsyncId: 58417, CUJ=J<SPLASHSCREEN_EXIT_ANIM>
+09-07 00:24:01.729   840   928 D EGL_emulation: app_time_stats: avg=176.90ms min=10.70ms max=1704.56ms count=11
+09-07 00:24:02.240  4557  4574 D EGL_emulation: app_time_stats: avg=4.49ms min=0.98ms max=50.22ms count=62
+09-07 00:24:02.297   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:02.297   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:02.298   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:03.159   595  1411 E TaskPersister: File error accessing recents directory (directory doesn't exist?).
+09-07 00:24:03.241  4557  4574 D EGL_emulation: app_time_stats: avg=2.29ms min=1.01ms max=4.01ms count=60
+09-07 00:24:03.301   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:03.301   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:03.301   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:04.243  4557  4574 D EGL_emulation: app_time_stats: avg=2.55ms min=1.03ms max=5.57ms count=60
+09-07 00:24:04.251  4557  4562 I m.devhub.mobile: Compiler allocated 4431KB to compile void com.devhub.mobile.ui.screens.SessionsScreenKt.SessionsScreen(kotlin.jvm.functions.Function1, androidx.compose.runtime.Composer, int)
+09-07 00:24:04.303   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:04.303   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:04.304   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:05.245  4557  4611 D ProfileInstaller: Installing profile for com.devhub.mobile
+09-07 00:24:05.301  4557  4574 D EGL_emulation: app_time_stats: avg=28.90ms min=1.81ms max=562.67ms count=25
+09-07 00:24:05.308   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:05.308   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:05.309   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:05.314  1003  1003 D TelephonyManager: requestModemActivityInfo: Sending result to app: ModemActivityInfo{ mTimestamp=2038694 mSleepTimeMs=0 mIdleTimeMs=2038655 mActivityStatsTechSpecificInfo=[{mRat=UNKNOWN,mFrequencyRange=UNKNOWN,mTxTimeMs[]=[0, 0, 0, 0, 0],mRxTimeMs=0}]}
+09-07 00:24:06.314   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:06.315   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:06.316   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:06.386  4557  4574 D EGL_emulation: app_time_stats: avg=542.54ms min=166.98ms max=918.09ms count=2
+09-07 00:24:07.313   395   452 I netd    : tetherGetStats() -> {[]} <0.38ms>
+09-07 00:24:07.319   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:07.320   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:07.320   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:08.323   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:08.323   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:08.324   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:09.326   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:09.327   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:09.327   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:10.329   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:10.329   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:10.329   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:11.332   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:11.332   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:11.333   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:11.450   595   595 W NotificationHistory: Attempted to add notif for locked/gone/disabled user 0
+09-07 00:24:11.451  1327  1804 W AiAiEcho: LyftNotificationParser Ridesharing ETA not enabled
+09-07 00:24:11.451  1327  1804 I AiAiEcho: SmartspaceNotificationPredictor no parser can handle this notification or notification is invalid
+09-07 00:24:11.459   840  1109 D LocalImageResolver: Couldn't use ImageDecoder for drawable, falling back to non-resized load.
+09-07 00:24:11.462   840  1109 D LocalImageResolver: Couldn't use ImageDecoder for drawable, falling back to non-resized load.
+09-07 00:24:11.488   840   928 D EGL_emulation: app_time_stats: avg=975.83ms min=11.38ms max=9614.70ms count=10
+09-07 00:24:12.335   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:12.336   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:12.337   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:13.340   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:13.340   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:13.341   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:14.344   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:14.345   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:14.346   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:14.876     0     0 I logd    : logdr: UID=2000 GID=2000 PID=4612 n tail=0 logMask=99 pid=0 start=0ns deadline=0ns
+09-07 00:24:15.314   204  4578 I keystore2: system/security/keystore2/watchdog/src/lib.rs:319 - Watchdog thread idle -> terminating. Have a great day.
+09-07 00:24:15.348   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:15.348   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:15.349   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:16.351   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:16.351   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:16.352   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:17.354   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:17.354   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:17.355   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:18.357   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:18.358   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:18.358   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:19.360   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:19.360   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:19.361   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:20.363   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:20.364   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:20.364   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:21.367   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:21.368   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:21.369   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:22.371   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:22.371   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:22.372   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:23.375   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:23.375   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:23.376   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:24.378   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:24.378   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:24.379   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:25.381   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:25.381   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:25.381   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:26.383   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:26.384   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:26.384   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:27.224  1343  2013 I BistoHotwordHelper: (REDACTED) getHotwordActive::active query: %s, watch: %s, devices connected: %s
+09-07 00:24:27.387   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:27.387   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:27.388   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:28.390   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:28.391   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:28.391   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:29.394   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:29.394   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:29.395   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:30.398   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:30.398   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:30.399   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:31.401   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:31.401   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:31.401   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:32.404   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:32.405   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:32.406   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:33.409   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:33.409   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:33.409   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:34.412   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:34.412   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:34.412   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:35.415   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:35.415   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:35.416   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:36.418   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:36.418   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:36.418   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:37.422   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:37.422   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:37.422   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:38.425   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:38.425   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:38.425   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:38.775  4617  4617 D sqlite3 : u_setTimeZoneFilesDirectory("/apex/com.android.tzdata/etc/tz/versioned/8/icu") succeeded. 
+09-07 00:24:38.775  4617  4617 D sqlite3 : I18n APEX ICU file found: /apex/com.android.i18n/etc/icu/icudt75l.dat
+09-07 00:24:39.428   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:39.428   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:39.428   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:39.893     0     0 I logd    : logdr: UID=2000 GID=2000 PID=4618 n tail=0 logMask=99 pid=0 start=0ns deadline=0ns
+09-07 00:24:40.431   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:40.431   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:40.432   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:41.434   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:41.434   595  1498 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:41.434   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:42.436   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:42.437   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:42.437   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:42.708   595   751 E WifiScoringParams: Invalid frequency(-1), using 5G as default rssi array
+09-07 00:24:43.439   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:43.440   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:43.440   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:44.442   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:44.443   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:44.443   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:45.290   595  1526 W BatteryExternalStatsWorker: error reading Bluetooth stats: 11
+09-07 00:24:45.446   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:45.446   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:45.447   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:46.449   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:46.450   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:46.450   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:46.468   595  1526 D WifiNl80211Manager: Scan result ready event
+09-07 00:24:46.468   595  1526 D WifiNative: Scan result ready event
+09-07 00:24:46.471   595   751 I HalDevMgr: bestIfaceCreationProposal is null, requestIface=STA, existingIface=[name=wlan0 type=STA]
+09-07 00:24:47.454   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:47.454   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:47.454   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:48.458   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:48.458   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:48.458   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:49.461   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:49.461   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:49.461   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:50.464   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:50.464   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:50.465   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:51.467   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:51.467   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:51.468   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:52.469   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:52.470   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:52.470   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:53.473   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:53.473   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:53.473   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:54.475   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:54.475   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:54.476   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:55.478   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:55.478   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:55.479   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:56.482   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:56.482   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:56.483   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:57.485   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:57.485   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:57.486   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:58.488   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:58.489   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:58.489   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:59.491   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:59.492   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:24:59.492   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:00.004  1327  1451 I AiAiEcho: Predicting[0]:  [CONTEXT sampling_count=5 ]
+09-07 00:25:00.004  1327  1451 I AiAiEcho: EchoTargets: 
+09-07 00:25:00.004  1327  1451 I AiAiEcho: Filtered by AiAi flag check: 
+09-07 00:25:00.004  1327  1451 I AiAiEcho: [CONTEXT ratelimit_period="10 SECONDS" ]
+09-07 00:25:00.004  1327  1451 I AiAiEcho: Ranked targets strategy: SORT, count: 0, ranking metadata:  [CONTEXT ratelimit_period="10 SECONDS" ]
+09-07 00:25:00.004  1327  1451 I AiAiEcho: #remoteViewsTwiddler: feature disabled.
+09-07 00:25:00.004  1327  1451 I AiAiEcho: Predicting[0]:  [CONTEXT sampling_count=5 ]
+09-07 00:25:00.004  1327  1451 I AiAiEcho: EchoTargets: 
+09-07 00:25:00.004  1327  1451 I AiAiEcho: Filtered by AiAi flag check: 
+09-07 00:25:00.004  1327  1451 I AiAiEcho: [CONTEXT ratelimit_period="10 SECONDS" ]
+09-07 00:25:00.004  1327  1451 I AiAiEcho: Ranked targets strategy: SORT, count: 0, ranking metadata:  [CONTEXT ratelimit_period="10 SECONDS" ]
+09-07 00:25:00.004  1327  1451 I AiAiEcho: #remoteViewsTwiddler: feature disabled.
+09-07 00:25:00.005  1327  1451 I AiAiEcho: #postPredictionTargets: Sending updates to UISurface lockscreen with targets# 0 (types=[])
+09-07 00:25:00.005  1327  1451 I AiAiEcho: #postPredictionTargets: Sending updates to UISurface home with targets# 0 (types=[])
+09-07 00:25:00.006  1047  1047 D SsBaseTemplateCard: No text view can be set up
+09-07 00:25:00.006  1047  1047 D SsBaseTemplateCard: Passed-in item info is null
+09-07 00:25:00.006  1047  1047 D SsBaseTemplateCard: Passed-in item info is null
+09-07 00:25:00.006  1047  1047 D SsBaseTemplateCard: Passed-in item info is null
+09-07 00:25:00.006  1047  1047 I SsBaseTemplateCard: Secondary card pane is null
+09-07 00:25:00.021   840   840 W PageIndicator: Total number of pages invalid: 0. Assuming 1 page.
+09-07 00:25:00.026   840   928 D EGL_emulation: app_time_stats: avg=2855.12ms min=14.59ms max=48172.44ms count=17
+09-07 00:25:00.494   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:00.495   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:00.495   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:01.497   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:01.497   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:01.498   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:02.501   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:02.501   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:02.501   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:03.504   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:03.504   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:03.504   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:04.507   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:04.507   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:04.508   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:05.509   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:05.510   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:05.510   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:06.511   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:06.511   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:06.512   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:07.516   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:07.517   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:07.517   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:08.519   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:08.519   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:08.520   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:09.522   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:09.522   595  1546 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:09.523   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:10.524   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:10.525   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:10.525   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:11.528   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:11.528   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:11.528   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:12.532   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:12.532   595  1526 W BestClock: java.time.DateTimeException: Missing network time fix
+09-07 00:25:12.533   595  1993 W BestClock: java.time.DateTimeException: Missing network time fix
