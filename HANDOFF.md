@@ -35,11 +35,12 @@
 
 ## 4. ⚠️ 未决项（按序处理）
 
-1. **M3-D 72h 观察（运行中，至 09-10 08:49）**：巡检一行命令 `node scripts/m3d-watch.mjs --summary "C:\Users\sakuya\AppData\Local\DevHub\m3d-watch\watch-m3d-72h.ndjson"`——判读面=ok 率/网关 down 时段/证书余量趋势；巡检进程若随宿主重启丢失，用 Start-Process 同款重拉（**勿带 --t0**）；窗内勿动常驻/ECS/巡检进程；窗毕出 72h 总结（ok 率+事件时间线+证书日历复核）
-2. **#9 裁决后收尾批**：设备自管理通道实现 + App managed spawn 接 WS command face（R-B5 回流/R-B8 UI 面闭环）→ 单面复验
-3. dist 根 NSIS 统一重打包（现 win-unpacked=main 桌面全量运行中、NSIS 仍 v3——M3-D 窗内不动包，窗毕一批搞定）
-4. worktree 尾巴：dist-v3（detached 旧基线）、gate-fix 目录残留（core.jar 句柄）
-5. docs 增补批（择机）：docs/18 §3.14 轮换投递两腿 + §3.11 requestId/引导实录 + §3.0 #16 error 回程——均有 KDoc 标注，正式入册待用户裁决方向定
+1. **M3-D 72h 观察（运行中，至 09-10 08:49）**：巡检一行命令 `node scripts/m3d-watch.mjs --summary "C:\Users\sakuya\AppData\Local\DevHub\m3d-watch\watch-m3d-72h.ndjson"`；**已建 12h 定时巡检自动化（窗毕自删+自动终报）**；巡检进程若随宿主重启丢失，用 Start-Process 同款重拉（**勿带 --t0**）；窗内勿动常驻/ECS/巡检进程/包
+2. **#9 裁决后收尾批**：设备自管理通道实现 + App managed spawn 接 WS command face（R-B5 回流/R-B8 UI 面闭环）→ 单面复验（**决策简报已交用户：A admin REST / B WS command 扩权（主控荐）/ C 桌面独占**）
+3. ~~dist 根 NSIS 统一~~ ✅ 已毕（W1：根五件=09-07 19:02 构建，常驻零扰动实证；dist-final worktree 留存=产物在 git 外）
+4. ~~worktree 尾巴~~ ✅ 已毕（dist-v3 移除+gate-fix 目录句柄释放删除成功）
+5. ~~docs/18 增补注入册~~ ✅ 已毕（W2 合入 90206f6：§3.0#16/§3.11/§3.14 三注，纯插入零规范性改动）
+6. dist-final worktree 处置（产物已部署根件，worktree 可清——留待 M3-D 窗毕顺手）；GitHub Release 发布与否待用户一句话
 
 ## 5. 待用户裁决（只排队不代答）
 
