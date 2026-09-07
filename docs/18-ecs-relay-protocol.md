@@ -400,7 +400,9 @@ host 曾离线且事件未回填/已被淘汰）→ 事件缺口的权威补齐�
 `disconnect` 后必须紧跟 WS close 帧（code 1000）；对端收到后**不得**对 `reason:"revoked"` 做自动重连
 （其余 reason 按退避重连）。撤销链路闭环：L3 revoke → 本地 `closeDeviceConnections`（现缝）+
 relayClient `disconnect{deviceId,reason:'revoked'}` → ECS 踢线 + `relay_devices.status=revoked` →
-该设备后续连接 401（错误码映射 §8.2 `DEVICE_REVOKED`）。设备自撤销（REST DELETE 代理路径）同链路反向生效。
+该设备后续连接 401（错误码映射 §8.2 `DEVICE_REVOKED`）。设备自撤销同链路反向生效（M3-E 起
+Relay 模式经 WS command `revoke_device` 发起，§5.3——用户裁决 2026-09-07 #9=B；本地模式
+REST DELETE 面零改动）。
 
 ### 3.16 error（结构化错误帧）
 
@@ -479,6 +481,48 @@ relayClient `disconnect{deviceId,reason:'revoked'}` → ECS 踢线 + `relay_devi
 | host 离线 | ECS 排队（`queued:true`，上限 §3.9） | 重连后按 `requested_at` 序投递；投递前过期的直接置 `expired` 回流 |
 | 执行结果安全 | Windows L3 能力门 + 授权矩阵**二次校验**（resolveCommandGate，现状不动） | UI 门是第一道，服务端拒绝才是合同（docs/15 §5） |
 
+### 5.3 设备自管理与 managed spawn 命令（M3-E；用户裁决 2026-09-07 #9=B）
+
+> 裁决：#9 选 B——复用现有 WS command 通道，补齐设备自管理和 managed spawn，闭环 R-B5/R-B8
+> （docs/20 §3）。本节为该裁决的规范性落点：**帧形零扩展**（复用 §3.8/§3.9/§3.10 原形——零新帧、
+> 零新字段），仅新增两 action 值；幂等/TTL/排队/重试语义原样走 §5.2 与 §3.8 重试规则；§5.1 五值
+> 不变，本节是其唯一 M3-E 追加面（shell/exec/文件通道仍不存在，N-R3 纪律延续）。
+
+| Relay action | 语义 | Windows 执行通道 | 门控 |
+| --- | --- | --- | --- |
+| `spawn_session` | managed 会话启动：设备经 WS command 发起托管会话（语义对齐本地 REST `POST /v1/providers/{providerId}/sessions`，docs/14；**Relay 模式不再走该 REST 面**） | L3 既有 spawn 托管通道（exec.spawnManaged 双上限；remote_commands action='spawn' 幂等行复用） | provider `caps.mode='managed'` 且能力验证新鲜（≤300s，同本地能力门）；observed/未验证 → 拒 |
+| `revoke_device` | 设备自撤销：目标恒为 Token 对应设备自身（**仅自撤销**；撤销他设备仍唯桌面路径，§3.15） | L3 revoke → 既有撤销链原样（§3.15：closeDeviceConnections + relayClient `disconnect{deviceId,reason:'revoked'}` → ECS 踢线 + `relay_devices.status=revoked` → 后续连接 401 `DEVICE_REVOKED`） | 无能力门（自助操作；风险面=自身失联，由 §3.15「revoked 不得自动重连」纪律兜底） |
+
+帧形示意（零扩展，字段全部为 §3.8 既有字段）：
+
+```json
+// spawn_session（D→E → E→H；尚无会话 → sessionId 缺省，其余字段同 §3.8）
+{ "type": "command", "requestId": "uuid-…", "idempotencyKey": "uuid-…",
+  "action": "spawn_session",
+  "payload": { "providerId": "kimi", "task": "…" },   // task 非空 ≤4000（对齐本地 REST BAD_PAYLOAD 边界）
+  "auth": { "token": "<端到端 Token>", "ts": 1757000000, "nonce": "<128-bit>" } }
+// 受理/拒绝：§3.9 command_ack 原形（rejected 时 errorCode ∈ {SPAWN_REJECTED,
+//   AGENT_CAPABILITY_MISSING, COMMAND_NOT_EXECUTABLE, COMMAND_EXPIRED}，§8.2 同一命名域）
+// 终态：§3.10 command_result（action='spawn_session'，status='executed'，sessionId=新会话 id；
+//   nativeId 不入 command_result 帧——经 command.result 事件 payload 回流，帧形零扩展）
+```
+
+```json
+// revoke_device（D→E → E→H）
+{ "type": "command", "requestId": "uuid-…", "idempotencyKey": "uuid-…",
+  "action": "revoke_device", "payload": {},
+  "auth": { "token": "<端到端 Token>", "ts": 1757000000, "nonce": "<128-bit>" } }
+// 受理：command_ack accepted；**终态收口 = disconnect(revoked) 而非 command_result**——撤销链
+//   先于终态回帧关闭该设备全部连接，command_result 不保证送达（Windows 侧 commandId 终态照常落库）；
+//   设备收到 disconnect(reason:'revoked') 后停止自动重连（§3.15 纪律原样）。
+```
+
+读面评估（最小面原则）：设备列表/诊断查询**不新增任何读端点或读帧**——既有 §7.1 G5 读面
+（`/v1/agents`、`/v1/sessions`、`/v1/sessions/{id}/messages` 及对应帧形）已覆盖设备侧观察需求；
+`revoke_device` 目标 = self 无需设备列表读；诊断查询不在本裁决授权面（维持 §7.2 v1 不开放）。
+ECS 侧 `command.action` 白名单同步追加两值属实现批次范围（值域扩展非新增 channel，docs/20 §2 R1
+同款纪律）。
+
 ---
 
 ## 6. 同步与 ACK 语义（断线补发）
@@ -521,6 +565,10 @@ deviceId)`。Windows `event_deliveries` 的 `pending→delivered→acked` 状态
 | `/v1/sessions/{id}` | GET | Bearer | 中继（无独立帧——以 `session_list {sessionId}` 语义承载，实现可合并） | `200 {session, capabilities}` |
 | `/v1/sessions/{id}/messages` | GET | Bearer | 中继为 `message` 帧；query `after/last/before/limit` 语义与互斥规则**逐字复用** docs/14 §B.1（ux A R10） | `200 {items:[…], nextAfter?, prevAfter?}`（绝无 sourceRef） |
 
+> **M3-E 注（用户裁决 2026-09-07 #9=B）**：设备自管理动作（`revoke_device`）与 managed spawn
+> （`spawn_session`）经 §5.3 WS command 面承载，**不新增 REST 端点**（B 裁决本义：复用现有
+> WS command 通道）；上表 G5 读面已覆盖设备侧读取需求，本批零新增读面。
+
 ### 7.2 明确不在 ECS REST 面的动作（v1 范围裁决）
 
 | 动作 | Relay 面的承载 | 说明 |
@@ -528,7 +576,8 @@ deviceId)`。Windows `event_deliveries` 的 `pending→delivered→acked` 状态
 | 配对 claim | WS `pair`/`pair_accepted` | §3.2/§3.3；ECS 无 REST claim 端点 |
 | reply / pause / resume（+ approve/interrupt） | WS `command` | 实时面走 WS（G5 混合制裁决）；对 ECS REST POST → `405 {error:{code:"RELAY_REST_READONLY"}}` |
 | 事件 ack | WS `sync_request`/`heartbeat` 累计游标 | REST `POST /v1/events/{id}/ack` 不在 ECS 开放 |
-| 设备管理 / 诊断 / 归档删除 / spawn | **v1 不开放**（本地模式功能） | 防线等价：桌面侧全功能保留；设备遗失场景由桌面撤销覆盖（docs/21 §5.3 记录扩展 backlog） |
+| 设备自撤销 / spawn（managed） | WS `command`（`revoke_device` / `spawn_session`，§5.3——**M3-E 修订，用户裁决 2026-09-07 #9=B**） | 经 WS 命令面开放（复用现有 WS command 通道，帧形零扩展）；ECS REST 面仍不开放 |
+| 设备管理其余 / 诊断 / 归档删除 | **v1 不开放**（本地模式功能） | 防线等价：桌面侧全功能保留；设备遗失场景由桌面撤销覆盖（docs/21 §5.3 记录扩展 backlog） |
 
 范围理由：ECS 面收敛到「核心控制环」（配对/观察/通知/回复/暂停恢复），最小化「经中继的写面」，
 与「ECS 只做转发」及 2C2G 容量预算一致（docs/19 §5.5）；后续批次按同一帧机制扩 `rest_proxy`
@@ -586,6 +635,7 @@ REST 面：`{ "error": { "code", "message" } }` + HTTP 状态（docs/14 Part C �
 | `RELAY_REST_READONLY` | 405 | error | **新码**：该动在 Relay 面须走 WS（§7.2） |
 | `RELAY_QUEUE_FULL` | 503 | error | **新码**：命令排队超上限（§3.9） |
 | `RELAY_DEVICE_UNKNOWN` / `RELAY_HOST_UNKNOWN` | 401 | error + 升级拒绝 | **新码**：注册表/凭据表中无此身份 |
+| `SPAWN_REJECTED` | —（WS 专属） | command_ack(rejected) | **新码（M3-E，用户裁决 2026-09-07 #9=B）**：`spawn_session` 被 spawn 特有原因拒绝（provider 无托管通道/并发上限等；能力缺失归 `AGENT_CAPABILITY_MISSING`），§5.3 |
 
 新码为 Relay 域**新增值**（append-only 精神，不改 docs/14 Part C 任何既有码的语义与 HTTP 映射）；
 `docs/18` 为其权威定义点，实现批次在 `src/shared/types.ts` ErrorCode 同步追加（docs/20 §2 R1）。
@@ -676,6 +726,8 @@ relayClient/Windows               ECS Relay                    Android
 | REST `POST /v1/pairing/claim` | WS `pair` / `pair_accepted` | **通道迁移**：码校验/限流上移 ECS；Token 签发与落库仍在 Windows（语义不变） |
 | REST `GET /v1/agents`、`/v1/sessions`、`/v1/sessions/{id}`、`/v1/sessions/{id}/messages` | 同路径 HTTPS（ECS 终结）＋ 内部以 `agent_list`/`session_list`/`message` 帧承载 | **形状不变**：请求参数与响应 JSON 逐字段一致（含 last/before/after 分页、segments） |
 | REST `POST /v1/sessions/{id}/reply`、`/actions` | WS `command`（`send_message`≡`reply`）+ `command_ack`/`command_result` | **通道迁移 + 改名**：202 accepted ≡ command_ack(accepted)；幂等/TTL/终态语义原样（§5.2） |
+| REST `POST /v1/providers/{providerId}/sessions`（managed spawn，本地面） | WS `command`（`spawn_session`，§5.3） | **通道迁移（M3-E）**：Relay 模式 spawn 走 WS 命令面（用户裁决 2026-09-07 #9=B）；本地 REST 面零改动 |
+| REST `DELETE /v1/devices/{id}`（设备自撤销，本地面） | WS `command`（`revoke_device`，§5.3） | **通道迁移（M3-E）**：Relay 模式自撤销走 WS 命令面（同上裁决）；本地 REST 面零改动 |
 | WS `hello {sequence, device, heartbeatSec}` | `hello {sequence, deviceId, heartbeatSec, relayVersion, upstream}` | 字段改名 device→deviceId + 附加字段 |
 | WS `{type:'sync', after}` | `sync_request {after}` | 改名 + 兼任累计 ACK（见下两行） |
 | WS `{type:'ack', seqs[]}`（≤500） | `sync_request {after}` / `heartbeat {lastAckedSeq}` 累计游标 | **语义合并**：`after = max(连续已处理)`；等价且更强（游标单调，无逐条列举） |
@@ -699,6 +751,6 @@ class 仅 additive 扩展。
 | --- | --- |
 | N-R1 | 不做端到端内容加密（payload 加密/密钥协商）——ECS 威胁面以「不落盘+脱敏前置+最小缓存」约束（docs/19 §3），端到端加密列 backlog |
 | N-R2 | 不做多用户/多桌面租户模型——单 host（每部署一份 Relay 凭据），多桌面为 backlog（reference-map MeshCentral 设备组方向记录） |
-| N-R3 | 不做任意远程命令通道——action 全集锁死 §5.1 五值，shell/exec/文件通道不存在（docs/15 §5 禁止动作 1/2 延续） |
+| N-R3 | 不做任意远程命令通道——action 全集锁死 §5.1 五值（＋§5.3 设备自管理两值，M3-E 唯一追加，用户裁决 2026-09-07 #9=B），shell/exec/文件通道不存在（docs/15 §5 禁止动作 1/2 延续） |
 | N-R4 | 不在 WS 面复刻完整 REST（诊断/设备管理/归档等）——v1 REST 范围 §7.1/§7.2 |
 | N-R5 | 不做协议版本协商（v1 单版本；`relayVersion` 仅观测字段；不兼容 = error + close） |
