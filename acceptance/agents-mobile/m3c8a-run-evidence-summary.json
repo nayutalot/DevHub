@@ -1,0 +1,91 @@
+{
+  "batch": "M3-C8a",
+  "generatedAt": "2026-09-07T08:32:00+08:00",
+  "branch": "agent/c8a-sync (8ddc922 引导修复 + 370fc86 requestId 修复)",
+  "baseline": "main @ 93d0d04 (worktree 切点；brief 基线 c834c6f 后有 docs 提交)",
+  "apk": "app-debug.apk 08:17 > 370fc86（requestId 修复后重建；gradle :core:test :app:assembleDebug 全绿）",
+  "contractConclusion": {
+    "docs18_s3_11": "sync_request 帧形含 requestId（uuid-…）+ after（本机已持久处理的最高连续 sequence）；fresh 设备 after=0 是合法初值",
+    "docs18_s6_1_2": "引导语义已定义：hello 后无论水位高低均发 sync_request {after: 本地 maxSeq}（hello.sequence > 本地 maxSeq → 补齐；≤ → 本地为准不回退，应答空页）。照契约实施=删除 after<=0 早退",
+    "docs18_s6_3": "hasGaps=缓存洞显式标注 → gapFill(upTo) 推进；本批实战触发于全量回填第 1 页（缓存起点 15766，游标 0）",
+    "blankSpot": "ECS 缓存全空（hello.sequence=0）+ fresh 设备的 live 流基线对齐未定义——KDoc 已标注（RelaySyncEngine.kt），本批不扩帧面，依赖重连再引导"
+  },
+  "fixes": [
+    {
+      "commit": "8ddc922",
+      "title": "sync 引导死锁：hello 引导 after=0 必发",
+      "root": "sendRelaySyncRequest 对 after<=0 早退（C2e 实证死锁链：fresh 游标永 0 → sync_request 永不发 → 补发永不启动 → held 只增 870+、event_ack_state 不落盘）",
+      "change": "新增 :core RelaySyncEngine（纯状态机：游标+引导/ACK 出帧+gapFill 反应，PairLegFrameRouter 同先例）；ConnectionManager 委托；hello 后必发 sync_request{after=本地游标}"
+    },
+    {
+      "commit": "370fc86",
+      "title": "sync_request 携非空 requestId（实战暴露的第二个潜在雷）",
+      "root": "旧实现恒发 requestId=null（编码即省略）——死锁时期 sync_request 从未上线故从未被服务端检验；引导帧上线即被 ECS forwarder asString 拒（BAD_PAYLOAD，m3c8a-02 logcat 前段实录）",
+      "change": "RelaySyncEngine.syncRequestFrame 出帧带 UUID requestId（docs/18 §3.11 帧形；客户端单飞行帧仅满足帧形，不依赖关联）"
+    }
+  ],
+  "unitTests": {
+    "file": "android/core/src/test/kotlin/com/devhub/mobile/core/relay/RelaySyncEngineTest.kt",
+    "count": 6,
+    "cases": [
+      "fresh install hello bootstrap emits sync_request with after=0 - deadlock fix regression",
+      "fresh bootstrap then full backfill drains to ecs watermark via gapFill",
+      "restored cursor never regresses below hello watermark - local wins",
+      "held queue drains when the hole arrives then advances contiguously",
+      "full app-off timeline - bootstrap backfill ack advances persisted cursor monotonically",
+      "cursor restored from persisted state survives reconnect replay - ack only forward"
+    ],
+    "totals": ":core 189（183+6）/ :app 47，合计 236 全绿"
+  },
+  "branchGates": {
+    "typecheck": "PASS（tsc --noEmit 0 错）",
+    "smoke": "172/172 PASS（全量；此前 fast 轮 uxa-147 FAIL 为配对限流干扰 5/5min，窗口过后全量复跑全绿）",
+    "mcp": "27/27 PASS（首跑 A13 FAIL=常驻占 8746 端口冲突，按任务书双杀后复跑全绿）",
+    "gradle": ":core:test + :app:testDebugUnitTest + :app:assembleDebug BUILD SUCCESSFUL（requestId 修复后 :core:test/:app:test 指令级复跑 EXIT=0）",
+    "note": "桌面侧门禁跑于 8ddc922；其后的 370fc86 仅动 Android（:core 2 文件+app 委托+acceptance 脚本），桌面零改动"
+  },
+  "environment": {
+    "emulator": "DevHub_API_35 全新无 CA（-no-snapshot-load），pm clear 后配对，API 35 stock cacerts，未注入任何 CA",
+    "pairing": "桌面 UIA 签发（锁屏下 InvokePattern 可用；物理屏 locked 未解锁，零凭据接触）→ App Relay 模式配置 wss://59.110.149.11 + SPKI sha256 pin → 配对码 XCCNXGXW → device_info deviceId=52 tokenVersion=2（pair-window 轮换生效）",
+    "ecs": "全程只读（SELECT）；无任何写操作"
+  },
+  "rb6Evidence": {
+    "b1_freshBootstrapFullBackfill": {
+      "verdict": "PASS（超额：全库回填）",
+      "timeline": "hello seq=21792 upstream=connected sync after=0（logcat 00:18:07.360）→ sync_request{after:0} 被 ECS 接受（首轮 APK 曾 BAD_PAYLOAD，修复后零 error 帧）→ 第 1 页 100 事件 15766-15865 全挂起（cursor=0，缓存起点>1）→ hasGaps:true → gapFill(15865)（logcat 00:18:07.792）→ 续页至全库 → 完成",
+      "ecsAckedThrough": "relay_event_acks device_id=10: 0 → 21792（全库水位，updated_at=1788740376）",
+      "appRow2": "event_ack_state row2 = 21792（落盘成功；旧实现永不落盘）",
+      "heldDrain": "'not contiguous' 日志恰 100 条（第 1 页挂起），gapFill 后清零；后续页零挂起",
+      "errors": "修复后零 error 帧（logcat m3c8a-02）"
+    },
+    "b2_appOffCatchup": {
+      "verdict": "PASS（判据逐条）",
+      "appOffWindow": "force-stop com.devhub.mobile（00:22:xx）→ 常驻亦停 → SQL 夹具注入（m3c8a-fixture-inject.mjs：21793/21794/21795，event_id 前缀 m3c8a:，summary 带 [m3c8a synthetic] 标记，delivery_state=pending，deliveries 39 设备/条）→ 常驻重启 → hello-watermark 回填推送 3 夹具全达 ECS relay_events（SSH 只读实证 21793-21795 三行）",
+      "reconnect": "App 重拉（00:24:01.502）：logcat 'relay hello seq=21795, upstream=connected, sync after=21792' —— 恢复游标 21792 正确、引导帧携 after=21792 发出",
+      "zeroLoss": "游标 21792 → 21828 纯连续推进：夹具 21793-21795 + 断窗期活体事件 21796-21828（本会话活动经常驻管线自然产生）全部消费；零 'not contiguous'、零 hasGaps（夹具段缓存无洞，§6.1.2 直连路径）——sequence 连续性由累计游标语义保证（observe 仅 seq==value+1 前进，缺号即挂起留痕，本段零挂起）",
+      "ackPersisted": "event_ack_state row2 = 21828；ECS relay_event_acks device 10 = 21828（双侧一致）",
+      "heldDrained": "0 挂起（本窗口零 held 日志）",
+      "desktopAckLoop": "Windows 侧 event_deliveries device 52：acked=18764 条（sync_request 累计 ACK 经 ECS 中继 → markEventAcked 闭环）；夹具行 delivery_state=delivered",
+      "evidenceFiles": ["m3c8a-03-appoff-resync-logcat.txt", "m3c8a-04-appoff-reconnected.png", "m3c8a-fixture-inject.mjs 输出"]
+    },
+    "upstreamRecoveryBonus": "常驻清账重启后（00:28:01.571）logcat 'relay upstream recovered → resume held queue'——信标翻转恢复语义顺带实测，App ECS 腿全程未断"
+  },
+  "cleanup": {
+    "script": "m3c8a-orphan-revoke.mjs（m3c7b 同模式：绑定/幂等/零凭据/审计流水 device_revoked via=m3c8a-orphan-cleanup-db-fixture）",
+    "targets": "#2-7/10-37/44/45（任务书清单）+ #48-51（本批 smoke uxa-147 配对残留，同类别并入）",
+    "result": "revoked 37 行（#31/32/33 此前已 revoked 幂等零触碰）；active 仅剩 #46（C2e 在役，未动）+ #52（本批 App 设备）——#47 未在清单且已 revoked 勿动",
+    "idempotency": "复跑 revokedCount=0（零触碰）",
+    "snapshot": "m3c8a-05-orphan-revoke-snapshot.json"
+  },
+  "screenshots": [
+    "m3c8a-02-fresh-bootstrap-complete.png（B1 后 App：Relay 已连接·心跳 30s，会话 200 真数据）",
+    "m3c8a-04-appoff-reconnected.png（C 段重连后）",
+    "m3c8a-06-final-connected-state.png（终态）"
+  ],
+  "knownNotes": [
+    "smoke 门禁期间产生 uxa-147 配对残留 4 行（#48-51），已随清账一并处理",
+    "mcp A13 首跑 FAIL 为常驻占 8746 的环境冲突（任务书预期的双杀场景），双杀后 27/27",
+    "锁屏状态下桌面 UIA InvokePattern 首用成功、复用退化（ControlType 过滤后恢复）——操作性记录供后续批次参考",
+    "证据文件 m3c8a-03/04/fixture-inject.mjs 已随 370fc86 入 agent/c8a-sync（提交时一并入库）；本分支为完整汇总"
+  ]
+}

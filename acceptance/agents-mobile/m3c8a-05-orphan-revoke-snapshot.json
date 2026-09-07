@@ -1,0 +1,503 @@
+{
+ "batch": "m3c8a",
+ "dbPath": "C:\\Users\\sakuya\\AppData\\Roaming\\DevHub\\devhub.db",
+ "dryRun": false,
+ "targetCount": 40,
+ "revokedCount": 0,
+ "revokedIds": [],
+ "before": [
+  {
+   "id": 2,
+   "name": "ac7b-probe",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 3,
+   "name": "ac7b-probe2",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 4,
+   "name": "sdk_gphone64_x86_64",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 5,
+   "name": "sdk_gphone64_x86_64",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 6,
+   "name": "sec-regression-probe",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 7,
+   "name": "sec-regression-probe",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 10,
+   "name": "V2507A",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 11,
+   "name": "ac6-phone-a",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 12,
+   "name": "ac6-phone-b",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 13,
+   "name": "ac6-phone",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 14,
+   "name": "ac6-phone-a",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 15,
+   "name": "ac6-phone-b",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 16,
+   "name": "ac6-phone",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 17,
+   "name": "ac6-phone-a",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 18,
+   "name": "ac6-phone-b",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 19,
+   "name": "ac6-phone",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 20,
+   "name": "ac6-phone-a",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 21,
+   "name": "ac6-phone-b",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 22,
+   "name": "ac6-phone",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 23,
+   "name": "ac6-phone-a",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 24,
+   "name": "ac6-phone-b",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 25,
+   "name": "ac6-phone",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 26,
+   "name": "sdk_gphone64_x86_64",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 27,
+   "name": "uxa-147-phone",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 28,
+   "name": "uxa-147-phone",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 29,
+   "name": "uxa-147-phone",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 30,
+   "name": "uxa-147-phone",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 31,
+   "name": "sdk_gphone64_x86_64",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 32,
+   "name": "sdk_gphone64_x86_64",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 33,
+   "name": "sdk_gphone64_x86_64",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 34,
+   "name": "m3c2-standin-client",
+   "status": "revoked",
+   "token_version": 2
+  },
+  {
+   "id": 35,
+   "name": "ac6-phone-a",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 36,
+   "name": "ac6-phone-b",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 37,
+   "name": "ac6-phone",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 44,
+   "name": "uxa-147-phone",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 45,
+   "name": "uxa-147-phone",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 48,
+   "name": "uxa-147-phone",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 49,
+   "name": "uxa-147-phone",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 50,
+   "name": "uxa-147-phone",
+   "status": "revoked",
+   "token_version": 1
+  },
+  {
+   "id": 51,
+   "name": "uxa-147-phone",
+   "status": "revoked",
+   "token_version": 1
+  }
+ ],
+ "after": [
+  {
+   "id": 2,
+   "name": "ac7b-probe",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 3,
+   "name": "ac7b-probe2",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 4,
+   "name": "sdk_gphone64_x86_64",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 5,
+   "name": "sdk_gphone64_x86_64",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 6,
+   "name": "sec-regression-probe",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 7,
+   "name": "sec-regression-probe",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 10,
+   "name": "V2507A",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 11,
+   "name": "ac6-phone-a",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 12,
+   "name": "ac6-phone-b",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 13,
+   "name": "ac6-phone",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 14,
+   "name": "ac6-phone-a",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 15,
+   "name": "ac6-phone-b",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 16,
+   "name": "ac6-phone",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 17,
+   "name": "ac6-phone-a",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 18,
+   "name": "ac6-phone-b",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 19,
+   "name": "ac6-phone",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 20,
+   "name": "ac6-phone-a",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 21,
+   "name": "ac6-phone-b",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 22,
+   "name": "ac6-phone",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 23,
+   "name": "ac6-phone-a",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 24,
+   "name": "ac6-phone-b",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 25,
+   "name": "ac6-phone",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 26,
+   "name": "sdk_gphone64_x86_64",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 27,
+   "name": "uxa-147-phone",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 28,
+   "name": "uxa-147-phone",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 29,
+   "name": "uxa-147-phone",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 30,
+   "name": "uxa-147-phone",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 31,
+   "name": "sdk_gphone64_x86_64",
+   "status": "revoked",
+   "revoked_at": 1788683026
+  },
+  {
+   "id": 32,
+   "name": "sdk_gphone64_x86_64",
+   "status": "revoked",
+   "revoked_at": 1788685573
+  },
+  {
+   "id": 33,
+   "name": "sdk_gphone64_x86_64",
+   "status": "revoked",
+   "revoked_at": 1788685651
+  },
+  {
+   "id": 34,
+   "name": "m3c2-standin-client",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 35,
+   "name": "ac6-phone-a",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 36,
+   "name": "ac6-phone-b",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 37,
+   "name": "ac6-phone",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 44,
+   "name": "uxa-147-phone",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 45,
+   "name": "uxa-147-phone",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 48,
+   "name": "uxa-147-phone",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 49,
+   "name": "uxa-147-phone",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 50,
+   "name": "uxa-147-phone",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  },
+  {
+   "id": 51,
+   "name": "uxa-147-phone",
+   "status": "revoked",
+   "revoked_at": 1788740829
+  }
+ ],
+ "activeRemaining": [
+  {
+   "id": 46,
+   "device_name": "sdk_gphone64_x86_64"
+  },
+  {
+   "id": 52,
+   "device_name": "sdk_gphone64_x86_64"
+  }
+ ],
+ "note": "零凭据快照；#46/#52 在役勿动、#47 已 revoked 勿动；审计流水 device_revoked via=m3c8a-orphan-cleanup-db-fixture"
+}
