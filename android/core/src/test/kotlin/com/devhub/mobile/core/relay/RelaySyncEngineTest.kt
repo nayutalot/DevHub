@@ -26,8 +26,10 @@ class RelaySyncEngineTest {
         assertTrue("hello 引导必须产出 sync_request（旧实现 after<=0 早退不发）", frame is RelayFrame.SyncRequest)
         frame as RelayFrame.SyncRequest
         assertEquals(0L, frame.after)
+        // requestId 必填（docs/18 §3.11 帧形；ECS asString 校验——M3-C8a 实战暴露的第二个
+        // 潜在雷：死锁时期 sync_request 从未上线，null requestId 违约从未被检验）
+        assertFalse("sync_request.requestId 必须为非空 uuid（§3.11）", frame.requestId.isNullOrBlank())
         // 引导帧即累计 ACK 初值（docs/18 §6.2 只前进语义的合法起点）
-        assertEquals(null, frame.requestId)
     }
 
     @Test

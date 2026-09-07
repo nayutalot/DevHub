@@ -61,5 +61,11 @@ class RelaySyncEngine(initial: Long = 0L) {
     fun gapFill(upTo: Long): Boolean = cursor.gapFill(upTo)
 
     private fun syncRequestFrame(): String =
-        RelayCodec.encode(RelayFrame.SyncRequest(requestId = null, after = cursor.value))
+        // requestId 必填（docs/18 §3.11 帧形「"requestId": "uuid-…"」；ECS forwarder
+        // asString 校验非空 string）。M3-C8a 实战暴露：旧实现恒发 null（编码即省略）——
+        // 死锁时期 sync_request 从未上线故从未被服务端检验，引导打通后即 BAD_PAYLOAD。
+        // §3.12 sync_response 回显 requestId；客户端单飞行帧不依赖关联，仅满足帧形。
+        RelayCodec.encode(
+            RelayFrame.SyncRequest(requestId = java.util.UUID.randomUUID().toString(), after = cursor.value),
+        )
 }
