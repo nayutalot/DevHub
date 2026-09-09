@@ -112,7 +112,8 @@ AC2 批次 agents 13 条并入（55→68，docs/14 §A.1 权威，本文件未�
 CP1 批次 ContestPin 9 条并入（70→**79**，见下「ContestPin 追加」节 + docs/22 §3）；
 CP2 批次 ContestPin 悬浮窗 5 条并入（79→**84**，同节 + docs/22 §4）；
 CP3a 批次 ContestPin 识别配置 4 条并入（84→**88**，同节 + docs/22 §6）；
-CP3b 批次 ContestPin 材料导入+识别管线+核对界面 9 条并入（88→**97**，同节 + docs/22 §5）。
+CP3b 批次 ContestPin 材料导入+识别管线+核对界面 9 条并入（88→**97**，同节 + docs/22 §5）；
+CP4 批次 ContestPin 提醒系统 3 条并入（97→**100**，同节 + docs/22 §7）。
 
 ### 夜间#1 追加（服务端积压补齐批次；主控任务书授权的同一追加模式）
 
@@ -138,12 +139,13 @@ ContestPin 识别配置 4 条先行占 88）。advisory-only：复核结果
 
 ### ContestPin 追加（赛程钉比赛模块；设计权威 docs/22-contestpin-design.md）
 
-CP 系列分批落地，**状态 = CP3b 已落地（白名单 88→97，2026-09-09 CP3b 批次）**；
-CP4-CP6 待落地。CP1 首批 9 条（变更类 7 + READ_ONLY 2）+ CP2 悬浮窗 5 条
+CP 系列分批落地，**状态 = CP4 已落地（白名单 97→100，2026-09-09 CP4 批次）**；
+CP5-CP6 待落地。CP1 首批 9 条（变更类 7 + READ_ONLY 2）+ CP2 悬浮窗 5 条
 （READ_ONLY 1 + 变更类 4）+ CP3a 识别配置 4 条（READ_ONLY 1 + 变更类 3）+
 CP3b 材料导入/识别管线/核对界面 9 条（READ_ONLY 3 + 变更类 4 + 两段式 2；
-任务书 §2.3 计 +6 与列名 7 条不一致，按其「以实际为准」条款实拆 9 条落地）；
-全量落地（CP4/CP5/CP6）后 97→约 **105**（LR1 另 +4）。
+任务书 §2.3 计 +6 与列名 7 条不一致，按其「以实际为准」条款实拆 9 条落地）+
+CP4 提醒 3 条（READ_ONLY 1 + 变更类 1 + 两段式 1）；CP5/CP6 落地后
+100→约 **105**（LR1 另 +4）。
 计数断言按既有授权模式"就地更新+注记"。变更类 delete/discard 均为
 CONFIRM_REQUIRED 两段式（先回 impacts）。
 
@@ -176,8 +178,13 @@ CONFIRM_REQUIRED 两段式（先回 impacts）。
 | `contestpin:draftList` | `{}` | `{ jobs: ContestImportJobView[] }`（stage='draft' 的待核对任务，全量） | READ_ONLY | CP3b 已落地（97） |
 | `contestpin:draftConfirm` | `{ jobId, confirmed?, mergeIntoContestId?, draft? }`（draft = 核对界面逐字段编辑后的草稿覆盖，服务端过同款程序化校验） | 无 confirmed → `{ confirmRequired: true, draft, similar }`（相似比赛检测：同 name 或 name+year 近似）；confirmed → `{ merged, contestId, contest }`（另建 contest+nodes source='imported'；mergeIntoContestId 只追加节点绝不静默覆盖；多比赛草稿不支持合并指尚） | 变更 | CP3b 已落地（97） |
 | `contestpin:draftDiscard` | `{ jobId, confirmed? }`（仅 stage='draft' 可弃） | 无 confirmed → `{ confirmRequired: true, jobId, materialName }`；confirmed → `{ removed: true }`（删任务行，材料保留） | 变更 | CP3b 已落地（97） |
+| `contestpin:reminderUpsert` | `{ nodeId, rule? }`（rule = `{ offsetKind, offsetValue?, channel, enabled? }`；UNIQUE(node_id, offset_kind, offset_value, channel) 冲突=更新 id 不变；before_hours 仅 exact 节点合法——date/month/tbd → `BAD_PAYLOAD`；at_time 恒 offsetValue=0；enabled 缺省 true） | ContestReminderView | 变更 | CP4 已落地（100） |
+| `contestpin:reminderDelete` | `{ id, confirmed? }` | 无 confirmed → `{ confirmRequired: true, impacts: { logRows } }`（触发账本行数）；confirmed → 删提醒行（log 随 FK CASCADE 一并删） | 变更 | CP4 已落地（100） |
+| `contestpin:reminderLogList` | `{ limit? }`（缺省 100、上限 200） | `{ entries: ContestReminderLogEntry[]（联 contest/node 展示字段）, summary: { firedLast24h, upcoming24h } }`——READ_ONLY 触发账本 + 顶栏小铃铛近 24h 已触发/未来 24h 待触发聚合（轮询本通道，无推送面）；补发去重根 = contest_reminder_log UNIQUE(reminder_id, fire_key)，fire_key=`r<id>@d<YYYY-MM-DD>`（date 精度自然日桶）或 `r<id>@s<sec>`（秒桶） | READ_ONLY | CP4 已落地（100） |
 
 CP3 识别管线（原估 +12）已全部落地：config 4 条（CP3a）+ 材料/导入/草稿 9 条
 （CP3b；draftUpdate 未设通道——逐字段编辑随 draftConfirm 的 draft 载荷提交）。
-后续批次通道组（落地时逐批补表）：CP4 reminder 两条；CP5
+CP4 提醒（任务书预注 "reminder 两条"）实落 3 条（upsert/delete/logList——logList
+为小铃铛聚合与账本展示的同一 READ_ONLY 面，不另设推送通道）。
+后续批次通道组（落地时逐批补表）：CP5
 agentStatus/Submit/importPack/exportPack；CP6 backupExport/backupImport。

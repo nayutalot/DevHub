@@ -2596,6 +2596,76 @@ export interface ContestImportDraftDiscardResult {
   removed: true
 }
 
+// --- contestpin 提醒系统（CP4 批次，docs/22 §7 + docs/briefs/contestpin-m4 §1；
+//     reminderUpsert / reminderDelete / reminderLogList 三条。reminderDelete 为
+//     CONFIRM_REQUIRED 两段式；去重根 = contest_reminder_log UNIQUE(reminder_id, fire_key)） ---
+
+/** reminderUpsert 的规则输入（UNIQUE(node_id, offset_kind, offset_value, channel) 冲突 = 更新）。 */
+export interface ContestReminderRuleInput {
+  offsetKind: ContestReminderOffsetKind
+  /** before_days/before_hours 的 N（非负整数）；at_time 恒 0（非零 → BAD_PAYLOAD）。 */
+  offsetValue?: number
+  channel: ContestReminderChannel
+  /** 缺省 true。 */
+  enabled?: boolean
+}
+
+export interface ContestReminderUpsertPayload {
+  nodeId: number
+  rule?: ContestReminderRuleInput
+}
+
+export interface ContestReminderDeletePayload {
+  id: number
+  confirmed?: boolean
+}
+
+export interface ContestReminderDeleteStart {
+  confirmRequired: true
+  /** 影响面 = 该提醒的触发账本行数（confirmed 后随 FK CASCADE 一并删除）。 */
+  impacts: { logRows: number }
+}
+
+export interface ContestReminderDeleteResult {
+  confirmRequired?: undefined
+  removed: true
+}
+
+/** contestpin:reminderLogList 行投影（触发账本；联 contest/node 展示字段）。 */
+export interface ContestReminderLogEntry {
+  id: number
+  reminderId: number
+  nodeId: number
+  contestId: number
+  contestName: string
+  nodeLabel: string
+  offsetKind: ContestReminderOffsetKind
+  offsetValue: number
+  channel: ContestReminderChannel
+  /** 计划触发时刻 unix 秒。 */
+  fireAt: number
+  /** 去重键 `r<reminderId>@d<YYYY-MM-DD>|s<fireAt>`（自然日桶或秒桶）。 */
+  fireKey: string
+  /** 落账时刻 unix 秒（真实触发时间）。 */
+  createdAt: number
+}
+
+export interface ContestReminderLogListPayload {
+  /** 缺省 100、上限 200（contestpin:list 同款边界）。 */
+  limit?: number
+}
+
+/** 顶栏小铃铛聚合数（近 24h 已触发 / 未来 24h 待触发；轮询本通道取得，无推送面）。 */
+export interface ContestReminderLogSummary {
+  firedLast24h: number
+  upcoming24h: number
+}
+
+export interface ContestReminderLogListResult {
+  entries: ContestReminderLogEntry[]
+  summary: ContestReminderLogSummary
+}
+
 // ---------------------------------------------------------------------------
 // 7. Gateway request & channel contract table (constraint #17)
 // ---------------------------------------------------------------------------
@@ -2729,6 +2799,12 @@ export interface ChannelContract {
   'contestpin:draftList': [ContestImportDraftListPayload, ContestImportDraftListResult]
   'contestpin:draftConfirm': [ContestImportDraftConfirmPayload, ContestImportDraftConfirmStart | ContestImportDraftConfirmResult]
   'contestpin:draftDiscard': [ContestImportDraftDiscardPayload, ContestImportDraftDiscardStart | ContestImportDraftDiscardResult]
+  // --- contestpin (CP4 batch, docs/22 §7 + docs/04「ContestPin 追加」节；
+  //     reminderLogList 为 READ_ONLY 触发账本，reminderDelete 为 CONFIRM_REQUIRED
+  //     两段式；去重根 = contest_reminder_log UNIQUE(reminder_id, fire_key)) ---
+  'contestpin:reminderUpsert': [ContestReminderUpsertPayload, ContestReminderView]
+  'contestpin:reminderDelete': [ContestReminderDeletePayload, ContestReminderDeleteStart | ContestReminderDeleteResult]
+  'contestpin:reminderLogList': [ContestReminderLogListPayload, ContestReminderLogListResult]
 }
 
 /** Compile-time assertion that ChannelContract covers exactly the whitelist. */

@@ -51,6 +51,12 @@ export const IPC_GATEWAY = 'devhub:invoke' as const
  * importCancel / importRetry / draftList READ_ONLY / draftConfirm / draftDiscard
  * 两段式——识别调用一律 openaiClient 注入传输，零真实网络；任务书 §2.3 计 +6
  * 与列名 7 条不符，按其"以实际为准"条款落 9 条，docs/04 与计数断言同步）。
+ * CP4 批次 note（ContestPin 提醒系统，docs/22 §7 + docs/04「ContestPin 追加」节
+ * 授权的同一模式就地更新）：contestpin 3 条并入，97 → 100（reminderUpsert /
+ * reminderDelete CONFIRM_REQUIRED 两段式（impacts=log 行数）/
+ * reminderLogList READ_ONLY 触发账本——补发去重根 = contest_reminder_log
+ * UNIQUE(reminder_id, fire_key)；通知面经 reminderEngine 注入 applier，
+ * notifyWire 注册生产 Notification，测试全注入 fake applier 零真实弹窗）。
  */
 export const IPC_CHANNELS = [
   // scan
@@ -188,6 +194,15 @@ export const IPC_CHANNELS = [
   'contestpin:draftList',
   'contestpin:draftConfirm',
   'contestpin:draftDiscard',
+  // contestpin（CP4 批次，docs/22 §7 提醒系统：reminderLogList 为 READ_ONLY 触发
+  // 账本（近 24h 已触发/待办聚合同面返回）；reminderDelete 为 CONFIRM_REQUIRED
+  // 两段式——缺省回 { confirmRequired: true, impacts: { logRows } }；补发去重根
+  // = contest_reminder_log UNIQUE(reminder_id, fire_key)。通知面不设推送 channel：
+  // main 侧 notifyWire 60s 桶扫 + powerMonitor resume/clock-change 重扫，点击导航
+  // contest:<id>；测试经 reminderEngine.setNotifyApplier 注入 fake，零真实弹窗）
+  'contestpin:reminderUpsert',
+  'contestpin:reminderDelete',
+  'contestpin:reminderLogList',
 ] as const
 
 /** Compile-time whitelist: a handler map must be keyed by IpcChannel. */

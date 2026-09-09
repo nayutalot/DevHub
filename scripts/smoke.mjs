@@ -122,8 +122,12 @@ if (isEntrypoint()) {
   // importCreate/importStatus/importCancel/importRetry/draftList/draftConfirm/
   // draftDiscard；draftConfirm/draftDiscard 为 CONFIRM_REQUIRED 两段式；任务书 §2.3
   // "+6" 与列名 7 条不一致，按其"以实际为准"条款落 9 条并在偏差清单报告）。
+  // CP4 批次 note（ContestPin 提醒系统，docs/22 §7 授权的同一模式就地更新）：
+  // contestpin 3 条并入，97 → 100（reminderUpsert / reminderDelete CONFIRM_REQUIRED
+  // 两段式（impacts=log 行数）/ reminderLogList READ_ONLY 触发账本；通知面经
+  // reminderEngine 注入 applier，测试全 fake，零真实弹窗）。
   // ------------------------------------------------------------------
-  registerCase('step1: channels whitelist has exactly 97 entries (CP3b 就地更新 88→97) and IPC_GATEWAY', async () => {
+  registerCase('step1: channels whitelist has exactly 100 entries (CP4 就地更新 97→100) and IPC_GATEWAY', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     assert.equal(channels.IPC_GATEWAY, 'devhub:invoke', 'gateway channel')
     const expected = [
@@ -236,10 +240,14 @@ if (isEntrypoint()) {
       'contestpin:draftList',
       'contestpin:draftConfirm',
       'contestpin:draftDiscard',
+      // CP4 contestpin reminder group (docs/22 §7 + docs/04「ContestPin 追加」节)
+      'contestpin:reminderUpsert',
+      'contestpin:reminderDelete',
+      'contestpin:reminderLogList',
     ]
-    assert.equal(channels.IPC_CHANNELS.length, 97, `expected 97 channels, got ${channels.IPC_CHANNELS.length}`)
-    assert.deepEqual([...channels.IPC_CHANNELS], expected, 'whitelist must match docs/04 + docs/09 §9 + docs/10 §11 + docs/14 §A.1 + docs/04 ContestPin 追加节 + docs/22 §4/§5/§6 exactly')
-    assert.equal(new Set(channels.IPC_CHANNELS).size, 97, 'no duplicate channels')
+    assert.equal(channels.IPC_CHANNELS.length, 100, `expected 100 channels, got ${channels.IPC_CHANNELS.length}`)
+    assert.deepEqual([...channels.IPC_CHANNELS], expected, 'whitelist must match docs/04 + docs/09 §9 + docs/10 §11 + docs/14 §A.1 + docs/04 ContestPin 追加节 + docs/22 §4/§5/§6/§7 exactly')
+    assert.equal(new Set(channels.IPC_CHANNELS).size, 100, 'no duplicate channels')
   }, 'fast')
 
   // ------------------------------------------------------------------
@@ -996,14 +1004,14 @@ if (isEntrypoint()) {
   // CHANNEL_NOT_ALLOWED（文档权威原则，约束 #6）。
   // ------------------------------------------------------------------
   registerCase(
-    'step6: handler registry keys equal the 97-channel whitelist (CP3b 就地更新 88→97); app:version returns injected value; unknown channel folds to CHANNEL_NOT_ALLOWED envelope',
+    'step6: handler registry keys equal the 100-channel whitelist (CP4 就地更新 97→100); app:version returns injected value; unknown channel folds to CHANNEL_NOT_ALLOWED envelope',
     async () => {
       const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
       const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
       const registry = handlers.createHandlerRegistry({ appVersion: '0.1.0-smoke' })
       const keys = Object.keys(registry).sort()
-      assert.equal(keys.length, 97, `registry must hold exactly 97 handlers, got ${keys.length}`)
+      assert.equal(keys.length, 100, `registry must hold exactly 100 handlers, got ${keys.length}`)
       assert.deepEqual(keys, [...channels.IPC_CHANNELS].sort(), 'registry keys must equal IPC_CHANNELS (no more, no less)')
 
       const version = await registry['app:version']({})
@@ -3497,12 +3505,12 @@ if (isEntrypoint()) {
   //  CP2 就地更新 79→84，docs/22 §4 悬浮窗 5 条；CP3a 就地更新 84→88，docs/22 §6
   //  识别配置 4 条）：
   //  registry 键集 = 白名单 = 契约覆盖
-  registerCase('s4-68: whitelist 45→50 (S5 就地更新为 55，AC2 就地更新 55→68，夜间#1 就地更新 68→70，CP1 就地更新 70→79，CP2 就地更新 79→84，CP3a 就地更新 84→88，CP3b 就地更新 88→97) — registry keys equal the whitelist and the compile-time contract assertion holds', async () => {
+  registerCase('s4-68: whitelist 45→50 (S5 就地更新为 55，AC2 就地更新 55→68，夜间#1 就地更新 68→70，CP1 就地更新 70→79，CP2 就地更新 79→84，CP3a 就地更新 84→88，CP3b 就地更新 88→97，CP4 就地更新 97→100) — registry keys equal the whitelist and the compile-time contract assertion holds', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
-    assert.equal(channels.IPC_CHANNELS.length, 97, 'whitelist extended 45 → 50 (S4), 50 → 55 (S5 archive), 55 → 68 (AC2 agents), 68 → 70 (夜间#1), 70 → 79 (CP1 contestpin 9 条), 79 → 84 (CP2 contestpin 悬浮窗 5 条), 84 → 88 (CP3a contestpin 识别配置 4 条), 88 → 97 (CP3b contestpin 材料导入/识别管线/核对界面 9 条)')
-    assert.equal(new Set(channels.IPC_CHANNELS).size, 97, 'no duplicates after extension')
+    assert.equal(channels.IPC_CHANNELS.length, 100, 'whitelist extended 45 → 50 (S4), 50 → 55 (S5 archive), 55 → 68 (AC2 agents), 68 → 70 (夜间#1), 70 → 79 (CP1 contestpin 9 条), 79 → 84 (CP2 contestpin 悬浮窗 5 条), 84 → 88 (CP3a contestpin 识别配置 4 条), 88 → 97 (CP3b contestpin 材料导入/识别管线/核对界面 9 条), 97 → 100 (CP4 contestpin 提醒 3 条)')
+    assert.equal(new Set(channels.IPC_CHANNELS).size, 100, 'no duplicates after extension')
     // 编译期断言 AssertContractCoversWhitelist 的解析产物（ChannelContract 恰好覆盖白名单）
     assert.equal(handlers.contractCoversWhitelist, true, 'ChannelContract covers exactly the whitelist (compile-time, observed at runtime)')
 
@@ -4632,7 +4640,7 @@ if (isEntrypoint()) {
   }, 'fast')
 
   // 84. agents 13 条 channel：白名单尾部按 docs/14 §A.1 顺序逐字存在 + 注册表覆盖
-  registerCase('ac2-84: agents channels (14, 夜间#1 就地更新 13→14) — whitelist tail in docs/14 §A.1 order, registry handlers, compile-time contract assertion holds（CP3b 就地更新 88→97：contestpin 尾窗再前移）', async () => {
+  registerCase('ac2-84: agents channels (14, 夜间#1 就地更新 13→14) — whitelist tail in docs/14 §A.1 order, registry handlers, compile-time contract assertion holds（CP4 就地更新 97→100：contestpin 尾窗再前移）', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
@@ -4652,12 +4660,12 @@ if (isEntrypoint()) {
       'agents:diagnostics',
       'agents:probeProvider',
     ]
-    assert.equal(channels.IPC_CHANNELS.length, 97, 'whitelist 55 → 70 (docs/14 §A.2; 夜间#1 就地更新 68→70), 70 → 79 (CP1 就地更新，docs/04 ContestPin 追加节), 79 → 84 (CP2 就地更新，docs/22 §4 悬浮窗 5 条), 84 → 88 (CP3a 就地更新，docs/22 §6 识别配置 4 条), 88 → 97 (CP3b 就地更新，docs/22 §5 材料导入/识别管线 9 条)')
-    // CP3a 就地更新 84→88、CP3b 就地更新 88→97：CP3b 后追加 contestpin 9 条
-    // （materials/import/draft），agents 尾窗再前移为 slice(-41, -27)
-    assert.deepEqual([...channels.IPC_CHANNELS.slice(-41, -27)], expectedAgents, '14 agents channels appended verbatim in docs/14 §A.1 order (夜间#1 就地更新 13→14)')
+    assert.equal(channels.IPC_CHANNELS.length, 100, 'whitelist 55 → 70 (docs/14 §A.2; 夜间#1 就地更新 68→70), 70 → 79 (CP1 就地更新，docs/04 ContestPin 追加节), 79 → 84 (CP2 就地更新，docs/22 §4 悬浮窗 5 条), 84 → 88 (CP3a 就地更新，docs/22 §6 识别配置 4 条), 88 → 97 (CP3b 就地更新，docs/22 §5 材料导入/识别管线 9 条), 97 → 100 (CP4 就地更新，docs/22 §7 提醒 3 条)')
+    // CP3a 就地更新 84→88、CP3b 就地更新 88→97、CP4 就地更新 97→100：CP4 后追加
+    // contestpin 3 条（reminders），agents 尾窗再前移为 slice(-44, -30)
+    assert.deepEqual([...channels.IPC_CHANNELS.slice(-44, -30)], expectedAgents, '14 agents channels appended verbatim in docs/14 §A.1 order (夜间#1 就地更新 13→14)')
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-27, -18)],
+      [...channels.IPC_CHANNELS.slice(-30, -21)],
       [
         'contestpin:list',
         'contestpin:get',
@@ -4672,7 +4680,7 @@ if (isEntrypoint()) {
       '9 contestpin channels appended verbatim in docs/04 ContestPin 追加节 order (CP1 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-18, -13)],
+      [...channels.IPC_CHANNELS.slice(-21, -16)],
       [
         'contestpin:overlayState',
         'contestpin:overlaySetEnabled',
@@ -4683,7 +4691,7 @@ if (isEntrypoint()) {
       '5 contestpin overlay channels appended verbatim in docs/22 §4 order (CP2 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-13, -9)],
+      [...channels.IPC_CHANNELS.slice(-16, -12)],
       [
         'contestpin:configList',
         'contestpin:configSave',
@@ -4693,7 +4701,7 @@ if (isEntrypoint()) {
       '4 contestpin recognition-config channels appended verbatim in docs/22 §6 order (CP3a 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-9)],
+      [...channels.IPC_CHANNELS.slice(-12, -3)],
       [
         'contestpin:materialsList',
         'contestpin:importMaterials',
@@ -4706,6 +4714,15 @@ if (isEntrypoint()) {
         'contestpin:draftDiscard',
       ],
       '9 contestpin materials/import/draft channels appended verbatim in docs/22 §5 order (CP3b 批次)',
+    )
+    assert.deepEqual(
+      [...channels.IPC_CHANNELS.slice(-3)],
+      [
+        'contestpin:reminderUpsert',
+        'contestpin:reminderDelete',
+        'contestpin:reminderLogList',
+      ],
+      '3 contestpin reminder channels appended verbatim in docs/22 §7 order (CP4 批次)',
     )
 
     const registry = handlers.createHandlerRegistry({ appVersion: 'ac2-smoke' })
@@ -12486,6 +12503,247 @@ if (isEntrypoint()) {
         assert.throws(() => pipe.retryImport({ jobId: discardJob.jobs[0].id, fromStage: 'vision' }), /not found/, 'retry on deleted job NOT_FOUND')
       } finally {
         client.setChatTransport(null) // 恢复默认传输（后续用例零联网）
+        dbModule.closeDatabase()
+      }
+    },
+    'fast',
+  )
+
+  // ====================================================================
+  // CP4 批次（ContestPin 提醒系统，docs/22 §7 + docs/briefs/contestpin-m4）。
+  // 两个 fast 用例：
+  //   - cp4-engine：引擎纯逻辑全分支（computeDue date 自然日 09:00 / exact 秒级 /
+  //     before_hours 拒绝 date / done 停扫 / 过期超 1 自然日不产 due / at_time /
+  //     month+tbd flag；scanCatchUp 补发去重 + 48h 窗外 skip）+ fire 落账幂等
+  //     （contest_reminder_log UNIQUE(reminder_id, fire_key) 为去重根）；
+  //   - cp4-reminder-crud：reminderUpsert（UNIQUE 冲突=更新）/ reminderDelete
+  //     （CONFIRM_REQUIRED 两段式，impacts=log 行数）/ reminderLogList（账本+
+  //     小铃铛聚合）。
+  // 通知面全程 setNotifyApplier 注入 fake（或保持未注入）——零真实弹窗、零
+  // electron import（notifyWire 不在本用例加载面）（时窗红线）。
+  // ====================================================================
+
+  /** CP4 夹具：本地日历日 → unix 秒（当地 00:00；date 精度语义）。 */
+  function cp4Day(y, m, d) {
+    return Math.floor(new Date(y, m - 1, d, 0, 0, 0, 0).getTime() / 1000)
+  }
+  /** CP4 夹具：unix 秒 → 本地 YYYY-MM-DD（自然日桶断言用）。 */
+  function cp4DayKey(sec) {
+    const dt = new Date(sec * 1000)
+    const p = (n) => (n < 10 ? `0${n}` : String(n))
+    return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())}`
+  }
+
+  registerCase(
+    'cp4-engine: reminderEngine 纯逻辑全分支 + fire 落账幂等（fake applier 零真实通知）— computeDue（date 自然日 09:00 / exact 秒级 / before_hours 拒绝 date / done 停扫 / 过期超 1 自然日不产 due / at_time）/ scanCatchUp（补发去重 / 48h 窗外 skip）',
+    async () => {
+      const engine = await import(new URL('../src/main/services/contestpin/reminderEngine.ts', import.meta.url).href)
+      const contest = await import(new URL('../src/main/services/contestpin/contestService.ts', import.meta.url).href)
+      const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+
+      // ---- Part A：纯逻辑（无 DB；now 注入）----
+      const now = cp4Day(2026, 9, 10) + 12 * 3600 // 2026-09-10 12:00 本地
+      const nodeOf = (over) => ({ id: 1, precision: 'exact', startAt: null, done: false, ...over })
+      const remOf = (over) => ({ id: 1, nodeId: 1, offsetKind: 'at_time', offsetValue: 0, enabled: true, ...over })
+
+      // date 精度 before_days：节点日 - N 自然日的当日 09:00 本地（自然日桶 fire_key）
+      const dateNode = nodeOf({ precision: 'date', startAt: cp4Day(2026, 10, 1) })
+      const planDate = engine.planReminder(remOf({ offsetKind: 'before_days', offsetValue: 7 }), dateNode)
+      const expectDate09 = cp4Day(2026, 9, 24) + 9 * 3600
+      assert.equal(planDate.fireAt, expectDate09, 'date node before_days → node day - 7 calendar days at 09:00 local')
+      assert.equal(planDate.fireKey, `r1@d${cp4DayKey(expectDate09)}`, 'day-bucketed fire_key r<id>@d<YYYY-MM-DD>')
+
+      // exact 精度 before_days：start_at 秒级减 N*86400（秒桶 fire_key）
+      const exactStart = cp4Day(2026, 10, 1) + 14 * 3600 + 30 * 60
+      const planExact = engine.planReminder(remOf({ id: 2, offsetKind: 'before_days', offsetValue: 3 }), nodeOf({ startAt: exactStart }))
+      assert.equal(planExact.fireAt, exactStart - 3 * 86400, 'exact node before_days → start_at - N*86400')
+      assert.equal(planExact.fireKey, `r2@s${exactStart - 3 * 86400}`, 'second-bucketed fire_key r<id>@s<sec>')
+
+      // before_hours：exact 合法；date 节点拒绝（flag）；done 停扫；tbd 无时刻；month 不支持
+      const planHours = engine.planReminder(remOf({ id: 3, offsetKind: 'before_hours', offsetValue: 5 }), nodeOf({ startAt: exactStart }))
+      assert.equal(planHours.fireAt, exactStart - 5 * 3600, 'before_hours → start_at - N*3600')
+      assert.equal(engine.planReminder(remOf({ id: 4, offsetKind: 'before_hours', offsetValue: 5 }), dateNode).reason, 'before_hours_non_exact', 'before_hours on date node flagged')
+      assert.equal(engine.planReminder(remOf({ id: 5 }), nodeOf({ done: true, startAt: exactStart })).reason, 'node_done', 'done node stops scanning')
+      assert.equal(engine.planReminder(remOf({ id: 6 }), nodeOf({ precision: 'tbd', startAt: null })).reason, 'missing_start_at', 'tbd node has no plan')
+      assert.equal(engine.planReminder(remOf({ id: 7, offsetKind: 'before_days', offsetValue: 2 }), nodeOf({ precision: 'month', startAt: cp4Day(2026, 10, 1) })).reason, 'month_precision_unsupported', 'month node has no natural-day semantics for before_days')
+
+      // computeDue：at_time 到期入列；过期超 1 自然日不产 due；disabled 忽略；fireAt 升序
+      const due = engine.computeDue(
+        [
+          remOf({ id: 10, nodeId: 1 }), // at_time on startAt = now-3600 → due
+          remOf({ id: 11, nodeId: 1, enabled: false }), // disabled → ignored
+        ],
+        [nodeOf({ startAt: now - 3600 })],
+        now,
+      )
+      assert.deepEqual(due.map((x) => x.reminderId), [10], 'due only for enabled+arrived within 1 natural day')
+      assert.equal(engine.computeDue([remOf({ id: 12, nodeId: 1 })], [nodeOf({ startAt: now - 2 * 86400 })], now).length, 0, 'plan expired beyond 1 natural day produces no due')
+      const multi = engine.computeDue(
+        [remOf({ id: 22, nodeId: 2 }), remOf({ id: 21, nodeId: 2 })],
+        [nodeOf({ id: 2, startAt: now - 100 })],
+        now,
+      )
+      assert.deepEqual(multi.map((x) => x.reminderId), [21, 22], 'due sorted by fireAt asc')
+
+      // scanCatchUp：补发去重（账本已有 fire_key → already_fired）；48h 窗外 skip；窗内 toFire
+      const freshKey = `r30@s${now - 10 * 3600}`
+      const catchup = engine.scanCatchUp(
+        {
+          reminders: [
+            remOf({ id: 30, offsetKind: 'at_time' }),
+            remOf({ id: 31, offsetKind: 'at_time' }),
+            remOf({ id: 32, nodeId: 32, offsetKind: 'at_time' }), // 独立节点：错过 > 48h
+          ],
+          nodes: [nodeOf({ startAt: now - 10 * 3600 }), nodeOf({ id: 32, startAt: now - 72 * 3600 })],
+          firedKeys: new Set([freshKey.replace('r30', 'r31')]), // r31 已发过
+        },
+        now,
+      )
+      assert.deepEqual(catchup.toFire.map((x) => x.reminderId), [30], 'missed within window and not in ledger → toFire')
+      const reasons = Object.fromEntries(catchup.skipped.map((s) => [s.reminderId, s.reason]))
+      assert.equal(reasons[31], 'already_fired', 'ledger hit dedupes (fire_key root)')
+      assert.equal(reasons[32], 'outside_catchup_window', 'missed beyond 48h window is skipped, never re-fired')
+      assert.equal(engine.scanCatchUp({ reminders: [remOf({ id: 33 })], nodes: [nodeOf({ startAt: now + 3600 })], firedKeys: new Set() }, now).toFire.length, 0, 'future plans are not due yet')
+
+      // ---- Part B：fire 落账幂等 + 补发驱动（隔离 temp home；fake applier）----
+      await makeTempHome('devhub-cp4-eng-')
+      const db = dbModule.getDatabase()
+      const c = contest.createContest({ name: 'CP4 Engine Cup' })
+      const node = contest.upsertNode({ contestId: c.id, node: { kind: 'submit_deadline', precision: 'exact', startAt: now - 3600 } })
+      const rem = engine.upsertReminderRule({ nodeId: node.id, rule: { offsetKind: 'at_time', channel: 'windows' } })
+
+      const fired = []
+      engine.setNotifyApplier((n) => fired.push(n))
+      try {
+        // 第一轮 tick：at_time 已到 1h（<1 自然日）→ 触发落账 + windows applier 调用
+        const s1 = engine.runReminderScan({ mode: 'tick', now })
+        assert.equal(s1.due, 1, 'tick finds the arrived plan')
+        assert.equal(s1.fired, 1, 'first scan fires once')
+        assert.equal(s1.degraded, 0, 'fake applier accepted → not degraded')
+        assert.equal(fired.length, 1, 'windows channel reached the applier exactly once')
+        assert.equal(fired[0].contestId, c.id, 'notification carries contestId for click navigation')
+        assert.ok(fired[0].title.includes('CP4 Engine Cup'), 'notification title carries contest name')
+        const logRow = db.prepare('SELECT * FROM contest_reminder_log').get()
+        assert.equal(logRow.fire_key, `r${rem.id}@s${node.startAt}`, 'ledger row keyed by second-bucket fire_key')
+        assert.equal(Number(logRow.fire_at), node.startAt, 'ledger fire_at = planned moment')
+        assert.equal(Number(db.prepare('SELECT last_fired_at FROM contest_reminders WHERE id = ?').get(rem.id).last_fired_at), now, 'last_fired_at touched')
+
+        // 第二轮 tick / catchup：fire_key 冲突 → 幂等不重发（去重根在 log 表）
+        const s2 = engine.runReminderScan({ mode: 'tick', now: now + 30 })
+        assert.equal(s2.fired, 0, 'second tick deduped by UNIQUE(reminder_id, fire_key)')
+        const s3 = engine.runReminderScan({ mode: 'catchup', now: now + 60 })
+        assert.equal(s3.fired, 0, 'catchup deduped too')
+        assert.equal(s3.skippedOutsideWindow, 0, 'nothing outside window here; already_fired dedup proven by fired=0')
+        assert.equal(fired.length, 1, 'applier still called exactly once total')
+
+        // in_app 通道：不触 applier，但账本照写（账本即 in-app 记录）
+        const remInApp = engine.upsertReminderRule({ nodeId: node.id, rule: { offsetKind: 'before_hours', offsetValue: 1, channel: 'in_app' } })
+        const s4 = engine.runReminderScan({ mode: 'tick', now })
+        assert.equal(s4.fired, 1, 'in_app reminder fires into the ledger')
+        assert.equal(fired.length, 1, 'in_app channel never touches the notify applier')
+        assert.equal(db.prepare('SELECT COUNT(*) AS c FROM contest_reminder_log WHERE reminder_id = ?').get(remInApp.id).c, 1, 'in_app ledger row written')
+
+        // applier 抛错（系统禁专注助手等）→ 降级 in-app 记录：账本仍写、绝不向上抛
+        const node2 = contest.upsertNode({ contestId: c.id, node: { kind: 'contest_start', precision: 'exact', startAt: now - 60 } })
+        engine.upsertReminderRule({ nodeId: node2.id, rule: { offsetKind: 'at_time', channel: 'windows' } })
+        engine.setNotifyApplier(() => { throw new Error('focus assistant disabled') })
+        const s5 = engine.runReminderScan({ mode: 'tick', now })
+        assert.equal(s5.fired, 1, 'fire still lands in ledger despite applier crash')
+        assert.equal(s5.degraded, 1, 'applier crash counted as degraded')
+        assert.equal(db.prepare('SELECT COUNT(*) AS c FROM contest_reminder_log WHERE node_id = ?').get(node2.id).c, 1, 'degraded fire still recorded (in-app record)')
+
+        // applier 未注入（纯 Node 语境）→ 结构化降级
+        engine.setNotifyApplier(null)
+        const node3 = contest.upsertNode({ contestId: c.id, node: { kind: 'signup_deadline', precision: 'exact', startAt: now - 30 } })
+        engine.upsertReminderRule({ nodeId: node3.id, rule: { offsetKind: 'at_time', channel: 'windows' } })
+        const s6 = engine.runReminderScan({ mode: 'tick', now })
+        assert.equal(s6.fired, 1)
+        assert.equal(s6.degraded, 1, 'missing applier degrades structurally (openInMain no-op precedent)')
+      } finally {
+        engine.setNotifyApplier(null) // 恢复未注入态（后续用例零真实通知面）
+        dbModule.closeDatabase()
+      }
+    },
+    'fast',
+  )
+
+  registerCase(
+    'cp4-reminder-crud: reminderUpsert（UNIQUE 冲突=更新）/ before_hours 仅 exact（BAD_PAYLOAD）/ at_time 恒 0 / reminderDelete 两段式（impacts=log 行数，级联清账本）/ reminderLogList（账本投影 + 近 24h 已触发/未来 24h 待办聚合 + limit）',
+    async () => {
+      const engine = await import(new URL('../src/main/services/contestpin/reminderEngine.ts', import.meta.url).href)
+      const contest = await import(new URL('../src/main/services/contestpin/contestService.ts', import.meta.url).href)
+      const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+
+      await makeTempHome('devhub-cp4-crud-')
+      const db = dbModule.getDatabase()
+      const now = Math.floor(Date.now() / 1000)
+      const c = contest.createContest({ name: 'CP4 CRUD Cup' })
+      const node = contest.upsertNode({ contestId: c.id, node: { kind: 'signup_deadline', precision: 'exact', startAt: now + 10 * 86400 } })
+      const dateNode = contest.upsertNode({ contestId: c.id, node: { kind: 'contest_start', precision: 'date', startAt: cp4Day(2027, 3, 1) } })
+
+      try {
+        // 新建：at_time 恒 0 / enabled 缺省 true
+        const r1 = engine.upsertReminderRule({ nodeId: node.id, rule: { offsetKind: 'at_time', channel: 'windows' } })
+        assert.equal(r1.nodeId, node.id)
+        assert.equal(r1.offsetKind, 'at_time')
+        assert.equal(r1.offsetValue, 0, 'at_time normalizes offsetValue to 0')
+        assert.equal(r1.enabled, true, 'enabled defaults true')
+        assert.equal(r1.channel, 'windows')
+
+        // UNIQUE(node_id, offset_kind, offset_value, channel) 冲突 = 更新（id 不变）
+        const r1b = engine.upsertReminderRule({ nodeId: node.id, rule: { offsetKind: 'at_time', channel: 'windows', enabled: false } })
+        assert.equal(r1b.id, r1.id, 'unique conflict updates the existing rule row')
+        assert.equal(r1b.enabled, false, 'update flipped enabled')
+        assert.equal(db.prepare('SELECT COUNT(*) AS c FROM contest_reminders').get().c, 1, 'no duplicate row created')
+
+        // 不同 channel = 新规则行；before_days/before_hours 携 N
+        const r2 = engine.upsertReminderRule({ nodeId: node.id, rule: { offsetKind: 'at_time', channel: 'in_app' } })
+        assert.notEqual(r2.id, r1.id, 'different channel → separate rule row')
+        const r3 = engine.upsertReminderRule({ nodeId: node.id, rule: { offsetKind: 'before_days', offsetValue: 7, channel: 'windows' } })
+        assert.equal(r3.offsetValue, 7)
+        const r4 = engine.upsertReminderRule({ nodeId: node.id, rule: { offsetKind: 'before_hours', offsetValue: 2, channel: 'windows' } })
+        assert.equal(r4.offsetValue, 2, 'before_hours accepted on exact node')
+
+        // 非法组合（BAD_PAYLOAD / NOT_FOUND）
+        await assert.rejects(async () => engine.upsertReminderRule({ nodeId: dateNode.id, rule: { offsetKind: 'before_hours', offsetValue: 3, channel: 'windows' } }), /BAD_PAYLOAD|requires an 'exact' node/, 'before_hours on date node rejected (BAD_PAYLOAD)')
+        await assert.rejects(async () => engine.upsertReminderRule({ nodeId: node.id, rule: { offsetKind: 'at_time', offsetValue: 5, channel: 'windows' } }), /BAD_PAYLOAD|恒 0/, 'at_time with non-zero offset rejected')
+        await assert.rejects(async () => engine.upsertReminderRule({ nodeId: node.id, rule: { offsetKind: 'nope', channel: 'windows' } }), /BAD_PAYLOAD|offsetKind/, 'unknown offsetKind rejected')
+        await assert.rejects(async () => engine.upsertReminderRule({ nodeId: node.id, rule: { offsetKind: 'before_days', offsetValue: -1, channel: 'windows' } }), /BAD_PAYLOAD|non-negative/, 'negative offsetValue rejected')
+        await assert.rejects(async () => engine.upsertReminderRule({ nodeId: node.id, rule: { offsetKind: 'before_days', offsetValue: 1, channel: 'sms' } }), /BAD_PAYLOAD|channel/, 'unknown channel rejected')
+        await assert.rejects(async () => engine.upsertReminderRule({ nodeId: node.id }), /BAD_PAYLOAD|rule/, 'missing rule rejected')
+        await assert.rejects(async () => engine.upsertReminderRule({ nodeId: 999999, rule: { offsetKind: 'at_time', channel: 'windows' } }), /contest node 999999 not found/, 'unknown node rejected')
+
+        // 账本 + 聚合：未来 24h 内一条（at_time on 即将到时节点）；近 24h 已触发一条（in_app，零通知面）
+        const soonNode = contest.upsertNode({ contestId: c.id, node: { kind: 'custom', label: '材料交齐', precision: 'exact', startAt: now + 1800 } })
+        engine.upsertReminderRule({ nodeId: soonNode.id, rule: { offsetKind: 'at_time', channel: 'in_app' } })
+        const pastNode = contest.upsertNode({ contestId: c.id, node: { kind: 'contest_end', precision: 'exact', startAt: now - 120 } })
+        engine.upsertReminderRule({ nodeId: pastNode.id, rule: { offsetKind: 'at_time', channel: 'in_app' } })
+        const scan = engine.runReminderScan({ mode: 'tick', now })
+        assert.equal(scan.fired, 1, 'past at_time reminder fired into ledger (in_app, no applier)')
+
+        const log = engine.listReminderLog({})
+        assert.equal(log.entries.length, 1, 'one ledger entry')
+        assert.equal(log.entries[0].contestName, 'CP4 CRUD Cup', 'entry carries contest name')
+        assert.equal(log.entries[0].nodeLabel, 'contest_end', 'entry carries node label')
+        assert.ok(log.entries[0].fireKey.startsWith(`r${log.entries[0].reminderId}@s`), 'fireKey shape')
+        assert.equal(log.summary.firedLast24h, 1, 'bell summary: fired in last 24h')
+        assert.equal(log.summary.upcoming24h, 1, 'bell summary: upcoming within 24h')
+        assert.equal(engine.listReminderLog({ limit: 1 }).entries.length, 1, 'limit honored')
+
+        // reminderDelete 两段式：先回 impacts=log 行数；confirmed 级联清账本
+        const pastRemId = db.prepare('SELECT id FROM contest_reminders WHERE node_id = ?').get(pastNode.id).id
+        const start = engine.deleteReminderRule({ id: pastRemId })
+        assert.equal(start.confirmRequired, true, 'delete phase 1 asks for confirmation')
+        assert.equal(start.impacts.logRows, 1, 'impacts = ledger row count')
+        const done = engine.deleteReminderRule({ id: pastRemId, confirmed: true })
+        assert.equal(done.removed, true, 'delete phase 2 removes')
+        assert.equal(db.prepare('SELECT COUNT(*) AS c FROM contest_reminder_log WHERE reminder_id = ?').get(pastRemId).c, 0, 'ledger rows cascaded away')
+        await assert.rejects(async () => engine.deleteReminderRule({ id: pastRemId, confirmed: true }), /not found/, 'deleting twice → NOT_FOUND')
+        const noLogStart = engine.deleteReminderRule({ id: r3.id })
+        assert.equal(noLogStart.impacts.logRows, 0, 'rule without fires reports zero log rows')
+        await assert.rejects(async () => engine.deleteReminderRule({ id: 424242 }), /not found/, 'unknown reminder → NOT_FOUND')
+      } finally {
+        engine.setNotifyApplier(null)
         dbModule.closeDatabase()
       }
     },
