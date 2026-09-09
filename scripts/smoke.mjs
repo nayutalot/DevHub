@@ -114,8 +114,11 @@ if (isEntrypoint()) {
   // CP2 批次 note（ContestPin 悬浮窗，docs/22 §4 授权的同一模式就地更新）：
   // contestpin 5 条并入，79 → 84（overlayState/overlaySetEnabled/overlaySetCollapsed/
   // openInMain/openLink）。
+  // CP3a 批次 note（ContestPin 识别配置，docs/22 §6 授权的同一模式就地更新）：
+  // contestpin 4 条并入，84 → 88（configList/configSave/configDelete/configTest；
+  // configDelete 为 CONFIRM_REQUIRED 两段式）。
   // ------------------------------------------------------------------
-  registerCase('step1: channels whitelist has exactly 84 entries (CP2 就地更新 79→84) and IPC_GATEWAY', async () => {
+  registerCase('step1: channels whitelist has exactly 88 entries (CP3a 就地更新 84→88) and IPC_GATEWAY', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     assert.equal(channels.IPC_GATEWAY, 'devhub:invoke', 'gateway channel')
     const expected = [
@@ -213,10 +216,15 @@ if (isEntrypoint()) {
       'contestpin:overlaySetCollapsed',
       'contestpin:openInMain',
       'contestpin:openLink',
+      // CP3a contestpin recognition-config group (docs/22 §6 + docs/04「ContestPin 追加」节)
+      'contestpin:configList',
+      'contestpin:configSave',
+      'contestpin:configDelete',
+      'contestpin:configTest',
     ]
-    assert.equal(channels.IPC_CHANNELS.length, 84, `expected 84 channels, got ${channels.IPC_CHANNELS.length}`)
-    assert.deepEqual([...channels.IPC_CHANNELS], expected, 'whitelist must match docs/04 + docs/09 §9 + docs/10 §11 + docs/14 §A.1 + docs/04 ContestPin 追加节 + docs/22 §4 exactly')
-    assert.equal(new Set(channels.IPC_CHANNELS).size, 84, 'no duplicate channels')
+    assert.equal(channels.IPC_CHANNELS.length, 88, `expected 88 channels, got ${channels.IPC_CHANNELS.length}`)
+    assert.deepEqual([...channels.IPC_CHANNELS], expected, 'whitelist must match docs/04 + docs/09 §9 + docs/10 §11 + docs/14 §A.1 + docs/04 ContestPin 追加节 + docs/22 §4/§6 exactly')
+    assert.equal(new Set(channels.IPC_CHANNELS).size, 88, 'no duplicate channels')
   }, 'fast')
 
   // ------------------------------------------------------------------
@@ -973,14 +981,14 @@ if (isEntrypoint()) {
   // CHANNEL_NOT_ALLOWED（文档权威原则，约束 #6）。
   // ------------------------------------------------------------------
   registerCase(
-    'step6: handler registry keys equal the 84-channel whitelist (CP2 就地更新 79→84); app:version returns injected value; unknown channel folds to CHANNEL_NOT_ALLOWED envelope',
+    'step6: handler registry keys equal the 88-channel whitelist (CP3a 就地更新 84→88); app:version returns injected value; unknown channel folds to CHANNEL_NOT_ALLOWED envelope',
     async () => {
       const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
       const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
       const registry = handlers.createHandlerRegistry({ appVersion: '0.1.0-smoke' })
       const keys = Object.keys(registry).sort()
-      assert.equal(keys.length, 84, `registry must hold exactly 84 handlers, got ${keys.length}`)
+      assert.equal(keys.length, 88, `registry must hold exactly 88 handlers, got ${keys.length}`)
       assert.deepEqual(keys, [...channels.IPC_CHANNELS].sort(), 'registry keys must equal IPC_CHANNELS (no more, no less)')
 
       const version = await registry['app:version']({})
@@ -3471,14 +3479,15 @@ if (isEntrypoint()) {
   // 68. handlers 编译期白名单覆盖断言更新（45→50，S5 就地更新 50→55，
   //  docs/10 §11 授权的同一模式；AC2 就地更新 55→68，docs/14 §A.1 授权同一模式；
   //  夜间#1 就地更新 68→70，主控任务书授权；CP1 就地更新 70→79，docs/04 ContestPin 节；
-  //  CP2 就地更新 79→84，docs/22 §4 悬浮窗 5 条）：
+  //  CP2 就地更新 79→84，docs/22 §4 悬浮窗 5 条；CP3a 就地更新 84→88，docs/22 §6
+  //  识别配置 4 条）：
   //  registry 键集 = 白名单 = 契约覆盖
-  registerCase('s4-68: whitelist 45→50 (S5 就地更新为 55，AC2 就地更新 55→68，夜间#1 就地更新 68→70，CP1 就地更新 70→79，CP2 就地更新 79→84) — registry keys equal the whitelist and the compile-time contract assertion holds', async () => {
+  registerCase('s4-68: whitelist 45→50 (S5 就地更新为 55，AC2 就地更新 55→68，夜间#1 就地更新 68→70，CP1 就地更新 70→79，CP2 就地更新 79→84，CP3a 就地更新 84→88) — registry keys equal the whitelist and the compile-time contract assertion holds', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
-    assert.equal(channels.IPC_CHANNELS.length, 84, 'whitelist extended 45 → 50 (S4), 50 → 55 (S5 archive), 55 → 68 (AC2 agents), 68 → 70 (夜间#1), 70 → 79 (CP1 contestpin 9 条), 79 → 84 (CP2 contestpin 悬浮窗 5 条)')
-    assert.equal(new Set(channels.IPC_CHANNELS).size, 84, 'no duplicates after extension')
+    assert.equal(channels.IPC_CHANNELS.length, 88, 'whitelist extended 45 → 50 (S4), 50 → 55 (S5 archive), 55 → 68 (AC2 agents), 68 → 70 (夜间#1), 70 → 79 (CP1 contestpin 9 条), 79 → 84 (CP2 contestpin 悬浮窗 5 条), 84 → 88 (CP3a contestpin 识别配置 4 条)')
+    assert.equal(new Set(channels.IPC_CHANNELS).size, 88, 'no duplicates after extension')
     // 编译期断言 AssertContractCoversWhitelist 的解析产物（ChannelContract 恰好覆盖白名单）
     assert.equal(handlers.contractCoversWhitelist, true, 'ChannelContract covers exactly the whitelist (compile-time, observed at runtime)')
 
@@ -4608,7 +4617,7 @@ if (isEntrypoint()) {
   }, 'fast')
 
   // 84. agents 13 条 channel：白名单尾部按 docs/14 §A.1 顺序逐字存在 + 注册表覆盖
-  registerCase('ac2-84: agents channels (14, 夜间#1 就地更新 13→14) — whitelist tail in docs/14 §A.1 order, registry handlers, compile-time contract assertion holds', async () => {
+  registerCase('ac2-84: agents channels (14, 夜间#1 就地更新 13→14) — whitelist tail in docs/14 §A.1 order, registry handlers, compile-time contract assertion holds（CP3a 就地更新 84→88：contestpin 尾窗再前移）', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
@@ -4628,12 +4637,12 @@ if (isEntrypoint()) {
       'agents:diagnostics',
       'agents:probeProvider',
     ]
-    assert.equal(channels.IPC_CHANNELS.length, 84, 'whitelist 55 → 70 (docs/14 §A.2; 夜间#1 就地更新 68→70), 70 → 79 (CP1 就地更新，docs/04 ContestPin 追加节), 79 → 84 (CP2 就地更新，docs/22 §4 悬浮窗 5 条)')
-    // CP2 就地更新：agents 14 条 + CP1 contestpin 9 条后追加 CP2 contestpin 5 条，
-    // agents 尾窗前移为 slice(-28, -14)
-    assert.deepEqual([...channels.IPC_CHANNELS.slice(-28, -14)], expectedAgents, '14 agents channels appended verbatim in docs/14 §A.1 order (夜间#1 就地更新 13→14)')
+    assert.equal(channels.IPC_CHANNELS.length, 88, 'whitelist 55 → 70 (docs/14 §A.2; 夜间#1 就地更新 68→70), 70 → 79 (CP1 就地更新，docs/04 ContestPin 追加节), 79 → 84 (CP2 就地更新，docs/22 §4 悬浮窗 5 条), 84 → 88 (CP3a 就地更新，docs/22 §6 识别配置 4 条)')
+    // CP3a 就地更新：CP2 后追加 CP3a contestpin 4 条（configList/Save/Delete/Test），
+    // agents 尾窗再前移为 slice(-32, -18)
+    assert.deepEqual([...channels.IPC_CHANNELS.slice(-32, -18)], expectedAgents, '14 agents channels appended verbatim in docs/14 §A.1 order (夜间#1 就地更新 13→14)')
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-14, -5)],
+      [...channels.IPC_CHANNELS.slice(-18, -9)],
       [
         'contestpin:list',
         'contestpin:get',
@@ -4648,7 +4657,7 @@ if (isEntrypoint()) {
       '9 contestpin channels appended verbatim in docs/04 ContestPin 追加节 order (CP1 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-5)],
+      [...channels.IPC_CHANNELS.slice(-9, -4)],
       [
         'contestpin:overlayState',
         'contestpin:overlaySetEnabled',
@@ -4657,6 +4666,16 @@ if (isEntrypoint()) {
         'contestpin:openLink',
       ],
       '5 contestpin overlay channels appended verbatim in docs/22 §4 order (CP2 批次)',
+    )
+    assert.deepEqual(
+      [...channels.IPC_CHANNELS.slice(-4)],
+      [
+        'contestpin:configList',
+        'contestpin:configSave',
+        'contestpin:configDelete',
+        'contestpin:configTest',
+      ],
+      '4 contestpin recognition-config channels appended verbatim in docs/22 §6 order (CP3a 批次)',
     )
 
     const registry = handlers.createHandlerRegistry({ appVersion: 'ac2-smoke' })

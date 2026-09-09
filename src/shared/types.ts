@@ -2442,6 +2442,12 @@ export interface ChannelContract {
   'contestpin:overlaySetCollapsed': [ContestOverlaySetCollapsedPayload, ContestOverlaySetCollapsedResult]
   'contestpin:openInMain': [ContestOpenInMainPayload, ContestOpenInMainResult]
   'contestpin:openLink': [ContestOpenLinkPayload, ContestOpenLinkResult]
+  // --- contestpin (CP3a batch, docs/22 §6 + docs/04「ContestPin 追加」节；
+  //     configList 为 READ_ONLY 掩码视图，configDelete 为 CONFIRM_REQUIRED 两段式) ---
+  'contestpin:configList': [RecognitionConfigListPayload, RecognitionConfigListResult]
+  'contestpin:configSave': [RecognitionConfigSavePayload, RecognitionConfigView]
+  'contestpin:configDelete': [RecognitionConfigDeletePayload, RecognitionConfigDeleteStart | RecognitionConfigDeleteResult]
+  'contestpin:configTest': [RecognitionConfigTestPayload, RecognitionTestResult]
 }
 
 /** Compile-time assertion that ChannelContract covers exactly the whitelist. */

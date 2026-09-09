@@ -41,6 +41,10 @@ export const IPC_GATEWAY = 'devhub:invoke' as const
  * overlaySetEnabled / overlaySetCollapsed / openInMain / openLink——openLink 仅
  * http/https 经 service validateExternalUrl 校验后默认浏览器；窗口胶水在
  * overlayWire.ts，handlers 经 overlayStateService 注入 applier，零 electron import）。
+ * CP3a 批次 note（ContestPin 识别配置，docs/22 §6 + docs/04「ContestPin 追加」节
+ * 授权的同一模式就地更新）：contestpin 4 条并入，84 → 88（configList READ_ONLY
+ * 掩码 / configSave / configDelete CONFIRM_REQUIRED 两段式 / configTest——
+ * service 经 openaiClient 传输注入面，smoke fake transport 零联网）。
  */
 export const IPC_CHANNELS = [
   // scan
@@ -158,6 +162,14 @@ export const IPC_CHANNELS = [
   'contestpin:overlaySetCollapsed',
   'contestpin:openInMain',
   'contestpin:openLink',
+  // contestpin（CP3a 批次，docs/22 §6 识别配置：configList READ_ONLY 掩码视图；
+  // configSave 密码框留空=不改 key；configDelete 为 CONFIRM_REQUIRED 两段式——
+  // 缺省回 { confirmRequired: true, impacts: { importJobs } }；configTest 解密→
+  // probeConfig→落 last_test_*，传输面经 openaiClient 注入，测试零联网）
+  'contestpin:configList',
+  'contestpin:configSave',
+  'contestpin:configDelete',
+  'contestpin:configTest',
 ] as const
 
 /** Compile-time whitelist: a handler map must be keyed by IpcChannel. */

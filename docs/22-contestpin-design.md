@@ -82,6 +82,8 @@ projectService.ts:501-505 先例）。比赛字段不进 projects 表。
   `openLink`（http/https 校验后 shell.openExternal，胶水在 wire 层）。
 - CP3 识别管线 +~12：configList/Save/Delete(confirm)/Test、materialsList、
   importCreate/Status/Cancel/Retry、draftList/Update/Confirm(confirm)/Discard(confirm)。
+  （CP3a 批次注记：config 四条 +4 已落地，白名单 84→88，docs/04 已入册；
+  余 +8 归 CP3b。）
 - CP4 提醒 +2、CP5 Agent +3~4（agentStatus/agentSubmit/importPack/exportPack）、
   CP6 备份 +2。全量落地后 70→约 101（LR1 另 +4）。
 

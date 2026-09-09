@@ -119,6 +119,13 @@ import {
   setOverlayCollapsed,
   setOverlayEnabled,
 } from '../services/contestpin/overlayStateService.ts'
+import {
+  deleteConfig,
+  isRecognitionConfigRole,
+  listConfigs,
+  saveConfig,
+  testConfig,
+} from '../services/contestpin/recognitionConfigService.ts'
 import type { ContestNodeInput, ContestPatch, ContestStatus } from '../../shared/types.ts'
 import {
   ARCHIVE_HISTORY_LIMIT,
@@ -330,7 +337,7 @@ export const contractCoversWhitelist: AssertContractCoversWhitelist = true
  * Phase 1 21 条 + S2 skills 14 条 = 35 + S3 apihub 6 条 + versions 4 条 = 45
  * + S4 docker 3 条 + wsl 2 条 = 50 + S5 archive 5 条 = 55 + AC2 agents 13 条 = 68
  * + 夜间#1 versions:cancel / agents:probeProvider = 70 + CP1 contestpin 9 条 = 79
- * + CP2 contestpin 悬浮窗 5 条 = 84）。
+ * + CP2 contestpin 悬浮窗 5 条 = 84 + CP3a contestpin 识别配置 4 条 = 88）。
  */
 export type HandlerRegistry = Record<IpcChannel, ChannelHandler>
 
@@ -991,6 +998,43 @@ export function createHandlerRegistry(deps: HandlerDeps): HandlerRegistry {
       const p = asPayloadObject('contestpin:openLink', payload)
       // 仅 http/https（javascript:/file:/ftp:/空白拒绝）——校验在 overlayStateService
       return openExternalLink(requireNonEmptyString('contestpin:openLink', p, 'url'))
+    },
+
+    // --- contestpin 识别配置（CP3a 批次，docs/22 §6 + docs/04「ContestPin 追加」节；
+    // configDelete 为 CONFIRM_REQUIRED 两段式（impacts=引用导入任务计数）；role 枚举/
+    // timeoutMs 正整数形状校验在此，baseUrl/UNIQUE/掩码业务语义在 recognitionConfigService；
+    // configTest 的真实出站只在生产 renderer 触发，测试面经 openaiClient 注入 fake transport） ---
+    'contestpin:configList': async (payload) => {
+      asPayloadObject('contestpin:configList', payload)
+      return listConfigs()
+    },
+    'contestpin:configSave': async (payload) => {
+      const p = asPayloadObject('contestpin:configSave', payload)
+      if (!isRecognitionConfigRole(p.role)) {
+        throw badPayload('contestpin:configSave', 'role must be one of: vision | text | multimodal')
+      }
+      const timeoutMs = p.timeoutMs
+      if (timeoutMs !== undefined && timeoutMs !== null && (typeof timeoutMs !== 'number' || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1)) {
+        throw badPayload('contestpin:configSave', 'timeoutMs must be a positive integer or null when present')
+      }
+      return saveConfig({
+        ...(p.id !== undefined ? { id: requireId('contestpin:configSave', p, 'id') } : {}),
+        name: requireNonEmptyString('contestpin:configSave', p, 'name'),
+        role: p.role,
+        baseUrl: requireNonEmptyString('contestpin:configSave', p, 'baseUrl'),
+        model: requireNonEmptyString('contestpin:configSave', p, 'model'),
+        // 密码框约定：apiKey 空串/undefined = 保持既有（service 语义）
+        apiKey: optionalString('contestpin:configSave', p, 'apiKey'),
+        ...(timeoutMs !== undefined ? { timeoutMs: timeoutMs as number | null } : {}),
+      })
+    },
+    'contestpin:configDelete': async (payload) => {
+      const p = asPayloadObject('contestpin:configDelete', payload)
+      return deleteConfig({ id: requireId('contestpin:configDelete', p), confirmed: optionalBoolean('contestpin:configDelete', p, 'confirmed') })
+    },
+    'contestpin:configTest': async (payload) => {
+      const p = asPayloadObject('contestpin:configTest', payload)
+      return testConfig(requireId('contestpin:configTest', p))
     },
   }
 }
