@@ -111,11 +111,15 @@ sealed class RelayFrame {
         val prevAfter: Long?,
     ) : RelayFrame()
 
-    /** #8 command（D→E；auth 内嵌端到端 Bearer——ECS 不解释只转发，docs/18 §3.8）。 */
+    /**
+     * #8 command（D→E；auth 内嵌端到端 Bearer——ECS 不解释只转发，docs/18 §3.8）。
+     * M3-E（docs/18 §5.3）：spawn_session（尚无会话）/ revoke_device（自指无目标）两 action
+     * 的 sessionId 缺省合法 → nullable；§5.1 会话级 action 恒携带（调用方保证）。
+     */
     data class Command(
         val requestId: String,
         val idempotencyKey: String,
-        val sessionId: Long,
+        val sessionId: Long?,
         val action: String,
         val payload: JSONObject,
         val token: String?,
@@ -326,7 +330,8 @@ object RelayCodec {
             TYPE_COMMAND -> RelayFrame.Command(
                 requestId = obj.getString("requestId"),
                 idempotencyKey = obj.getString("idempotencyKey"),
-                sessionId = obj.getLong("sessionId"),
+                // M3-E §5.3：sessionId 缺省合法（spawn_session/revoke_device 帧形）
+                sessionId = optLong(obj, "sessionId"),
                 action = obj.getString("action"),
                 payload = obj.optJSONObject("payload") ?: JSONObject(),
                 token = obj.optJSONObject("auth")?.optString("token")?.takeIf { it.isNotEmpty() },
@@ -524,7 +529,8 @@ object RelayCodec {
             .put("type", TYPE_COMMAND)
             .put("requestId", frame.requestId)
             .put("idempotencyKey", frame.idempotencyKey)
-            .put("sessionId", frame.sessionId)
+            // M3-E §5.3：sessionId 缺省时绝不写出猜测值（绝不猜纪律）
+            .putOpt("sessionId", frame.sessionId)
             .put("action", frame.action)
             .put("payload", frame.payload)
             .putOpt(

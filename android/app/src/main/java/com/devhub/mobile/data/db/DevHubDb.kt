@@ -87,7 +87,7 @@ data class MessageCacheEntity(
 data class PendingCommandEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val sessionId: Long,
-    /** reply | pause | resume */
+    /** reply | pause | resume | approve | interrupt | spawn_session | revoke_device（M3-E1） */
     val kind: String,
     val text: String?,
     /** UNIQUE：重试全程复用同 key（服务端同 key 返回原结果，绝不重复执行） */
@@ -96,6 +96,11 @@ data class PendingCommandEntity(
     val status: String,
     val createdAtMs: Long,
     val lastError: String?,
+    /**
+     * M3-E1（docs/18 §5.3）：spawn_session 队列行的 providerId 载体（数字 id 串；
+     * 补发重建 payload {providerId, task} 用）。其余 kind 恒 null。
+     */
+    val providerId: String? = null,
 )
 
 /** WS 事件 ack 游标（单行 id=1）：App 重启后 sync after=lastAckedSeq 补齐遗漏事件。 */
@@ -233,7 +238,8 @@ interface EventAckStateDao {
     // v2（体验整改批 B）：session_cache + providerKey/providerLabel/archived/parentSessionId；
     // message_cache + segmentsJson。纯缓存库，破坏性迁移可接受（fallbackToDestructiveMigration）。
     // v3（M2-R3 双模式批，docs/19 §7.1）：gateway_config + mode/relayUrl/pinFingerprints。
-    version = 3,
+    // v4（M3-E1，docs/18 §5.3）：pending_command + providerId（spawn_session 队列行补发载体）。
+    version = 4,
     exportSchema = false,
 )
 abstract class DevHubDb : RoomDatabase() {

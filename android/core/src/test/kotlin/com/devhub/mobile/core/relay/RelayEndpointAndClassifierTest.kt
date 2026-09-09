@@ -76,17 +76,38 @@ class RelayEndpointAndClassifierTest {
         assertEquals(RelayAckVerdict.REJECTED_DROP, RelayCommandClassifier.classifyError("COMMAND_KEY_CONFLICT", retryable = false))
     }
 
-    // ---- RelayActions（docs/18 §5.1 五值锁死） ----
+    // ---- RelayActions（docs/18 §5.1 五值 + §5.3 设备自管理两值锁死，M3-E #9=B 就地更新） ----
 
     @Test
-    fun `action set is locked to five values with reply renaming`() {
-        assertEquals(setOf("send_message", "approve", "pause", "resume", "interrupt"), RelayActions.ALL)
+    fun `action set is locked to seven values with reply renaming (M3-E self-mgmt two values)`() {
+        assertEquals(setOf("send_message", "approve", "pause", "resume", "interrupt", "spawn_session", "revoke_device"), RelayActions.ALL)
         assertEquals("send_message", RelayActions.fromKind("reply"))
         assertEquals("pause", RelayActions.fromKind("pause"))
         assertEquals("resume", RelayActions.fromKind("resume"))
         assertEquals("approve", RelayActions.fromKind("approve"))
         assertEquals("interrupt", RelayActions.fromKind("interrupt"))
+        assertEquals("spawn_session", RelayActions.fromKind("spawn_session"))
+        assertEquals("revoke_device", RelayActions.fromKind("revoke_device"))
         assertNull(RelayActions.fromKind("exec"))
+        assertNull(RelayActions.fromKind("shell"))
+    }
+
+    // ---- SelfRevokeFlow（M3-E1：revoke_device 收口状态机，docs/18 §5.3/§3.15） ----
+
+    @Test
+    fun `self revoke ack classification follows accepted semantics`() {
+        assertEquals(SelfRevokeFlow.Step.AWAIT_CLOSURE, SelfRevokeFlow.onAck("accepted", queued = false))
+        assertEquals(SelfRevokeFlow.Step.QUEUED_HOLD, SelfRevokeFlow.onAck("accepted", queued = true))
+        assertEquals(SelfRevokeFlow.Step.FAILED, SelfRevokeFlow.onAck("rejected", queued = false))
+        // 绝不猜：未知 status 留在等待（超时由调用方收口）
+        assertEquals(SelfRevokeFlow.Step.AWAIT_ACK, SelfRevokeFlow.onAck("maybe", queued = false))
+    }
+
+    @Test
+    fun `self revoke closure is the disconnect-revoked auth-fatal code only`() {
+        assertTrue(SelfRevokeFlow.isClosure("DEVICE_REVOKED"))
+        assertFalse(SelfRevokeFlow.isClosure("AUTH_INVALID_TOKEN"))
+        assertFalse(SelfRevokeFlow.isClosure(""))
     }
 
     @Test

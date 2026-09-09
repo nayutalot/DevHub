@@ -50,7 +50,10 @@ object RelayCommandClassifier {
     }
 }
 
-/** command 帧的 action 值域（docs/18 §5.1 五值锁死；reply ≡ send_message 改名映射）。 */
+/**
+ * command 帧的 action 值域（docs/18 §5.1 五值 + §5.3 设备自管理两值锁死；
+ * reply ≡ send_message 改名映射；M3-E 两值即唯一追加面，N-R3：action 全集终点）。
+ */
 object RelayActions {
     const val SEND_MESSAGE = "send_message"
     const val APPROVE = "approve"
@@ -58,7 +61,11 @@ object RelayActions {
     const val RESUME = "resume"
     const val INTERRUPT = "interrupt"
 
-    val ALL = setOf(SEND_MESSAGE, APPROVE, PAUSE, RESUME, INTERRUPT)
+    /** docs/18 §5.3（M3-E，用户裁决 2026-09-07 #9=B）：managed spawn / 设备自撤销。 */
+    const val SPAWN_SESSION = "spawn_session"
+    const val REVOKE_DEVICE = "revoke_device"
+
+    val ALL = setOf(SEND_MESSAGE, APPROVE, PAUSE, RESUME, INTERRUPT, SPAWN_SESSION, REVOKE_DEVICE)
 
     /** 队列 kind（docs/14 命名域）→ relay action（docs/18 命名域）。 */
     fun fromKind(kind: String): String? = when (kind) {
@@ -67,6 +74,44 @@ object RelayActions {
         "resume" -> RESUME
         "approve" -> APPROVE
         "interrupt" -> INTERRUPT
+        "spawn_session" -> SPAWN_SESSION
+        "revoke_device" -> REVOKE_DEVICE
         else -> null
     }
+}
+
+/**
+ * revoke_device 自撤销收口状态机（M3-E1，docs/18 §5.3/§3.15；纯逻辑供 ConnectionManager
+ * 与单测共用）。收口语义：**成功 = disconnect(reason=revoked) 到达（onAuthFatal 清凭据、
+ * 停重连），而非 command_result**；accepted(queued:true) = ECS 排队挂起（主机上线后
+ * 自动完成，同 key 幂等兜底）。
+ */
+object SelfRevokeFlow {
+    enum class Step {
+        /** 已发出 command，等 command_ack。 */
+        AWAIT_ACK,
+
+        /** ack accepted（host 已见）→ 等 disconnect(revoked) 收口。 */
+        AWAIT_CLOSURE,
+
+        /** ack accepted + queued:true（主机离线）→ 行挂起，upstream 恢复后自动续跑。 */
+        QUEUED_HOLD,
+
+        /** 收口完成：凭据已清、连接已停（不得自动重连，§3.15）。 */
+        DONE_REVOKED,
+
+        /** 结构化拒绝（rejected + errorCode）。 */
+        FAILED,
+    }
+
+    /** command_ack 分类（accepted 语义与 RelayCommandClassifier.classifyAck 同一命名域）。 */
+    fun onAck(status: String, queued: Boolean): Step = when {
+        status == "accepted" && !queued -> Step.AWAIT_CLOSURE
+        status == "accepted" && queued -> Step.QUEUED_HOLD
+        status == "rejected" -> Step.FAILED
+        else -> Step.AWAIT_ACK // 绝不猜：未知 status 留在等待，超时由调用方收口
+    }
+
+    /** onAuthFatal 错误码 → 收口判定（仅 DEVICE_REVOKED 为撤销收口；其余非本机撤销）。 */
+    fun isClosure(code: String): Boolean = code == "DEVICE_REVOKED"
 }

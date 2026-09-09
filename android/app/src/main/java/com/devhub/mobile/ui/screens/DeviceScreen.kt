@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.devhub.mobile.connect.ConnectionManager
 import com.devhub.mobile.connect.GatewayConnectionService
+import com.devhub.mobile.connect.SelfRevokeSubmit
 import com.devhub.mobile.data.ApiProvider
 import com.devhub.mobile.data.SecureStore
 import com.devhub.mobile.data.db.DeviceEntity
@@ -137,6 +138,25 @@ fun DeviceScreen() {
                     val ownId = own?.deviceId ?: return@TextButton
                     revoking = true
                     scope.launch {
+                        if (ConnectionManager.configuredMode() == "relay") {
+                            // M3-E1（docs/18 §5.3/§10 通道迁移）：relay 模式自撤销走 WS command
+                            // revoke_device——成功收口 = disconnect(revoked) 到达（onAuthFatal 清
+                            // 凭据 + 停重连，UI 经 Unpaired 状态回配对页）；绝不自动重连（§3.15）。
+                            when (val r = ConnectionManager.submitSelfRevokeRelay()) {
+                                is SelfRevokeSubmit.Revoked -> Unit // 收口完成：状态机已接管 UI 导航
+
+                                is SelfRevokeSubmit.Queued -> {
+                                    error = "撤销已排队（电脑离线）：连接恢复后自动执行"
+                                    revoking = false
+                                }
+
+                                is SelfRevokeSubmit.Rejected -> {
+                                    error = "[${r.code}] ${r.message}"
+                                    revoking = false
+                                }
+                            }
+                            return@launch
+                        }
                         try {
                             withContext(Dispatchers.IO) { ApiProvider.rest(context).revokeSelf(ownId) }
                         } catch (err: ApiError) {

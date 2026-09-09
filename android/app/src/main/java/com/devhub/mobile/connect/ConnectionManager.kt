@@ -21,6 +21,7 @@ import com.devhub.mobile.core.relay.RelayFrame
 import com.devhub.mobile.core.relay.RelaySyncEngine
 import com.devhub.mobile.core.relay.RelayTokenRotation
 import com.devhub.mobile.core.relay.RotationOutcome
+import com.devhub.mobile.core.relay.SelfRevokeFlow
 import com.devhub.mobile.core.relay.StoredToken
 import com.devhub.mobile.core.relay.TokenStore
 import com.devhub.mobile.data.SecureStore
@@ -84,6 +85,39 @@ sealed class SubmitResult {
 }
 
 /**
+ * M3-E1 managed spawn 提交结果（docs/18 §5.3 spawn_session；relay 面专用——
+ * local 面保持 AgentsScreen 既有 REST 路径零改动）。
+ */
+sealed class ManagedSpawnSubmit {
+    /** 已执行并取得新会话 id（UI 跳转会话详情）。 */
+    data class Executed(val sessionId: Long, val commandId: String) : ManagedSpawnSubmit()
+
+    /** 已受理但无会话 id（accepted/无 sessionId executed；会话列表稍后出现）。 */
+    data class AcceptedNoSession(val commandId: String, val status: String) : ManagedSpawnSubmit()
+
+    /** queued:true（主机离线）→ 行挂起，upstream 恢复后同 key 续跑（偏离⑤）。 */
+    data object Queued : ManagedSpawnSubmit()
+
+    /** 结构化拒绝（文案经 InteractionHonesty.spawnRejectionText 按 errorCode 分叉）。 */
+    data class Rejected(val code: String, val message: String) : ManagedSpawnSubmit()
+}
+
+/**
+ * M3-E1 设备自撤销提交结果（docs/18 §5.3 revoke_device；relay 面专用——local 面保持
+ * DeviceScreen 既有 REST 路径零改动）。收口 = disconnect(revoked)，非 command_result。
+ */
+sealed class SelfRevokeSubmit {
+    /** 收口完成：凭据已清 + 连接已停（onAuthFatal 路径回配对页；不得自动重连 §3.15）。 */
+    data object Revoked : SelfRevokeSubmit()
+
+    /** queued:true（主机离线）→ 行挂起，主机上线后自动完成撤销。 */
+    data object Queued : SelfRevokeSubmit()
+
+    /** 结构化拒绝 / 收口超时（如实呈现，绝不伪报撤销成功——m3c6c 修②纪律）。 */
+    data class Rejected(val code: String, val message: String) : SelfRevokeSubmit()
+}
+
+/**
  * ConnectionManager —— WS 长连 + 重连 + sync/ack + 事件通知 + 离线队列补发 + 401 处理。
  *
  * M2-R3 双模式（docs/19 §7.2 / docs/18 §10，模式**显式选择、绝不字段嗅探**）：
@@ -105,6 +139,12 @@ object ConnectionManager {
 
     /** command 帧等 command_ack 超时（docs/18 §3.0 #8：10s）。 */
     private const val COMMAND_ACK_TIMEOUT_MS = 10_000L
+
+    /**
+     * M3-E1 revoke_device 收口窗（ack 后等 disconnect(revoked)；撤销链为受理即踢，
+     * 正常亚秒级，15s 窗仅覆盖极端排队回程——超时如实上报，绝不伪报撤销成功）。
+     */
+    private const val REVOKE_CLOSURE_TIMEOUT_MS = 15_000L
 
     /** R5.3 事件驱动刷新信号的节流窗（事件风暴 → 至多每 500ms 一次 UI 拉取触发）。 */
     private const val REFRESH_BUMP_THROTTLE_MS = 500L
@@ -200,6 +240,13 @@ object ConnectionManager {
     // 挂起的 command → command_ack 关联（key = idempotencyKey；docs/18 §3.9）
     private val pendingAcks = ConcurrentHashMap<String, CompletableDeferred<RelayFrame.CommandAck>>()
 
+    // M3-E1：spawn 的 command → command_result 关联（key = idempotencyKey；docs/18 §3.10）
+    private val pendingResults = ConcurrentHashMap<String, CompletableDeferred<RelayFrame.CommandResult>>()
+
+    // M3-E1：revoke_device 收口信号（onAuthFatal(DEVICE_REVOKED) 时完成；§5.3 收口语义）
+    @Volatile
+    private var selfRevokeClosure: CompletableDeferred<Unit>? = null
+
     /**
      * 初始化（幂等）：Application.onCreate 调用。
      * U1 注入缝（docs/21 §1.1 / docs/19 §10.2）：[tlsPinning] 可选指纹配置（无域名 IP TLS）——
@@ -261,9 +308,15 @@ object ConnectionManager {
     @Volatile
     private var cachedConfig: ConnConfig? = null
 
+    /**
+     * 当前持久化配置模式（local | relay；null = 配置未就绪）。M3-E1 命令面分支依据
+     * （docs/14 REST 面 vs docs/18 WS 命令面，显式选择、绝不字段嗅探）——UI 层经此
+     * 选择 spawn/自撤销的通道，与连接态解耦（relay 模式暂断时仍走 WS 排队路径）。
+     */
+    fun configuredMode(): String? = cachedConfig?.mode
+
     /** IO 协程刷新配置缓存（start 时与配置保存后调用；幂等，绝不阻塞主线程）。 */
-    fun refreshCachedConfig() {
-        scope.launch {
+    fun refreshCachedConfig() {        scope.launch {
             val c = runCatching { db?.gatewayConfigDao()?.get() }.getOrNull()
             if (c != null) {
                 cachedBase = c.host to c.port
@@ -816,6 +869,12 @@ object ConnectionManager {
     private fun settleCommandResult(frame: RelayFrame.CommandResult) {
         if (relaySeenResults.seenAndRecord(frame.commandId)) return
         bumpRefreshSignal() // R5.3：命令回执亦为刷新信号（brief 明列）
+        // M3-E1：spawn 的挂起终态结算（register 先于发送；无挂起请求的迟到帧按去重清理）
+        frame.idempotencyKey?.let { key ->
+            pendingResults.remove(key)?.let { deferred ->
+                if (deferred.isActive) deferred.complete(frame)
+            }
+        }
         frame.idempotencyKey?.let { key ->
             scope.launch(Dispatchers.IO) {
                 runCatching {
@@ -1020,17 +1079,149 @@ object ConnectionManager {
         }
     }
 
-    /** 发送 command 帧并等待 command_ack（10s 超时 docs/18 §3.0 #8；失败/超时 → 入队）。 */
+    // ---------------------------------------------------------------------------
+    // M3-E1 设备自管理命令面（docs/18 §5.3，用户裁决 2026-09-07 #9=B；仅 relay 面——
+    // local 面保持两 Screen 既有 REST 路径零改动，docs/14 零改动不变式）
+    // ---------------------------------------------------------------------------
+
+    /**
+     * relay 模式 managed spawn（替换 AgentsScreen 的 REST 误走面，docs/18 §10 通道迁移）：
+     * WS command `spawn_session`（payload {providerId, task}，sessionId 缺省）→ ack(accepted)
+     * → 等 command_result(executed) 取 sessionId；queued:true → 入队挂起；超时 → 入队同 key
+     * 补发（Windows 幂等返回原结果）；rejected → errorCode 结构化上抛（UI 文案分叉）。
+     */
+    suspend fun submitManagedSpawnRelay(providerId: Long, task: String): ManagedSpawnSubmit =
+        withContext(Dispatchers.IO) {
+            val ws = webSocket
+            if (ws == null || _state.value !is ConnState.Connected) {
+                enqueuePending(0L, QueueReplayPlanner.KIND_SPAWN_SESSION, task, IdempotencyKeys.newKey(), providerId.toString())
+                return@withContext ManagedSpawnSubmit.Queued
+            }
+            val idempotencyKey = IdempotencyKeys.newKey()
+            val resultDeferred = CompletableDeferred<RelayFrame.CommandResult>()
+            pendingResults[idempotencyKey] = resultDeferred
+            when (val outcome = sendRelayCommandFrame(ws, null, QueueReplayPlanner.KIND_SPAWN_SESSION, task, idempotencyKey, providerId.toString())) {
+                is CommandSendOutcome.Ack -> when (ManagedSpawnOutcome.phaseFromAck(outcome.ack.status, outcome.ack.queued)) {
+                    ManagedSpawnOutcome.Phase.AWAIT_RESULT -> {
+                        val result: RelayFrame.CommandResult? = try {
+                            withTimeout(COMMAND_ACK_TIMEOUT_MS) { resultDeferred.await() }
+                        } catch (err: TimeoutCancellationException) {
+                            null
+                        }
+                        if (result == null) {
+                            // 终态未回（投递竞态/连接中断）：入队同 key 补发，Windows 幂等兜底
+                            enqueuePending(0L, QueueReplayPlanner.KIND_SPAWN_SESSION, task, idempotencyKey, providerId.toString())
+                            return@withContext ManagedSpawnSubmit.Queued
+                        }
+                        ManagedSpawnOutcome.fromResult(result.status, result.sessionId, result.commandId, result.errorCode)
+                    }
+
+                    ManagedSpawnOutcome.Phase.QUEUED -> {
+                        enqueuePending(0L, QueueReplayPlanner.KIND_SPAWN_SESSION, task, idempotencyKey, providerId.toString())
+                        ManagedSpawnSubmit.Queued
+                    }
+
+                    ManagedSpawnOutcome.Phase.FAILED -> ManagedSpawnSubmit.Rejected(
+                        outcome.ack.errorCode ?: "COMMAND_REJECTED",
+                        outcome.ack.errorCode?.let { "命令被拒绝 [$it]" } ?: "命令被拒绝",
+                    )
+                }
+
+                is CommandSendOutcome.Enqueued -> ManagedSpawnSubmit.Queued
+                is CommandSendOutcome.UnknownKind -> ManagedSpawnSubmit.Rejected("BAD_PAYLOAD", "unknown kind spawn_session")
+            }.also {
+                // 终态已结算（成功/拒绝）→ 清挂起；Queued 路径的挂起在终态帧到达时结算
+                if (it !is ManagedSpawnSubmit.Queued) pendingResults.remove(idempotencyKey)
+            }
+        }
+
+    /**
+     * relay 模式设备自撤销（docs/18 §5.3 revoke_device）：WS command（自指无目标字段）；
+     * **成功收口 = disconnect(reason=revoked) 到达**（onAuthFatal 清凭据 + 停重连 §3.15），
+     * 非 command_result——§5.3 终态语义。queued:true → 行挂起（主机上线后自动完成）；
+     * 收口窗超时 → 如实上抛（绝不伪报撤销成功，m3c6c 修②纪律）；重试在连接被踢后自然终止
+     * （幂等键兜底）。
+     */
+    suspend fun submitSelfRevokeRelay(): SelfRevokeSubmit = withContext(Dispatchers.IO) {
+        val ws = webSocket
+        if (ws == null || _state.value !is ConnState.Connected) {
+            enqueuePending(0L, QueueReplayPlanner.KIND_REVOKE_DEVICE, null, IdempotencyKeys.newKey())
+            return@withContext SelfRevokeSubmit.Queued
+        }
+        val closure = CompletableDeferred<Unit>()
+        selfRevokeClosure = closure
+        val idempotencyKey = IdempotencyKeys.newKey()
+        val outcome = sendRelayCommandFrame(ws, null, QueueReplayPlanner.KIND_REVOKE_DEVICE, null, idempotencyKey)
+        val ackErrorCode = (outcome as? CommandSendOutcome.Ack)?.ack?.errorCode
+        val step = when (outcome) {
+            is CommandSendOutcome.Ack -> SelfRevokeFlow.onAck(outcome.ack.status, outcome.ack.queued)
+            is CommandSendOutcome.Enqueued -> {
+                selfRevokeClosure = null
+                return@withContext SelfRevokeSubmit.Queued
+            }
+
+            is CommandSendOutcome.UnknownKind -> {
+                selfRevokeClosure = null
+                return@withContext SelfRevokeSubmit.Rejected("BAD_PAYLOAD", "unknown kind revoke_device")
+            }
+        }
+        when (step) {
+            SelfRevokeFlow.Step.AWAIT_ACK, SelfRevokeFlow.Step.AWAIT_CLOSURE, SelfRevokeFlow.Step.DONE_REVOKED -> {
+                val closed = try {
+                    withTimeout(REVOKE_CLOSURE_TIMEOUT_MS) { closure.await() }
+                    true
+                } catch (err: TimeoutCancellationException) {
+                    false
+                }
+                selfRevokeClosure = null
+                val state = _state.value
+                if (closed || (state is ConnState.Unpaired && SelfRevokeFlow.isClosure(state.code))) {
+                    SelfRevokeSubmit.Revoked
+                } else {
+                    SelfRevokeSubmit.Rejected("RELAY_UPSTREAM_TIMEOUT", "撤销回执未送达（连接状态异常，请检查连接）")
+                }
+            }
+
+            SelfRevokeFlow.Step.QUEUED_HOLD -> {
+                selfRevokeClosure = null
+                enqueuePending(0L, QueueReplayPlanner.KIND_REVOKE_DEVICE, null, idempotencyKey)
+                SelfRevokeSubmit.Queued
+            }
+
+            SelfRevokeFlow.Step.FAILED -> {
+                selfRevokeClosure = null
+                SelfRevokeSubmit.Rejected(ackErrorCode ?: "COMMAND_REJECTED", "撤销被拒绝 [${ackErrorCode ?: ""}]".trimEnd())
+            }
+        }
+    }
+
+    /**
+     * 发送 command 帧并等待 command_ack（10s 超时 docs/18 §3.0 #8；失败/超时 → 入队）。
+     * M3-E1（docs/18 §5.3）：spawn_session/revoke_device 的 sessionId 缺省合法 → 传 null
+     * 时帧面不带 sessionId；spawn 的 payload = {providerId, task}，revoke 的 payload = {}
+     * （自指无目标，绝不携带任何目标字段）。
+     */
     private suspend fun sendRelayCommandFrame(
         ws: WebSocket,
-        sessionId: Long,
+        sessionId: Long?,
         kind: String,
         text: String?,
         idempotencyKey: String,
+        providerId: String? = null,
     ): CommandSendOutcome {
         val action = RelayActions.fromKind(kind) ?: return CommandSendOutcome.UnknownKind
         val payload = JSONObject().apply {
-            if (kind == QueueReplayPlanner.KIND_REPLY) put("text", text ?: "")
+            when (kind) {
+                QueueReplayPlanner.KIND_REPLY -> put("text", text ?: "")
+                QueueReplayPlanner.KIND_SPAWN_SESSION -> {
+                    put("providerId", providerId ?: "")
+                    put("task", text ?: "")
+                }
+
+                QueueReplayPlanner.KIND_REVOKE_DEVICE -> {
+                    // payload {}：目标 = auth Token 对应设备自身（帧无目标字段天然自指）
+                }
+            }
         }
         val nowSec = System.currentTimeMillis() / 1000
         val frame = RelayFrame.Command(
@@ -1048,20 +1239,20 @@ object ConnectionManager {
         pendingAcks[idempotencyKey] = deferred
         if (!ws.send(RelayCodec.encode(frame))) {
             pendingAcks.remove(idempotencyKey)
-            enqueuePending(sessionId, kind, text, idempotencyKey)
+            enqueuePending(sessionId ?: 0L, kind, text, idempotencyKey, providerId)
             return CommandSendOutcome.Enqueued
         }
         return try {
             CommandSendOutcome.Ack(withTimeout(COMMAND_ACK_TIMEOUT_MS) { deferred.await() })
         } catch (err: TimeoutCancellationException) {
             pendingAcks.remove(idempotencyKey)
-            enqueuePending(sessionId, kind, text, idempotencyKey)
+            enqueuePending(sessionId ?: 0L, kind, text, idempotencyKey, providerId)
             CommandSendOutcome.Enqueued
         }
     }
 
     /** 入队（同幂等 key 复用既有行，绝不重复入队）。 */
-    private fun enqueuePending(sessionId: Long, kind: String, text: String?, idempotencyKey: String) {
+    private fun enqueuePending(sessionId: Long, kind: String, text: String?, idempotencyKey: String, providerId: String? = null) {
         runCatching {
             val dao = db!!.pendingCommandDao()
             if (dao.getByKey(idempotencyKey) == null) {
@@ -1074,6 +1265,7 @@ object ConnectionManager {
                         status = "pending",
                         createdAtMs = System.currentTimeMillis(),
                         lastError = null,
+                        providerId = providerId,
                     ),
                 )
             }
@@ -1112,6 +1304,15 @@ object ConnectionManager {
                         QueueReplayPlanner.KIND_RESUME -> api!!.action(queued.sessionId, "resume", queued.idempotencyKey)
                         QueueReplayPlanner.KIND_APPROVE, QueueReplayPlanner.KIND_INTERRUPT -> {
                             // local REST 无 approve/interrupt（docs/18 §5.1）：结构化落败，绝不伪装 202
+                            db!!.pendingCommandDao().update(
+                                row.copy(status = "failed", lastError = "COMMAND_NOT_EXECUTABLE (local face)"),
+                            )
+                            continue
+                        }
+
+                        QueueReplayPlanner.KIND_SPAWN_SESSION, QueueReplayPlanner.KIND_REVOKE_DEVICE -> {
+                            // M3-E1：设备自管理两值仅 relay 命令面存在（docs/18 §5.3/§7.2）；
+                            // relay 源队列行漏入 local 面（模式切换残留）→ 结构化落败，绝不伪装
                             db!!.pendingCommandDao().update(
                                 row.copy(status = "failed", lastError = "COMMAND_NOT_EXECUTABLE (local face)"),
                             )
@@ -1172,7 +1373,10 @@ object ConnectionManager {
             if (batch.isEmpty()) return
             for (queued in batch) {
                 val row = db!!.pendingCommandDao().listPending().firstOrNull { it.id == queued.id } ?: continue
-                when (val outcome = sendRelayCommandFrame(ws, queued.sessionId, queued.kind, row.text, queued.idempotencyKey)) {
+                // M3-E1（docs/18 §5.3）：spawn_session/revoke_device 的 sessionId 缺省合法 → 帧面不带；
+                // spawn 补发的 providerId 从队列行 providerId 列还原（Room v4）
+                val sessionRef: Long? = if (queued.kind == QueueReplayPlanner.KIND_SPAWN_SESSION || queued.kind == QueueReplayPlanner.KIND_REVOKE_DEVICE) null else queued.sessionId
+                when (val outcome = sendRelayCommandFrame(ws, sessionRef, queued.kind, row.text, queued.idempotencyKey, row.providerId)) {
                     is CommandSendOutcome.Ack -> when (
                         RelayCommandClassifier.classifyAck(outcome.ack.status, outcome.ack.queued)
                     ) {
@@ -1232,6 +1436,10 @@ object ConnectionManager {
             GatewayConnectionService.stop(context)
         }
         _state.value = ConnState.Unpaired(code, message)
+        // M3-E1：revoke_device 收口（§5.3：成功 = disconnect(revoked) → 凭据已清 + 停重连）
+        if (SelfRevokeFlow.isClosure(code)) {
+            selfRevokeClosure?.let { c -> if (c.isActive) c.complete(Unit) }
+        }
     }
 
     /** 诊断页投影：本机 WS 连接状态 / 最近错误 / 退避状态（区分模式与 relay 降级信标）。 */

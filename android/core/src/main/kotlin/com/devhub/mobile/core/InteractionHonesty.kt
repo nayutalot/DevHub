@@ -73,6 +73,28 @@ object InteractionHonesty {
         }
     }
 
+    /**
+     * M3-E1（docs/18 §5.3/§8.2）：relay 模式 spawn_session 拒绝文案分叉（纯函数）。
+     * 按 command_ack rejected 的 errorCode 结构化分叉（绝不吞码、绝不伪造成功）：
+     * - SPAWN_REJECTED（新码，WS 专属）：spawn 特有拒绝（provider 无托管通道/并发上限）；
+     * - COMMAND_NOT_EXECUTABLE：授权矩阵不允许（provider 非 managed）；
+     * - AGENT_CAPABILITY_MISSING：能力未验证/过期；
+     * - 其余（NOT_FOUND/BAD_PAYLOAD/COMMAND_EXPIRED/…）：原码透传展示。
+     */
+    fun spawnRejectionText(errorCode: String?, raw: String?): String = when (errorCode) {
+        "SPAWN_REJECTED" ->
+            "启动被拒绝：该 provider 无托管通道或并发已达上限（SPAWN_REJECTED）"
+
+        "COMMAND_NOT_EXECUTABLE" ->
+            "启动被拒绝：该 provider 未授予 managed 能力（COMMAND_NOT_EXECUTABLE）"
+
+        "AGENT_CAPABILITY_MISSING" ->
+            "启动被拒绝：provider 能力未验证或已过期，请先在桌面端重新探测（AGENT_CAPABILITY_MISSING）"
+
+        else ->
+            if (!raw.isNullOrBlank()) "启动被拒绝 [$errorCode] $raw" else "启动被拒绝 [$errorCode]"
+    }
+
     /** 与 ProviderPalette 同法归一化：小写 + 仅字母数字。 */
     private fun normalize(raw: String?): String? {
         val s = (raw ?: "").lowercase().filter { it in 'a'..'z' || it in '0'..'9' }
