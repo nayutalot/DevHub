@@ -16,7 +16,8 @@ import { useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Badge } from '../components/Badge.tsx'
 import type { BadgeTone } from '../components/Badge.tsx'
-import { EmptyState, ErrorState, Loading, Toast, useToast } from '../components/StateViews.tsx'
+import { SkillMetaFlags, reviewStatusTone } from '../components/LlmReview.tsx'
+import { EmptyState, ErrorState, Loading, Spinner, Toast, useToast } from '../components/StateViews.tsx'
 import { useApp } from '../lib/appContext.ts'
 import { relativeTime } from '../lib/format.ts'
 import { call } from '../lib/ipc.ts'
@@ -26,9 +27,11 @@ import type {
   SkillAgentScanView,
   SkillDoctorItem,
   SkillImportPlan,
+  SkillMetaFlag,
   SkillRow,
   SkillSyncStep,
   SkillsImportResult,
+  SkillsReviewMetaResult,
   SkillsSyncResult,
 } from '../../../shared/types.ts'
 
@@ -168,6 +171,25 @@ export function SkillsView() {
     })
   }
 
+  // LLM 元数据体检（LR1，docs/09 §13）：手动按钮触发；只读咨询不落库，
+  // doctor 语义不变；端点未配置/不可达 → skipped 态，页面行为等价现状
+  const [metaReview, setMetaReview] = useState<{ busy: boolean; result: SkillsReviewMetaResult | null }>({ busy: false, result: null })
+
+  function handleReviewMeta(): void {
+    setMetaReview({ busy: true, result: null })
+    void (async () => {
+      try {
+        const r: SkillsReviewMetaResult = await call('skills:reviewMeta', {})
+        setMetaReview({ busy: false, result: r })
+      } catch (err) {
+        setMetaReview({ busy: false, result: null })
+        show(`LLM 体检失败: ${err instanceof Error ? err.message : String(err)}`, 'err')
+      }
+    })()
+  }
+
+  const metaFlags: SkillMetaFlag[] = metaReview.result?.status === 'ok' ? (metaReview.result.flags ?? []) : []
+
   function handleSync(): void {
     if (!window.confirm('执行双侧同步（Windows commit/push → WSL companion sync → Windows pull）？')) return
     void runAction('Sync', async () => {
@@ -277,8 +299,41 @@ export function SkillsView() {
           <button type="button" className="btn" disabled={busy !== null} onClick={() => setImportOpen(true)}>
             Import
           </button>
+          <button
+            type="button"
+            className="btn"
+            disabled={busy !== null || metaReview.busy}
+            title="LLM 元数据体检（advisory 只读，不落库、不影响 doctor；端点未配置时跳过）"
+            onClick={handleReviewMeta}
+          >
+            {metaReview.busy && <Spinner />} LLM 体检
+          </button>
         </span>
       </div>
+
+      {/* LLM 元数据体检结果（LR1，docs/09 §13）：手动触发 + 四态展示；只读不落库 */}
+      {(metaReview.busy || metaReview.result !== null) && (
+        <div className="panel review-meta-panel">
+          <h3 className="panel-title">
+            LLM 元数据体检（advisory）{' '}
+            {metaReview.result !== null && (
+              <Badge tone={reviewStatusTone(metaReview.result.status)}>
+                {metaReview.result.status}
+                {metaReview.result.checkedCount !== undefined ? ` · ${metaReview.result.checkedCount} skills` : ''}
+              </Badge>
+            )}
+          </h3>
+          {metaReview.busy ? (
+            <Loading label="正在咨询 LLM 体检元数据…（零文件内容，仅名称/描述）" />
+          ) : metaReview.result === null ? (
+            <div className="inline-note td-dim">体检未执行。</div>
+          ) : metaReview.result.status === 'ok' ? (
+            <SkillMetaFlags flags={metaFlags} />
+          ) : (
+            <div className="inline-note td-dim">{metaReview.result.note ?? '复核未返回结果（页面行为等价现状）'}</div>
+          )}
+        </div>
+      )}
 
       {/* agent 卡片区 */}
       {agents.length === 0 ? (

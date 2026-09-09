@@ -16,6 +16,7 @@
 
 import { useEffect, useState } from 'react'
 import { Badge, stateTone } from '../components/Badge.tsx'
+import { LlmReviewSettingsCard, ReviewAdvisoryBar, ReviewPostButton } from '../components/LlmReview.tsx'
 import { EmptyState, ErrorState, Loading, Spinner, Toast, useToast } from '../components/StateViews.tsx'
 import { useApp } from '../lib/appContext.ts'
 import { call, sleep } from '../lib/ipc.ts'
@@ -205,6 +206,10 @@ export function ArchiveView() {
         {!destReady && <span className="archive-dest-warning">destination root is not set — scanning is refused until configured</span>}
       </div>
 
+      {/* LLM 复核设置卡片（LR1 advisory-only：base_url/model 双键 + 端点测试入口；
+          默认空 = 停用，全流程行为等价现状——任务书 §1/§5） */}
+      <LlmReviewSettingsCard />
+
       {/* 项目选择器 + 预检动作 */}
       <div className="panel archive-picker">
         {projects.loading ? (
@@ -322,6 +327,20 @@ export function ArchiveView() {
               </label>
             </div>
           )}
+          {/* LLM 复核咨询条（LR1 advisory-only）：preview plan 摘要零额外扫描；
+              skipped/failed 不拦截、不改变下方 DOUBLE_CONFIRM 流程——任务书 §4.1 */}
+          <ReviewAdvisoryBar
+            plan={{
+              projectName: impacts.projectName,
+              oldPath: impacts.oldPath,
+              destPath: impacts.destPath,
+              crossVolume: impacts.crossVolume,
+              totalHits: impacts.report.totalHits,
+              filesToRewrite: new Set(impacts.report.hits.map((h) => h.file)).size,
+              stripDirs: impacts.depSkipDirs.length,
+              occupiers: impacts.occupiers.length,
+            }}
+          />
           <div className="archive-double-confirm">
             <label>
               <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
@@ -374,6 +393,8 @@ export function ArchiveView() {
           {runResult.sourceLeftovers.length > 0 && <div className="degraded-banner">source leftovers (manual cleanup ok): {runResult.sourceLeftovers.slice(0, 10).join(' · ')}</div>}
           <FileFixTable title="Project-internal files" fixes={runResult.fixed} />
           <FileFixTable title="External reference files" fixes={runResult.external} />
+          {/* LLM 归档后复核（按需触发；ok 态缓存 review_post_json，命中不再打端点——任务书 §4.2） */}
+          <ReviewPostButton runId={runResult.runId} />
           {runResult.residualHits > 0 && (
             <div className="degraded-banner">
               残留 {runResult.residualHits} 处旧路径引用（多为非 UTF-8 跳过文件）——已显式警示，不算失败
@@ -408,6 +429,7 @@ export function ArchiveView() {
                   <th>Stripped</th>
                   <th>Status</th>
                   <th>Undo</th>
+                  <th>LLM 复核</th>
                   <th></th>
                 </tr>
               </thead>
@@ -429,6 +451,9 @@ export function ArchiveView() {
                       <Badge tone={stateTone(r.status === 'rolled-back' ? 'dim' : r.status)}>{r.status}</Badge>
                     </td>
                     <td className="td-dim">{r.undoEntries !== null ? `${r.undoEntries} files` : '—'}</td>
+                    <td>
+                      <ReviewPostButton runId={r.id} />
+                    </td>
                     <td>
                       {r.status === 'done' && (
                         <button type="button" className="btn btn-small btn-danger" disabled={rollbackBusy !== null} onClick={() => void rollbackRun(r.id)}>
