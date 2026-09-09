@@ -1,11 +1,13 @@
 /**
  * trayWire.ts — 托盘常驻的 Electron 胶水（AC5，docs/12 §10）。
  *
- * Tray 单例持有：重建前先 destroy（防重复图标/监听器泄漏）。菜单五项（docs/12
- * §10 + docs/11 §6）：打开 DevHub / 查看 Agent 摘要（导航到 Agents 视图）/
- * 开启/暂停 Agent 监控（勾选态 = settings agents_monitor_enabled，切换走既有
+ * Tray 单例持有：重建前先 destroy（防重复图标/监听器泄漏）。菜单六项（docs/12
+ * §10 + docs/11 §6 + docs/22 §4.5）：打开 DevHub / 查看 Agent 摘要（导航到 Agents
+ * 视图）/ 开启/暂停 Agent 监控（勾选态 = settings agents_monitor_enabled，切换走既有
  * settings 写路径 + syncMonitorTasks）/ 开机自启（勾选态 = login_autostart，
- * 切换 = agents:setAutoStart 同语义）/ 退出 DevHub（唯一真退出入口）。
+ * 切换 = agents:setAutoStart 同语义）/ 比赛悬浮窗（CP2，勾选态 =
+ * contestpin_overlay_enabled，切换 = deps.setOverlayEnabled）/ 退出 DevHub（唯一真
+ * 退出入口）。
  *
  * 图标：resources/tray.png（@2x 相邻自动加载，docs/12 §10）；加载失败降级空图标 +
  * 结构化日志不崩（docs/12 §10）。electron import 仅本模块（main 根胶水位）。
@@ -32,11 +34,15 @@ export interface TrayDeps {
   showMainWindowNavigateAgents(): void
   /** 唯一真退出：置 isQuitting → 有序收尾 → app.quit()（index.ts 提供）。 */
   quitApp(): void
+  /** CP2 比赛悬浮窗开关（docs/22 §4.5）：settings 持久化 + 窗口即时生效
+   * （overlayWire.setOverlayEnabled，index.ts 接线注入；与
+   * contestpin:overlaySetEnabled 同一收敛点）。 */
+  setOverlayEnabled(enabled: boolean): void
 }
 
 let tray: Tray | null = null
 /** 菜单重建去抖：勾选态未变化时不重建（避免周期 tooltip 刷新打断打开中的菜单）。 */
-let lastMenuState = { monitor: false, autostart: false }
+let lastMenuState = { monitor: false, autostart: false, overlay: false }
 
 /**
  * 图标加载（双模式路径解析，packaging fix）：dev 下项目根 resources/ 两个既有
@@ -87,12 +93,15 @@ function monitorEnabledSetting(): boolean {
 function buildContextMenu(deps: TrayDeps): Menu {
   const monitor = monitorEnabledSetting()
   let autostart = false
+  let overlay = false
   try {
     autostart = getSetting('login_autostart') === '1'
+    // CP2：种子默认 '0'（关）——与 monitor（默认开）语义相反，用 === '1'
+    overlay = getSetting('contestpin_overlay_enabled') === '1'
   } catch {
     // settings 读取失败：勾选态按关渲染（结构化降级，切换时真实写路径会纠正）
   }
-  lastMenuState = { monitor, autostart }
+  lastMenuState = { monitor, autostart, overlay }
   return Menu.buildFromTemplate([
     { label: '打开 DevHub', click: () => deps.showMainWindow() },
     { label: '查看 Agent 摘要', click: () => deps.showMainWindowNavigateAgents() },
@@ -127,6 +136,22 @@ function buildContextMenu(deps: TrayDeps): Menu {
           logger.info(`tray autostart toggle: login_autostart=${item.checked ? '1' : '0'}`)
         } catch (err) {
           logger.warn(`tray autostart toggle failed: ${err instanceof Error ? err.message : String(err)}`)
+        }
+        rebuildContextMenu(deps)
+      },
+    },
+    {
+      // CP2 比赛悬浮窗（docs/22 §4.5）：checked = contestpin_overlay_enabled，
+      // 点击 toggle → deps.setOverlayEnabled（settings 持久化 + 窗口即时生效）+ rebuild
+      label: '比赛悬浮窗',
+      type: 'checkbox',
+      checked: overlay,
+      click: (item) => {
+        try {
+          deps.setOverlayEnabled(item.checked)
+          logger.info(`tray overlay toggle: contestpin_overlay_enabled=${item.checked ? '1' : '0'}`)
+        } catch (err) {
+          logger.warn(`tray overlay toggle failed: ${err instanceof Error ? err.message : String(err)}`)
         }
         rebuildContextMenu(deps)
       },
@@ -175,13 +200,19 @@ export function refreshTraySummary(deps: TrayDeps): void {
     tray.setToolTip(summaryText())
     let monitor = false
     let autostart = false
+    let overlay = false
     try {
       monitor = monitorEnabledSetting()
       autostart = getSetting('login_autostart') === '1'
+      overlay = getSetting('contestpin_overlay_enabled') === '1'
     } catch {
       return // settings 暂不可读：保持上一次菜单
     }
-    if (monitor !== lastMenuState.monitor || autostart !== lastMenuState.autostart) {
+    if (
+      monitor !== lastMenuState.monitor ||
+      autostart !== lastMenuState.autostart ||
+      overlay !== lastMenuState.overlay
+    ) {
       tray.setContextMenu(buildContextMenu(deps))
     }
   } catch (err) {

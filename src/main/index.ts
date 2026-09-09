@@ -19,7 +19,7 @@
  */
 
 import { join } from 'node:path'
-import { app, BrowserWindow, Menu } from 'electron'
+import { app, BrowserWindow, Menu, shell } from 'electron'
 import { logger } from './core/logger.ts'
 import {
   quitTransition,
@@ -35,6 +35,13 @@ import { setKeyCrypto } from './services/apihub/keyStore.ts'
 import { injectAutoStart } from './autostartWire.ts'
 import { initTray, refreshTraySummary, destroyTray } from './trayWire.ts'
 import type { TrayDeps } from './trayWire.ts'
+import {
+  destroyOverlay,
+  initOverlay,
+  setFocusMainWindowApplier,
+  setOpenExternalApplier,
+  setOverlayEnabled,
+} from './overlayWire.ts'
 import { shutdownAgentControlRuntime } from './services/agentControl/agentControlService.ts'
 
 /** Windows 通知/托盘归属前置（AC0 审计：现缺，docs/12 §10）。 */
@@ -68,10 +75,17 @@ let trayRefreshTimer: NodeJS.Timeout | null = null
 
 let mainWindow: BrowserWindow | null = null
 
-function loadRenderer(win: BrowserWindow, hash?: 'agents'): void {
+/**
+ * hash 路由（docs/22 §4.2）：'agents'（托盘「查看 Agent 摘要」先例）/ 'overlay'
+ * （CP2 悬浮窗 → App 分流 OverlayApp）/ `contest:<id>`（悬浮窗卡片 → 主窗口比赛
+ * 详情，App.tsx initialTarget 解析）。undefined = 默认首页。
+ */
+type RendererHash = 'agents' | 'overlay' | `contest:${number}`
+
+function loadRenderer(win: BrowserWindow, hash?: RendererHash): void {
   const devUrl = process.env.ELECTRON_RENDERER_URL
   if (isDevMode() && typeof devUrl === 'string') {
-    win.loadURL(hash === 'agents' ? `${devUrl}#/agents` : devUrl).catch((err) =>
+    win.loadURL(hash === undefined ? devUrl : `${devUrl}#${hash}`).catch((err) =>
       logger.error(`renderer loadURL failed: ${errorMessage(err)}`),
     )
     // 默认不开 DevTools（验收截图干净）；显式 DEVHUB_OPEN_DEVTOOLS=1 才打开
@@ -80,7 +94,7 @@ function loadRenderer(win: BrowserWindow, hash?: 'agents'): void {
     }
   } else {
     win
-      .loadFile(join(__dirname, '../renderer/index.html'), hash === 'agents' ? { hash: 'agents' } : undefined)
+      .loadFile(join(__dirname, '../renderer/index.html'), hash === undefined ? undefined : { hash })
       .catch((err) => logger.error(`renderer loadFile failed: ${errorMessage(err)}`))
   }
 }
@@ -120,9 +134,18 @@ function createWindow(): BrowserWindow {
   return win
 }
 
-/** 显示主窗口（最小化先还原；隐藏→show）。second-instance 与托盘共用。 */
+/**
+ * 显示主窗口（最小化先还原；隐藏→show）。second-instance 与托盘共用。
+ * CP2 单实例收紧（docs/22 §4.6，审计风险 1）：显式判空 + 销毁态检查，不再
+ * `getAllWindows()[0]` 兜底——悬浮窗存在时"打开 DevHub"永不误选悬浮窗
+ * （不得对悬浮窗做 show/focus/loadRenderer）。
+ */
+function currentMainWindow(): BrowserWindow | null {
+  return mainWindow !== null && !mainWindow.isDestroyed() ? mainWindow : null
+}
+
 function showMainWindow(): void {
-  const win = mainWindow ?? BrowserWindow.getAllWindows()[0] ?? null
+  const win = currentMainWindow()
   if (win !== null) {
     if (win.isMinimized()) win.restore()
     win.show()
@@ -133,10 +156,11 @@ function showMainWindow(): void {
 /**
  * second-instance：把已有实例的窗口拉到前台（Windows 应用单实例语义）。
  * docs/12 §10 扩展：窗口隐藏（关窗常驻态）→ show() + focus() 恢复。
+ * CP2 收紧：只指向主窗口（getAllWindows()[0] 兜底已移除，防误选悬浮窗）。
  */
 function focusExistingWindow(): void {
-  const win = mainWindow ?? BrowserWindow.getAllWindows()[0]
-  if (win !== undefined) {
+  const win = currentMainWindow()
+  if (win !== null) {
     if (win.isMinimized()) win.restore()
     if (!win.isVisible()) win.show()
     win.focus()
@@ -146,10 +170,24 @@ function focusExistingWindow(): void {
 
 /** 托盘「查看 Agent 摘要」：显示主窗口并导航到 Agents 视图（#/agents hash 重载）。 */
 function showMainWindowNavigateAgents(): void {
-  const win = mainWindow ?? BrowserWindow.getAllWindows()[0] ?? null
+  const win = currentMainWindow()
   if (win === null) return
   if (win.isMinimized()) win.restore()
   loadRenderer(win, 'agents')
+  win.show()
+  win.focus()
+}
+
+/**
+ * 悬浮窗卡片 / 通知入口（CP2，docs/22 §4.5）：显示主窗口并导航到比赛详情
+ * （#contest:<id> hash 重载，App.tsx initialTarget 解析进比赛视图详情态）。
+ * 经 overlayWire.setFocusMainWindowApplier 注册为 contestpin:openInMain 生产实现。
+ */
+function showMainWindowNavigateContest(contestId: number): void {
+  const win = currentMainWindow()
+  if (win === null) return
+  if (win.isMinimized()) win.restore()
+  loadRenderer(win, `contest:${contestId}`)
   win.show()
   win.focus()
 }
@@ -160,14 +198,18 @@ function showMainWindowNavigateAgents(): void {
  * 防止 ref'd 定时器拖住主进程事件循环/惰性重开已关闭的 DB）→ cancelAll 监控 →
  * [关 WS → 关 Gateway] → 托管子进程收尾（provider.dispose）→ closeDatabase
  * （WAL 落盘）。任一步失败不阻断后续步骤。
+ * CP2：destroyOverlay 挂在最前（与 trayRefreshTimer 并列、先于 closeDatabase）——
+ * overlayWire 内部 ref'd 防抖定时器同样会经 getDatabase() 惰性重开已关闭 DB，
+ * 必须最先清；destroy 同步非阻塞，5s 硬上限内完成。
  */
 async function runQuitTeardown(): Promise<void> {
+  destroyOverlay()
   if (trayRefreshTimer !== null) {
     clearInterval(trayRefreshTimer)
     trayRefreshTimer = null
   }
   destroyTray()
-  logger.info('quit teardown: tray destroyed + 2s refresh interval cleared (AC9 exit fix)')
+  logger.info('quit teardown: overlay destroyed + tray destroyed + 2s refresh interval cleared (AC9 exit fix)')
   try {
     await shutdownAgentControlRuntime()
     logger.info('quit teardown: agent control runtime shut down (monitors cancelled, providers disposed)')
@@ -305,10 +347,26 @@ function bootstrapMainProcess(): void {
         showMainWindow: () => showMainWindow(),
         showMainWindowNavigateAgents: () => showMainWindowNavigateAgents(),
         quitApp: () => app.quit(), // before-quit → requestQuit（有序收尾）
+        // CP2 悬浮窗开关（docs/22 §4.5）：settings 持久化经 overlayStateService +
+        // 窗口创建/show 或 hide 即时生效（与 contestpin:overlaySetEnabled 同一收敛点）
+        setOverlayEnabled: (enabled) => setOverlayEnabled(enabled),
       }
       initTray(trayDeps)
       // 句柄必须可清（AC9 滞留根因之一）：退出路径 runQuitTeardown 里 clearInterval
       trayRefreshTimer = setInterval(() => refreshTraySummary(trayDeps), 2000)
+
+      // CP2 悬浮窗（docs/22 §4）：生产 applier 注册（默认浏览器/主窗口导航）→
+      // initOverlay 按 settings contestpin_overlay_enabled 决定是否创建悬浮窗
+      setOpenExternalApplier((url) => {
+        void shell.openExternal(url).catch((err) =>
+          logger.error(`shell.openExternal failed: ${errorMessage(err)}`),
+        )
+      })
+      setFocusMainWindowApplier((contestId) => showMainWindowNavigateContest(contestId))
+      initOverlay({
+        isQuitting: () => isQuitting,
+        loadPage: (win) => loadRenderer(win, 'overlay'),
+      })
     })
     .catch((err) => {
       logger.error(`startup failed: ${errorMessage(err)}`)
