@@ -12,7 +12,7 @@
  *   chatCompletion 返回
  *     { ok:true,  content, usage, latencyMs }
  *   | { ok:false, failure: { kind: AUTH|RATE_LIMIT|TIMEOUT|NETWORK|BAD_RESPONSE|
- *                            HTTP_ERROR, status?, message } }
+ *                            HTTP_ERROR, status?, message }, latencyMs }
  *   理由：单次调用需要区分六类失败并携带 status/简短摘要，判别联合让上层
  *   （recognitionConfigService 的连接测试落库与文案映射）逐类处理而不必逐类
  *   catch。IMAGE_UNSUPPORTED 不在客户端六分类内——它由 service 层按服务端错误
@@ -78,7 +78,7 @@ export interface ChatFailure {
 
 export type ChatCompletionResult =
   | { ok: true; content: string; usage: ChatUsageOrUnknown; latencyMs: number }
-  | { ok: false; failure: ChatFailure }
+  | { ok: false; failure: ChatFailure; latencyMs: number }
 
 /**
  * 传输接口：唯一出站点。返回原始 status 与 body 文本，由客户端统一分类；
@@ -169,7 +169,7 @@ export async function chatCompletion(
     status = res.status
     bodyText = res.bodyText
   } catch (err) {
-    return { ok: false, failure: classifyTransportError(err) }
+    return { ok: false, failure: classifyTransportError(err), latencyMs: Date.now() - startedAt }
   }
   const latencyMs = Date.now() - startedAt
   const secrets: readonly string[] = apiKey.length > 0 ? [apiKey] : []
@@ -178,12 +178,12 @@ export async function chatCompletion(
   if (status < 200 || status >= 300) {
     const summary = summarizeBodyText(bodyText, secrets)
     if (status === 401 || status === 403) {
-      return { ok: false, failure: { kind: 'AUTH', message: `鉴权被拒绝（HTTP ${status}）：${summary || '无响应体'}` } }
+      return { ok: false, failure: { kind: 'AUTH', message: `鉴权被拒绝（HTTP ${status}）：${summary || '无响应体'}` }, latencyMs }
     }
     if (status === 429) {
-      return { ok: false, failure: { kind: 'RATE_LIMIT', message: `触发限流（HTTP 429）：${summary || '无响应体'}` } }
+      return { ok: false, failure: { kind: 'RATE_LIMIT', message: `触发限流（HTTP 429）：${summary || '无响应体'}` }, latencyMs }
     }
-    return { ok: false, failure: { kind: 'HTTP_ERROR', status, message: `服务返回 HTTP ${status}：${summary || '无响应体'}` } }
+    return { ok: false, failure: { kind: 'HTTP_ERROR', status, message: `服务返回 HTTP ${status}：${summary || '无响应体'}` }, latencyMs }
   }
 
   // 2xx：解析 JSON → choices[0].message.content 必须是非空结构校验，缺任一 → BAD_RESPONSE
@@ -191,27 +191,27 @@ export async function chatCompletion(
   try {
     parsed = JSON.parse(bodyText)
   } catch {
-    return { ok: false, failure: { kind: 'BAD_RESPONSE', message: `响应不是合法 JSON：${summarizeBodyText(bodyText, secrets) || '空响应体'}` } }
+    return { ok: false, failure: { kind: 'BAD_RESPONSE', message: `响应不是合法 JSON：${summarizeBodyText(bodyText, secrets) || '空响应体'}` }, latencyMs }
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    return { ok: false, failure: { kind: 'BAD_RESPONSE', message: '响应 JSON 顶层不是对象' } }
+    return { ok: false, failure: { kind: 'BAD_RESPONSE', message: '响应 JSON 顶层不是对象' }, latencyMs }
   }
   const record = parsed as Record<string, unknown>
   const choices = record.choices
   if (!Array.isArray(choices) || choices.length === 0) {
-    return { ok: false, failure: { kind: 'BAD_RESPONSE', message: '响应缺少 choices 数组或为空' } }
+    return { ok: false, failure: { kind: 'BAD_RESPONSE', message: '响应缺少 choices 数组或为空' }, latencyMs }
   }
   const first = choices[0]
   if (typeof first !== 'object' || first === null) {
-    return { ok: false, failure: { kind: 'BAD_RESPONSE', message: 'choices[0] 不是对象' } }
+    return { ok: false, failure: { kind: 'BAD_RESPONSE', message: 'choices[0] 不是对象' }, latencyMs }
   }
   const message = (first as Record<string, unknown>).message
   if (typeof message !== 'object' || message === null) {
-    return { ok: false, failure: { kind: 'BAD_RESPONSE', message: 'choices[0].message 缺失' } }
+    return { ok: false, failure: { kind: 'BAD_RESPONSE', message: 'choices[0].message 缺失' }, latencyMs }
   }
   const content = (message as Record<string, unknown>).content
   if (typeof content !== 'string') {
-    return { ok: false, failure: { kind: 'BAD_RESPONSE', message: 'choices[0].message.content 不是字符串（本客户端仅收非流式文本 content）' } }
+    return { ok: false, failure: { kind: 'BAD_RESPONSE', message: 'choices[0].message.content 不是字符串（本客户端仅收非流式文本 content）' }, latencyMs }
   }
   // usage 仅实测：响应体带 usage 对象才透传，否则 'unknown'（绝不伪造）
   const usage: ChatUsageOrUnknown =

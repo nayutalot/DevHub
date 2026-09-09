@@ -2231,6 +2231,102 @@ export interface ContestOpenLinkResult {
   opened: boolean
 }
 
+// --- contestpin 识别配置（CP3a，docs/22 §6；configList/configSave/configDelete/
+//     configTest 四条。掩码视图绝不含明文 key 或 sealed envelope —— docs/22 §6 密钥红线） ---
+
+/** 识别配置角色（008 contestpin_configs.role CHECK 同款枚举）。 */
+export type RecognitionConfigRole = 'vision' | 'text' | 'multimodal'
+
+/** contestpin:configList 行投影：掩码视图（尾 4 位 + 长度 + 是否已设置布尔）。 */
+export interface RecognitionConfigView {
+  id: number
+  name: string
+  role: RecognitionConfigRole
+  baseUrl: string
+  model: string
+  /** 掩码尾 4 位（maskKey 唯一脱敏出口）；无 key / 不可解密 → null。 */
+  apiKeyTail: string | null
+  apiKeyLen: number | null
+  /** true = 已设置 key（含不可解密形态）；false = 无鉴权端点（key_sealed NULL）。 */
+  apiKeySet: boolean
+  /** 可空 = 用客户端默认超时（60000ms）。 */
+  timeoutMs: number | null
+  /** 最近连接测试 unix 秒；null = 未测过。 */
+  lastTestAt: number | null
+  /** null = 未测过；true/false = 最近一次测试结果。 */
+  lastTestOk: boolean | null
+  /** 实测 usage（仅服务真实返回才落）；null = 无实测。 */
+  lastTestUsage: Record<string, unknown> | null
+  createdAt: number
+  updatedAt: number
+}
+
+export interface RecognitionConfigListPayload {
+  // 预留：role 过滤等（当前面板按角色分组在前端分组，不加服务端参数）
+}
+
+export interface RecognitionConfigListResult {
+  configs: RecognitionConfigView[]
+}
+
+export interface RecognitionConfigSavePayload {
+  /** 缺省 = 新建；带 id = 编辑。 */
+  id?: number
+  name: string
+  role: RecognitionConfigRole
+  /** 仅 http/https 绝对 URL（service 校验，validateExternalUrl 风格本地实现）。 */
+  baseUrl: string
+  model: string
+  /** 密码框约定：空串/undefined = 保持既有（编辑）或不设 key（新建=无鉴权端点）。 */
+  apiKey?: string
+  /** 正整数毫秒；null = 清空（回客户端默认）。 */
+  timeoutMs?: number | null
+}
+
+export interface RecognitionConfigDeletePayload {
+  id: number
+  confirmed?: boolean
+}
+
+export interface RecognitionConfigDeleteImpacts {
+  /** 引用该配置的 contest_import_jobs 计数（vision_config_id / text_config_id）。 */
+  importJobs: number
+}
+
+export interface RecognitionConfigDeleteStart {
+  confirmRequired: true
+  impacts: RecognitionConfigDeleteImpacts
+}
+
+export interface RecognitionConfigDeleteResult {
+  /** 判别字段：结果分支恒为 undefined（Start 分支为 true，contest:delete 同款）。 */
+  confirmRequired?: undefined
+  removed: true
+}
+
+export interface RecognitionConfigTestPayload {
+  id: number
+}
+
+/** 连接测试错误分类：客户端六分类 + 服务端错误摘要可判时的 IMAGE_UNSUPPORTED 派生。 */
+export type RecognitionTestErrorKind =
+  | 'AUTH'
+  | 'RATE_LIMIT'
+  | 'TIMEOUT'
+  | 'NETWORK'
+  | 'BAD_RESPONSE'
+  | 'HTTP_ERROR'
+  | 'IMAGE_UNSUPPORTED'
+
+export interface RecognitionTestResult {
+  ok: boolean
+  latencyMs: number
+  /** 实测 usage 原样透传；'unknown' = 服务端未返回（非实测，绝不伪造）。 */
+  usage: Record<string, unknown> | 'unknown'
+  /** ok=false 时携带：分类 kind + 分类文案（鉴权失败/限流/超时/网络错误/格式错误/图片不支持/HTTP 状态）。 */
+  error?: { kind: RecognitionTestErrorKind; message: string }
+}
+
 // ---------------------------------------------------------------------------
 // 7. Gateway request & channel contract table (constraint #17)
 // ---------------------------------------------------------------------------
