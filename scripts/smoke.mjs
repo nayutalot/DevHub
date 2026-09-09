@@ -108,8 +108,11 @@ if (isEntrypoint()) {
   // 夜间#1 批次 note（主控任务书授权的同一模式就地更新）：versions:cancel +
   // agents:probeProvider 并入，68 → 70（docker:action 枚举扩 remove / wsl:action 扩
   // shutdownAll 为既有 channel 的 payload 扩容，不新增白名单行）。
+  // CP1 批次 note（ContestPin，docs/04「ContestPin 追加」节授权的同一模式就地更新）：
+  // contestpin 9 条并入，70 → 79（list/get/create/update/delete/archive/nodeUpsert/
+  // nodeDelete/linkProject；delete/nodeDelete 为 CONFIRM_REQUIRED 两段式）。
   // ------------------------------------------------------------------
-  registerCase('step1: channels whitelist has exactly 70 entries (夜间#1 就地更新 68→70) and IPC_GATEWAY', async () => {
+  registerCase('step1: channels whitelist has exactly 79 entries (CP1 就地更新 70→79) and IPC_GATEWAY', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     assert.equal(channels.IPC_GATEWAY, 'devhub:invoke', 'gateway channel')
     const expected = [
@@ -191,10 +194,20 @@ if (isEntrypoint()) {
       'agents:diagnostics',
       // 夜间#1 批次（per-provider 单独重探，UX 验收 backlog）
       'agents:probeProvider',
+      // CP1 contestpin group (docs/04「ContestPin 追加」节 + docs/22 §3)
+      'contestpin:list',
+      'contestpin:get',
+      'contestpin:create',
+      'contestpin:update',
+      'contestpin:delete',
+      'contestpin:archive',
+      'contestpin:nodeUpsert',
+      'contestpin:nodeDelete',
+      'contestpin:linkProject',
     ]
-    assert.equal(channels.IPC_CHANNELS.length, 70, `expected 70 channels, got ${channels.IPC_CHANNELS.length}`)
-    assert.deepEqual([...channels.IPC_CHANNELS], expected, 'whitelist must match docs/04 + docs/09 §9 + docs/10 §11 + docs/14 §A.1 exactly')
-    assert.equal(new Set(channels.IPC_CHANNELS).size, 70, 'no duplicate channels')
+    assert.equal(channels.IPC_CHANNELS.length, 79, `expected 79 channels, got ${channels.IPC_CHANNELS.length}`)
+    assert.deepEqual([...channels.IPC_CHANNELS], expected, 'whitelist must match docs/04 + docs/09 §9 + docs/10 §11 + docs/14 §A.1 + docs/04 ContestPin 追加节 exactly')
+    assert.equal(new Set(channels.IPC_CHANNELS).size, 79, 'no duplicate channels')
   }, 'fast')
 
   // ------------------------------------------------------------------
@@ -269,7 +282,9 @@ if (isEntrypoint()) {
   // 加入后，全新库一次迁移应用 4 个文件并升到 user_version 4（覆盖面不变）。
   // M3-C7b 批次 note（同一模式）：006_rotation_grace.sql 加入后，全新库一次
   // 迁移应用 6 个文件并升到 user_version 6（覆盖面不变，逐条已单列批次报告）。
-  registerCase('step3: fresh db migrates to user_version 1, idempotent re-run', async () => {
+  // CP1 批次 note（ContestPin，docs/22 §2 授权的同一模式就地更新）：008_contestpin.sql
+  // 加入（007 判给 LR1、序号跳过），全新库一次迁移应用 7 个文件并升到 user_version 8。
+  registerCase('step3: fresh db migrates to user_version 8 (CP1 就地更新 6→8), idempotent re-run', async () => {
     const { mkdtempSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
     const { join } = await import('node:path')
@@ -278,9 +293,9 @@ if (isEntrypoint()) {
     const db = dbModule.openDatabase(join(dir, 'test.db'))
     try {
       const applied = dbModule.migrate(db)
-      assert.equal(applied, 6, '001..006 migrations applied on fresh db (c7b 批次就地更新 5→6)')
+      assert.equal(applied, 7, '001..006+008 migrations applied on fresh db (CP1 批次就地更新 6→7)')
       const row = db.prepare('PRAGMA user_version').get()
-      assert.equal(Number(row.user_version), 6, 'user_version after migrate (latest = 6, c7b 批次就地更新 5→6)')
+      assert.equal(Number(row.user_version), 8, 'user_version after migrate (latest = 8, CP1 批次就地更新 6→8；007=LR1 序号跳过)')
       const appliedAgain = dbModule.migrate(db)
       assert.equal(appliedAgain, 0, 'second migrate run applies nothing')
     } finally {
@@ -292,7 +307,10 @@ if (isEntrypoint()) {
   // apihub_profiles / version_targets / archive_runs），业务表总数 14 → 19。
   // AC2 批次 note（docs/13 §4 授权的同一模式就地更新）：004_agent_control.sql
   // 新增 8 张 AC 域表，业务表总数 19 → 27。
-  registerCase('step3: all 14 business tables exist after migration', async () => {
+  // CP1 批次 note（ContestPin，docs/22 §2 授权的同一模式就地更新）：
+  // 008_contestpin.sql 新增 7 张 ContestPin 域表，业务表总数 27 → 34
+  // （= cp1-migration-fresh 的 7 表存在性检查并入本用例，docs/22 §2.1）。
+  registerCase('step3: all 34 business tables exist after migration (CP1 就地更新 27→34)', async () => {
     const { mkdtempSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
     const { join } = await import('node:path')
@@ -333,9 +351,17 @@ if (isEntrypoint()) {
         'skill_links',
         'skills',
         'version_targets',
+        // CP1 批次（ContestPin，docs/22 §2.1）：008 新增 7 张
+        'contest_import_jobs',
+        'contest_materials',
+        'contest_nodes',
+        'contest_reminder_log',
+        'contest_reminders',
+        'contestpin_configs',
+        'contests',
       ].sort()
-      assert.equal(names.length, 27, `expected 27 tables (14 phase-1 + 5 merge + 8 AC, AC2 就地更新 19→27), got ${names.length}: ${names.join(',')}`)
-      assert.deepEqual(names, expected, 'table set must match docs/03 + docs/13 §4 exactly')
+      assert.equal(names.length, 34, `expected 34 tables (14 phase-1 + 5 merge + 8 AC + 7 contestpin, CP1 就地更新 27→34), got ${names.length}: ${names.join(',')}`)
+      assert.deepEqual(names, expected, 'table set must match docs/03 + docs/13 §4 + docs/22 §2.1 exactly')
     } finally {
       db.close()
     }
@@ -356,6 +382,13 @@ if (isEntrypoint()) {
       const theme = db.prepare("SELECT value FROM settings WHERE key = 'theme'").get()
       assert.ok(theme, 'theme seed exists')
       assert.equal(theme.value, 'dark', 'theme value')
+      // CP1 批次（ContestPin，docs/22 §2.1）：008 种子就地扩展断言
+      const cpMode = db.prepare("SELECT value FROM settings WHERE key = 'contestpin_default_mode'").get()
+      assert.ok(cpMode, 'contestpin_default_mode seed exists (CP1 就地扩展)')
+      assert.equal(cpMode.value, 'two_stage', 'contestpin_default_mode value')
+      const cpOverlay = db.prepare("SELECT value FROM settings WHERE key = 'contestpin_overlay_enabled'").get()
+      assert.ok(cpOverlay, 'contestpin_overlay_enabled seed exists (CP1 就地扩展)')
+      assert.equal(cpOverlay.value, '0', 'contestpin_overlay_enabled value')
       const journalMode = db.prepare('PRAGMA journal_mode').get()
       assert.equal(String(journalMode.journal_mode).toLowerCase(), 'wal', 'journal_mode is WAL')
       const foreignKeys = db.prepare('PRAGMA foreign_keys').get()
@@ -587,14 +620,19 @@ if (isEntrypoint()) {
     const { join } = await import('node:path')
     const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
 
-    // -- 全新库：migrate → user_version 4（001+002+003+004，AC2 就地更新 3→4）；
-    //    同名工具双 path 并存落库，同 path 仍拒绝
+    // -- 全新库：migrate → user_version 8（001..006+008，CP1 就地更新 6→8；007=LR1）；
+    //    同名工具双 path 并存落库，同 path 仍拒绝；cp1-migration-fresh 并入：
+    //    008 的 7 张 ContestPin 表存在性检查（docs/22 §2.1，本用例就地扩展）
     const dir = mkdtempSync(join(tmpdir(), 'devhub-mig-'))
     const db = dbModule.openDatabase(join(dir, 'fresh.db'))
     try {
       const applied = dbModule.migrate(db)
-      assert.equal(applied, 6, '001..006 applied on fresh db (c7b 批次就地更新 5→6)')
-      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 6, 'fresh db at user_version 6 (c7b 批次就地更新 5→6)')
+      assert.equal(applied, 7, '001..006+008 applied on fresh db (CP1 批次就地更新 6→7)')
+      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 8, 'fresh db at user_version 8 (CP1 批次就地更新 6→8)')
+      const cpTables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name))
+      for (const t of ['contests', 'contest_nodes', 'contest_reminders', 'contest_reminder_log', 'contest_materials', 'contest_import_jobs', 'contestpin_configs']) {
+        assert.ok(cpTables.has(t), `008 table ${t} exists on fresh db (cp1-migration-fresh 并入本用例)`)
+      }
 
       db.prepare("INSERT INTO environments (name, kind, detected_at, created_at, updated_at) VALUES ('windows', 'windows', 0, 0, 0)").run()
       const envId = Number(db.prepare("SELECT id FROM environments WHERE name = 'windows'").get().id)
@@ -612,7 +650,7 @@ if (isEntrypoint()) {
       db.close()
     }
 
-    // -- 手工构造 v1 库（001 SQL + 手动 user_version=1）→ migrate 升 4，种子与数据保留
+    // -- 手工构造 v1 库（001 SQL + 手动 user_version=1）→ migrate 升 8，种子与数据保留
     const dir2 = mkdtempSync(join(tmpdir(), 'devhub-mig-v1-'))
     const db2 = dbModule.openDatabase(join(dir2, 'v1.db'))
     try {
@@ -627,8 +665,8 @@ if (isEntrypoint()) {
       ).run()
 
       const applied = dbModule.migrate(db2)
-      assert.equal(applied, 5, 'only 002..006 apply to the v1 library (c7b 批次就地更新 4→5)')
-      assert.equal(Number(db2.prepare('PRAGMA user_version').get().user_version), 6, 'v1 upgraded to user_version 6 (c7b 批次就地更新 5→6)')
+      assert.equal(applied, 6, 'only 002..006+008 apply to the v1 library (CP1 批次就地更新 5→6)')
+      assert.equal(Number(db2.prepare('PRAGMA user_version').get().user_version), 8, 'v1 upgraded to user_version 8 (CP1 批次就地更新 6→8)')
       const seedAfter = db2.prepare("SELECT value FROM settings WHERE key = 'scan_root'").get()
       assert.ok(seedAfter && seedAfter.value === 'F:\\Active_Project', 'settings seed survived the table rebuild')
       const toolRow = db2.prepare("SELECT path, version FROM environment_tools WHERE environment_id = 1 AND tool = 'python'").get()
@@ -651,7 +689,7 @@ if (isEntrypoint()) {
     await makeTempHome('devhub-scan-')
     try {
       const db = dbModule.getDatabase()
-      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 6, 'home db migrated to 6 (c7b 批次就地更新 5→6)')
+      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 8, 'home db migrated to 8 (CP1 批次就地更新 6→8)')
 
       const root = mkdtempSync(join(tmpdir(), 'devhub-projects-'))
       await withFixtureProject(root, 'alpha-web', { marker: 'package.json', git: true })
@@ -926,14 +964,14 @@ if (isEntrypoint()) {
   // CHANNEL_NOT_ALLOWED（文档权威原则，约束 #6）。
   // ------------------------------------------------------------------
   registerCase(
-    'step6: handler registry keys equal the 70-channel whitelist (夜间#1 就地更新 68→70); app:version returns injected value; unknown channel folds to CHANNEL_NOT_ALLOWED envelope',
+    'step6: handler registry keys equal the 79-channel whitelist (CP1 就地更新 70→79); app:version returns injected value; unknown channel folds to CHANNEL_NOT_ALLOWED envelope',
     async () => {
       const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
       const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
       const registry = handlers.createHandlerRegistry({ appVersion: '0.1.0-smoke' })
       const keys = Object.keys(registry).sort()
-      assert.equal(keys.length, 70, `registry must hold exactly 70 handlers, got ${keys.length}`)
+      assert.equal(keys.length, 79, `registry must hold exactly 79 handlers, got ${keys.length}`)
       assert.deepEqual(keys, [...channels.IPC_CHANNELS].sort(), 'registry keys must equal IPC_CHANNELS (no more, no less)')
 
       const version = await registry['app:version']({})
@@ -1770,13 +1808,13 @@ if (isEntrypoint()) {
     const { join } = await import('node:path')
     const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
 
-    // -- 全新库：直接迁到 4；003 的 5 张新表全部存在且列齐全
+    // -- 全新库：直接迁到 8（CP1 就地更新 6→8）；003 的 5 张新表全部存在且列齐全
     const dir = mkdtempSync(join(tmpdir(), 'devhub-s1-40-'))
     const db = dbModule.openDatabase(join(dir, 'fresh.db'))
     try {
       const applied = dbModule.migrate(db)
-      assert.equal(applied, 6, '001..006 applied on fresh db (c7b 批次就地更新 5→6)')
-      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 6, 'fresh db at user_version 6 (c7b 批次就地更新 5→6)')
+      assert.equal(applied, 7, '001..006+008 applied on fresh db (CP1 批次就地更新 6→7)')
+      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 8, 'fresh db at user_version 8 (CP1 批次就地更新 6→8)')
 
       const columnsOf = (table) => db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name)
       assert.deepEqual(columnsOf('skill_agents'), ['id', 'name', 'platform', 'skills_dir', 'agents_dir', 'include_json', 'enabled', 'created_at', 'updated_at'], 'skill_agents columns')
@@ -1838,8 +1876,8 @@ if (isEntrypoint()) {
       ).run(now, now)
 
       const applied = dbModule.migrate(db2)
-      assert.equal(applied, 4, 'only 003..006 apply to the v2 library (c7b 批次就地更新 3→4)')
-      assert.equal(Number(db2.prepare('PRAGMA user_version').get().user_version), 6, 'v2 upgraded to user_version 6 (c7b 批次就地更新 5→6)')
+      assert.equal(applied, 5, 'only 003..006+008 apply to the v2 library (CP1 批次就地更新 4→5)')
+      assert.equal(Number(db2.prepare('PRAGMA user_version').get().user_version), 8, 'v2 upgraded to user_version 8 (CP1 批次就地更新 6→8)')
 
       const proj = db2.prepare('SELECT name, win_path FROM projects WHERE id = 1').get()
       assert.ok(proj && proj.name === 'legacy-proj', 'projects row survived')
@@ -2105,7 +2143,9 @@ if (isEntrypoint()) {
       const migrated = Number(db.prepare('PRAGMA user_version').get().user_version)
       // AC2 批次就地更新（docs/13 §3 授权的同一模式）：004 存在后真实库一经任何
       // 进程打开即前移到 4，本断言跟随最新版本 3 → 4。
-      assert.equal(migrated, 6, `real db at user_version 6, got ${migrated} (c7b 批次就地更新 5→6)`)
+      // CP1 批次就地更新（docs/22 §2 授权的同一模式）：008 落地后跟随最新版本 6 → 8
+      // （007=LR1 序号跳过；真实库在新版进程首次打开后前移到 8）。
+      assert.equal(migrated, 8, `real db at user_version 8, got ${migrated} (CP1 批次就地更新 6→8)`)
       const agents = Number(db.prepare('SELECT COUNT(*) AS c FROM skill_agents').get().c)
       const runs = Number(db.prepare('SELECT COUNT(*) AS c FROM archive_runs').get().c)
       assert.ok(agents >= 1, `real import landed skill_agents rows, got ${agents}`)
@@ -3421,14 +3461,14 @@ if (isEntrypoint()) {
 
   // 68. handlers 编译期白名单覆盖断言更新（45→50，S5 就地更新 50→55，
   //  docs/10 §11 授权的同一模式；AC2 就地更新 55→68，docs/14 §A.1 授权同一模式；
-  //  夜间#1 就地更新 68→70，主控任务书授权）：
+  //  夜间#1 就地更新 68→70，主控任务书授权；CP1 就地更新 70→79，docs/04 ContestPin 节）：
   //  registry 键集 = 白名单 = 契约覆盖
-  registerCase('s4-68: whitelist 45→50 (S5 就地更新为 55，AC2 就地更新 55→68，夜间#1 就地更新 68→70) — registry keys equal the whitelist and the compile-time contract assertion holds', async () => {
+  registerCase('s4-68: whitelist 45→50 (S5 就地更新为 55，AC2 就地更新 55→68，夜间#1 就地更新 68→70，CP1 就地更新 70→79) — registry keys equal the whitelist and the compile-time contract assertion holds', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
-    assert.equal(channels.IPC_CHANNELS.length, 70, 'whitelist extended 45 → 50 (S4), 50 → 55 (S5 archive), 55 → 68 (AC2 agents), 68 → 70 (夜间#1 versions:cancel + agents:probeProvider)')
-    assert.equal(new Set(channels.IPC_CHANNELS).size, 70, 'no duplicates after extension')
+    assert.equal(channels.IPC_CHANNELS.length, 79, 'whitelist extended 45 → 50 (S4), 50 → 55 (S5 archive), 55 → 68 (AC2 agents), 68 → 70 (夜间#1), 70 → 79 (CP1 contestpin 9 条)')
+    assert.equal(new Set(channels.IPC_CHANNELS).size, 79, 'no duplicates after extension')
     // 编译期断言 AssertContractCoversWhitelist 的解析产物（ChannelContract 恰好覆盖白名单）
     assert.equal(handlers.contractCoversWhitelist, true, 'ChannelContract covers exactly the whitelist (compile-time, observed at runtime)')
 
@@ -4414,8 +4454,8 @@ if (isEntrypoint()) {
     const db = dbModule.openDatabase(join(dir, 'fresh.db'))
     try {
       const applied = dbModule.migrate(db)
-      assert.equal(applied, 6, '001..006 applied on fresh db (c7b 批次就地更新 5→6)')
-      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 6, 'fresh db at user_version 6 (c7b 批次就地更新 5→6)')
+      assert.equal(applied, 7, '001..006+008 applied on fresh db (CP1 批次就地更新 6→7)')
+      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 8, 'fresh db at user_version 8 (CP1 批次就地更新 6→8)')
 
       const tables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name))
       for (const t of [
@@ -4506,8 +4546,8 @@ if (isEntrypoint()) {
       assert.ok(before.settings.length >= 5, 'v3 settings carry 001/003 seeds + custom row')
 
       const applied = dbModule.migrate(db2)
-      assert.equal(applied, 3, 'only 004..006 apply to the v3 library (c7b 批次就地更新 2→3)')
-      assert.equal(Number(db2.prepare('PRAGMA user_version').get().user_version), 6, 'v3 upgraded to user_version 6 (c7b 批次就地更新 5→6)')
+      assert.equal(applied, 4, 'only 004..006+008 apply to the v3 library (CP1 批次就地更新 3→4)')
+      assert.equal(Number(db2.prepare('PRAGMA user_version').get().user_version), 8, 'v3 upgraded to user_version 8 (CP1 批次就地更新 6→8)')
 
       for (const t of LEGACY_TABLES) {
         const after = db2.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all()
@@ -4518,7 +4558,11 @@ if (isEntrypoint()) {
             assert.equal(afterByKey[row.key], row.value, `settings.${row.key} unchanged (T1)`)
           }
           const addedKeys = after.filter((r) => !before.settings.some((b) => b.key === r.key)).map((r) => r.key).sort()
-          assert.deepEqual(addedKeys, ['agents_monitor_enabled', 'gateway_enabled', 'gateway_port', 'login_autostart'], 'exactly the 4 seed keys added (docs/13 §6)')
+          assert.deepEqual(
+            addedKeys,
+            ['agents_monitor_enabled', 'contestpin_default_mode', 'contestpin_overlay_enabled', 'gateway_enabled', 'gateway_port', 'login_autostart'],
+            'exactly the AC2 4 seed keys + CP1 2 contestpin seeds added (docs/13 §6 + docs/22 §2.1; CP1 批次就地更新 +2)',
+          )
         } else {
           assert.deepEqual(after, before[t], `legacy table ${t} row-for-row unchanged (T1; devices/mcp_servers 预留表原样保留)`)
         }
@@ -4574,8 +4618,24 @@ if (isEntrypoint()) {
       'agents:diagnostics',
       'agents:probeProvider',
     ]
-    assert.equal(channels.IPC_CHANNELS.length, 70, 'whitelist 55 → 70 (docs/14 §A.2; 夜间#1 就地更新 68→70)')
-    assert.deepEqual([...channels.IPC_CHANNELS.slice(-14)], expectedAgents, '14 agents channels appended verbatim in docs/14 §A.1 order (夜间#1 就地更新 13→14)')
+    assert.equal(channels.IPC_CHANNELS.length, 79, 'whitelist 55 → 70 (docs/14 §A.2; 夜间#1 就地更新 68→70), 70 → 79 (CP1 就地更新，docs/04 ContestPin 追加节)')
+    // CP1 就地更新：agents 14 条后追加了 contestpin 9 条，agents 尾窗从 slice(-14) 前移为 slice(-23, -9)
+    assert.deepEqual([...channels.IPC_CHANNELS.slice(-23, -9)], expectedAgents, '14 agents channels appended verbatim in docs/14 §A.1 order (夜间#1 就地更新 13→14)')
+    assert.deepEqual(
+      [...channels.IPC_CHANNELS.slice(-9)],
+      [
+        'contestpin:list',
+        'contestpin:get',
+        'contestpin:create',
+        'contestpin:update',
+        'contestpin:delete',
+        'contestpin:archive',
+        'contestpin:nodeUpsert',
+        'contestpin:nodeDelete',
+        'contestpin:linkProject',
+      ],
+      '9 contestpin channels appended verbatim in docs/04 ContestPin 追加节 order (CP1 批次)',
+    )
 
     const registry = handlers.createHandlerRegistry({ appVersion: 'ac2-smoke' })
     for (const ch of expectedAgents) {
@@ -8925,8 +8985,8 @@ if (isEntrypoint()) {
     const db = dbModule.openDatabase(join(dir, 'fresh.db'))
     try {
       const applied = dbModule.migrate(db)
-      assert.equal(applied, 6, '001..006 applied on fresh db (c7b 批次就地更新 5→6)')
-      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 6, 'user_version = 6 (c7b 批次就地更新 5→6)')
+      assert.equal(applied, 7, '001..006+008 applied on fresh db (CP1 批次就地更新 6→7)')
+      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 8, 'user_version = 8 (CP1 批次就地更新 6→8)')
       const sessionCols = db.prepare('PRAGMA table_info(agent_sessions)').all().map((c) => c.name)
       assert.ok(sessionCols.includes('parent_session_id'), 'agent_sessions.parent_session_id present')
       assert.ok(sessionCols.includes('archived_at'), 'agent_sessions.archived_at present')
@@ -8952,8 +9012,8 @@ if (isEntrypoint()) {
       db2.prepare("INSERT INTO agent_providers (provider, display_name, created_at, updated_at) VALUES ('zcode', 'ZCode', ?, ?)").run(now, now)
       db2.prepare("INSERT INTO agent_sessions (provider_id, native_id, session_mode, status, created_at, updated_at) VALUES (1, 'sess_v4_keep', 'observed', 'running', ?, ?)").run(now, now)
       const applied = dbModule.migrate(db2)
-      assert.equal(applied, 2, 'only 005+006 apply to the v4 library (c7b 批次就地更新 1→2)')
-      assert.equal(Number(db2.prepare('PRAGMA user_version').get().user_version), 6, 'v4 upgraded to 6 (c7b 批次就地更新 5→6)')
+      assert.equal(applied, 3, 'only 005+006+008 apply to the v4 library (CP1 批次就地更新 2→3)')
+      assert.equal(Number(db2.prepare('PRAGMA user_version').get().user_version), 8, 'v4 upgraded to 8 (CP1 批次就地更新 6→8)')
       const row = db2.prepare("SELECT native_id, parent_session_id, archived_at FROM agent_sessions WHERE native_id = 'sess_v4_keep'").get()
       assert.ok(row !== undefined, 'v4 session row survived the upgrade')
       assert.equal(row.parent_session_id, null, 'parent_session_id NULL for pre-005 rows')
@@ -8972,7 +9032,9 @@ if (isEntrypoint()) {
         assert.equal(Number(db3.prepare('PRAGMA user_version').get().user_version), 5, 'case-5 literal statement works')
         migrateMod.setUserVersionLiteral(db3, 6) // c7b 批次：case-6 已注册，负向样例顺延 6→7
         assert.equal(Number(db3.prepare('PRAGMA user_version').get().user_version), 6, 'case-6 literal statement works (c7b 批次)')
-        assert.throws(() => migrateMod.setUserVersionLiteral(db3, 7), /no literal user_version statement/, 'unregistered version throws')
+        migrateMod.setUserVersionLiteral(db3, 8) // CP1 批次：case-8 已注册（007=LR1 未落地，case 7 保持未注册）
+        assert.equal(Number(db3.prepare('PRAGMA user_version').get().user_version), 8, 'case-8 literal statement works (CP1 批次)')
+        assert.throws(() => migrateMod.setUserVersionLiteral(db3, 7), /no literal user_version statement/, 'unregistered version throws (007=LR1)')
       } finally {
         db3.close()
       }
@@ -9225,6 +9287,13 @@ if (isEntrypoint()) {
   //      默认列表隐藏、parentId= 过滤、sessionDetail childSessions、子会话消息
   //      可见、父不可解析的子会话仍排除；REST 面同构验证（含 includeArchived）。
   //      R4：providerKey/providerLabel 投影。
+  // 147. R2/R4：父链端到端（REST 同构面）。
+  //      CP1 批次档位归位（fast → full，2026-09-09）：本用例真实拉起 Gateway 并硬编码
+  //      gwRequest(8746, ...) —— 按本文件头部归类口径（"拉起 Gateway、占监听端口 → full"）
+  //      本就应属 full 档；观察窗内真实应用持有 8746 时，fast 档运行会把配对/读请求
+  //      打到真实网关（已发生并单列上报）。断言本体零改动，仅回正档位标记。
+  //      已知问题（本批不修，归属原批次）：startGateway 端口顺延 8747-8755 后，
+  //      本用例硬编码的 8746 与实际监听口脱钩——8746 被占时即使 full 档也会失败。
   registerCase('uxa-147: R2/R4 parent chain end-to-end — zcode fixture with parent_id imports children via parentNativeSessionId (unresolvable-parent children stay excluded), default list keeps main only, parentId= filter returns children, sessionDetail carries childSessions + providerKey/providerLabel, child messages visible, REST surface isomorphic', async () => {
     const { mkdtempSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
@@ -9325,7 +9394,7 @@ if (isEntrypoint()) {
     } finally {
       await gwCaseTeardown(m)
     }
-  }, 'fast')
+  }) // ← CP1 批次档位归位：'fast' → full（默认档），理由见用例上方注记
 
   // 148. R6：POST /v1/providers/{providerId}/sessions —— managed 门（managed→202、
   //      observed→403 COMMAND_NOT_EXECUTABLE、未验证→403 AGENT_CAPABILITY_MISSING、
@@ -11057,7 +11126,7 @@ if (isEntrypoint()) {
     const db = m.dbModule.getDatabase()
     try {
       // migration 006 append-only 到位
-      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 6, 'migration 006 registered (user_version=6)')
+      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 8, 'migration 006/008 registered (user_version=8, CP1 批次就地更新 6→8)')
       const cols = db.prepare("SELECT name FROM pragma_table_info('remote_devices')").all().map((r) => r.name)
       assert.ok(cols.includes('previous_token_hash'), 'previous_token_hash column exists')
       assert.ok(cols.includes('rotated_at'), 'rotated_at column exists')
@@ -11270,6 +11339,244 @@ if (isEntrypoint()) {
       await r1CaseTeardown(m)
     }
   })
+
+  // ====================================================================
+  // CP1 批次（ContestPin，docs/22 §2/§3 + docs/04「ContestPin 追加」节）：
+  // contestService CRUD / 节点精度 / 资源边。全部 makeTempHome 临时库隔离
+  // （零进程零端口，fast 档）；迁移断言与 7 表存在性已并入 step3/step5 既有用例
+  // （cp1-migration-fresh，就地扩展），本段只新增用例、不动既有用例本体。
+  // ====================================================================
+
+  registerCase(
+    'cp1-crud: contestService create→get→update→archive→list（query/status/archived 过滤）→delete 两段式（confirmRequired+impacts → confirmed 级联删+资源节点清理）+ settings 3 键白名单',
+    async () => {
+      const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+      const settings = await import(new URL('../src/main/services/settingsService.ts', import.meta.url).href)
+      const svc = await import(new URL('../src/main/services/contestpin/contestService.ts', import.meta.url).href)
+
+      await makeTempHome('devhub-cp1-crud-')
+      try {
+        // settings 白名单 3 键（CP1 批次追加）：写入不再拒绝，读写闭环
+        settings.setSetting('contestpin_default_mode', 'two_stage')
+        settings.setSetting('contestpin_overlay_enabled', '1')
+        settings.setSetting('contestpin_overlay_state', '{"bounds":{"x":1,"y":2},"collapsed":false}')
+        assert.equal(settings.getSetting('contestpin_overlay_state'), '{"bounds":{"x":1,"y":2},"collapsed":false}', 'overlay_state runtime key round-trips')
+        assert.throws(() => settings.setSetting('contestpin_not_a_key', 'x'), /not allowed/, 'non-whitelisted key still rejected')
+
+        // create + 校验链
+        const created = svc.createContest({
+          name: 'ICPC Asia Regional',
+          year: 2026,
+          status: 'registered',
+          officialSite: 'https://icpc.example.com',
+          signupUrl: 'http://signup.example.com/register',
+        })
+        assert.ok(Number.isSafeInteger(created.id) && created.id >= 1, 'created row id')
+        assert.equal(created.status, 'registered')
+        assert.equal(created.archived, false)
+        assert.equal(created.nodeCount, 0)
+        assert.equal(created.officialSite, 'https://icpc.example.com')
+        assert.throws(() => svc.createContest({ name: '' }), /non-empty name/, 'name required non-empty')
+        assert.throws(() => svc.createContest({ name: 'x', year: 1989 }), /year must be an integer within/, 'year below 1990 rejected')
+        assert.throws(() => svc.createContest({ name: 'x', year: 2101 }), /year must be an integer within/, 'year above 2100 rejected')
+        assert.throws(() => svc.createContest({ name: 'x', officialSite: 'ftp://bad.example' }), /must be an http\(s\) URL/, 'non-http(s) URL rejected')
+        assert.throws(() => svc.createContest({ name: 'x', status: 'bogus' }), /status must be one of/, 'unknown status rejected')
+
+        // get：空 nodes/materials/reminders（真实空集，无 mock）
+        const detail = svc.getContest(created.id)
+        assert.equal(detail.name, 'ICPC Asia Regional')
+        assert.deepEqual(detail.nodes, [], 'nodes empty on fresh contest')
+        assert.deepEqual(detail.materials, [], 'materials empty on fresh contest')
+        assert.deepEqual(detail.reminders, [], 'reminders empty on fresh contest')
+        assert.equal(detail.project, null, 'no linked project')
+
+        // update（改名同步 resource display_name）
+        const updated = svc.updateContest({ id: created.id, patch: { name: 'ICPC Asia 2026', note: 'revised' } })
+        assert.equal(updated.name, 'ICPC Asia 2026')
+        assert.equal(updated.note, 'revised')
+        const db = dbModule.getDatabase()
+        const resRow = db.prepare("SELECT display_name FROM resources WHERE resource_type = 'contest' AND ref_id = ?").get(created.id)
+        assert.ok(resRow, 'contest resource node registered on create')
+        assert.equal(resRow.display_name, 'ICPC Asia 2026', 'resource display_name synced on rename')
+
+        // archive：缺省列表排除已归档
+        const archived = svc.archiveContest({ id: created.id, archived: true })
+        assert.equal(archived.archived, true)
+        const c2 = svc.createContest({ name: 'Codeforces Round', year: 2025 })
+        assert.equal(svc.listContests({}).total, 1, 'archived excluded by default')
+        assert.equal(svc.listContests({ archived: true }).total, 2, 'archived:true includes both')
+        assert.equal(svc.listContests({ status: 'watching' }).items[0].id, c2.id, 'status filter')
+        assert.equal(svc.listContests({ status: 'registered', archived: true }).items[0].id, created.id, 'status filter over archived set')
+        assert.equal(svc.listContests({ query: 'forces' }).items[0].id, c2.id, 'name fuzzy query')
+        assert.equal(svc.listContests({ query: '2026', archived: true }).items[0].id, created.id, 'year text query')
+
+        // delete 两段式：先 impacts（1 节点），后 confirmed 级联删
+        svc.upsertNode({ contestId: created.id, node: { label: '提交截止', kind: 'submit_deadline', precision: 'date', startAt: 1790000000 } })
+        const start = svc.deleteContest({ id: created.id })
+        assert.equal(start.confirmRequired, true, 'first phase asks for confirmation')
+        assert.equal(start.impacts.nodes, 1, 'impacts.nodes counts')
+        assert.equal(start.impacts.materials, 0, 'impacts.materials counts')
+        assert.equal(start.impacts.reminders, 0, 'impacts.reminders counts')
+        const done = svc.deleteContest({ id: created.id, confirmed: true })
+        assert.equal(done.confirmRequired, undefined, 'result branch discriminator')
+        assert.equal(done.removed, true, 'confirmed delete removes')
+        assert.throws(() => svc.getContest(created.id), /not found/, 'deleted contest is NOT_FOUND')
+        assert.equal(db.prepare('SELECT COUNT(*) c FROM contest_nodes WHERE contest_id = ?').get(created.id).c, 0, 'nodes cascade-deleted')
+        assert.equal(db.prepare("SELECT COUNT(*) c FROM resources WHERE resource_type = 'contest' AND ref_id = ?").get(created.id).c, 0, 'contest resource node removed')
+        assert.throws(() => svc.deleteContest({ id: 999999 }), /contest 999999 not found/, 'unknown contest NOT_FOUND')
+      } finally {
+        dbModule.closeDatabase()
+      }
+    },
+    'fast',
+  )
+
+  registerCase(
+    'cp1-nodes: nodeUpsert 精度校验四分支（tbd 强制 null / date 允许无时刻 / 缺 start_at 拒绝 / date→exact 无 raw_text 拒绝）+ done 标记 + nodeDelete 两段式',
+    async () => {
+      const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+      const svc = await import(new URL('../src/main/services/contestpin/contestService.ts', import.meta.url).href)
+
+      await makeTempHome('devhub-cp1-nodes-')
+      try {
+        const contest = svc.createContest({ name: 'Node Fixture Contest' })
+
+        // 分支 1：tbd 强制 null——带 startAt 拒绝；不带时刻通过且 start/end 恒 null
+        assert.throws(
+          () => svc.upsertNode({ contestId: contest.id, node: { label: '时间待定', precision: 'tbd', startAt: 1790000000 } }),
+          /precision='tbd' requires startAt\/endAt to be null/,
+          'tbd with startAt rejected',
+        )
+        const tbd = svc.upsertNode({ contestId: contest.id, node: { label: '时间待定', precision: 'tbd' } })
+        assert.equal(tbd.precision, 'tbd')
+        assert.equal(tbd.startAt, null, 'tbd startAt null')
+        assert.equal(tbd.endAt, null, 'tbd endAt null')
+        assert.equal(tbd.source, 'manual', 'source defaults to manual in CP1')
+        assert.equal(tbd.kind, 'custom', 'kind defaults to custom')
+
+        // 分支 2：date 允许无时刻（存当日 00:00 unix 秒即可，不要求 end）
+        const dated = svc.upsertNode({
+          contestId: contest.id,
+          node: { label: '报名截止', kind: 'signup_deadline', precision: 'date', startAt: 1790000000 },
+        })
+        assert.equal(dated.precision, 'date')
+        assert.equal(dated.startAt, 1790000000)
+        assert.equal(dated.endAt, null, 'end optional')
+
+        // 分支 3：exact/month 缺 start_at 拒绝；end_at < start_at 拒绝
+        assert.throws(() => svc.upsertNode({ contestId: contest.id, node: { label: '无时刻' } }), /requires startAt/, 'exact without startAt rejected')
+        assert.throws(() => svc.upsertNode({ contestId: contest.id, node: { label: '月', precision: 'month' } }), /requires startAt/, 'month without startAt rejected')
+        assert.throws(
+          () => svc.upsertNode({ contestId: contest.id, node: { label: '坏区间', startAt: 1790000000, endAt: 1780000000 } }),
+          /endAt must be >= startAt/,
+          'endAt < startAt rejected',
+        )
+
+        // 分支 4：date→exact 提升无 raw_text 拒绝；显式携带原文依据放行
+        assert.throws(
+          () => svc.upsertNode({ contestId: contest.id, node: { id: dated.id, precision: 'exact' } }),
+          /requires explicit rawText evidence/,
+          'date→exact without rawText rejected',
+        )
+        const promoted = svc.upsertNode({
+          contestId: contest.id,
+          node: { id: dated.id, precision: 'exact', rawText: '2026年9月12日 09:00 截止报名' },
+        })
+        assert.equal(promoted.precision, 'exact', 'promotion allowed with rawText evidence')
+        assert.ok(promoted.rawText.includes('09:00'), 'rawText persisted')
+
+        // 更新侧 tbd：不清 startAt 拒绝；显式清空放行；done 转换记 done_at
+        assert.throws(
+          () => svc.upsertNode({ contestId: contest.id, node: { id: promoted.id, precision: 'tbd' } }),
+          /precision='tbd' requires startAt\/endAt to be null/,
+          'update to tbd keeping startAt rejected',
+        )
+        const detbd = svc.upsertNode({ contestId: contest.id, node: { id: promoted.id, precision: 'tbd', startAt: null, endAt: null } })
+        assert.equal(detbd.startAt, null, 'update to tbd with explicit null passes')
+
+        const donable = svc.upsertNode({ contestId: contest.id, node: { label: '缴费', kind: 'payment_deadline', precision: 'date', startAt: 1790000000, done: true } })
+        assert.equal(donable.done, true)
+        assert.ok(typeof donable.doneAt === 'number', 'doneAt stamped on done')
+
+        // label 规则：kind='custom' 必填非空（先给足 start_at 以触达 label 校验）；未知 contest NOT_FOUND
+        assert.throws(
+          () => svc.upsertNode({ contestId: contest.id, node: { kind: 'custom', startAt: 1790000000 } }),
+          /label is required/,
+          'custom without label rejected',
+        )
+        assert.throws(() => svc.upsertNode({ contestId: 999999, node: { label: 'x' } }), /contest 999999 not found/, 'unknown contest NOT_FOUND')
+
+        // nodeDelete 两段式（impacts.reminders 计数；reminders CASCADE）
+        const delStart = svc.deleteNode({ id: donable.id })
+        assert.equal(delStart.confirmRequired, true, 'nodeDelete first phase')
+        assert.equal(delStart.impacts.reminders, 0, 'impacts.reminders counts node reminders')
+        const delDone = svc.deleteNode({ id: donable.id, confirmed: true })
+        assert.equal(delDone.removed, true, 'nodeDelete confirmed removes')
+        assert.throws(() => svc.deleteNode({ id: donable.id }), /not found/, 'deleted node NOT_FOUND')
+
+        // nodeCount 投影跟随
+        const view = svc.updateContest({ id: contest.id, patch: {} })
+        assert.equal(view.nodeCount, 2, 'nodeCount follows node lifecycle')
+      } finally {
+        dbModule.closeDatabase()
+      }
+    },
+    'fast',
+  )
+
+  registerCase(
+    'cp1-resource-edge: linkProject 建 uses 边→get 返回关联→unlink 删边→delete contest 后 resource 节点与边均不存在',
+    async () => {
+      const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+      const svc = await import(new URL('../src/main/services/contestpin/contestService.ts', import.meta.url).href)
+
+      await makeTempHome('devhub-cp1-edge-')
+      try {
+        const db = dbModule.getDatabase()
+        // 夹具项目行（s1-40 同款直接 SQL 夹具；projects:add 需真实目录，本用例只测边）
+        db.prepare(
+          "INSERT INTO projects (name, slug, win_path, created_at, updated_at) VALUES ('proj-a', 'proj-a', 'F:/tmp/proj-a', 1700000000, 1700000000)",
+        ).run()
+        const contest = svc.createContest({ name: 'Edge Fixture Contest' })
+
+        const countEdges = () =>
+          Number(
+            db
+              .prepare(
+                "SELECT COUNT(*) c FROM relationships rel JOIN resources rs ON rs.id = rel.source_resource_id JOIN resources rt ON rt.id = rel.target_resource_id WHERE rs.resource_type = 'contest' AND rt.resource_type = 'project' AND rel.relation_type = 'uses' AND rs.ref_id = ?",
+              )
+              .get(contest.id).c,
+          )
+
+        assert.equal(svc.linkProject({ contestId: contest.id, projectId: 1 }).linked, true, 'link reports linked')
+        assert.equal(countEdges(), 1, 'uses edge created')
+        // node:sqlite 行为 null-prototype 对象，逐字段断言
+        const linkedProject = svc.getContest(contest.id).project
+        assert.ok(linkedProject !== null && linkedProject.id === 1 && linkedProject.name === 'proj-a', 'detail carries linked project')
+
+        // 幂等：重复 link 不重复建边（INSERT OR IGNORE）
+        svc.linkProject({ contestId: contest.id, projectId: 1 })
+        assert.equal(countEdges(), 1, 're-link stays single edge')
+
+        // projectId 不存在 → NOT_FOUND
+        assert.throws(() => svc.linkProject({ contestId: contest.id, projectId: 424242 }), /project 424242 not found/, 'unknown project NOT_FOUND')
+
+        // unlink：null 删边
+        assert.equal(svc.linkProject({ contestId: contest.id, projectId: null }).linked, false, 'unlink reports unlinked')
+        assert.equal(countEdges(), 0, 'uses edge removed')
+        assert.equal(svc.getContest(contest.id).project, null, 'detail project cleared')
+
+        // 重建边后 delete contest：resource 节点与边经显式删除 + CASCADE 消失
+        svc.linkProject({ contestId: contest.id, projectId: 1 })
+        assert.equal(svc.deleteContest({ id: contest.id, confirmed: true }).removed, true, 'contest deleted')
+        assert.equal(db.prepare("SELECT COUNT(*) c FROM resources WHERE resource_type = 'contest' AND ref_id = ?").get(contest.id).c, 0, 'contest resource node removed')
+        assert.equal(countEdges(), 0, 'uses edge removed with contest')
+      } finally {
+        dbModule.closeDatabase()
+      }
+    },
+    'fast',
+  )
 
   await run(parseTierArg())
 }
