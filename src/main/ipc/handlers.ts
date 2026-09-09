@@ -101,6 +101,18 @@ import {
 } from '../services/dockerService.ts'
 import { knownDistroNames, wslAction, wslDistroStatsSummary, wslShutdownAll } from '../services/wslService.ts'
 import {
+  archiveContest,
+  createContest,
+  deleteContest,
+  deleteNode,
+  getContest,
+  linkProject,
+  listContests,
+  updateContest,
+  upsertNode,
+} from '../services/contestpin/contestService.ts'
+import type { ContestNodeInput, ContestPatch, ContestStatus } from '../../shared/types.ts'
+import {
   ARCHIVE_HISTORY_LIMIT,
   archiveHistory,
   archiveStatus,
@@ -255,6 +267,27 @@ function optionalListLimit(channel: IpcChannel, payload: Record<string, unknown>
   return value
 }
 
+/** 分页 offset：非负整数（contestpin:list）。 */
+function optionalNonNegativeInt(channel: IpcChannel, payload: Record<string, unknown>, key: string): number | undefined {
+  const value = payload[key]
+  if (value === undefined) return undefined
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw badPayload(channel, `${key} must be a non-negative integer when present`)
+  }
+  return value
+}
+
+/** contest 年份：整数或 null（null = 清空/缺少年份不编造，docs/22 §2.2）；undefined = 未提及。 */
+function optionalYear(channel: IpcChannel, payload: Record<string, unknown>): number | null | undefined {
+  const value = payload.year
+  if (value === undefined) return undefined
+  if (value === null) return null
+  if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
+    throw badPayload(channel, 'year must be an integer or null when present')
+  }
+  return value
+}
+
 /** agents:sessions 的 status 白名单（9 值全集，docs/12 §4）。 */
 function optionalSessionStatus(channel: IpcChannel, payload: Record<string, unknown>): SessionStatus | undefined {
   const value = optionalString(channel, payload, 'status')
@@ -288,7 +321,7 @@ export const contractCoversWhitelist: AssertContractCoversWhitelist = true
  * 全覆盖：缺一条 / 多一条都是类型错误，权威清单见 shared/channels.ts ——
  * Phase 1 21 条 + S2 skills 14 条 = 35 + S3 apihub 6 条 + versions 4 条 = 45
  * + S4 docker 3 条 + wsl 2 条 = 50 + S5 archive 5 条 = 55 + AC2 agents 13 条 = 68
- * + 夜间#1 versions:cancel / agents:probeProvider = 70）。
+ * + 夜间#1 versions:cancel / agents:probeProvider = 70 + CP1 contestpin 9 条 = 79）。
  */
 export type HandlerRegistry = Record<IpcChannel, ChannelHandler>
 
@@ -830,6 +863,87 @@ export function createHandlerRegistry(deps: HandlerDeps): HandlerRegistry {
     'agents:probeProvider': async (payload) => {
       const p = asPayloadObject('agents:probeProvider', payload)
       return probeProviderById(requireId('agents:probeProvider', p, 'providerId'))
+    },
+
+    // --- contestpin（CP1 批次，docs/04「ContestPin 追加」节逐字契约；delete/
+    // nodeDelete 为 CONFIRM_REQUIRED 两段式，docker:action / archive:run 先例；
+    // 枚举/年份/URL 业务校验在 contestService，形状校验在此） ---
+    'contestpin:list': async (payload) => {
+      const p = asPayloadObject('contestpin:list', payload)
+      const status = optionalString('contestpin:list', p, 'status')
+      return listContests({
+        query: optionalString('contestpin:list', p, 'query'),
+        ...(status !== undefined ? { status: status as ContestStatus } : {}),
+        archived: optionalBoolean('contestpin:list', p, 'archived'),
+        limit: optionalPositiveInt('contestpin:list', p, 'limit'),
+        offset: optionalNonNegativeInt('contestpin:list', p, 'offset'),
+      })
+    },
+    'contestpin:get': async (payload) => {
+      const p = asPayloadObject('contestpin:get', payload)
+      return getContest(requireId('contestpin:get', p))
+    },
+    'contestpin:create': async (payload) => {
+      const p = asPayloadObject('contestpin:create', payload)
+      const status = optionalString('contestpin:create', p, 'status')
+      return createContest({
+        name: requireNonEmptyString('contestpin:create', p, 'name'),
+        year: optionalYear('contestpin:create', p),
+        edition: optionalString('contestpin:create', p, 'edition'),
+        organizer: optionalString('contestpin:create', p, 'organizer'),
+        note: optionalString('contestpin:create', p, 'note'),
+        ...(status !== undefined ? { status: status as ContestStatus } : {}),
+        officialSite: optionalString('contestpin:create', p, 'officialSite'),
+        signupUrl: optionalString('contestpin:create', p, 'signupUrl'),
+        submitUrl: optionalString('contestpin:create', p, 'submitUrl'),
+      })
+    },
+    'contestpin:update': async (payload) => {
+      const p = asPayloadObject('contestpin:update', payload)
+      const patch = p.patch
+      if (typeof patch !== 'object' || patch === null || Array.isArray(patch)) {
+        throw badPayload('contestpin:update', 'patch must be an object')
+      }
+      return updateContest({ id: requireId('contestpin:update', p), patch: patch as ContestPatch })
+    },
+    'contestpin:delete': async (payload) => {
+      const p = asPayloadObject('contestpin:delete', payload)
+      return deleteContest({ id: requireId('contestpin:delete', p), confirmed: optionalBoolean('contestpin:delete', p, 'confirmed') })
+    },
+    'contestpin:archive': async (payload) => {
+      const p = asPayloadObject('contestpin:archive', payload)
+      const archived = p.archived
+      if (typeof archived !== 'boolean') {
+        throw badPayload('contestpin:archive', 'archived must be a boolean')
+      }
+      return archiveContest({ id: requireId('contestpin:archive', p), archived })
+    },
+    'contestpin:nodeUpsert': async (payload) => {
+      const p = asPayloadObject('contestpin:nodeUpsert', payload)
+      const node = p.node
+      if (node === undefined || node === null || typeof node !== 'object' || Array.isArray(node)) {
+        throw badPayload('contestpin:nodeUpsert', 'node must be an object')
+      }
+      const n = node as Record<string, unknown>
+      // 节点数值/布尔字段形状校验（枚举与精度语义在 service 层）
+      for (const key of ['startAt', 'endAt'] as const) {
+        if (n[key] !== undefined && n[key] !== null && (typeof n[key] !== 'number' || !Number.isSafeInteger(n[key]))) {
+          throw badPayload('contestpin:nodeUpsert', `node.${key} must be a unix-seconds integer or null when present`)
+        }
+      }
+      return upsertNode({ contestId: requireId('contestpin:nodeUpsert', p, 'contestId'), node: node as ContestNodeInput })
+    },
+    'contestpin:nodeDelete': async (payload) => {
+      const p = asPayloadObject('contestpin:nodeDelete', payload)
+      return deleteNode({ id: requireId('contestpin:nodeDelete', p), confirmed: optionalBoolean('contestpin:nodeDelete', p, 'confirmed') })
+    },
+    'contestpin:linkProject': async (payload) => {
+      const p = asPayloadObject('contestpin:linkProject', payload)
+      const projectId = p.projectId
+      if (projectId !== null && (typeof projectId !== 'number' || !Number.isSafeInteger(projectId) || projectId < 1)) {
+        throw badPayload('contestpin:linkProject', 'projectId must be a positive integer or null')
+      }
+      return linkProject({ contestId: requireId('contestpin:linkProject', p, 'contestId'), projectId: projectId as number | null })
     },
   }
 }
