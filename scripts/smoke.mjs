@@ -7366,7 +7366,25 @@ if (isEntrypoint()) {
     dbModule.getDatabase()
       .prepare("INSERT INTO settings (key, value) VALUES ('agents_monitor_enabled', '0') ON CONFLICT(key) DO UPDATE SET value = '0'")
       .run()
-    return { dbModule, gw, auth, pairing, eventPipeline, svc, settingsSvc }
+    // 端口卫生（smoke-port-hygiene 批）：每用例随机空闲口写入 gateway_port——bind/connect
+    // 一律改用 setup 分配口或 startGateway 后的 actualPort（顺延场景如实）；8746 缺省值
+    // 断言类（settings 种子表/status 投影缺省）不 bind 任何东西，保持不动。
+    const port = await allocateEphemeralPort()
+    settingsSvc.setSetting('gateway_port', String(port))
+    return { dbModule, gw, auth, pairing, eventPipeline, svc, settingsSvc, port }
+  }
+
+  /** 用例随机空闲口（listen 0 取号即还；取号→真实绑定间竞态由网关顺延 + actualPort 兜底）。 */
+  async function allocateEphemeralPort() {
+    const net = await import('node:net')
+    return new Promise((resolve, reject) => {
+      const probe = net.createServer(() => {})
+      probe.once('error', reject)
+      probe.listen(0, '127.0.0.1', () => {
+        const { port } = probe.address()
+        probe.close(() => resolve(port))
+      })
+    })
   }
 
   async function gwCaseTeardown(m) {
@@ -7425,20 +7443,27 @@ if (isEntrypoint()) {
   }
 
   // 121. 生命周期：gateway_enabled=0 零监听（ECONNREFUSED）/ IPC settings:set 接线
-  //      即时启停 / 端口顺延 8746→8747 / 全占 → GATEWAY_PORT_IN_USE（docs/14 Part B 监听行 + Part C）
+  //      即时启停 / 端口顺延（占 wanted → 固定顺延段首口 8747）/ 全占 → GATEWAY_PORT_IN_USE
+  //      （docs/14 Part B 监听行 + Part C）。smoke-port-hygiene 批：wanted = 本用例随机分配口，
+  //      8746 全程零触碰（常驻/占位 listener 在 8746 时行为不变——本批验收真身）。
+  //      产品顺延是固定段 GATEWAY_PORT_FALLBACK_RANGE=[8747..8755]（httpServer.ts 常量），
+  //      非相对 wanted+1——任务书 §1#2 的 p+1 前提与产品实现不符，按产品真语义改造。
   registerCase('ac6-121: gateway lifecycle — disabled zero-listen (ECONNREFUSED), settings:set live re-bind, port fallback 8746→8747, all-occupied GATEWAY_PORT_IN_USE', async () => {
     const { createServer } = await import('node:http')
     const { connect } = await import('node:net')
     const m = await gwCaseSetup('devhub-ac6-121-')
     const db = m.dbModule.getDatabase()
+    const p = m.port
+    const bindServer = (server, port) =>
+      new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve) })
     try {
-      // (a) 默认 gateway_enabled=0 → 零监听：直连 8746 ECONNREFUSED；startGateway 幂等零监听
+      // (a) 默认 gateway_enabled=0 → 零监听：直连本用例分配口 p（未监听）ECONNREFUSED；startGateway 幂等零监听
       const refused = await new Promise((resolve) => {
-        const sk = connect(8746, '127.0.0.1')
+        const sk = connect(p, '127.0.0.1')
         sk.once('error', (e) => resolve(e.code))
         sk.once('connect', () => { sk.destroy(); resolve('CONNECTED') })
       })
-      assert.equal(refused, 'ECONNREFUSED', 'disabled gateway must not listen on 8746')
+      assert.equal(refused, 'ECONNREFUSED', 'disabled gateway must not listen on its allocated port')
       const st0 = await m.gw.startGateway()
       assert.equal(st0.running, false, 'startGateway with enabled=0 keeps zero-listen')
       assert.equal(db.prepare("SELECT COUNT(*) c FROM security_audit_logs WHERE action='gateway_started'").get().c, 0, 'no gateway_started audit while disabled')
@@ -7449,50 +7474,67 @@ if (isEntrypoint()) {
       const envOn = await handlersMod.dispatchGatewayRequest(registry, { channel: 'settings:set', payload: { key: 'gateway_enabled', value: '1' } })
       assert.equal(envOn.ok, true, `settings:set gateway_enabled=1 ok: ${JSON.stringify(envOn)}`)
       await pollUntil(async () => m.svc.getGatewayStatus().running === true, 4000, 50, 'gateway up via settings:set')
-      const health = await gwRequest(8746, 'GET', '/v1/health')
-      assert.equal(health.status, 200, `health on default port 8746 -> 200, got ${health.status}`)
+      const bPort = m.svc.getGatewayStatus().actualPort ?? p
+      const health = await gwRequest(bPort, 'GET', '/v1/health')
+      assert.equal(health.status, 200, `health on gateway port ${bPort} -> 200, got ${health.status}`)
       const envOff = await handlersMod.dispatchGatewayRequest(registry, { channel: 'settings:set', payload: { key: 'gateway_enabled', value: '0' } })
       assert.equal(envOff.ok, true, 'settings:set gateway_enabled=0 ok')
       await pollUntil(async () => m.svc.getGatewayStatus().running === false, 4000, 50, 'gateway down via settings:set')
       const refusedAgain = await new Promise((resolve) => {
-        const sk = connect(8746, '127.0.0.1')
+        const sk = connect(p, '127.0.0.1')
         sk.once('error', (e) => resolve(e.code))
         sk.once('connect', () => { sk.destroy(); resolve('CONNECTED') })
       })
       assert.equal(refusedAgain, 'ECONNREFUSED', 'disabled again → zero listen')
 
-      // (c) 端口顺延：测试侧占 8746 → Gateway 落 8747（settings gateway_port=8746 不变）
-      const occupier = createServer(() => {})
-      await new Promise((resolve, reject) => { occupier.once('error', reject); occupier.listen(8746, '127.0.0.1', resolve) })
-      m.settingsSvc.setSetting('gateway_enabled', '1')
-      const st = await m.gw.startGateway()
-      assert.equal(st.running, true, 'gateway running with occupied preferred port')
-      assert.equal(st.actualPort, 8747, 'port fallback: 8746 occupied → actualPort 8747')
-      const healthFallback = await gwRequest(8747, 'GET', '/v1/health')
-      assert.equal(healthFallback.status, 200, 'health on fallback port 8747')
-      const statusView = m.svc.getGatewayStatus()
-      assert.equal(statusView.port, 8746, 'status.port keeps configured value')
-      assert.equal(statusView.actualPort, 8747, 'status.actualPort carries the fallback truth')
-      await m.gw.stopGateway('ac6-121 between (c) and (d)')
+      // (c)+(d) 顺延/全占：wanted = 本用例分配口 p（随机）——测试侧占 p → Gateway 落产品
+      // 固定顺延段首口 8747（settings gateway_port=p 不变）→ 再占满 p + 8747..8755 →
+      // GATEWAY_PORT_IN_USE。绑口遇瞬态外部抢占（EADDRINUSE）→ 整段重试 ≤2。
+      let scenarioDone = false
+      for (let attempt = 0; attempt <= 2 && !scenarioDone; attempt++) {
+        const occupiers = []
+        try {
+          // (c) 端口顺延：测试侧占 wanted p → Gateway 落 8747（settings gateway_port=p 不变）
+          const occupier = createServer(() => {})
+          occupiers.push(occupier)
+          await bindServer(occupier, p)
+          m.settingsSvc.setSetting('gateway_enabled', '1')
+          const st = await m.gw.startGateway()
+          assert.equal(st.running, true, 'gateway running with occupied preferred port')
+          assert.equal(st.actualPort, 8747, 'port fallback: configured port occupied → actualPort 8747 (fixed fallback segment head)')
+          const healthFallback = await gwRequest(st.actualPort, 'GET', '/v1/health')
+          assert.equal(healthFallback.status, 200, 'health on fallback port 8747')
+          const statusView = m.svc.getGatewayStatus()
+          assert.equal(statusView.port, p, 'status.port keeps configured value')
+          assert.equal(statusView.actualPort, 8747, 'status.actualPort carries the fallback truth')
+          await m.gw.stopGateway('ac6-121 between (c) and (d)')
 
-      // (d) 8746-8755 全占 → startGateway 拒绝 GATEWAY_PORT_IN_USE；applyGatewaySettings 折叠为 lastError
-      const occupiers = [occupier]
-      for (const port of [8747, 8748, 8749, 8750, 8751, 8752, 8753, 8754, 8755]) {
-        const s = createServer(() => {})
-        await new Promise((resolve, reject) => { s.once('error', reject); s.listen(port, '127.0.0.1', resolve) })
-        occupiers.push(s)
-      }
-      await assert.rejects(
-        () => m.gw.startGateway(),
-        (err) => err.code === 'GATEWAY_PORT_IN_USE',
-        'all 10 ports occupied → structured GATEWAY_PORT_IN_USE',
-      )
-      const stFailed = await m.gw.applyGatewaySettings()
-      assert.equal(stFailed.running, false, 'applyGatewaySettings swallows to status, never throws')
-      assert.ok(stFailed.lastError.includes('no available port'), `lastError structured: ${stFailed.lastError}`)
-      assert.ok(db.prepare("SELECT COUNT(*) c FROM security_audit_logs WHERE action='gateway_start_failed'").get().c >= 1, 'gateway_start_failed audited')
-      for (const s of occupiers) {
-        await new Promise((resolve) => s.close(resolve))
+          // (d) wanted + 8747..8755 全占 → startGateway 拒绝 GATEWAY_PORT_IN_USE；applyGatewaySettings 折叠为 lastError
+          for (const port of [8747, 8748, 8749, 8750, 8751, 8752, 8753, 8754, 8755]) {
+            const s = createServer(() => {})
+            occupiers.push(s)
+            await bindServer(s, port)
+          }
+          await assert.rejects(
+            () => m.gw.startGateway(),
+            (err) => err.code === 'GATEWAY_PORT_IN_USE',
+            'all candidate ports occupied → structured GATEWAY_PORT_IN_USE',
+          )
+          const stFailed = await m.gw.applyGatewaySettings()
+          assert.equal(stFailed.running, false, 'applyGatewaySettings swallows to status, never throws')
+          assert.ok(stFailed.lastError.includes('no available port'), `lastError structured: ${stFailed.lastError}`)
+          assert.ok(db.prepare("SELECT COUNT(*) c FROM security_audit_logs WHERE action='gateway_start_failed'").get().c >= 1, 'gateway_start_failed audited')
+          for (const s of occupiers.splice(0)) {
+            await new Promise((resolve) => s.close(resolve))
+          }
+          scenarioDone = true
+        } catch (e) {
+          for (const s of occupiers.splice(0)) {
+            try { s.close() } catch { /* already closed */ }
+          }
+          try { await m.gw.stopGateway('ac6-121 scenario retry cleanup') } catch { /* not running */ }
+          if (attempt >= 2) throw e
+        }
       }
       m.settingsSvc.setSetting('gateway_enabled', '0')
     } finally {
@@ -7508,10 +7550,11 @@ if (isEntrypoint()) {
     const db = m.dbModule.getDatabase()
     try {
       const status = await startGatewayEnabled(m)
-      assert.equal(status.actualPort, 8746, 'gateway on default port')
+      const port = status.actualPort
+      assert.equal(status.actualPort, m.port, 'gateway on the case-allocated port')
 
       // create：形状断言（8 位 Crockford、pairingId、TTL 300s）
-      const first = await pairingCreateHttp(8746)
+      const first = await pairingCreateHttp(port)
       assert.match(first.pairingId, /^pair-/, 'pairingId shape')
       assert.match(first.code, /^[0-9A-HJ-NP-TV-Z]{8}$/, `code is 8-char Crockford Base32 (no I/L/O/U): ${first.code}`)
       const nowSec = Math.floor(Date.now() / 1000)
@@ -7521,15 +7564,15 @@ if (isEntrypoint()) {
       assert.match(m.pairing.generatePairingCode(randomBytes(16).toString('hex')), /^[0-9A-HJ-NP-TV-Z]{8}$/, 'generator output within Crockford alphabet')
 
       // 新签发即废旧码（同时至多 1 活跃码）：旧码 claim → 401
-      const second = await pairingCreateHttp(8746)
-      const rOld = await gwRequest(8746, 'POST', '/v1/pairing/claim', {
+      const second = await pairingCreateHttp(port)
+      const rOld = await gwRequest(port, 'POST', '/v1/pairing/claim', {
         body: { pairingId: first.pairingId, code: first.code, deviceName: 'ac6-old-phone', platform: 'android' },
       })
       assert.equal(rOld.status, 401, 'superseded code claim refused')
       assert.equal(rOld.json.error.code, 'AUTH_INVALID_TOKEN', 'superseded claim folds to AUTH_INVALID_TOKEN (no reason leakage)')
 
       // 新码 claim → 200 {deviceId, token, tokenVersion, gatewayName}；Token 256-bit base64url
-      const rClaim = await gwRequest(8746, 'POST', '/v1/pairing/claim', {
+      const rClaim = await gwRequest(port, 'POST', '/v1/pairing/claim', {
         body: { pairingId: second.pairingId, code: second.code, deviceName: 'ac6-phone', platform: 'android' },
       })
       assert.equal(rClaim.status, 200, `claim -> 200, got ${rClaim.status} ${rClaim.raw}`)
@@ -7539,14 +7582,14 @@ if (isEntrypoint()) {
       assert.equal(rClaim.json.gatewayName, 'devhub-gateway', 'gatewayName per docs/14 §B.1')
 
       // 码即失效（一次性）：同码重放 claim → 401
-      const rReplay = await gwRequest(8746, 'POST', '/v1/pairing/claim', {
+      const rReplay = await gwRequest(port, 'POST', '/v1/pairing/claim', {
         body: { pairingId: second.pairingId, code: second.code, deviceName: 'ac6-phone', platform: 'android' },
       })
       assert.equal(rReplay.status, 401, 'consumed code is one-time')
       assert.equal(rReplay.json.error.code, 'AUTH_INVALID_TOKEN', 'consumed claim code AUTH_INVALID_TOKEN')
 
       // claim 成功的 Token 可用（真链路）：Bearer + 防重放两头 → /v1/devices 200
-      const rDevices = await gwRequest(8746, 'GET', '/v1/devices', { token: rClaim.json.token, headers: replayHeaders() })
+      const rDevices = await gwRequest(port, 'GET', '/v1/devices', { token: rClaim.json.token, headers: replayHeaders() })
       assert.equal(rDevices.status, 200, 'claimed token authenticates immediately')
       assert.equal(rDevices.json.devices.length, 1, 'device row visible')
       assert.equal(rDevices.json.devices[0].status, 'active', 'paired device active')
@@ -7576,12 +7619,12 @@ if (isEntrypoint()) {
     const m = await gwCaseSetup('devhub-ac6-123-')
     const db = m.dbModule.getDatabase()
     try {
-      await startGatewayEnabled(m)
+      const port = (await startGatewayEnabled(m)).actualPort
 
       // 过期路径：ttlSec=0 注入（生产恒 300）
       const expired = m.pairing.createPairingCode('ac6-phone', 0)
       await sleep(1100)
-      const rExpired = await gwRequest(8746, 'POST', '/v1/pairing/claim', {
+      const rExpired = await gwRequest(port, 'POST', '/v1/pairing/claim', {
         body: { pairingId: expired.pairingId, code: expired.code, deviceName: 'ac6-phone', platform: 'android' },
       })
       assert.equal(rExpired.status, 401, 'expired code claim refused')
@@ -7597,7 +7640,7 @@ if (isEntrypoint()) {
       const fresh = m.pairing.createPairingCode('ac6-phone')
       for (let i = 1; i <= 5; i += 1) {
         resetRateLimitState()
-        const r = await gwRequest(8746, 'POST', '/v1/pairing/claim', {
+        const r = await gwRequest(port, 'POST', '/v1/pairing/claim', {
           body: { pairingId: fresh.pairingId, code: 'ZZZZZZZZ', deviceName: 'ac6-phone', platform: 'android' },
         })
         assert.equal(r.status, 401, `wrong-code claim #${i} refused`)
@@ -7608,7 +7651,7 @@ if (isEntrypoint()) {
 
       // claim 同源限流 5 次/5min 已满（尝试即计数）→ 复位窗口（测试侧）后用正确码验证「作废后不可再用」
       resetRateLimitState()
-      const rCorrect = await gwRequest(8746, 'POST', '/v1/pairing/claim', {
+      const rCorrect = await gwRequest(port, 'POST', '/v1/pairing/claim', {
         body: { pairingId: fresh.pairingId, code: fresh.code, deviceName: 'ac6-phone', platform: 'android' },
       })
       assert.equal(rCorrect.status, 401, 'even the correct code is dead after too_many_failures void')
@@ -7625,41 +7668,41 @@ if (isEntrypoint()) {
     const m = await gwCaseSetup('devhub-ac6-124-')
     const db = m.dbModule.getDatabase()
     try {
-      await startGatewayEnabled(m)
-      const devA = await pairViaHttp(8746, 'ac6-phone-a')
-      const devB = await pairViaHttp(8746, 'ac6-phone-b')
+      const port = (await startGatewayEnabled(m)).actualPort
+      const devA = await pairViaHttp(port, 'ac6-phone-a')
+      const devB = await pairViaHttp(port, 'ac6-phone-b')
 
       // 错 Token → 401 AUTH_INVALID_TOKEN
-      const rWrong = await gwRequest(8746, 'GET', '/v1/devices', { token: 'definitely-wrong-token-value', headers: replayHeaders() })
+      const rWrong = await gwRequest(port, 'GET', '/v1/devices', { token: 'definitely-wrong-token-value', headers: replayHeaders() })
       assert.equal(rWrong.status, 401, 'wrong token refused')
       assert.equal(rWrong.json.error.code, 'AUTH_INVALID_TOKEN', 'AUTH_INVALID_TOKEN for unknown token')
 
       // 撤销他设备 → 403 DEVICE_FORBIDDEN（越权仅桌面 IPC agents:deviceRevoke）
-      const rOther = await gwRequest(8746, 'DELETE', `/v1/devices/${devB.deviceId}`, { token: devA.token, headers: replayHeaders() })
+      const rOther = await gwRequest(port, 'DELETE', `/v1/devices/${devB.deviceId}`, { token: devA.token, headers: replayHeaders() })
       assert.equal(rOther.status, 403, 'revoke-other refused')
       assert.equal(rOther.json.error.code, 'DEVICE_FORBIDDEN', 'DEVICE_FORBIDDEN code')
 
       // 设备 B 保持 WS 活跃（撤销后要被服务端立即断开）
       // AC6 修复就地更新：WsTestClient.open resolve {upgraded, client}——连接操作
       // 必须取 .client（open 返回包本身没有 waitFrame/waitClose 方法）
-      const openedB = await WsTestClient.open(8746, devB.token)
+      const openedB = await WsTestClient.open(port, devB.token)
       assert.equal(openedB.upgraded, true, 'device B ws connected')
       const wsB = openedB.client
       const helloB = await wsB.waitFrame((f) => f.json?.type === 'hello', 2000, 'hello B')
       assert.equal(helloB.json.device, devB.deviceId, 'hello carries device id')
 
       // 设备列表：两台、零 Token 材料
-      const rList = await gwRequest(8746, 'GET', '/v1/devices', { token: devA.token, headers: replayHeaders() })
+      const rList = await gwRequest(port, 'GET', '/v1/devices', { token: devA.token, headers: replayHeaders() })
       assert.equal(rList.status, 200, 'devices list ok')
       assert.equal(rList.json.devices.length, 2, 'two devices')
       const listBlob = JSON.stringify(rList.json)
       assert.ok(!listBlob.includes(devA.token) && !listBlob.includes('token_hash') && !listBlob.includes('tokenHash'), 'no token material in devices projection')
 
       // 自撤销 → 200 {revoked:true}；随后同 Token → 401 DEVICE_REVOKED（撤销即拒）
-      const rSelf = await gwRequest(8746, 'DELETE', `/v1/devices/${devA.deviceId}`, { token: devA.token, headers: replayHeaders() })
+      const rSelf = await gwRequest(port, 'DELETE', `/v1/devices/${devA.deviceId}`, { token: devA.token, headers: replayHeaders() })
       assert.equal(rSelf.status, 200, 'self-revoke ok')
       assert.deepEqual(rSelf.json, { revoked: true }, 'self-revoke body')
-      const rAfter = await gwRequest(8746, 'GET', '/v1/devices', { token: devA.token, headers: replayHeaders() })
+      const rAfter = await gwRequest(port, 'GET', '/v1/devices', { token: devA.token, headers: replayHeaders() })
       assert.equal(rAfter.status, 401, 'revoked token refused')
       assert.equal(rAfter.json.error.code, 'DEVICE_REVOKED', 'DEVICE_REVOKED code')
 
@@ -7668,7 +7711,7 @@ if (isEntrypoint()) {
       const closeCode = await wsB.waitClose(2500)
       assert.equal(closeCode, 1000, `server closes revoked device ws with 1000, got ${closeCode}`)
       // B 的 REST 面同样即拒
-      const rB = await gwRequest(8746, 'GET', '/v1/devices', { token: devB.token, headers: replayHeaders() })
+      const rB = await gwRequest(port, 'GET', '/v1/devices', { token: devB.token, headers: replayHeaders() })
       assert.equal(rB.status, 401, 'device B token dead after desktop revoke')
       assert.equal(rB.json.error.code, 'DEVICE_REVOKED', 'DEVICE_REVOKED for B')
 
@@ -7687,7 +7730,7 @@ if (isEntrypoint()) {
   registerCase('ac6-125: auth matrix scan — all 10 protected endpoints refuse missing/wrong bearer with 401 AUTH_INVALID_TOKEN; health and pairing exempt', async () => {
     const m = await gwCaseSetup('devhub-ac6-125-')
     try {
-      await startGatewayEnabled(m)
+      const port = (await startGatewayEnabled(m)).actualPort
       const { resetRateLimitState } = await import(new URL('../src/main/services/agentControl/gateway/auth.ts', import.meta.url).href)
       const endpoints = [
         ['GET', '/v1/diagnostics'],
@@ -7707,20 +7750,20 @@ if (isEntrypoint()) {
           const opts = { headers: replayHeaders() }
           if (token !== undefined) opts.token = token
           if (method === 'POST') opts.body = {}
-          const r = await gwRequest(8746, method, path, opts)
+          const r = await gwRequest(port, method, path, opts)
           assert.equal(r.status, 401, `${method} ${path} ${token === undefined ? 'without' : 'with wrong'} token → 401, got ${r.status} ${r.raw}`)
           assert.equal(r.json.error.code, 'AUTH_INVALID_TOKEN', `${method} ${path} error code`)
         }
       }
       // 豁免面：health 无任何鉴权 200（形状 docs/14 §B.1：{ok,name,version,uptimeSec}）
-      const health = await gwRequest(8746, 'GET', '/v1/health')
+      const health = await gwRequest(port, 'GET', '/v1/health')
       assert.equal(health.status, 200, 'health exempt from bearer auth')
       assert.equal(health.json.ok, true, 'health ok flag')
       assert.equal(health.json.name, 'devhub', 'health name')
       assert.equal(typeof health.json.version, 'string', 'health version string')
       assert.ok(Number.isFinite(health.json.uptimeSec) && health.json.uptimeSec >= 0, 'health uptimeSec finite')
       // pairing/create 无 Bearer 可用（仅回环 + 防重放两头；码鉴权面豁免 Bearer）
-      const created = await pairingCreateHttp(8746)
+      const created = await pairingCreateHttp(port)
       assert.match(created.code, /^[0-9A-HJ-NP-TV-Z]{8}$/, 'pairing/create works without bearer (loopback + replay headers only)')
     } finally {
       await gwCaseTeardown(m)
@@ -7734,11 +7777,11 @@ if (isEntrypoint()) {
     const m = await gwCaseSetup('devhub-ac6-126-')
     const db = m.dbModule.getDatabase()
     try {
-      await startGatewayEnabled(m)
-      const dev = await pairViaHttp(8746, 'ac6-phone')
+      const port = (await startGatewayEnabled(m)).actualPort
+      const dev = await pairViaHttp(port, 'ac6-phone')
       const { resetRateLimitState } = await import(new URL('../src/main/services/agentControl/gateway/auth.ts', import.meta.url).href)
 
-      const getDevices = (headers) => gwRequest(8746, 'GET', '/v1/devices', { token: dev.token, headers })
+      const getDevices = (headers) => gwRequest(port, 'GET', '/v1/devices', { token: dev.token, headers })
 
       // 缺 timestamp / 缺 nonce → 401 AUTH_REPLAYED（受保护合同：无凭据按重放嫌疑拒绝）
       resetRateLimitState()
@@ -7818,14 +7861,14 @@ if (isEntrypoint()) {
   registerCase('ac6-127: rate limits — auth failure 5/60s then 429+Retry-After 60, device requests 120/min then 429, pairing claim 5/5min then 429', async () => {
     const m = await gwCaseSetup('devhub-ac6-127-')
     try {
-      await startGatewayEnabled(m)
-      const dev = await pairViaHttp(8746, 'ac6-phone')
+      const port = (await startGatewayEnabled(m)).actualPort
+      const dev = await pairViaHttp(port, 'ac6-phone')
       const { resetRateLimitState } = await import(new URL('../src/main/services/agentControl/gateway/auth.ts', import.meta.url).href)
 
       // 鉴权失败限流：5 次 401（第 5 次失败即触发限流），第 6 次起 429 + Retry-After: 60
       const statuses = []
       for (let i = 1; i <= 6; i += 1) {
-        const r = await gwRequest(8746, 'GET', '/v1/devices', { token: `wrong-token-${i}`, headers: replayHeaders() })
+        const r = await gwRequest(port, 'GET', '/v1/devices', { token: `wrong-token-${i}`, headers: replayHeaders() })
         statuses.push(r.status)
         if (i === 6) {
           assert.equal(r.json.error.code, 'AUTH_RATE_LIMITED', 'auth-failure limiter code')
@@ -7840,7 +7883,7 @@ if (isEntrypoint()) {
       let okCount = 0
       let limited = null
       for (let i = 1; i <= 121; i += 1) {
-        const r = await gwRequest(8746, 'GET', '/v1/devices', { token: dev.token, headers: replayHeaders() })
+        const r = await gwRequest(port, 'GET', '/v1/devices', { token: dev.token, headers: replayHeaders() })
         if (r.status === 200) okCount += 1
         else { limited = r; break }
       }
@@ -7854,7 +7897,7 @@ if (isEntrypoint()) {
       const fresh = m.pairing.createPairingCode('ac6-phone')
       const claimStatuses = []
       for (let i = 1; i <= 6; i += 1) {
-        const r = await gwRequest(8746, 'POST', '/v1/pairing/claim', {
+        const r = await gwRequest(port, 'POST', '/v1/pairing/claim', {
           body: { pairingId: fresh.pairingId, code: 'ZZZZZZZZ', deviceName: 'ac6-phone', platform: 'android' },
         })
         claimStatuses.push(r.status)
@@ -7877,8 +7920,8 @@ if (isEntrypoint()) {
     const m = await gwCaseSetup('devhub-ac6-128-')
     const db = m.dbModule.getDatabase()
     try {
-      await startGatewayEnabled(m)
-      const dev = await pairViaHttp(8746, 'ac6-phone')
+      const port = (await startGatewayEnabled(m)).actualPort
+      const dev = await pairViaHttp(port, 'ac6-phone')
       const providerId = fixtureProviderRow(db, 'kimi')
       // AC6 修复就地更新：能力判定根在 provider 级 agent_providers.capabilities_json
       // （docs/12 §5），fresh + reply/pause/resume 全授予让指令通过能力门到达执行
@@ -7904,7 +7947,7 @@ if (isEntrypoint()) {
         dispose: async () => {},
       })
 
-      const postReply = (body) => gwRequest(8746, 'POST', `/v1/sessions/${sessionId}/reply`, { token: dev.token, headers: replayHeaders(), body })
+      const postReply = (body) => gwRequest(port, 'POST', `/v1/sessions/${sessionId}/reply`, { token: dev.token, headers: replayHeaders(), body })
 
       // 首发：202 accepted → 异步执行到 executed
       const r1 = await postReply({ text: 'hello from device', idempotencyKey: 'ac6-k1' })
@@ -7967,8 +8010,8 @@ if (isEntrypoint()) {
     const m = await gwCaseSetup('devhub-ac6-129-')
     const db = m.dbModule.getDatabase()
     try {
-      await startGatewayEnabled(m)
-      const dev = await pairViaHttp(8746, 'ac6-phone')
+      const port = (await startGatewayEnabled(m)).actualPort
+      const dev = await pairViaHttp(port, 'ac6-phone')
       const providerId = fixtureProviderRow(db, 'kimi')
       const now = Math.floor(Date.now() / 1000)
       // AC6 修复就地更新：能力判定根在 provider 级 agent_providers.capabilities_json
@@ -7982,7 +8025,7 @@ if (isEntrypoint()) {
       const staleId = fixtureSessionRow(db, providerId, 'ac6-stale', 'managed')
       const emptyId = fixtureSessionRow(db, providerId, 'ac6-empty', 'managed')
 
-      const post = (path, body) => gwRequest(8746, 'POST', path, { token: dev.token, headers: replayHeaders(), body })
+      const post = (path, body) => gwRequest(port, 'POST', path, { token: dev.token, headers: replayHeaders(), body })
 
       // 阶段 1：caps fresh + 全授予 → 拒绝码由 session_mode 门决定（docs/15 §5 矩阵）
       setProviderCaps({ mode: 'managed', granted: ['reply', 'pause', 'resume'], verifiedAt: now, evidence: 'fixture: fresh all granted' })
@@ -8015,7 +8058,7 @@ if (isEntrypoint()) {
       const rUnknown = await post('/v1/sessions/999999/reply', { text: 'nope' })
       assert.equal(rUnknown.status, 404, 'unknown session 404')
       assert.equal(rUnknown.json.error.code, 'NOT_FOUND', 'unknown session code')
-      const rUnknownMsgs = await gwRequest(8746, 'GET', '/v1/sessions/999999/messages', { token: dev.token, headers: replayHeaders() })
+      const rUnknownMsgs = await gwRequest(port, 'GET', '/v1/sessions/999999/messages', { token: dev.token, headers: replayHeaders() })
       assert.equal(rUnknownMsgs.status, 404, 'unknown session messages 404')
 
       // 拒绝的指令绝不落 remote_commands 流水（门先于落库）
@@ -8033,15 +8076,15 @@ if (isEntrypoint()) {
     const m = await gwCaseSetup('devhub-ac6-130-')
     const db = m.dbModule.getDatabase()
     try {
-      await startGatewayEnabled(m)
-      const dev = await pairViaHttp(8746, 'ac6-phone')
+      const port = (await startGatewayEnabled(m)).actualPort
+      const dev = await pairViaHttp(port, 'ac6-phone')
       const providerId = fixtureProviderRow(db, 'kimi')
       // AC6 修复就地更新：会话仅作事件 sessionId 投影用（读路径不做能力门）；
       // capabilities 判定根在 provider 级（docs/13 §4.2 无会话级列）
       const sessionId = fixtureSessionRow(db, providerId, 'ac6-ws-sess', 'observed')
 
       // 固定向量握手：RFC6455 §4.2.2 示例 key → 精确 accept
-      const opened = await WsTestClient.open(8746, dev.token, { wsKey: 'dGhlIHNhbXBsZSBub25jZQ==' })
+      const opened = await WsTestClient.open(port, dev.token, { wsKey: 'dGhlIHNhbXBsZSBub25jZQ==' })
       assert.equal(opened.upgraded, true, 'upgrade succeeded')
       const ws = opened.client
       assert.equal(ws.response.headers['sec-websocket-accept'], 's3pPLMBiTxaQ9kYGzzhZRbK+xOo=', 'Sec-WebSocket-Accept matches the RFC 6455 example vector exactly')
@@ -8107,11 +8150,11 @@ if (isEntrypoint()) {
       // REST ack 等效：新事件 → 推送 → REST ack 200 → acked；未知 seq → 404
       const rec4 = m.eventPipeline.recordEvent({ eventType: 'session.finished', providerKey: 'kimi', sessionId, nativeId: 'ac6-ws-sess', payload: { sessionId, finalStatus: 'completed' }, fingerprint: 'ac6-ws-fp-4' })
       await ws.waitFrame((f) => f.json?.type === 'event' && f.json.seq === rec4.sequence, 2500, 'pushed event 4')
-      const rAck = await gwRequest(8746, 'POST', `/v1/events/${rec4.sequence}/ack`, { token: dev.token, headers: replayHeaders(), body: {} })
+      const rAck = await gwRequest(port, 'POST', `/v1/events/${rec4.sequence}/ack`, { token: dev.token, headers: replayHeaders(), body: {} })
       assert.equal(rAck.status, 200, `REST ack -> 200, got ${rAck.status} ${rAck.raw}`)
       assert.deepEqual(rAck.json, { acked: true }, 'REST ack body')
       assert.equal(db.prepare('SELECT status FROM event_deliveries WHERE event_id = ? AND device_id = ?').get(rec4.sequence, dev.deviceId).status, 'acked', 'REST ack marks acked')
-      const rAck404 = await gwRequest(8746, 'POST', '/v1/events/999999/ack', { token: dev.token, headers: replayHeaders(), body: {} })
+      const rAck404 = await gwRequest(port, 'POST', '/v1/events/999999/ack', { token: dev.token, headers: replayHeaders(), body: {} })
       assert.equal(rAck404.status, 404, 'ack of unknown sequence 404')
       assert.equal(rAck404.json.error.code, 'NOT_FOUND', 'ack unknown code NOT_FOUND')
       ws.end()
@@ -8126,11 +8169,11 @@ if (isEntrypoint()) {
   registerCase('ac6-131: ws heartbeat — injected short heartbeat, suppressed pong gets the server to close with 1000, pong-answering connection stays alive', async () => {
     const m = await gwCaseSetup('devhub-ac6-131-')
     try {
-      await startGatewayEnabled(m, { heartbeatIntervalMs: 300, pongTimeoutMs: 150 })
-      const dev = await pairViaHttp(8746, 'ac6-phone')
+      const port = (await startGatewayEnabled(m, { heartbeatIntervalMs: 300, pongTimeoutMs: 150 })).actualPort
+      const dev = await pairViaHttp(port, 'ac6-phone')
 
       // 不回 pong → 服务端在 ping 后的 pongTimeout 窗口内关闭（close 1000）
-      const openedA = await WsTestClient.open(8746, dev.token)
+      const openedA = await WsTestClient.open(port, dev.token)
       const wsA = openedA.client
       wsA.suppressPong = true
       await wsA.waitFrame((f) => f.json?.type === 'hello', 2000, 'hello A')
@@ -8138,7 +8181,7 @@ if (isEntrypoint()) {
       assert.equal(closeCode, 1000, `heartbeat timeout closes with 1000, got ${closeCode}`)
 
       // 正常回 pong（客户端默认自动回）→ 连接保持；客户端主动 ping → 服务端 pong 回显
-      const openedB = await WsTestClient.open(8746, dev.token)
+      const openedB = await WsTestClient.open(port, dev.token)
       const wsB = openedB.client
       await wsB.waitFrame((f) => f.json?.type === 'hello', 2000, 'hello B')
       await sleep(700) // 覆盖 ≥2 个心跳节拍
@@ -8160,37 +8203,37 @@ if (isEntrypoint()) {
     const m = await gwCaseSetup('devhub-ac6-132-')
     const db = m.dbModule.getDatabase()
     try {
-      await startGatewayEnabled(m)
-      const dev = await pairViaHttp(8746, 'ac6-phone')
+      const port = (await startGatewayEnabled(m)).actualPort
+      const dev = await pairViaHttp(port, 'ac6-phone')
 
       // 升级拒绝
-      const badPath = await WsTestClient.open(8746, dev.token, { path: '/v1/not-events' })
+      const badPath = await WsTestClient.open(port, dev.token, { path: '/v1/not-events' })
       assert.equal(badPath.upgraded, false, 'unknown upgrade path refused')
       assert.equal(badPath.status, 400, 'bad path → 400')
       assert.equal(badPath.json.error.code, 'NOT_FOUND', 'bad path code NOT_FOUND')
-      const badVersion = await WsTestClient.open(8746, dev.token, { version: 12 })
+      const badVersion = await WsTestClient.open(port, dev.token, { version: 12 })
       assert.equal(badVersion.upgraded, false, 'version != 13 refused')
       assert.equal(badVersion.status, 400, 'bad version → 400')
       assert.equal(badVersion.json.error.code, 'BAD_PAYLOAD', 'bad version code')
-      const noKey = await WsTestClient.open(8746, dev.token, { omitKey: true })
+      const noKey = await WsTestClient.open(port, dev.token, { omitKey: true })
       assert.equal(noKey.upgraded, false, 'missing Sec-WebSocket-Key refused')
       assert.equal(noKey.json.error.code, 'BAD_PAYLOAD', 'missing key code')
-      const noAuth = await WsTestClient.open(8746, undefined)
+      const noAuth = await WsTestClient.open(port, undefined)
       assert.equal(noAuth.upgraded, false, 'missing bearer refused at upgrade')
       assert.equal(noAuth.status, 401, 'no token → 401')
       assert.equal(noAuth.json.error.code, 'AUTH_INVALID_TOKEN', 'no token code')
-      const wrongAuth = await WsTestClient.open(8746, 'wrong-token-ac6')
+      const wrongAuth = await WsTestClient.open(port, 'wrong-token-ac6')
       assert.equal(wrongAuth.status, 401, 'wrong token → 401')
-      const revokedDev = await pairViaHttp(8746, 'ac6-phone-revoked')
+      const revokedDev = await pairViaHttp(port, 'ac6-phone-revoked')
       m.svc.revokeDevice(revokedDev.deviceId, true, 'ipc')
-      const revoked = await WsTestClient.open(8746, revokedDev.token)
+      const revoked = await WsTestClient.open(port, revokedDev.token)
       assert.equal(revoked.upgraded, false, 'revoked token refused at upgrade')
       assert.equal(revoked.status, 401, 'revoked → 401')
       assert.equal(revoked.json.error.code, 'DEVICE_REVOKED', 'revoked upgrade code DEVICE_REVOKED')
 
       // 帧级边界（每段新连接）
       const connect = async () => {
-        const o = await WsTestClient.open(8746, dev.token)
+        const o = await WsTestClient.open(port, dev.token)
         assert.equal(o.upgraded, true, 'edge sub-test connection established')
         await o.client.waitFrame((f) => f.json?.type === 'hello', 2000, 'edge hello')
         return o.client
@@ -8232,8 +8275,8 @@ if (isEntrypoint()) {
     const m = await gwCaseSetup('devhub-ac6-133-')
     const db = m.dbModule.getDatabase()
     try {
-      await startGatewayEnabled(m)
-      const dev = await pairViaHttp(8746, 'ac6-phone')
+      const port = (await startGatewayEnabled(m)).actualPort
+      const dev = await pairViaHttp(port, 'ac6-phone')
       const providerId = fixtureProviderRow(db, 'kimi')
       // AC6 修复就地更新：会话仅作事件投影，无会话级 capabilities 列（docs/13 §4.2）
       const sessionId = fixtureSessionRow(db, providerId, 'ac6-off-sess', 'observed')
@@ -8245,7 +8288,7 @@ if (isEntrypoint()) {
       assert.equal(m.eventPipeline.eventsSince(0, dev.deviceId).events.length, 1, 'replay set has the offline event')
 
       // 重连（真实 WS）→ hello → sync 补发
-      const opened = await WsTestClient.open(8746, dev.token)
+      const opened = await WsTestClient.open(port, dev.token)
       const ws = opened.client
       const hello = await ws.waitFrame((f) => f.json?.type === 'hello', 2000, 'hello')
       assert.equal(hello.json.sequence, e1.sequence, 'hello.sequence reflects the offline event as current max')
@@ -8262,7 +8305,7 @@ if (isEntrypoint()) {
       // 在线事件实时推送 + REST ack
       const e2 = m.eventPipeline.recordEvent({ eventType: 'message.appended', providerKey: 'kimi', sessionId, nativeId: 'ac6-off-sess', payload: { sessionId, role: 'assistant', preview: 'online echo' }, fingerprint: 'ac6-off-fp-2' })
       await ws.waitFrame((f) => f.json?.type === 'event' && f.json.seq === e2.sequence, 2500, 'online push')
-      const rAck = await gwRequest(8746, 'POST', `/v1/events/${e2.sequence}/ack`, { token: dev.token, headers: replayHeaders(), body: {} })
+      const rAck = await gwRequest(port, 'POST', `/v1/events/${e2.sequence}/ack`, { token: dev.token, headers: replayHeaders(), body: {} })
       assert.equal(rAck.status, 200, 'REST ack for online event')
       // 补发集收敛：两事件均 acked → eventsSince 为空
       const drained = m.eventPipeline.eventsSince(0, dev.deviceId)
@@ -8297,17 +8340,17 @@ if (isEntrypoint()) {
       const httpServerSource = readFileSync(new URL('../src/main/services/agentControl/gateway/httpServer.ts', import.meta.url), 'utf8')
       assert.ok(!/forwarded/i.test(httpServerSource), 'httpServer.ts never reads X-Forwarded-For (no header-based source spoofing)')
 
-      await startGatewayEnabled(m)
+      const port = (await startGatewayEnabled(m)).actualPort
 
       // 伪造 XFF 不改变判定：回环 socket + 伪造外网 XFF → 仍 201（决策只看 socket）
-      const rXff = await gwRequest(8746, 'POST', '/v1/pairing/create', {
+      const rXff = await gwRequest(port, 'POST', '/v1/pairing/create', {
         body: { deviceName: 'ac6-xff' },
         headers: { 'X-Forwarded-For': '203.0.113.9', ...replayHeaders() },
       })
       assert.equal(rXff.status, 201, `forged X-Forwarded-For from loopback is ignored (still 201), got ${rXff.status} ${rXff.raw}`)
 
       // 无防重放头的 pairing/create → 401 AUTH_REPLAYED + 审计（AC6 修复项：replay_rejected 落审计）
-      const rNoHeaders = await gwRequest(8746, 'POST', '/v1/pairing/create', { body: { deviceName: 'ac6-noreplay' } })
+      const rNoHeaders = await gwRequest(port, 'POST', '/v1/pairing/create', { body: { deviceName: 'ac6-noreplay' } })
       assert.equal(rNoHeaders.status, 401, 'pairing/create without replay headers refused')
       assert.equal(rNoHeaders.json.error.code, 'AUTH_REPLAYED', 'protected contract even on loopback')
       const audit = db.prepare("SELECT detail_json FROM security_audit_logs WHERE action='replay_rejected' ORDER BY id DESC LIMIT 1").get()
@@ -8326,8 +8369,8 @@ if (isEntrypoint()) {
     const m = await gwCaseSetup('devhub-ac6-135-')
     const db = m.dbModule.getDatabase()
     try {
-      await startGatewayEnabled(m)
-      const dev = await pairViaHttp(8746, 'ac6-phone')
+      const port = (await startGatewayEnabled(m)).actualPort
+      const dev = await pairViaHttp(port, 'ac6-phone')
       const providerId = fixtureProviderRow(db, 'kimi')
       const now = Math.floor(Date.now() / 1000)
       db.prepare('UPDATE agent_providers SET capabilities_json = ? WHERE id = ?').run(
@@ -8347,7 +8390,7 @@ if (isEntrypoint()) {
       })
 
       // /v1/agents：受限投影 {id, displayName, health, capabilities}
-      const rAgents = await gwRequest(8746, 'GET', '/v1/agents', { token: dev.token, headers: replayHeaders() })
+      const rAgents = await gwRequest(port, 'GET', '/v1/agents', { token: dev.token, headers: replayHeaders() })
       assert.equal(rAgents.status, 200, '/v1/agents ok')
       assert.equal(rAgents.json.providers.length, 1, 'one provider projected')
       const proj = rAgents.json.providers[0]
@@ -8356,13 +8399,13 @@ if (isEntrypoint()) {
       assert.deepEqual(proj.capabilities.granted, [], 'capabilities projected')
 
       // /v1/sessions：全量 2 条；status 过滤；limit 截断
-      const rAll = await gwRequest(8746, 'GET', '/v1/sessions', { token: dev.token, headers: replayHeaders() })
+      const rAll = await gwRequest(port, 'GET', '/v1/sessions', { token: dev.token, headers: replayHeaders() })
       assert.equal(rAll.status, 200, '/v1/sessions ok')
       assert.equal(rAll.json.sessions.length, 2, 'both fixture sessions')
-      const rWaiting = await gwRequest(8746, 'GET', '/v1/sessions?status=waiting_input', { token: dev.token, headers: replayHeaders() })
+      const rWaiting = await gwRequest(port, 'GET', '/v1/sessions?status=waiting_input', { token: dev.token, headers: replayHeaders() })
       assert.equal(rWaiting.json.sessions.length, 1, 'status filter server-side')
       assert.equal(rWaiting.json.sessions[0].status, 'waiting_input', 'filtered status value')
-      const rLimited = await gwRequest(8746, 'GET', '/v1/sessions?limit=1', { token: dev.token, headers: replayHeaders() })
+      const rLimited = await gwRequest(port, 'GET', '/v1/sessions?limit=1', { token: dev.token, headers: replayHeaders() })
       assert.equal(rLimited.json.sessions.length, 1, 'limit truncates server-side')
       const sessKeys = Object.keys(rAll.json.sessions[0]).sort()
       for (const key of ['id', 'providerId', 'nativeId', 'sessionMode', 'status', 'stale']) {
@@ -8370,14 +8413,14 @@ if (isEntrypoint()) {
       }
 
       // /v1/sessions/{id}：{session, capabilities}
-      const rDetail = await gwRequest(8746, 'GET', `/v1/sessions/${s1}`, { token: dev.token, headers: replayHeaders() })
+      const rDetail = await gwRequest(port, 'GET', `/v1/sessions/${s1}`, { token: dev.token, headers: replayHeaders() })
       assert.equal(rDetail.status, 200, 'session detail ok')
       assert.equal(rDetail.json.session.id, s1, 'detail session id')
       assert.equal(rDetail.json.session.sessionMode, 'observed', 'detail session mode')
       assert.deepEqual(Object.keys(rDetail.json).sort(), ['capabilities', 'session'], 'detail shape {session, capabilities}')
 
       // /v1/sessions/{id}/messages：脱敏投影 + 零 sourceRef（本地源指针不出本机，docs/15 §6）
-      const rMsgs = await gwRequest(8746, 'GET', `/v1/sessions/${s1}/messages`, { token: dev.token, headers: replayHeaders() })
+      const rMsgs = await gwRequest(port, 'GET', `/v1/sessions/${s1}/messages`, { token: dev.token, headers: replayHeaders() })
       assert.equal(rMsgs.status, 200, 'messages ok')
       assert.equal(rMsgs.json.items.length, 1, 'one message')
       const item = rMsgs.json.items[0]
@@ -8387,11 +8430,11 @@ if (isEntrypoint()) {
       assert.ok(!('sourceRef' in item), `no sourceRef in remote items: ${JSON.stringify(item)}`)
 
       // /v1/diagnostics：{providers, gateway}；gateway 投影带运行真值
-      const rDiag = await gwRequest(8746, 'GET', '/v1/diagnostics', { token: dev.token, headers: replayHeaders() })
+      const rDiag = await gwRequest(port, 'GET', '/v1/diagnostics', { token: dev.token, headers: replayHeaders() })
       assert.equal(rDiag.status, 200, 'diagnostics ok')
       assert.ok(Array.isArray(rDiag.json.providers), 'diagnostics providers array')
       assert.equal(rDiag.json.gateway.running, true, 'diagnostics gateway running truth')
-      assert.equal(rDiag.json.gateway.port, 8746, 'diagnostics gateway port')
+      assert.equal(rDiag.json.gateway.port, port, 'diagnostics gateway port')
       assert.ok(!JSON.stringify(rDiag.json).includes(dev.token), 'no token material in diagnostics')
     } finally {
       await gwCaseTeardown(m)
@@ -8405,8 +8448,8 @@ if (isEntrypoint()) {
     const m = await gwCaseSetup('devhub-ac6-136-')
     const db = m.dbModule.getDatabase()
     try {
-      await startGatewayEnabled(m)
-      const dev = await pairViaHttp(8746, 'ac6-phone')
+      const port = (await startGatewayEnabled(m)).actualPort
+      const dev = await pairViaHttp(port, 'ac6-phone')
       const providerId = fixtureProviderRow(db, 'kimi')
       // AC6 修复就地更新：校验面用例（400 全部在路由层读JsonBody/字段校验拒绝，
       // 不触能力门），无会话级 capabilities 列（docs/13 §4.2）
@@ -8417,7 +8460,7 @@ if (isEntrypoint()) {
       const authed = () => ({ token: dev.token, headers: replayHeaders() })
 
       // claim 载荷校验（route 校验先于限流，绝不触达配对状态）
-      const claim = (body) => gwRequest(8746, 'POST', '/v1/pairing/claim', { body })
+      const claim = (body) => gwRequest(port, 'POST', '/v1/pairing/claim', { body })
       const rPlatform = await claim({ pairingId: 'pair-x', code: 'AAAAAAAA', deviceName: 'p', platform: 'ios' })
       assert.equal(rPlatform.status, 400, 'platform != android → 400')
       assert.equal(rPlatform.json.error.code, 'BAD_PAYLOAD', 'platform code')
@@ -8427,46 +8470,46 @@ if (isEntrypoint()) {
       assert.equal(rShort.status, 400, 'short code → 400')
       const rNoName = await claim({ pairingId: 'pair-x', code: 'AAAAAAAA', platform: 'android' })
       assert.equal(rNoName.status, 400, 'missing deviceName → 400')
-      const rArrayBody = await gwRequest(8746, 'POST', '/v1/pairing/claim', { body: '["x"]' })
+      const rArrayBody = await gwRequest(port, 'POST', '/v1/pairing/claim', { body: '["x"]' })
       assert.equal(rArrayBody.status, 400, 'JSON array body → 400 (object required)')
-      const rBadJson = await gwRequest(8746, 'POST', '/v1/pairing/create', { body: '{oops', headers: replayHeaders() })
+      const rBadJson = await gwRequest(port, 'POST', '/v1/pairing/create', { body: '{oops', headers: replayHeaders() })
       assert.equal(rBadJson.status, 400, 'malformed JSON → 400')
       assert.equal(rBadJson.json.error.code, 'BAD_PAYLOAD', 'malformed JSON code')
 
       // 超限 body（>64KB）→ 400（校验在鉴权后仍结构化拒绝）
       const oversized = 'x'.repeat(70 * 1024)
-      const rOversize = await gwRequest(8746, 'POST', `/v1/sessions/${sessionId}/reply`, { ...authed(), body: { text: oversized } })
+      const rOversize = await gwRequest(port, 'POST', `/v1/sessions/${sessionId}/reply`, { ...authed(), body: { text: oversized } })
       assert.equal(rOversize.status, 400, `oversized body → 400, got ${rOversize.status}`)
       assert.equal(rOversize.json.error.code, 'BAD_PAYLOAD', 'oversize code')
 
       // reply 文本 >4000 字符 → 400；空 text → 400
-      const rLong = await gwRequest(8746, 'POST', `/v1/sessions/${sessionId}/reply`, { ...authed(), body: { text: 'a'.repeat(4001) } })
+      const rLong = await gwRequest(port, 'POST', `/v1/sessions/${sessionId}/reply`, { ...authed(), body: { text: 'a'.repeat(4001) } })
       assert.equal(rLong.status, 400, 'reply text >4000 chars → 400')
       assert.equal(rLong.json.error.code, 'BAD_PAYLOAD', 'long text code')
-      const rEmpty = await gwRequest(8746, 'POST', `/v1/sessions/${sessionId}/reply`, { ...authed(), body: { text: '   ' } })
+      const rEmpty = await gwRequest(port, 'POST', `/v1/sessions/${sessionId}/reply`, { ...authed(), body: { text: '   ' } })
       assert.equal(rEmpty.status, 400, 'whitespace-only text → 400')
 
       // actions 枚举校验
-      const rAction = await gwRequest(8746, 'POST', `/v1/sessions/${sessionId}/actions`, { ...authed(), body: { action: 'restart' } })
+      const rAction = await gwRequest(port, 'POST', `/v1/sessions/${sessionId}/actions`, { ...authed(), body: { action: 'restart' } })
       assert.equal(rAction.status, 400, 'action outside pause|resume → 400')
 
       // 非法 query
-      const rBadStatus = await gwRequest(8746, 'GET', '/v1/sessions?status=bogus', authed())
+      const rBadStatus = await gwRequest(port, 'GET', '/v1/sessions?status=bogus', authed())
       assert.equal(rBadStatus.status, 400, 'bad status filter → 400')
-      const rZeroLimit = await gwRequest(8746, 'GET', '/v1/sessions?limit=0', authed())
+      const rZeroLimit = await gwRequest(port, 'GET', '/v1/sessions?limit=0', authed())
       assert.equal(rZeroLimit.status, 400, 'limit=0 → 400')
-      const rBigLimit = await gwRequest(8746, 'GET', '/v1/sessions?limit=201', authed())
+      const rBigLimit = await gwRequest(port, 'GET', '/v1/sessions?limit=201', authed())
       assert.equal(rBigLimit.status, 400, 'limit>200 → 400')
-      const rBadProvider = await gwRequest(8746, 'GET', '/v1/sessions?providerId=abc', authed())
+      const rBadProvider = await gwRequest(port, 'GET', '/v1/sessions?providerId=abc', authed())
       assert.equal(rBadProvider.status, 400, 'providerId non-integer → 400')
 
       // 未知路由 / 方法
-      const rUnknown = await gwRequest(8746, 'GET', '/v1/definitely-not-a-route', authed())
+      const rUnknown = await gwRequest(port, 'GET', '/v1/definitely-not-a-route', authed())
       assert.equal(rUnknown.status, 404, 'unknown route 404')
       assert.equal(rUnknown.json.error.code, 'NOT_FOUND', 'unknown route code')
-      const rPatchHealth = await gwRequest(8746, 'PATCH', '/v1/health', {})
+      const rPatchHealth = await gwRequest(port, 'PATCH', '/v1/health', {})
       assert.equal(rPatchHealth.status, 404, 'unmatched method on known path 404')
-      const rAckAbc = await gwRequest(8746, 'POST', '/v1/events/abc/ack', authed())
+      const rAckAbc = await gwRequest(port, 'POST', '/v1/events/abc/ack', authed())
       assert.equal(rAckAbc.status, 404, 'non-numeric ack sequence 404')
     } finally {
       await gwCaseTeardown(m)
@@ -8480,11 +8523,11 @@ if (isEntrypoint()) {
     const m = await gwCaseSetup('devhub-ac7b-137-')
     const db = m.dbModule.getDatabase()
     try {
-      await startGatewayEnabled(m)
-      const created = await pairingCreateHttp(8746)
+      const port = (await startGatewayEnabled(m)).actualPort
+      const created = await pairingCreateHttp(port)
 
       // code-only claim（请求体无 pairingId 字段）→ 200；响应形状与 pairingId 路径一致
-      const rClaim = await gwRequest(8746, 'POST', '/v1/pairing/claim', {
+      const rClaim = await gwRequest(port, 'POST', '/v1/pairing/claim', {
         body: { code: created.code, deviceName: 'ac7b-phone', platform: 'android' },
       })
       assert.equal(rClaim.status, 200, `code-only claim -> 200, got ${rClaim.status} ${rClaim.raw}`)
@@ -8494,7 +8537,7 @@ if (isEntrypoint()) {
       assert.equal(rClaim.json.gatewayName, 'devhub-gateway', 'gatewayName unchanged')
 
       // 一次性语义零变化：同码重放（仍不带 pairingId）→ 401 AUTH_INVALID_TOKEN
-      const rReplay = await gwRequest(8746, 'POST', '/v1/pairing/claim', {
+      const rReplay = await gwRequest(port, 'POST', '/v1/pairing/claim', {
         body: { code: created.code, deviceName: 'ac7b-phone', platform: 'android' },
       })
       assert.equal(rReplay.status, 401, 'code-only replay refused (one-time unchanged)')
@@ -8517,25 +8560,25 @@ if (isEntrypoint()) {
     const m = await gwCaseSetup('devhub-ac7b-138-')
     const db = m.dbModule.getDatabase()
     try {
-      await startGatewayEnabled(m)
-      const created = await pairingCreateHttp(8746)
+      const port = (await startGatewayEnabled(m)).actualPort
+      const created = await pairingCreateHttp(port)
 
       // (a) pairingId + code 均错 → 401 AUTH_INVALID_TOKEN（失败 1/5）
-      const rBothWrong = await gwRequest(8746, 'POST', '/v1/pairing/claim', {
+      const rBothWrong = await gwRequest(port, 'POST', '/v1/pairing/claim', {
         body: { pairingId: 'pair-00000000-0000-0000-0000-000000000000', code: 'ZZZZZZZZ', deviceName: 'ac7b-phone', platform: 'android' },
       })
       assert.equal(rBothWrong.status, 401, 'wrong pairingId + wrong code refused')
       assert.equal(rBothWrong.json.error.code, 'AUTH_INVALID_TOKEN', 'both-wrong folds to AUTH_INVALID_TOKEN')
 
       // (b) pairingId 对不上（非当前活跃码 id）而 code 正确 → 401（精确匹配语义，失败 2/5）
-      const rIdMismatch = await gwRequest(8746, 'POST', '/v1/pairing/claim', {
+      const rIdMismatch = await gwRequest(port, 'POST', '/v1/pairing/claim', {
         body: { pairingId: 'pair-00000000-0000-0000-0000-000000000000', code: created.code, deviceName: 'ac7b-phone', platform: 'android' },
       })
       assert.equal(rIdMismatch.status, 401, 'mismatched pairingId with correct code refused')
       assert.equal(rIdMismatch.json.error.code, 'AUTH_INVALID_TOKEN', 'id-mismatch folds to AUTH_INVALID_TOKEN')
 
       // (c) 精确 pairingId + 正确 code → 200（双字段契约向后兼容；失败 2 次未达作废阈值 5）
-      const rExact = await gwRequest(8746, 'POST', '/v1/pairing/claim', {
+      const rExact = await gwRequest(port, 'POST', '/v1/pairing/claim', {
         body: { pairingId: created.pairingId, code: created.code, deviceName: 'ac7b-phone', platform: 'android' },
       })
       assert.equal(rExact.status, 200, `exact pairingId+code -> 200, got ${rExact.status} ${rExact.raw}`)
@@ -9432,11 +9475,12 @@ if (isEntrypoint()) {
   //      R4：providerKey/providerLabel 投影。
   // 147. R2/R4：父链端到端（REST 同构面）。
   //      CP1 批次档位归位（fast → full，2026-09-09）：本用例真实拉起 Gateway 并硬编码
-  //      gwRequest(8746, ...) —— 按本文件头部归类口径（"拉起 Gateway、占监听端口 → full"）
+  //      gwRequest(port, ...) —— 按本文件头部归类口径（"拉起 Gateway、占监听端口 → full"）
   //      本就应属 full 档；观察窗内真实应用持有 8746 时，fast 档运行会把配对/读请求
   //      打到真实网关（已发生并单列上报）。断言本体零改动，仅回正档位标记。
-  //      已知问题（本批不修，归属原批次）：startGateway 端口顺延 8747-8755 后，
-  //      本用例硬编码的 8746 与实际监听口脱钩——8746 被占时即使 full 档也会失败。
+  //      已知问题已根治（smoke-port-hygiene 批）：用例改走 gwCaseSetup 随机空闲口 +
+  //      startGatewayEnabled actualPort 传播，硬编码 8746 与实际监听口脱钩的问题不复存在
+  //      ——8746 被常驻/占位 listener 占住时全量档照常全绿。
   registerCase('uxa-147: R2/R4 parent chain end-to-end — zcode fixture with parent_id imports children via parentNativeSessionId (unresolvable-parent children stay excluded), default list keeps main only, parentId= filter returns children, sessionDetail carries childSessions + providerKey/providerLabel, child messages visible, REST surface isomorphic', async () => {
     const { mkdtempSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
@@ -9510,27 +9554,27 @@ if (isEntrypoint()) {
       assert.equal(childMsgs.items.length, 1, 'child session messages visible')
 
       // REST 同构：默认隐藏子会话/归档可见性/childSessions
-      await startGatewayEnabled(m)
-      const dev = await pairViaHttp(8746, 'uxa-147-phone')
-      const rAll = await gwRequest(8746, 'GET', '/v1/sessions', { token: dev.token, headers: replayHeaders() })
+      const port = (await startGatewayEnabled(m)).actualPort
+      const dev = await pairViaHttp(port, 'uxa-147-phone')
+      const rAll = await gwRequest(port, 'GET', '/v1/sessions', { token: dev.token, headers: replayHeaders() })
       assert.equal(rAll.json.sessions.length, 1, 'REST default list hides children')
       assert.equal(rAll.json.sessions[0].providerLabel, 'ZCode', 'REST providerLabel projected')
-      const rKids = await gwRequest(8746, 'GET', '/v1/sessions?parentId=' + parentRow.id, { token: dev.token, headers: replayHeaders() })
+      const rKids = await gwRequest(port, 'GET', '/v1/sessions?parentId=' + parentRow.id, { token: dev.token, headers: replayHeaders() })
       assert.equal(rKids.json.sessions.length, 2, 'REST parentId filter works')
-      const rDetail = await gwRequest(8746, 'GET', '/v1/sessions/' + parentRow.id, { token: dev.token, headers: replayHeaders() })
+      const rDetail = await gwRequest(port, 'GET', '/v1/sessions/' + parentRow.id, { token: dev.token, headers: replayHeaders() })
       assert.deepEqual(Object.keys(rDetail.json).sort(), ['capabilities', 'session'], 'detail top-level shape unchanged')
       assert.equal(rDetail.json.session.childSessions.length, 2, 'REST detail carries childSessions')
       // 归档 + includeArchived（R3 端到端最小面）
       const lifecycle = await import(new URL('../src/main/services/agentControl/sessionLifecycle.ts', import.meta.url).href)
       lifecycle.archiveSession(parentRow.id)
-      const rArchived = await gwRequest(8746, 'GET', '/v1/sessions', { token: dev.token, headers: replayHeaders() })
+      const rArchived = await gwRequest(port, 'GET', '/v1/sessions', { token: dev.token, headers: replayHeaders() })
       assert.equal(rArchived.json.sessions.length, 0, 'archived session hidden by default (R3)')
-      const rInc = await gwRequest(8746, 'GET', '/v1/sessions?includeArchived=1', { token: dev.token, headers: replayHeaders() })
+      const rInc = await gwRequest(port, 'GET', '/v1/sessions?includeArchived=1', { token: dev.token, headers: replayHeaders() })
       assert.equal(rInc.json.sessions.length, 1, 'includeArchived=1 reveals archived session')
       assert.ok(rInc.json.sessions[0].archivedAt > 0, 'archivedAt projected')
       // REST messages 尾部取数（R10 端到端最小面）
       lifecycle.unarchiveSession(parentRow.id)
-      const rTail = await gwRequest(8746, 'GET', '/v1/sessions/' + detail.session.childSessions[0].id + '/messages?last=5', { token: dev.token, headers: replayHeaders() })
+      const rTail = await gwRequest(port, 'GET', '/v1/sessions/' + detail.session.childSessions[0].id + '/messages?last=5', { token: dev.token, headers: replayHeaders() })
       assert.equal(rTail.status, 200)
       assert.equal(rTail.json.items.length, 1, 'REST last= tail works')
       assert.ok(!('sourceRef' in rTail.json.items[0]), 'REST items never carry sourceRef')
@@ -9547,8 +9591,8 @@ if (isEntrypoint()) {
     const m = await gwCaseSetup('devhub-uxa-148-')
     const db = m.dbModule.getDatabase()
     try {
-      await startGatewayEnabled(m)
-      const dev = await pairViaHttp(8746, 'uxa-148-phone')
+      const port = (await startGatewayEnabled(m)).actualPort
+      const dev = await pairViaHttp(port, 'uxa-148-phone')
       const now = Math.floor(Date.now() / 1000)
       // codex 行：managed 能力（已验证）；zcode 行：observed（已验证）；kimi：过期能力
       const capsManaged = JSON.stringify({ mode: 'managed', granted: ['reply', 'pause', 'resume'], verifiedAt: now, evidence: 'fixture managed' })
@@ -9572,7 +9616,7 @@ if (isEntrypoint()) {
       m.svc.setProviderOverride('codex', spawnStub('codex'))
       m.svc.setProviderOverride('zcode', spawnStub('zcode'))
 
-      const post = (path, body, opts = {}) => gwRequest(8746, 'POST', path, {
+      const post = (path, body, opts = {}) => gwRequest(port, 'POST', path, {
         body,
         token: opts.token === undefined ? dev.token : opts.token,
         headers: replayHeaders(),
@@ -9627,7 +9671,7 @@ if (isEntrypoint()) {
       const rEmpty = await post('/v1/providers/codex/sessions', { task: '  ' })
       assert.equal(rEmpty.status, 400, 'blank task BAD_PAYLOAD')
       assert.equal(rEmpty.json.error.code, 'BAD_PAYLOAD')
-      const rNoAuth = await gwRequest(8746, 'POST', '/v1/providers/codex/sessions', { body: { task: 'x' }, headers: replayHeaders() })
+      const rNoAuth = await gwRequest(port, 'POST', '/v1/providers/codex/sessions', { body: { task: 'x' }, headers: replayHeaders() })
       assert.equal(rNoAuth.status, 401, 'bearer required (four-piece security)')
       // 数字 id 形态受理
       const codexRowId = db.prepare("SELECT id FROM agent_providers WHERE provider = 'codex'").get().id
@@ -11223,12 +11267,16 @@ if (isEntrypoint()) {
       m.relay.startRelayClient()
       await r1HelloNewConnection(stub)
       await pollUntil(() => m.relay.getRelayClientDiagnostics().status === 'ready', 5000, 30, 'relay ready')
+      // 端口卫生（smoke-port-hygiene 批）：r1 夹具无 gwCaseSetup，就地分配随机空闲口
+      // 写入 gateway_port 后再起网关——bind/connect 走 actualPort，8746 占位不再影响。
+      const gwPort = await allocateEphemeralPort()
+      m.settingsSvc.setSetting('gateway_port', String(gwPort))
       const started = await gw.startGateway()
       assert.equal(started.running, true, 'gateway listening for the REST create')
-      assert.equal(started.actualPort, 8746, 'gateway on default port')
+      assert.equal(started.actualPort, gwPort, 'gateway on the case-allocated port')
 
       // 回环 REST 签发（与 ac6-122 pairingCreateHttp 同形：防重放头必带）
-      const r = await gwRequest(8746, 'POST', '/v1/pairing/create', { body: { deviceName: 'nb-c6a-phone' }, headers: replayHeaders() })
+      const r = await gwRequest(started.actualPort, 'POST', '/v1/pairing/create', { body: { deviceName: 'nb-c6a-phone' }, headers: replayHeaders() })
       assert.equal(r.status, 201, `pairing/create -> 201, got ${r.status} ${r.raw}`)
       // 响应契约不变：{pairingId, 8 位 Crockford 码, expiresAt ≈ now+300}
       assert.match(r.json.pairingId, /^pair-/, 'pairingId shape unchanged')
