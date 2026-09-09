@@ -45,6 +45,12 @@ export const IPC_GATEWAY = 'devhub:invoke' as const
  * 授权的同一模式就地更新）：contestpin 4 条并入，84 → 88（configList READ_ONLY
  * 掩码 / configSave / configDelete CONFIRM_REQUIRED 两段式 / configTest——
  * service 经 openaiClient 传输注入面，smoke fake transport 零联网）。
+ * CP3b 批次 note（ContestPin 材料导入+识别管线+核对界面，docs/22 §5 + docs/04
+ * 「ContestPin 追加」节授权的同一模式就地更新）：contestpin 9 条并入，88 → 97
+ * （materialsList / importMaterials / importCreate / importStatus READ_ONLY /
+ * importCancel / importRetry / draftList READ_ONLY / draftConfirm / draftDiscard
+ * 两段式——识别调用一律 openaiClient 注入传输，零真实网络；任务书 §2.3 计 +6
+ * 与列名 7 条不符，按其"以实际为准"条款落 9 条，docs/04 与计数断言同步）。
  */
 export const IPC_CHANNELS = [
   // scan
@@ -170,6 +176,18 @@ export const IPC_CHANNELS = [
   'contestpin:configSave',
   'contestpin:configDelete',
   'contestpin:configTest',
+  // contestpin（CP3b 批次，docs/22 §5 材料导入+两阶段识别管线+核对界面：
+  // materialsList/importStatus/draftList 为 READ_ONLY；draftConfirm/draftDiscard
+  // 为 CONFIRM_REQUIRED 两段式；识别调用经 openaiClient 注入传输零真实网络）
+  'contestpin:materialsList',
+  'contestpin:importMaterials',
+  'contestpin:importCreate',
+  'contestpin:importStatus',
+  'contestpin:importCancel',
+  'contestpin:importRetry',
+  'contestpin:draftList',
+  'contestpin:draftConfirm',
+  'contestpin:draftDiscard',
 ] as const
 
 /** Compile-time whitelist: a handler map must be keyed by IpcChannel. */

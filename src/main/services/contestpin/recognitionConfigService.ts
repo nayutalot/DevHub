@@ -337,6 +337,48 @@ export function deleteConfig(payload: RecognitionConfigDeletePayload): Recogniti
 }
 
 // ---------------------------------------------------------------------------
+// 管线调用解析（CP3b：识别调用前的一次性解密出口）
+// ---------------------------------------------------------------------------
+
+/** 管线调用面：明文 key 仅内存瞬间存在，绝不落日志/缓存/返回值之外。 */
+export interface ResolvedRecognitionConfig {
+  id: number
+  role: RecognitionConfigRole
+  baseUrl: string
+  model: string
+  /** 未配置 key（key_sealed NULL）→ 缺省（无鉴权端点）。 */
+  apiKey?: string
+  /** 行内未配置 → 缺省（openaiClient 默认 60000ms）。 */
+  timeoutMs?: number
+}
+
+/**
+ * resolveConfigForCall(id)：存在性校验（NOT_FOUND）→ getKeyCrypto 解密 →
+ * 返回 { baseUrl, model, apiKey, timeoutMs, role }。key 不可解密 → DB_ERROR
+ * （与 testConfig 同文案，绝不伪造可用性）。CP3a 报告建议原样采纳。
+ */
+export async function resolveConfigForCall(id: number): Promise<ResolvedRecognitionConfig> {
+  const row = getConfigRow(id)
+  const crypto = getKeyCrypto()
+  let apiKey: string | undefined
+  if (row.key_sealed !== null) {
+    const plain = await unsealKey(row.key_sealed, crypto)
+    if (plain === null) {
+      throw new ServiceError('DB_ERROR', `识别配置 ${id} 的密钥不可解密（系统密钥环境变更或数据损坏），请重新录入 API Key`)
+    }
+    apiKey = plain
+  }
+  return {
+    id: Number(row.id),
+    role: row.role as RecognitionConfigRole,
+    baseUrl: row.base_url,
+    model: row.model,
+    ...(apiKey !== undefined && apiKey.length > 0 ? { apiKey } : {}),
+    ...(row.timeout_ms !== null ? { timeoutMs: Number(row.timeout_ms) } : {}),
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 连接测试（解密 → probeConfig → 落 last_test_* → 分类文案）
 // ---------------------------------------------------------------------------
 
@@ -366,27 +408,19 @@ function classifyTestFailure(failure: ChatFailure): { kind: RecognitionTestError
 }
 
 /**
- * 连接测试：解密（getKeyCrypto，明文仅内存瞬间）→ probeConfig（按角色发
+ * 连接测试：resolveConfigForCall（解密，明文仅内存瞬间）→ probeConfig（按角色发
  * ping / 1x1 红 PNG）→ 落 last_test_at/last_test_ok/last_test_usage_json
  * （仅实测 usage 才写 JSON；'unknown' 与失败一律 NULL）→ 返回测试结果。
  */
 export async function testConfig(id: number): Promise<RecognitionTestResult> {
   const row = getConfigRow(id)
-  const crypto = getKeyCrypto()
-  let apiKey: string | undefined
-  if (row.key_sealed !== null) {
-    const plain = await unsealKey(row.key_sealed, crypto)
-    if (plain === null) {
-      throw new ServiceError('DB_ERROR', `识别配置 ${id} 的密钥不可解密（系统密钥环境变更或数据损坏），请重新录入 API Key`)
-    }
-    apiKey = plain
-  }
+  const resolved = await resolveConfigForCall(id)
   const probed = await probeConfig(
     {
-      baseUrl: row.base_url,
-      model: row.model,
-      ...(apiKey !== undefined && apiKey.length > 0 ? { apiKey } : {}),
-      ...(row.timeout_ms !== null ? { timeoutMs: Number(row.timeout_ms) } : {}),
+      baseUrl: resolved.baseUrl,
+      model: resolved.model,
+      ...(resolved.apiKey !== undefined ? { apiKey: resolved.apiKey } : {}),
+      ...(resolved.timeoutMs !== undefined ? { timeoutMs: resolved.timeoutMs } : {}),
     },
     row.role as RecognitionConfigRole,
   )

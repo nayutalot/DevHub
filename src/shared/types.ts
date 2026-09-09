@@ -2327,6 +2327,275 @@ export interface RecognitionTestResult {
   error?: { kind: RecognitionTestErrorKind; message: string }
 }
 
+// --- contestpin 材料导入与识别管线（CP3b 批次，docs/22 §5 + 任务书 §2.1-§2.3） ---
+
+export interface ContestMaterialListPayload {
+  // 预留：kind 过滤等（当前无服务端参数）
+}
+
+export interface ContestMaterialListResult {
+  materials: ContestMaterialView[]
+}
+
+/**
+ * contestpin:importMaterials 载荷：paths（renderer 文件对话框/拖入经 webUtils
+ * 落路径）或 pasteClipboard（main 读系统剪贴板截图）二选一；都缺省 → BAD_PAYLOAD。
+ */
+export interface ContestImportMaterialsPayload {
+  paths?: string[]
+  pasteClipboard?: boolean
+  /** 限制覆盖（单文件字节/单批份数；越硬上限截断，service 侧 clamp）。 */
+  limits?: { maxFileBytes?: number; maxBatch?: number }
+}
+
+export interface ContestImportMaterialsResult {
+  materials: ContestMaterialView[]
+  /** true = 剪贴板不可用/无图/未注入 reader（结构化 no-op，openInMain 先例）。 */
+  clipboardUnavailable?: boolean
+}
+
+/** 识别导入模式（CP3b 落地 two_stage/multimodal；agent/manual_pack 归 CP5，创建期拒绝）。 */
+export type ContestImportMode = 'two_stage' | 'multimodal'
+
+/** 008 contest_import_jobs.stage 九值全集（docs/22 §2.1）。 */
+export type ContestImportStage =
+  | 'imported'
+  | 'preprocessed'
+  | 'vision_done'
+  | 'text_done'
+  | 'validated'
+  | 'draft'
+  | 'confirmed'
+  | 'failed'
+  | 'cancelled'
+
+/** finding 级来源映射（docs/22 §5：{field, materialId, page, excerpt} 全程保留）。 */
+export interface ImportProvenance {
+  materialId: number
+  page: number
+  excerpt: string
+}
+
+/** 链接字段：仅当来源=原文或 PDF 超链接才携带（provenance 缺失在校验期剔除+flag）。 */
+export interface ImportLinkDraft {
+  url: string
+  provenance?: ImportProvenance
+}
+
+/** 节点草稿：时刻为原文文本（startAtText），unix 秒解析归校验阶段；精度语义 docs/22 §2.2。 */
+export interface ImportNodeDraft {
+  kind: ContestNodeKind
+  label: string
+  precision: ContestNodePrecision
+  /** 原文时刻串（ISO 风格 'YYYY-MM-DD HH:mm' / 'YYYY-MM-DD' / 'YYYY-MM' / '待定'）。 */
+  startAtText?: string
+  endAtText?: string
+  rawText?: string
+  provenance?: ImportProvenance
+  /** 校验阶段按文本解析回填的 unix 秒（'date'=当日 00:00、'month'=当月 1 日 00:00，本地时区）；tbd/未解析 → null。 */
+  startAt?: number | null
+  endAt?: number | null
+}
+
+/** 比赛草稿（识别 JSON 契约的规范化形态；year 可空=缺少年份不编造）。 */
+export interface ImportContestDraft {
+  name: string
+  year: number | null
+  edition?: string
+  organizer?: string
+  officialSite?: ImportLinkDraft
+  signupUrl?: ImportLinkDraft
+  submitUrl?: ImportLinkDraft
+  nodes: ImportNodeDraft[]
+}
+
+/** 模糊/冲突标记（{field,reason,excerpt}；展示待核对，绝不自动丢弃）。 */
+export interface ImportFlag {
+  field: string
+  reason: string
+  excerpt?: string
+}
+
+/** 结构化草稿（识别 JSON 契约 LLM 输出经解析+程序化校验后的落库形态）。 */
+export interface ImportDraftView {
+  contests: ImportContestDraft[]
+  flags: ImportFlag[]
+}
+
+/** error_json 形状：chat 六分类复用 + 管线自有类（LIMIT/PAGE_RENDER_UNAVAILABLE/CONFIG_MISSING/INTERNAL/BAD_RESPONSE）。 */
+export interface ImportJobError {
+  kind: string
+  message: string
+}
+
+/** 视觉阶段逐页结果（source：页转图 render / 整图 image / 文字 PDF 本地提取 local_text）。 */
+export interface ImportVisionPage {
+  materialId: number
+  page: number
+  text: string
+  source: 'render' | 'image' | 'local_text'
+}
+
+/** result_json 的解析投影。 */
+export interface ImportJobResultView {
+  /** 预处理（PDF 页数/截断/降级可用性/本地链接/逐页本地文本，单页文本截断 20000 字符）。 */
+  preprocessing?: {
+    pageCount: number | null
+    truncatedByLimit: boolean
+    renderAvailable: boolean
+    links: { uri: string; page: number }[]
+    pages: { page: number; text: string }[]
+  }
+  /** 视觉阶段逐页输出（two_stage 中间结果；缓存命中带 reusedFromJobId）。 */
+  vision?: {
+    pages: ImportVisionPage[]
+    reusedFromJobId?: number
+  }
+  /** 校验+核对用结构化草稿（validated/draft 阶段落位）。 */
+  draft?: ImportDraftView
+}
+
+/** contest_import_jobs 行投影（importStatus/draftList/importCreate 返回）。 */
+export interface ContestImportJobView {
+  id: number
+  contestId: number | null
+  material: ContestMaterialView | null
+  mode: ContestImportMode
+  stage: ContestImportStage
+  visionConfigId: number | null
+  textConfigId: number | null
+  visionFingerprint: string | null
+  params: Record<string, unknown> | null
+  result: ImportJobResultView | null
+  error: ImportJobError | null
+  /** 0-100（null = 未开始/不适用）。 */
+  progress: number | null
+  createdAt: number
+  updatedAt: number
+}
+
+// --- contestpin:importCreate ---
+
+export interface ContestImportCreateParams {
+  /** 页范围（1 基，闭区间；缺省全页，受 PDF 页上限截断）。 */
+  pageFrom?: number
+  pageTo?: number
+  /** 用户显式选择跳过有本地文字的页（不静默改变两阶段流程，docs/22 §5）。 */
+  skipTextPages?: boolean
+  /** 缺省 = 无配置（阶段期 CONFIG_MISSING 失败）；正整数且必须存在。 */
+  visionConfigId?: number
+  textConfigId?: number
+  /** 限制覆盖（材料侧/页上限，硬上限封顶）。 */
+  limits?: { maxFileBytes?: number; maxBatch?: number; maxPdfPages?: number }
+}
+
+export interface ContestImportCreatePayload {
+  materialIds: number[]
+  /** 缺省读 settings contestpin_default_mode。 */
+  mode?: ContestImportMode
+  params?: ContestImportCreateParams
+}
+
+export interface ContestImportCreateResult {
+  jobs: ContestImportJobView[]
+}
+
+// --- contestpin:importStatus（READ_ONLY 轮询；jobId 缺省 = 全量最新 50） ---
+
+export interface ContestImportStatusPayload {
+  jobId?: number
+}
+
+export interface ContestImportStatusResult {
+  jobs: ContestImportJobView[]
+}
+
+// --- contestpin:importCancel ---
+
+export interface ContestImportCancelPayload {
+  jobId: number
+}
+
+export interface ContestImportCancelResult {
+  cancelled: boolean
+  stage: ContestImportStage
+}
+
+// --- contestpin:importRetry（fromStage：重跑该阶段及以后） ---
+
+export type ContestImportRetryFromStage = 'vision' | 'text' | 'validate'
+
+export interface ContestImportRetryPayload {
+  jobId: number
+  fromStage: ContestImportRetryFromStage
+}
+
+export interface ContestImportRetryResult {
+  job: ContestImportJobView
+}
+
+// --- contestpin:draftList（READ_ONLY：stage='draft' 的任务） ---
+
+export interface ContestImportDraftListPayload {
+  // 预留：分页（草稿量级小，当前全量）
+}
+
+export interface ContestImportDraftListResult {
+  jobs: ContestImportJobView[]
+}
+
+// --- contestpin:draftConfirm（两段式：先回相似比赛 diff 面 + 草稿；confirmed 落库） ---
+
+export interface ContestImportDraftConfirmPayload {
+  jobId: number
+  /** 缺省 = 返回确认面（相似比赛检测）；true = 确认执行。 */
+  confirmed?: boolean
+  /** 用户选择合并进既有比赛（追加节点，绝不静默覆盖既有字段/节点）。 */
+  mergeIntoContestId?: number
+  /** 核对界面逐字段编辑后的草稿覆盖（缺省用落库草稿；覆盖同样过程序化校验）。 */
+  draft?: ImportDraftView
+}
+
+/** 相似比赛（同 name 或 name+year 近似；renderer 呈现新旧 diff，用户选择合并或另建）。 */
+export interface ContestSimilarItem {
+  id: number
+  name: string
+  year: number | null
+  nodeCount: number
+  status: ContestStatus
+}
+
+export interface ContestImportDraftConfirmStart {
+  confirmRequired: true
+  draft: ImportDraftView
+  similar: ContestSimilarItem[]
+}
+
+export interface ContestImportDraftConfirmResult {
+  confirmRequired?: undefined
+  merged: boolean
+  contestId: number
+  contest: ContestView
+}
+
+// --- contestpin:draftDiscard（两段式；仅 stage='draft' 可弃） ---
+
+export interface ContestImportDraftDiscardPayload {
+  jobId: number
+  confirmed?: boolean
+}
+
+export interface ContestImportDraftDiscardStart {
+  confirmRequired: true
+  jobId: number
+  materialName: string | null
+}
+
+export interface ContestImportDraftDiscardResult {
+  confirmRequired?: undefined
+  removed: true
+}
+
 // ---------------------------------------------------------------------------
 // 7. Gateway request & channel contract table (constraint #17)
 // ---------------------------------------------------------------------------
@@ -2448,6 +2717,18 @@ export interface ChannelContract {
   'contestpin:configSave': [RecognitionConfigSavePayload, RecognitionConfigView]
   'contestpin:configDelete': [RecognitionConfigDeletePayload, RecognitionConfigDeleteStart | RecognitionConfigDeleteResult]
   'contestpin:configTest': [RecognitionConfigTestPayload, RecognitionTestResult]
+  // --- contestpin (CP3b batch, docs/22 §5 + docs/04「ContestPin 追加」节；
+  //     materialsList/importStatus/draftList 为 READ_ONLY，draftConfirm/draftDiscard
+  //     为 CONFIRM_REQUIRED 两段式) ---
+  'contestpin:materialsList': [ContestMaterialListPayload, ContestMaterialListResult]
+  'contestpin:importMaterials': [ContestImportMaterialsPayload, ContestImportMaterialsResult]
+  'contestpin:importCreate': [ContestImportCreatePayload, ContestImportCreateResult]
+  'contestpin:importStatus': [ContestImportStatusPayload, ContestImportStatusResult]
+  'contestpin:importCancel': [ContestImportCancelPayload, ContestImportCancelResult]
+  'contestpin:importRetry': [ContestImportRetryPayload, ContestImportRetryResult]
+  'contestpin:draftList': [ContestImportDraftListPayload, ContestImportDraftListResult]
+  'contestpin:draftConfirm': [ContestImportDraftConfirmPayload, ContestImportDraftConfirmStart | ContestImportDraftConfirmResult]
+  'contestpin:draftDiscard': [ContestImportDraftDiscardPayload, ContestImportDraftDiscardStart | ContestImportDraftDiscardResult]
 }
 
 /** Compile-time assertion that ChannelContract covers exactly the whitelist. */

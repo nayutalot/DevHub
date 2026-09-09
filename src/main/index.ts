@@ -30,6 +30,7 @@ import {
 } from './core/quitGuarantee.ts'
 import { closeDatabase, getDatabase } from './db/index.ts'
 import { createSafeStorageKeyCrypto } from './keyStoreWire.ts'
+import { installContestpinWire, shutdownContestpinWire } from './contestpinWire.ts'
 import { registerGateway } from './ipc/gateway.ts'
 import { setKeyCrypto } from './services/apihub/keyStore.ts'
 import { injectAutoStart } from './autostartWire.ts'
@@ -204,6 +205,7 @@ function showMainWindowNavigateContest(contestId: number): void {
  */
 async function runQuitTeardown(): Promise<void> {
   destroyOverlay()
+  shutdownContestpinWire()
   if (trayRefreshTimer !== null) {
     clearInterval(trayRefreshTimer)
     trayRefreshTimer = null
@@ -318,6 +320,9 @@ function bootstrapMainProcess(): void {
       // safeStorage 不可用时其实现返回结构化错误（档案标记不可用，绝不明文落库）
       setKeyCrypto(createSafeStorageKeyCrypto())
       logger.info('apihub key crypto: electron safeStorage injected')
+
+      // ContestPin main 侧胶水注入（CP3b）：系统剪贴板图片读取器（粘贴截图）
+      installContestpinWire()
 
       // 自启注入 + 按现值应用一次（docs/12 §10：login_autostart 驱动 setLoginItemSettings）
       injectAutoStart()

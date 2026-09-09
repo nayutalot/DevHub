@@ -144,6 +144,24 @@ loadRenderer hash `contest:<id>`（ViewTarget 扩展）；主窗口隐藏时照�
 - **重复与合并**：UNIQUE(sha256) 文件级去重；相似比赛/延期通知展示新旧差异，
   用户确认后才合并，**不静默覆盖**；确认前草稿不进正式提醒。
 
+### 5.1 CP3b 落地注记（2026-09-09，白名单 88→97）
+
+- **依赖裁决（worktree 内实测，Node 24.15 / win32 x64）**：`pdfjs-dist`
+  6.3.289（legacy build，纯 JS）文本+注释超链接往返通过；`@napi-rs/canvas`
+  1.0.9（预编译二进制）页渲染 JPEG 通过——**两者均可用，无功能降级**。
+  降级路径仍完整实现并经 smoke override 注入测试（`PAGE_RENDER_UNAVAILABLE`
+  结构化错误 + 文字 PDF 本地文本直进文本阶段），未来平台缺二进制时不阻塞。
+- **二维码解码本批不做**（backlog，charter 允许可选源；网址优先级现状 =
+  原文 > PDF 超链接）。
+- **通道实拆偏差**：任务书 §2.3 计 +6 与列名 7 条（importCreate/Status/Cancel/
+  Retry/draftList/draftConfirm/draftDiscard）不一致，按其「以实际为准」条款
+  落 9 条（materials 2 + 管线 7），88→97，docs/04 与计数断言 4 处同步。
+  draftUpdate 不设通道：核对界面逐字段编辑随 draftConfirm 的 draft 载荷提交，
+  服务端过同款程序化校验。
+- **精度防线落位**：节点精度以原文文本形态为权威——模型标 exact 而原文仅日期
+  → 降级 date + flag（precision_escalation_rejected）；时刻不可解析 → tbd +
+  flag；共享校验抽至 contestRules.ts 与 contestService 同源。
+
 ## 6. OpenAI 兼容客户端与识别配置（CP3）
 
 - `services/contestpin/openaiClient.ts`：electron-free、传输层注入（默认原生

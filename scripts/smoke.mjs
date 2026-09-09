@@ -117,8 +117,13 @@ if (isEntrypoint()) {
   // CP3a 批次 note（ContestPin 识别配置，docs/22 §6 授权的同一模式就地更新）：
   // contestpin 4 条并入，84 → 88（configList/configSave/configDelete/configTest；
   // configDelete 为 CONFIRM_REQUIRED 两段式）。
+  // CP3b 批次 note（ContestPin 材料导入+识别管线+核对界面，docs/22 §5 授权的
+  // 同一模式就地更新）：contestpin 9 条并入，88 → 97（materialsList/importMaterials/
+  // importCreate/importStatus/importCancel/importRetry/draftList/draftConfirm/
+  // draftDiscard；draftConfirm/draftDiscard 为 CONFIRM_REQUIRED 两段式；任务书 §2.3
+  // "+6" 与列名 7 条不一致，按其"以实际为准"条款落 9 条并在偏差清单报告）。
   // ------------------------------------------------------------------
-  registerCase('step1: channels whitelist has exactly 88 entries (CP3a 就地更新 84→88) and IPC_GATEWAY', async () => {
+  registerCase('step1: channels whitelist has exactly 97 entries (CP3b 就地更新 88→97) and IPC_GATEWAY', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     assert.equal(channels.IPC_GATEWAY, 'devhub:invoke', 'gateway channel')
     const expected = [
@@ -221,10 +226,20 @@ if (isEntrypoint()) {
       'contestpin:configSave',
       'contestpin:configDelete',
       'contestpin:configTest',
+      // CP3b contestpin materials/import/draft group (docs/22 §5 + docs/04「ContestPin 追加」节)
+      'contestpin:materialsList',
+      'contestpin:importMaterials',
+      'contestpin:importCreate',
+      'contestpin:importStatus',
+      'contestpin:importCancel',
+      'contestpin:importRetry',
+      'contestpin:draftList',
+      'contestpin:draftConfirm',
+      'contestpin:draftDiscard',
     ]
-    assert.equal(channels.IPC_CHANNELS.length, 88, `expected 88 channels, got ${channels.IPC_CHANNELS.length}`)
-    assert.deepEqual([...channels.IPC_CHANNELS], expected, 'whitelist must match docs/04 + docs/09 §9 + docs/10 §11 + docs/14 §A.1 + docs/04 ContestPin 追加节 + docs/22 §4/§6 exactly')
-    assert.equal(new Set(channels.IPC_CHANNELS).size, 88, 'no duplicate channels')
+    assert.equal(channels.IPC_CHANNELS.length, 97, `expected 97 channels, got ${channels.IPC_CHANNELS.length}`)
+    assert.deepEqual([...channels.IPC_CHANNELS], expected, 'whitelist must match docs/04 + docs/09 §9 + docs/10 §11 + docs/14 §A.1 + docs/04 ContestPin 追加节 + docs/22 §4/§5/§6 exactly')
+    assert.equal(new Set(channels.IPC_CHANNELS).size, 97, 'no duplicate channels')
   }, 'fast')
 
   // ------------------------------------------------------------------
@@ -981,14 +996,14 @@ if (isEntrypoint()) {
   // CHANNEL_NOT_ALLOWED（文档权威原则，约束 #6）。
   // ------------------------------------------------------------------
   registerCase(
-    'step6: handler registry keys equal the 88-channel whitelist (CP3a 就地更新 84→88); app:version returns injected value; unknown channel folds to CHANNEL_NOT_ALLOWED envelope',
+    'step6: handler registry keys equal the 97-channel whitelist (CP3b 就地更新 88→97); app:version returns injected value; unknown channel folds to CHANNEL_NOT_ALLOWED envelope',
     async () => {
       const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
       const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
       const registry = handlers.createHandlerRegistry({ appVersion: '0.1.0-smoke' })
       const keys = Object.keys(registry).sort()
-      assert.equal(keys.length, 88, `registry must hold exactly 88 handlers, got ${keys.length}`)
+      assert.equal(keys.length, 97, `registry must hold exactly 97 handlers, got ${keys.length}`)
       assert.deepEqual(keys, [...channels.IPC_CHANNELS].sort(), 'registry keys must equal IPC_CHANNELS (no more, no less)')
 
       const version = await registry['app:version']({})
@@ -3482,12 +3497,12 @@ if (isEntrypoint()) {
   //  CP2 就地更新 79→84，docs/22 §4 悬浮窗 5 条；CP3a 就地更新 84→88，docs/22 §6
   //  识别配置 4 条）：
   //  registry 键集 = 白名单 = 契约覆盖
-  registerCase('s4-68: whitelist 45→50 (S5 就地更新为 55，AC2 就地更新 55→68，夜间#1 就地更新 68→70，CP1 就地更新 70→79，CP2 就地更新 79→84，CP3a 就地更新 84→88) — registry keys equal the whitelist and the compile-time contract assertion holds', async () => {
+  registerCase('s4-68: whitelist 45→50 (S5 就地更新为 55，AC2 就地更新 55→68，夜间#1 就地更新 68→70，CP1 就地更新 70→79，CP2 就地更新 79→84，CP3a 就地更新 84→88，CP3b 就地更新 88→97) — registry keys equal the whitelist and the compile-time contract assertion holds', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
-    assert.equal(channels.IPC_CHANNELS.length, 88, 'whitelist extended 45 → 50 (S4), 50 → 55 (S5 archive), 55 → 68 (AC2 agents), 68 → 70 (夜间#1), 70 → 79 (CP1 contestpin 9 条), 79 → 84 (CP2 contestpin 悬浮窗 5 条), 84 → 88 (CP3a contestpin 识别配置 4 条)')
-    assert.equal(new Set(channels.IPC_CHANNELS).size, 88, 'no duplicates after extension')
+    assert.equal(channels.IPC_CHANNELS.length, 97, 'whitelist extended 45 → 50 (S4), 50 → 55 (S5 archive), 55 → 68 (AC2 agents), 68 → 70 (夜间#1), 70 → 79 (CP1 contestpin 9 条), 79 → 84 (CP2 contestpin 悬浮窗 5 条), 84 → 88 (CP3a contestpin 识别配置 4 条), 88 → 97 (CP3b contestpin 材料导入/识别管线/核对界面 9 条)')
+    assert.equal(new Set(channels.IPC_CHANNELS).size, 97, 'no duplicates after extension')
     // 编译期断言 AssertContractCoversWhitelist 的解析产物（ChannelContract 恰好覆盖白名单）
     assert.equal(handlers.contractCoversWhitelist, true, 'ChannelContract covers exactly the whitelist (compile-time, observed at runtime)')
 
@@ -4617,7 +4632,7 @@ if (isEntrypoint()) {
   }, 'fast')
 
   // 84. agents 13 条 channel：白名单尾部按 docs/14 §A.1 顺序逐字存在 + 注册表覆盖
-  registerCase('ac2-84: agents channels (14, 夜间#1 就地更新 13→14) — whitelist tail in docs/14 §A.1 order, registry handlers, compile-time contract assertion holds（CP3a 就地更新 84→88：contestpin 尾窗再前移）', async () => {
+  registerCase('ac2-84: agents channels (14, 夜间#1 就地更新 13→14) — whitelist tail in docs/14 §A.1 order, registry handlers, compile-time contract assertion holds（CP3b 就地更新 88→97：contestpin 尾窗再前移）', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
@@ -4637,12 +4652,12 @@ if (isEntrypoint()) {
       'agents:diagnostics',
       'agents:probeProvider',
     ]
-    assert.equal(channels.IPC_CHANNELS.length, 88, 'whitelist 55 → 70 (docs/14 §A.2; 夜间#1 就地更新 68→70), 70 → 79 (CP1 就地更新，docs/04 ContestPin 追加节), 79 → 84 (CP2 就地更新，docs/22 §4 悬浮窗 5 条), 84 → 88 (CP3a 就地更新，docs/22 §6 识别配置 4 条)')
-    // CP3a 就地更新：CP2 后追加 CP3a contestpin 4 条（configList/Save/Delete/Test），
-    // agents 尾窗再前移为 slice(-32, -18)
-    assert.deepEqual([...channels.IPC_CHANNELS.slice(-32, -18)], expectedAgents, '14 agents channels appended verbatim in docs/14 §A.1 order (夜间#1 就地更新 13→14)')
+    assert.equal(channels.IPC_CHANNELS.length, 97, 'whitelist 55 → 70 (docs/14 §A.2; 夜间#1 就地更新 68→70), 70 → 79 (CP1 就地更新，docs/04 ContestPin 追加节), 79 → 84 (CP2 就地更新，docs/22 §4 悬浮窗 5 条), 84 → 88 (CP3a 就地更新，docs/22 §6 识别配置 4 条), 88 → 97 (CP3b 就地更新，docs/22 §5 材料导入/识别管线 9 条)')
+    // CP3a 就地更新 84→88、CP3b 就地更新 88→97：CP3b 后追加 contestpin 9 条
+    // （materials/import/draft），agents 尾窗再前移为 slice(-41, -27)
+    assert.deepEqual([...channels.IPC_CHANNELS.slice(-41, -27)], expectedAgents, '14 agents channels appended verbatim in docs/14 §A.1 order (夜间#1 就地更新 13→14)')
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-18, -9)],
+      [...channels.IPC_CHANNELS.slice(-27, -18)],
       [
         'contestpin:list',
         'contestpin:get',
@@ -4657,7 +4672,7 @@ if (isEntrypoint()) {
       '9 contestpin channels appended verbatim in docs/04 ContestPin 追加节 order (CP1 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-9, -4)],
+      [...channels.IPC_CHANNELS.slice(-18, -13)],
       [
         'contestpin:overlayState',
         'contestpin:overlaySetEnabled',
@@ -4668,7 +4683,7 @@ if (isEntrypoint()) {
       '5 contestpin overlay channels appended verbatim in docs/22 §4 order (CP2 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-4)],
+      [...channels.IPC_CHANNELS.slice(-13, -9)],
       [
         'contestpin:configList',
         'contestpin:configSave',
@@ -4676,6 +4691,21 @@ if (isEntrypoint()) {
         'contestpin:configTest',
       ],
       '4 contestpin recognition-config channels appended verbatim in docs/22 §6 order (CP3a 批次)',
+    )
+    assert.deepEqual(
+      [...channels.IPC_CHANNELS.slice(-9)],
+      [
+        'contestpin:materialsList',
+        'contestpin:importMaterials',
+        'contestpin:importCreate',
+        'contestpin:importStatus',
+        'contestpin:importCancel',
+        'contestpin:importRetry',
+        'contestpin:draftList',
+        'contestpin:draftConfirm',
+        'contestpin:draftDiscard',
+      ],
+      '9 contestpin materials/import/draft channels appended verbatim in docs/22 §5 order (CP3b 批次)',
     )
 
     const registry = handlers.createHandlerRegistry({ appVersion: 'ac2-smoke' })
@@ -12046,6 +12076,417 @@ if (isEntrypoint()) {
         assert.equal(client.normalizeChatCompletionsUrl('  https://y/v1//  '), 'https://y/v1/chat/completions')
       } finally {
         client.setChatTransport(null)
+      }
+    },
+    'fast',
+  )
+
+  // ====================================================================
+  // CP3b 批次（ContestPin 材料导入 + 两阶段识别管线 + 依赖实测，docs/22 §5 +
+  // docs/04「ContestPin 追加」节 CP3b 九行）。三个 fast 用例：
+  //   - cp3b-pdf：pdfjs 文本+链接提取与 @napi-rs/canvas 页转图（依赖实测路径）
+  //     + override(false) 降级路径断言；
+  //   - cp3b-materials：sha256 去重/落盘/kind 判定/超限拒绝/粘贴 buffer/限制覆盖；
+  //   - cp3b-pipeline：fake transport 驱动全状态机（两阶段 happy/文本失败单独
+  //     重试/取消后晚到结果丢弃/跨行缓存命中/精度 date→exact 拒绝/多模态/
+  //     draftConfirm 两段式+相似比赛+合并/draftDiscard 两段式）。
+  // 识别调用一律 setChatTransport 注入 —— 零真实网络（时窗红线）；finally 恢复。
+  // ====================================================================
+
+  /** CP3b 夹具：最小合法 PDF（2 页；第 1 页文字+URI 链接注释，第 2 页空=扫描页）。 */
+  function cp3bPdfFixture() {
+    const objs = []
+    objs[1] = '<< /Type /Catalog /Pages 2 0 R >>'
+    objs[2] = '<< /Type /Pages /Kids [3 0 R 7 0 R] /Count 2 >>'
+    objs[3] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R /Annots [6 0 R] >>'
+    const stream1 = 'BT /F1 16 Tf 72 700 Td (AI Cup 2026 notice) Tj ET\nBT /F1 12 Tf 72 660 Td (Signup deadline 2026-10-01) Tj ET'
+    objs[4] = `<< /Length ${stream1.length} >>\nstream\n${stream1}\nendstream`
+    objs[5] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'
+    objs[6] = '<< /Type /Annot /Subtype /Link /Rect [72 640 300 660] /Border [0 0 0] /A << /S /URI /URI (https://aicup.example/signup) >> >>'
+    objs[7] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 8 0 R >>'
+    const stream2 = 'BT /F1 12 Tf 72 700 Td () Tj ET'
+    objs[8] = `<< /Length ${stream2.length} >>\nstream\n${stream2}\nendstream`
+    let out = '%PDF-1.4\n'
+    const offsets = [0]
+    for (let i = 1; i < objs.length; i++) {
+      offsets[i] = out.length
+      out += `${i} 0 obj\n${objs[i]}\nendobj\n`
+    }
+    const xrefPos = out.length
+    out += `xref\n0 ${objs.length}\n0000000000 65535 f \n`
+    for (let i = 1; i < objs.length; i++) out += String(offsets[i]).padStart(10, '0') + ' 00000 n \n'
+    out += `trailer\n<< /Size ${objs.length} /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF\n`
+    return Buffer.from(out, 'latin1')
+  }
+
+  registerCase(
+    'cp3b-pdf: pdfService 本地预处理（依赖实测裁决路径）— pdfjs 文本+链接往返 / canvas 页转图 JPEG / 图片 data URL / override(false) 降级（PAGE_RENDER_UNAVAILABLE）',
+    async () => {
+      const pdf = await import(new URL('../src/main/services/contestpin/pdfService.ts', import.meta.url).href)
+      const fixture = cp3bPdfFixture()
+
+      // 文本 + 链接提取往返（第 1 页文字 + 注释 URI；第 2 页空文字）
+      const extracted = await pdf.extractPdfContent(fixture, { maxPages: 50 })
+      assert.equal(extracted.pageCount, 2, 'numPages = 2')
+      assert.equal(extracted.truncatedByLimit, false, 'no truncation under limit')
+      assert.ok(extracted.pages[0].text.includes('AI Cup 2026 notice'), 'page 1 text round-trips')
+      assert.ok(extracted.pages[0].text.includes('Signup deadline 2026-10-01'), 'page 1 deadline text')
+      assert.deepEqual(extracted.pages[0].links.map((l) => l.uri), ['https://aicup.example/signup'], 'page 1 link annotation URI')
+      assert.equal(extracted.pages[1].text.trim().length, 0, 'page 2 is text-empty (scanned-page stand-in)')
+      // maxPages 截断
+      const truncated = await pdf.extractPdfContent(fixture, { maxPages: 1 })
+      assert.equal(truncated.truncatedByLimit, true, 'truncatedByLimit over maxPages')
+      assert.equal(truncated.pages.length, 1, 'only 1 page extracted under limit')
+      // 非法 PDF → BAD_PAYLOAD
+      await assert.rejects(
+        () => pdf.extractPdfContent(Buffer.from('not a pdf')),
+        /BAD_PAYLOAD|PDF 解析失败/,
+        'corrupt pdf rejected structurally',
+      )
+
+      // 页转图（依赖实测：@napi-rs/canvas 预编译二进制本机可用）
+      assert.equal(await pdf.isPageRenderAvailable(), true, 'canvas verdict: page render available on this machine')
+      const dataUrl = await pdf.renderPdfPageToJpegDataUrl(fixture, 1)
+      assert.ok(dataUrl.startsWith('data:image/jpeg;base64,'), 'rendered page is a JPEG data URL')
+      assert.ok(Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64').length > 500, 'rendered jpeg has real bytes')
+      await assert.rejects(() => pdf.renderPdfPageToJpegDataUrl(fixture, 9), /页码越界/, 'page out of range rejected')
+
+      // 图片材料：data URL 组装 + 缩放/嗅探
+      const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC', 'base64')
+      assert.equal(pdf.sniffImageMime(png), 'image/png', 'png magic sniffed')
+      const prepared = await pdf.prepareImageDataUrl(png, 'image/png')
+      assert.ok(prepared.dataUrl.startsWith('data:image/png;base64,'), 'small image passes through unscaled')
+      assert.equal(prepared.scaled, false, '1x1 image not scaled')
+
+      // 降级路径（override）：关掉页转图 → 探测 false + 渲染抛 PAGE_RENDER_UNAVAILABLE
+      pdf.setPageRenderAvailabilityOverride(false)
+      try {
+        assert.equal(await pdf.isPageRenderAvailable(), false, 'override forces unavailable')
+        await assert.rejects(
+          () => pdf.renderPdfPageToJpegDataUrl(fixture, 1),
+          (err) => err.code === 'PAGE_RENDER_UNAVAILABLE',
+          'degradation surfaces structured PAGE_RENDER_UNAVAILABLE',
+        )
+      } finally {
+        pdf.setPageRenderAvailabilityOverride(null) // 恢复实测（后续用例不受污染）
+      }
+      assert.equal(await pdf.isPageRenderAvailable(), true, 'override cleared → real probe again')
+    },
+    'fast',
+  )
+
+  registerCase(
+    'cp3b-materials: materialService sha256 去重（UNIQUE 命中回既有行）/ 复制落盘 contestpin/materials / kind 判定（pdf/image/other）/ 超限与批量拒绝（BAD_PAYLOAD 带 reason）/ 粘贴 buffer 强制 image / 限制覆盖 clamp',
+    async () => {
+      const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+      const mat = await import(new URL('../src/main/services/contestpin/materialService.ts', import.meta.url).href)
+      const { mkdtempSync, writeFileSync, existsSync, readFileSync } = await import('node:fs')
+      const { tmpdir } = await import('node:os')
+      const { join } = await import('node:path')
+
+      await makeTempHome('devhub-cp3b-mat-')
+      const dir = mkdtempSync(join(tmpdir(), 'devhub-cp3b-files-'))
+      const pdfBuf = cp3bPdfFixture()
+      const pngBuf = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC', 'base64')
+      const pdfPath = join(dir, 'notice.pdf')
+      const pngPath = join(dir, 'shot.png')
+      writeFileSync(pdfPath, pdfBuf)
+      writeFileSync(pngPath, pngBuf)
+
+      try {
+        // 导入 + kind 判定 + 落盘
+        const imported = await mat.importMaterials([pdfPath, pngPath])
+        assert.equal(imported.length, 2)
+        assert.equal(imported[0].kind, 'pdf', 'pdf kind by magic+ext')
+        assert.equal(imported[1].kind, 'image', 'image kind by magic')
+        assert.ok(imported[0].storedPath.includes(join('contestpin', 'materials')), 'stored under <data>/contestpin/materials')
+        assert.ok(existsSync(imported[0].storedPath), 'file copied to disk')
+        assert.deepEqual(readFileSync(imported[0].storedPath), pdfBuf, 'stored bytes identical')
+        assert.equal(imported[0].sha256.length, 64, 'sha256 hex')
+        assert.equal(imported[0].pages, null, 'pages deferred to preprocessing')
+
+        // sha256 去重：同内容重复导入 → 既有行原样返回，不重复落盘建行
+        const dup = await mat.importMaterials([pdfPath])
+        assert.equal(dup.length, 1)
+        assert.equal(dup[0].id, imported[0].id, 'duplicate returns the existing row')
+        const listed = mat.listMaterials()
+        assert.equal(listed.materials.length, 2, 'still 2 material rows after re-import')
+
+        // 超限拒绝：单文件（BAD_PAYLOAD 带 reason）
+        const bigLimit = mat.resolveMaterialLimits({ maxFileBytes: 1024 })
+        await assert.rejects(
+          () => mat.importMaterials([pdfPath], bigLimit),
+          (err) => err.code === 'BAD_PAYLOAD' && err.message.includes(pdfPath),
+          'oversize file rejected with path in reason',
+        )
+        // 批量限制 + 覆盖 clamp（maxBatch=2 → 3 份拒绝；负数覆盖忽略回默认）
+        const tight = mat.resolveMaterialLimits({ maxBatch: 2 })
+        assert.equal(tight.maxBatch, 2, 'override accepted within ceiling')
+        assert.equal(mat.resolveMaterialLimits({ maxFileBytes: -5, maxBatch: 999999 }).maxBatch, 100, 'override clamped to hard ceiling')
+        await assert.rejects(
+          () => mat.importMaterials([pdfPath, pngPath, pdfPath], tight),
+          /单批材料份数超限/,
+          'batch over limit rejected',
+        )
+        await assert.rejects(() => mat.importMaterials([join(dir, 'missing.pdf')]), /不存在或非常规文件/, 'missing path rejected')
+
+        // 粘贴 buffer：强制 image；非图 buffer → BAD_PAYLOAD
+        // （粘贴用独立 PNG 内容——同 sha 会命中文件级去重返回既有行，语义见上）
+        const pasteBuf = Buffer.concat([pngBuf.subarray(0, 16), Buffer.from('cp3b-paste-unique'), pngBuf.subarray(32)])
+        const pasted = await mat.importImageFromBuffer('paste-20260909.png', pasteBuf)
+        assert.equal(pasted.kind, 'image', 'paste kind = image')
+        assert.equal(pasted.originalName, 'paste-20260909.png')
+        await assert.rejects(
+          () => mat.importImageFromBuffer('not-image.bin', Buffer.from('plain text')),
+          /不是图片/,
+          'non-image paste rejected',
+        )
+        // 剪贴板 reader 未注入 → 结构化 no-op
+        const noClip = await mat.importFromClipboard()
+        assert.deepEqual(noClip, { materials: [], clipboardUnavailable: true }, 'clipboard no-op without reader')
+        // 注入 reader → 粘贴导入；reader 返回 null → no-op
+        mat.setClipboardImageReader(() => pasteBuf)
+        const clipped = await mat.importFromClipboard()
+        assert.equal(clipped.materials.length, 1, 'reader image imported')
+        assert.equal(clipped.materials[0].kind, 'image')
+        mat.setClipboardImageReader(() => null)
+        assert.equal((await mat.importFromClipboard()).clipboardUnavailable, true, 'null reader → unavailable')
+        mat.setClipboardImageReader(null)
+
+        // materialsExist（importCreate 前置）
+        assert.equal(mat.materialsExist([imported[0].id, imported[1].id]), true, 'existing ids pass')
+        assert.equal(mat.materialsExist([99999]), false, 'unknown id fails')
+      } finally {
+        dbModule.closeDatabase()
+      }
+    },
+    'fast',
+  )
+
+  registerCase(
+    'cp3b-pipeline: 两阶段状态机全链路（fake transport 零联网）— happy path/progress、文本阶段失败单独重试（视觉缓存保留）、取消后晚到结果丢弃、跨行视觉缓存命中、date→exact 精度提升拒绝、多模态一步式、draftConfirm 两段式（相似比赛检测+source=imported 落库+合并）、draftDiscard 两段式',
+    async () => {
+      const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+      const keyStore = await import(new URL('../src/main/services/apihub/keyStore.ts', import.meta.url).href)
+      const client = await import(new URL('../src/main/services/contestpin/openaiClient.ts', import.meta.url).href)
+      const svc = await import(new URL('../src/main/services/contestpin/recognitionConfigService.ts', import.meta.url).href)
+      const mat = await import(new URL('../src/main/services/contestpin/materialService.ts', import.meta.url).href)
+      const pipe = await import(new URL('../src/main/services/contestpin/importPipeline.ts', import.meta.url).href)
+      const contest = await import(new URL('../src/main/services/contestpin/contestService.ts', import.meta.url).href)
+      const { mkdtempSync, writeFileSync } = await import('node:fs')
+      const { tmpdir } = await import('node:os')
+      const { join } = await import('node:path')
+
+      await makeTempHome('devhub-cp3b-pipe-')
+      keyStore.setKeyCrypto(keyStore.plaintextKeyCrypto())
+      const db = dbModule.getDatabase()
+      const dir = mkdtempSync(join(tmpdir(), 'devhub-cp3b-pipefiles-'))
+      const pdfBuf = cp3bPdfFixture()
+      const pngBuf = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC', 'base64')
+      const pdfPath = join(dir, 'notice.pdf')
+      const pngPath = join(dir, 'screenshot.png')
+      writeFileSync(pdfPath, pdfBuf)
+      writeFileSync(pngPath, pngBuf)
+
+      // fake transport：按请求特征分流（vision OCR / 文本整理 / 多模态），计数可断言
+      const calls = { vision: 0, text: 0, multimodal: 0 }
+      let textPayload = null
+      let visionDelayMs = 0
+      client.setChatTransport(async (url, init) => {
+        const body = String(init.body)
+        const systemHasContract = body.includes('比赛赛程信息整理助手')
+        const systemHasOcr = body.includes('OCR 转录助手')
+        if (visionDelayMs > 0) await new Promise((r) => setTimeout(r, visionDelayMs))
+        if (systemHasOcr) {
+          calls.vision++
+          return { status: 200, bodyText: JSON.stringify({ choices: [{ message: { content: '第X页 OCR 转录：AI Cup 2026 Signup deadline 2026-10-01 https://aicup.example/signup' } }] }) }
+        }
+        if (systemHasContract) {
+          // 多模态一步式与文本阶段共用契约 system prompt：按 user content 是否
+          // 携带 image_url 区分计数
+          if (body.includes('image_url')) {
+            calls.multimodal++
+          } else {
+            calls.text++
+          }
+          return { status: 200, bodyText: JSON.stringify({ choices: [{ message: { content: textPayload } }] }) }
+        }
+        return { status: 500, bodyText: 'unexpected call shape in cp3b-pipeline fake transport' }
+      })
+
+      try {
+        const visionCfg = await svc.saveConfig({ name: 'vis', role: 'vision', baseUrl: 'https://pipe.example.com/v1', model: 'vl-1', apiKey: 'sk-cp3b-vision-key' })
+        const textCfg = await svc.saveConfig({ name: 'txt', role: 'text', baseUrl: 'https://pipe.example.com/v1', model: 'txt-1' })
+        const mmCfg = await svc.saveConfig({ name: 'mm', role: 'multimodal', baseUrl: 'https://pipe.example.com/v1', model: 'mm-1' })
+        const pdfMat = (await mat.importMaterials([pdfPath]))[0]
+        const pngMat = (await mat.importMaterials([pngPath]))[0]
+        // resolveConfigForCall（CP3a 报告建议）：掩码外解密出口存在且带明文 key
+        const resolved = await svc.resolveConfigForCall(visionCfg.id)
+        assert.equal(resolved.apiKey, 'sk-cp3b-vision-key', 'resolveConfigForCall decrypts for the call site')
+        assert.equal(resolved.model, 'vl-1')
+
+        // 构造文本阶段契约 JSON（materialId 从 vision 结果动态取）
+        const contractFor = (materialId, overrides = {}) => JSON.stringify({
+          contests: [{
+            name: 'AI Cup',
+            year: 2026,
+            edition: '第 1 届',
+            organizer: 'Example Org',
+            officialSite: { url: 'https://aicup.example/signup', provenance: { materialId, page: 1, excerpt: 'aicup.example' } },
+            nodes: [{
+              kind: 'signup_deadline',
+              label: '报名截止',
+              // 模型谎标 exact 但原文仅日期 → 校验必须降级 date + flag（禁止提升精度）
+              precision: 'exact',
+              startAtText: '2026-10-01',
+              rawText: 'Signup deadline 2026-10-01',
+              provenance: { materialId, page: 1, excerpt: 'Signup deadline 2026-10-01' },
+            }, {
+              kind: 'custom',
+              label: '评审待定',
+              precision: 'tbd',
+              rawText: '评审时间待定',
+            }],
+          }],
+          flags: [],
+          ...overrides,
+        })
+
+        // ---- 场景 1：two_stage happy path（含精度提升拒绝 + 进度 + 草稿落位）----
+        textPayload = contractFor(pdfMat.id)
+        const created = await pipe.createImportJobs({ materialIds: [pdfMat.id], mode: 'two_stage', params: { visionConfigId: visionCfg.id, textConfigId: textCfg.id } })
+        assert.equal(created.jobs.length, 1)
+        assert.equal(created.jobs[0].stage, 'imported', 'job starts at imported')
+        const jobId = created.jobs[0].id
+        await pipe.waitForJobsIdle(30000)
+        const done = (await pipe.listImportJobs(jobId)).jobs[0]
+        assert.equal(done.stage, 'draft', 'two_stage reaches draft')
+        assert.equal(done.progress, 100, 'progress completes')
+        assert.equal(done.error, null, 'no error on happy path')
+        assert.equal(done.result.vision.pages.length, 2, 'both pdf pages passed vision')
+        assert.equal(done.result.vision.pages[0].source, 'render', 'page rendered via canvas (依赖实测)')
+        assert.equal(done.result.vision.pages[0].materialId, pdfMat.id, 'provenance materialId')
+        assert.ok(done.result.preprocessing.renderAvailable === true, 'preprocessing records render availability')
+        assert.equal(done.result.preprocessing.links[0].uri, 'https://aicup.example/signup', 'local pdf links preserved')
+        const dbRow = db.prepare('SELECT pages FROM contest_materials WHERE id = ?').get(pdfMat.id)
+        assert.equal(Number(dbRow.pages), 2, 'material pages backfilled at preprocessing')
+        // 草稿契约与精度规则：date→exact 提升被拒绝（降级 date + flag）
+        const draftContest = done.result.draft.contests[0]
+        assert.equal(draftContest.name, 'AI Cup', 'draft contest name')
+        assert.equal(draftContest.year, 2026)
+        const deadlineNode = draftContest.nodes[0]
+        assert.equal(deadlineNode.precision, 'date', 'model exact downgraded to date (原文仅日期)')
+        assert.equal(typeof deadlineNode.startAt, 'number', 'unix seconds backfilled')
+        const expectedMidnight = Math.floor(new Date(2026, 9, 1, 0, 0, 0).getTime() / 1000)
+        assert.equal(deadlineNode.startAt, expectedMidnight, 'date precision = local midnight (docs/22 §2.2)')
+        assert.ok(
+          done.result.draft.flags.some((f) => f.reason.includes('精度提升被拒绝')),
+          'precision escalation flag recorded',
+        )
+        const tbdNode = draftContest.nodes[1]
+        assert.equal(tbdNode.precision, 'tbd', 'tbd node kept')
+        assert.equal(tbdNode.startAt, null, 'tbd node has null startAt')
+
+        // ---- 场景 2：跨行视觉缓存命中（同材料+同配置+同页参数 → 不重跑视觉）----
+        const visionCallsBefore = calls.vision
+        textPayload = contractFor(pdfMat.id)
+        const cachedJob = await pipe.createImportJobs({ materialIds: [pdfMat.id], mode: 'two_stage', params: { visionConfigId: visionCfg.id, textConfigId: textCfg.id } })
+        await pipe.waitForJobsIdle(30000)
+        const cachedView = (await pipe.listImportJobs(cachedJob.jobs[0].id)).jobs[0]
+        assert.equal(cachedView.stage, 'draft', 'cached job still completes')
+        assert.equal(calls.vision, visionCallsBefore, 'vision NOT re-run (cross-row cache hit)')
+        assert.equal(cachedView.result.vision.reusedFromJobId, jobId, 'cache hit records source job')
+        assert.ok(cachedView.visionFingerprint && cachedView.visionFingerprint.includes('@'), 'fingerprint shape <sha>@<hash>')
+
+        // ---- 场景 3：文本阶段失败 → 结构化 BAD_RESPONSE → 单独重试成功（视觉不重跑）----
+        textPayload = '这不是 JSON'
+        const failingJob = await pipe.createImportJobs({ materialIds: [pngMat.id], mode: 'two_stage', params: { visionConfigId: visionCfg.id, textConfigId: textCfg.id } })
+        await pipe.waitForJobsIdle(30000)
+        const failedView = (await pipe.listImportJobs(failingJob.jobs[0].id)).jobs[0]
+        assert.equal(failedView.stage, 'failed', 'text parse failure fails the job')
+        assert.equal(failedView.error.kind, 'BAD_RESPONSE', 'structured BAD_RESPONSE error')
+        const visionBeforeRetry = calls.vision
+        textPayload = contractFor(pngMat.id)
+        const retried = await pipe.retryImport({ jobId: failingJob.jobs[0].id, fromStage: 'text' })
+        assert.equal(retried.job.stage, 'vision_done', 'retry from text resets stage to vision_done')
+        await pipe.waitForJobsIdle(30000)
+        const retriedView = (await pipe.listImportJobs(failingJob.jobs[0].id)).jobs[0]
+        assert.equal(retriedView.stage, 'draft', 'retry reaches draft')
+        assert.equal(retriedView.error, null, 'error cleared after retry')
+        assert.equal(calls.vision, visionBeforeRetry, 'vision result reused on text retry (no re-OCR)')
+
+        // ---- 场景 4：取消 + 晚到结果丢弃（结果绝不落库）----
+        // skipTextPages=true → 页参数不同于场景 3 → 指纹不同 → 无跨行缓存，
+        // 视觉 OCR 调用真实在途；取消后其返回结果必须被丢弃。
+        visionDelayMs = 250
+        const slowJob = await pipe.createImportJobs({ materialIds: [pngMat.id], mode: 'two_stage', params: { visionConfigId: visionCfg.id, textConfigId: textCfg.id, skipTextPages: true } })
+        const slowId = slowJob.jobs[0].id
+        await new Promise((r) => setTimeout(r, 60)) // 等 preprocess 完成、vision 在途
+        const cancelResult = pipe.cancelImport(slowId)
+        assert.equal(cancelResult.cancelled, true, 'cancel accepted while running')
+        assert.equal(cancelResult.stage, 'cancelled')
+        await pipe.waitForJobsIdle(30000)
+        const cancelledView = (await pipe.listImportJobs(slowId)).jobs[0]
+        assert.equal(cancelledView.stage, 'cancelled', 'stage stays cancelled after in-flight transport settles')
+        assert.equal(cancelledView.result.vision, undefined, 'late vision result discarded (never persisted)')
+        assert.equal(cancelledView.result.draft, undefined, 'late text result discarded (never persisted)')
+        assert.equal(pipe.cancelImport(slowId).cancelled, false, 're-cancel on terminal is a structured no-op')
+        visionDelayMs = 0
+
+        // ---- 场景 5：多模态一步式（单次调用直出契约 JSON → 同校验核对面）----
+        textPayload = contractFor(pngMat.id)
+        const mmJob = await pipe.createImportJobs({ materialIds: [pngMat.id], mode: 'multimodal', params: { visionConfigId: mmCfg.id } })
+        await pipe.waitForJobsIdle(30000)
+        const mmView = (await pipe.listImportJobs(mmJob.jobs[0].id)).jobs[0]
+        assert.equal(mmView.stage, 'draft', 'multimodal reaches draft')
+        assert.equal(calls.multimodal, 1, 'single multimodal call')
+        assert.equal(mmView.result.draft.contests[0].name, 'AI Cup', 'multimodal draft parsed')
+
+        // ---- 场景 6：draftConfirm 两段式（相似检测 → 另建/合并；source='imported'）----
+        const existing = contest.createContest({ name: 'AICup', year: 2026 })
+        const face = await pipe.confirmDraft({ jobId: mmJob.jobs[0].id })
+        assert.equal(face.confirmRequired, true, 'phase 1 returns confirm face')
+        assert.ok(face.similar.some((s) => s.id === existing.id), 'similar contest detected (name 归一近似)')
+        // 另建：confirmed 落库 → contests + nodes(source=imported) + contest_id 回填
+        const done1 = await pipe.confirmDraft({ jobId: mmJob.jobs[0].id, confirmed: true })
+        assert.equal(done1.confirmRequired, undefined)
+        assert.equal(done1.merged, false)
+        const createdNodes = contest.getContest(done1.contestId).nodes
+        assert.equal(createdNodes.length, 2, 'both draft nodes inserted')
+        assert.ok(createdNodes.every((n) => n.source === 'imported'), 'nodes carry source=imported')
+        assert.equal(createdNodes[0].precision, 'date', 'inserted node keeps validated precision')
+        const confirmedRow = db.prepare('SELECT contest_id, stage FROM contest_import_jobs WHERE id = ?').get(mmJob.jobs[0].id)
+        assert.equal(Number(confirmedRow.contest_id), done1.contestId, 'job contest_id backfilled (材料关联)')
+        assert.equal(confirmedRow.stage, 'confirmed', 'job confirmed')
+        await assert.rejects(() => pipe.confirmDraft({ jobId: mmJob.jobs[0].id }), /不在 draft 阶段/, 'confirmed job cannot re-confirm')
+
+        // 合并：不覆盖既有字段，只追加节点（不静默覆盖）
+        textPayload = contractFor(pngMat.id)
+        const mergeJob = await pipe.createImportJobs({ materialIds: [pngMat.id], mode: 'multimodal', params: { visionConfigId: mmCfg.id } })
+        await pipe.waitForJobsIdle(30000)
+        const mergeFace = await pipe.confirmDraft({ jobId: mergeJob.jobs[0].id })
+        assert.ok(mergeFace.similar.length > 0, 'similar still detected')
+        const before = contest.getContest(existing.id)
+        const done2 = await pipe.confirmDraft({ jobId: mergeJob.jobs[0].id, confirmed: true, mergeIntoContestId: existing.id })
+        assert.equal(done2.merged, true, 'merge branch')
+        const after = contest.getContest(existing.id)
+        assert.equal(after.name, before.name, 'merge never overwrites existing name')
+        assert.equal(after.nodes.length, before.nodes.length + 2, 'merge only appends imported nodes')
+
+        // ---- 场景 7：draftDiscard 两段式 ----
+        textPayload = contractFor(pngMat.id)
+        const discardJob = await pipe.createImportJobs({ materialIds: [pngMat.id], mode: 'multimodal', params: { visionConfigId: mmCfg.id } })
+        await pipe.waitForJobsIdle(30000)
+        const discardStart = pipe.discardDraft({ jobId: discardJob.jobs[0].id })
+        assert.equal(discardStart.confirmRequired, true, 'discard phase 1')
+        assert.equal(discardStart.materialName, 'screenshot.png')
+        const discardDone = pipe.discardDraft({ jobId: discardJob.jobs[0].id, confirmed: true })
+        assert.equal(discardDone.removed, true, 'discard phase 2 removes the job row')
+        assert.equal(db.prepare('SELECT COUNT(*) AS c FROM contest_import_jobs WHERE id = ?').get(discardJob.jobs[0].id).c, 0, 'job row gone (materials kept)')
+        assert.throws(() => pipe.retryImport({ jobId: discardJob.jobs[0].id, fromStage: 'vision' }), /not found/, 'retry on deleted job NOT_FOUND')
+      } finally {
+        client.setChatTransport(null) // 恢复默认传输（后续用例零联网）
+        dbModule.closeDatabase()
       }
     },
     'fast',
