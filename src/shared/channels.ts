@@ -57,6 +57,12 @@ export const IPC_GATEWAY = 'devhub:invoke' as const
  * reminderLogList READ_ONLY 触发账本——补发去重根 = contest_reminder_log
  * UNIQUE(reminder_id, fire_key)；通知面经 reminderEngine 注入 applier，
  * notifyWire 注册生产 Notification，测试全注入 fake applier 零真实弹窗）。
+ * LR1 批次 note（LLM 复核层 advisory-only，docs/04「LR1 追加」节 + 任务书 §8
+ * 授权的同一模式就地更新）：review/archive-review/skills-review 4 条并入
+ * （分支基线 88 → 92；并入 main 后 100 → 104）（review:testEndpoint /
+ * archive:reviewPre / archive:reviewPost / skills:reviewMeta——全 READ_ONLY，
+ * service 经 reviewClient 传输注入面，smoke fake transport 零联网；
+ * advisory-only 永不阻塞归档主流程）。
  */
 export const IPC_CHANNELS = [
   // scan
@@ -203,6 +209,12 @@ export const IPC_CHANNELS = [
   'contestpin:reminderUpsert',
   'contestpin:reminderDelete',
   'contestpin:reminderLogList',
+  // LLM 复核层（LR1 批次，docs/04「LR1 追加」节逐字命名；全 READ_ONLY，
+  // advisory-only：复核结果永不阻塞归档主流程，端点未配置/不可达 → skipped）
+  'review:testEndpoint',
+  'archive:reviewPre',
+  'archive:reviewPost',
+  'skills:reviewMeta',
 ] as const
 
 /** Compile-time whitelist: a handler map must be keyed by IpcChannel. */

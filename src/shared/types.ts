@@ -2669,6 +2669,95 @@ export interface ContestReminderLogListResult {
 }
 
 // ---------------------------------------------------------------------------
+// 6i. LLM 复核层（LR1 批次，advisory-only；docs/briefs/lr1-llm-review.md §3/§4/§8）。
+// 四态 envelope：ok（端点可达且回复合法 JSON 过结构校验）/ skipped（端点未配置、
+// 不可达、超时——全流程行为等价现状）/ failed（端点非 2xx、网络错误）/
+// unparseable（模型回非法 JSON——不崩）。advisory-only：永不阻塞归档主流程。
+// ---------------------------------------------------------------------------
+
+/** 复核结果四态（任务书 §3 权威枚举）。 */
+export type ReviewStatus = 'ok' | 'skipped' | 'failed' | 'unparseable'
+
+/** 复核风险三档（ok 态专用；模型输出白名单校验，越值降 unparseable）。 */
+export type ReviewRisk = 'low' | 'medium' | 'high'
+
+/** 归档前复核 payload：preview 既有 plan 摘要（零额外扫描，仅路径/名称/描述/计数）。
+ * 渲染层从 preview.impacts 直投影，主进程零补充扫描（任务书 §4.1）。 */
+export interface ArchiveReviewPrePayload {
+  plan: {
+    projectName: string
+    projectDescription?: string
+    oldPath: string
+    destPath: string
+    crossVolume: boolean
+    /** 引用命中总数（真实值，非截断展示数） */
+    totalHits: number
+    /** 待改写唯一文件数 */
+    filesToRewrite: number
+    /** 可剥离再生日录数 */
+    stripDirs: number
+    /** 占用进程数 */
+    occupiers: number
+  }
+}
+
+/** 归档前/后复核统一 envelope（archive:reviewPre / archive:reviewPost result）。
+ * ok 态含 risk/concerns/rationale；cached = reviewPost 命中 review_post_json 缓存。 */
+export interface ReviewEnvelope {
+  status: ReviewStatus
+  /** ok 态：实际使用的模型名。 */
+  model?: string
+  /** 端点实际耗时（ok/failed/unparseable 携带；skipped 无端点耗时）。 */
+  latencyMs?: number
+  risk?: ReviewRisk
+  concerns?: string[]
+  rationale?: string
+  /** reviewPost 缓存命中（true = 未打端点，读自 review_post_json）。 */
+  cached?: boolean
+  /** 非 ok 态的简短原因（skipped reason / failed / unparseable 摘要，无堆栈无绝对路径细节）。 */
+  note?: string
+}
+
+export interface ReviewTestEndpointPayload {
+  baseUrl: string
+  model: string
+}
+
+/** 设置卡片端点测试结果（连通性/延迟探测；ok=false 时 error 携带简短原因）。 */
+export interface ReviewTestEndpointResult {
+  ok: boolean
+  latencyMs: number
+  error?: string
+}
+
+export interface ArchiveReviewPostPayload {
+  runId: number
+}
+
+/** Skills 元数据体检 flag 三类（docs/09 §13；判定标准在 prompt 常量中锚定）。 */
+export type SkillMetaFlagKind = 'short_description' | 'language_mismatch' | 'suspected_duplicate'
+
+export interface SkillMetaFlag {
+  skillId: number
+  name: string
+  kind: SkillMetaFlagKind
+  /** 模型给出的简短依据（一句话；展示用，不入库）。 */
+  detail: string
+}
+
+/** skills:reviewMeta result：批量 flags（只读咨询不落库，doctor 语义不变）。
+ * 端点未配置/不可达 → skipped 态，页面行为等价现状（docs/09 §13）。 */
+export interface SkillsReviewMetaResult {
+  status: ReviewStatus
+  latencyMs?: number
+  model?: string
+  note?: string
+  flags?: SkillMetaFlag[]
+  /** 参与体检的 skill 总数（= listSkills 行数；ok 态携带）。 */
+  checkedCount?: number
+}
+
+// ---------------------------------------------------------------------------
 // 7. Gateway request & channel contract table (constraint #17)
 // ---------------------------------------------------------------------------
 
@@ -2807,6 +2896,13 @@ export interface ChannelContract {
   'contestpin:reminderUpsert': [ContestReminderUpsertPayload, ContestReminderView]
   'contestpin:reminderDelete': [ContestReminderDeletePayload, ContestReminderDeleteStart | ContestReminderDeleteResult]
   'contestpin:reminderLogList': [ContestReminderLogListPayload, ContestReminderLogListResult]
+  // --- review (LR1 batch, LLM 复核层 advisory-only，docs/04「LR1 追加」节 +
+  //     docs/briefs/lr1-llm-review.md §8；4 条全 READ_ONLY，四态 envelope 永不
+  //     阻塞归档主流程——advisory 纪律见任务书 §1/§3) ---
+  'review:testEndpoint': [ReviewTestEndpointPayload, ReviewTestEndpointResult]
+  'archive:reviewPre': [ArchiveReviewPrePayload, ReviewEnvelope]
+  'archive:reviewPost': [ArchiveReviewPostPayload, ReviewEnvelope]
+  'skills:reviewMeta': [Record<string, never>, SkillsReviewMetaResult]
 }
 
 /** Compile-time assertion that ChannelContract covers exactly the whitelist. */

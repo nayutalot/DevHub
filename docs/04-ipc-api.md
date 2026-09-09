@@ -113,7 +113,8 @@ CP1 批次 ContestPin 9 条并入（70→**79**，见下「ContestPin 追加」�
 CP2 批次 ContestPin 悬浮窗 5 条并入（79→**84**，同节 + docs/22 §4）；
 CP3a 批次 ContestPin 识别配置 4 条并入（84→**88**，同节 + docs/22 §6）；
 CP3b 批次 ContestPin 材料导入+识别管线+核对界面 9 条并入（88→**97**，同节 + docs/22 §5）；
-CP4 批次 ContestPin 提醒系统 3 条并入（97→**100**，同节 + docs/22 §7）。
+CP4 批次 ContestPin 提醒系统 3 条并入（97→**100**，同节 + docs/22 §7）；
+LR1 批次 LLM 复核层 4 条并入（100→**104**，见下「LR1 追加」节）。
 
 ### 夜间#1 追加（服务端积压补齐批次；主控任务书授权的同一追加模式）
 
@@ -124,18 +125,19 @@ CP4 批次 ContestPin 提醒系统 3 条并入（97→**100**，同节 + docs/22
 
 ### LR1 追加（LLM 复核层，advisory-only；用户裁决 2026-09-09 恢复，设计权威 docs/briefs/lr1-llm-review.md）
 
-LLM 前/后复核 + Skills 元数据体检 4 条，**全 READ_ONLY**，**状态 = LR1 待落地**
-（硬门：M3-D 72h 终报通过后开工；落地后白名单 88→**92**——CP3a 批次就地更新，
-ContestPin 识别配置 4 条先行占 88）。advisory-only：复核结果
+LLM 前/后复核 + Skills 元数据体检 4 条，**全 READ_ONLY**，**状态 = LR1 已落地
+（2026-09-09 LR1 批次，分支白名单 88→92；2026-09-10 并入 main 后白名单 100→**104**）**。advisory-only：复核结果
 永不阻塞归档主流程，端点未配置/不可达 → skipped 态，全流程行为等价现状。
-不改 MCP、不改归档 execute 管线。
+不改 MCP、不改归档 execute 管线。传输面经 `src/main/services/review/reviewClient.ts`
+注入式传输（smoke fake transport 零联网）；端点配置 = settings 双键
+`llm_review_base_url`/`llm_review_model`（007 种子，默认空 = 停用，双键同设才生效）。
 
 | channel | payload | result data | 读写 | 状态 |
 | --- | --- | --- | --- | --- |
-| `review:testEndpoint` | `{ baseUrl, model }`（base URL 占位 `http://<lan-ip>:11434/v1`） | `{ ok, latencyMs, error? }`（连通性/延迟探测，设置卡片端点测试入口） | READ_ONLY | LR1 待落地 |
-| `archive:reviewPre` | preview 既有 plan 摘要（零额外扫描，仅路径/名称/描述/计数） | 四态 envelope（ok/skipped/failed/unparseable）；ok 态含 `{ risk: 'low'\|'medium'\|'high', concerns[], rationale }`（确认弹窗咨询条展示，不拦截 DOUBLE_CONFIRM） | READ_ONLY | LR1 待落地 |
-| `archive:reviewPost` | `{ runId }`（archive_runs 行 id） | 四态 envelope（同上）；run 详情查看时按需触发，结果缓存 `review_post_json`，缓存命中不再打端点 | READ_ONLY | LR1 待落地 |
-| `skills:reviewMeta` | `{}` | 批量 flags（描述过短 / 语言不一致 / 疑似重复）；只读咨询不落库，doctor 语义不变 | READ_ONLY | LR1 待落地 |
+| `review:testEndpoint` | `{ baseUrl, model }`（base URL 占位 `http://<lan-ip>:11434/v1`） | `{ ok, latencyMs, error? }`（连通性/延迟探测，设置卡片端点测试入口） | READ_ONLY | LR1 已落地 |
+| `archive:reviewPre` | preview 既有 plan 摘要（零额外扫描，仅路径/名称/描述/计数） | 四态 envelope（ok/skipped/failed/unparseable）；ok 态含 `{ risk: 'low'\|'medium'\|'high', concerns[], rationale }`（确认弹窗咨询条展示，不拦截 DOUBLE_CONFIRM） | READ_ONLY | LR1 已落地 |
+| `archive:reviewPost` | `{ runId }`（archive_runs 行 id） | 四态 envelope（同上）；run 详情查看时按需触发，结果缓存 `review_post_json`，缓存命中不再打端点 | READ_ONLY | LR1 已落地 |
+| `skills:reviewMeta` | `{}` | 批量 flags（描述过短 / 语言不一致 / 疑似重复）；只读咨询不落库，doctor 语义不变 | READ_ONLY | LR1 已落地 |
 
 ### ContestPin 追加（赛程钉比赛模块；设计权威 docs/22-contestpin-design.md）
 
@@ -144,8 +146,8 @@ CP5-CP6 待落地。CP1 首批 9 条（变更类 7 + READ_ONLY 2）+ CP2 悬浮�
 （READ_ONLY 1 + 变更类 4）+ CP3a 识别配置 4 条（READ_ONLY 1 + 变更类 3）+
 CP3b 材料导入/识别管线/核对界面 9 条（READ_ONLY 3 + 变更类 4 + 两段式 2；
 任务书 §2.3 计 +6 与列名 7 条不一致，按其「以实际为准」条款实拆 9 条落地）+
-CP4 提醒 3 条（READ_ONLY 1 + 变更类 1 + 两段式 1）；CP5/CP6 落地后
-100→约 **105**（LR1 另 +4）。
+CP4 提醒 3 条（READ_ONLY 1 + 变更类 1 + 两段式 1）；LR1 另 +4 已落地（白名单 **104**）；
+CP5/CP6 落地后 104→约 **109**。
 计数断言按既有授权模式"就地更新+注记"。变更类 delete/discard 均为
 CONFIRM_REQUIRED 两段式（先回 impacts）。
 

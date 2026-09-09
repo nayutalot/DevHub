@@ -231,10 +231,16 @@ INSERT INTO settings (key, value) VALUES
    `PRAGMA user_version = 3` 由 migrate.ts 字面量赋值。表结构全文见
    `src/main/db/migrations/003_merge_legacy.sql`；模块设计见 docs/09、docs/10。
    S1 起 fresh 库一次迁到 3；v2 库升级仅应用 003 且既有数据保留。
-8. **migration 007（预告，LR1 待落地）**：`ALTER TABLE archive_runs ADD COLUMN
+8. **migration 007（LR1 已落地，2026-09-09 批次）**：`ALTER TABLE archive_runs ADD COLUMN
    review_pre_json TEXT` 与 `ADD COLUMN review_post_json TEXT`（均可空，LLM 复核
    envelope 缓存；append-only，不改既有迁移）——设计见 docs/briefs/lr1-llm-review.md
-   （硬门：M3-D 72h 终报通过后开工）。
+   （用户裁决 2026-09-09 恢复 LLM 复核层，advisory-only）。同批 settings 种子
+   `llm_review_base_url`/`llm_review_model`（WHERE NOT EXISTS，默认空 = 停用，
+   双键同设才生效）。**序号语义注记**：007 插入 006 与 008 之间，fresh 库应用
+   001..008 共 8 个文件、user_version 终值仍 8（007 置 7、008 置 8）；已处
+   user_version=8 的存量库（ContestPin 批次预迁真实库）不会再自动应用 007
+   （序号 7 < 8），advisory 层按列在场性优雅降级为无缓存模式，存量真实库补列
+   归主控待办（备份后手工执行该两 ALTER + 两种子即等价 007）。
 9. **migration 008（ContestPin CP1 已落地，2026-09-09 批次）**：赛程钉比赛模块 7 张新表——
    `contests`（名称/届次/主办方/参赛状态/三入口链接/archived）、`contest_nodes`
    （多时间节点：kind 枚举+自定义、start/end unix 秒可空、tz、precision 枚举
@@ -248,7 +254,8 @@ INSERT INTO settings (key, value) VALUES
    `contestpin_default_mode`/`contestpin_overlay_enabled`（WHERE NOT EXISTS）。
    时间语义权威（precision 不得 date→exact 提升等）见 docs/22 §2.2；
    设计见 docs/22-contestpin-design.md。fresh 库迁移后 applied=7、
-   user_version=8；resourceGraph ResourceType 已同批追加 'contest'（docs/05
+   user_version=8（LR1 批次注记：007 落地后 fresh 库 applied=8、终值仍 8，
+   见 §4 条目 8）；resourceGraph ResourceType 已同批追加 'contest'（docs/05
    枚举表已随批入册）。
 
 ## 5. 表清单（CP1 起，34 张）

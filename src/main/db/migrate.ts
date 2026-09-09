@@ -70,9 +70,12 @@ export function setUserVersionLiteral(db: DatabaseSync, version: number): void {
     case 6:
       db.exec('PRAGMA user_version = 6') // ← 006 批次（M3-C7b 轮换宽限镜像）新增
       return
+    case 7:
+      db.exec('PRAGMA user_version = 7') // ← 007 批次（LR1 LLM 复核层）新增；插序在 008 之前，switch 保持升序完整
+      return
     case 8:
-      // CP1 批次（ContestPin）：007 已判给 LR1（docs/03 §4 条目 8），本批从 008 起；
-      // case 7 保持未注册（007 未落地前字面量缺失必须显式暴露，运行期 throw 语义不变）
+      // CP1 批次（ContestPin）：007 当时判给 LR1（docs/03 §4 条目 8），本批从 008 起；
+      // 007 落地后本 case 不变（LR1 批次注记：升序 1..8 完整，语义不变）
       db.exec('PRAGMA user_version = 8')
       return
     default:

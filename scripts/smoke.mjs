@@ -126,8 +126,13 @@ if (isEntrypoint()) {
   // contestpin 3 条并入，97 → 100（reminderUpsert / reminderDelete CONFIRM_REQUIRED
   // 两段式（impacts=log 行数）/ reminderLogList READ_ONLY 触发账本；通知面经
   // reminderEngine 注入 applier，测试全 fake，零真实弹窗）。
+  // LR1 批次 note（LLM 复核层 advisory-only，docs/04「LR1 追加」节 + 任务书 §8
+  // 授权的同一模式就地更新）：review/archive-review/skills-review 4 条并入
+  // （分支基线 88 → 92；并入 main 后 100 → 104）（review:testEndpoint /
+  // archive:reviewPre / archive:reviewPost / skills:reviewMeta，全 READ_ONLY；
+  // service 经 reviewClient 传输注入面，smoke fake transport 零联网）。
   // ------------------------------------------------------------------
-  registerCase('step1: channels whitelist has exactly 100 entries (CP4 就地更新 97→100) and IPC_GATEWAY', async () => {
+  registerCase('step1: channels whitelist has exactly 104 entries (LR1 并入 main 100→104) and IPC_GATEWAY', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     assert.equal(channels.IPC_GATEWAY, 'devhub:invoke', 'gateway channel')
     const expected = [
@@ -244,10 +249,16 @@ if (isEntrypoint()) {
       'contestpin:reminderUpsert',
       'contestpin:reminderDelete',
       'contestpin:reminderLogList',
+      // LR1 LLM review group (docs/04「LR1 追加」节逐字命名；全 READ_ONLY，
+      // advisory-only 永不阻塞归档主流程)
+      'review:testEndpoint',
+      'archive:reviewPre',
+      'archive:reviewPost',
+      'skills:reviewMeta',
     ]
-    assert.equal(channels.IPC_CHANNELS.length, 100, `expected 100 channels, got ${channels.IPC_CHANNELS.length}`)
-    assert.deepEqual([...channels.IPC_CHANNELS], expected, 'whitelist must match docs/04 + docs/09 §9 + docs/10 §11 + docs/14 §A.1 + docs/04 ContestPin 追加节 + docs/22 §4/§5/§6/§7 exactly')
-    assert.equal(new Set(channels.IPC_CHANNELS).size, 100, 'no duplicate channels')
+    assert.equal(channels.IPC_CHANNELS.length, 104, `expected 104 channels, got ${channels.IPC_CHANNELS.length}`)
+    assert.deepEqual([...channels.IPC_CHANNELS], expected, 'whitelist must match docs/04 + docs/09 §9 + docs/10 §11 + docs/14 §A.1 + docs/04 ContestPin 追加节 + docs/22 §4/§5/§6/§7 + docs/04 LR1 追加节 exactly')
+    assert.equal(new Set(channels.IPC_CHANNELS).size, 104, 'no duplicate channels')
   }, 'fast')
 
   // ------------------------------------------------------------------
@@ -324,7 +335,12 @@ if (isEntrypoint()) {
   // 迁移应用 6 个文件并升到 user_version 6（覆盖面不变，逐条已单列批次报告）。
   // CP1 批次 note（ContestPin，docs/22 §2 授权的同一模式就地更新）：008_contestpin.sql
   // 加入（007 判给 LR1、序号跳过），全新库一次迁移应用 7 个文件并升到 user_version 8。
-  registerCase('step3: fresh db migrates to user_version 8 (CP1 就地更新 6→8), idempotent re-run', async () => {
+  // LR1 批次 note（007_llm_review.sql 落地，docs/03 §4 条目 8 权威语义就地更新）：
+  // 007 插入 006 与 008 之间（序号升序应用），全新库应用 8 个文件、user_version
+  // 终值仍 8（007 应用后置 7，008 应用后置 8）；已处 user_version=8 的存量库
+  // （ContestPin 批次预迁真实库）不会再应用 007（7 > 8 为假）——advisory 层按
+  // 列在场性优雅降级为无缓存模式，存量真实库需主控手工补 007（主控待办已声明）。
+  registerCase('step3: fresh db migrates to user_version 8 (LR1 就地更新：applied 7→8，终值仍 8), idempotent re-run', async () => {
     const { mkdtempSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
     const { join } = await import('node:path')
@@ -333,11 +349,21 @@ if (isEntrypoint()) {
     const db = dbModule.openDatabase(join(dir, 'test.db'))
     try {
       const applied = dbModule.migrate(db)
-      assert.equal(applied, 7, '001..006+008 migrations applied on fresh db (CP1 批次就地更新 6→7)')
+      assert.equal(applied, 8, '001..008 migrations applied on fresh db (LR1 批次就地更新 7→8：007 插入 006/008 之间)')
       const row = db.prepare('PRAGMA user_version').get()
-      assert.equal(Number(row.user_version), 8, 'user_version after migrate (latest = 8, CP1 批次就地更新 6→8；007=LR1 序号跳过)')
+      assert.equal(Number(row.user_version), 8, 'user_version after migrate (latest = 8，终值不变：007 置 7、008 置 8)')
       const appliedAgain = dbModule.migrate(db)
       assert.equal(appliedAgain, 0, 'second migrate run applies nothing')
+      // LR1 批次并入（007 列 + 种子存在性，就地扩展同 cp1-migration-fresh 先例）：
+      // archive_runs 复核缓存两列（nullable）+ settings 两键种子（空串 = 停用）
+      const runCols = new Set(db.prepare('PRAGMA table_info(archive_runs)').all().map((r) => r.name))
+      assert.ok(runCols.has('review_pre_json'), '007 column archive_runs.review_pre_json exists')
+      assert.ok(runCols.has('review_post_json'), '007 column archive_runs.review_post_json exists')
+      for (const key of ['llm_review_base_url', 'llm_review_model']) {
+        const seeded = db.prepare('SELECT value FROM settings WHERE key = ?').get(key)
+        assert.ok(seeded !== undefined, `007 seed settings.${key} present`)
+        assert.equal(seeded.value, '', `007 seed settings.${key} defaults to empty (= 停用)`)
+      }
     } finally {
       db.close()
     }
@@ -660,15 +686,15 @@ if (isEntrypoint()) {
     const { join } = await import('node:path')
     const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
 
-    // -- 全新库：migrate → user_version 8（001..006+008，CP1 就地更新 6→8；007=LR1）；
-    //    同名工具双 path 并存落库，同 path 仍拒绝；cp1-migration-fresh 并入：
+    // -- 全新库：migrate → user_version 8（001..008，LR1 批次 007 插序 006/008 之间，
+    //    终值仍 8）；同名工具双 path 并存落库，同 path 仍拒绝；cp1-migration-fresh 并入：
     //    008 的 7 张 ContestPin 表存在性检查（docs/22 §2.1，本用例就地扩展）
     const dir = mkdtempSync(join(tmpdir(), 'devhub-mig-'))
     const db = dbModule.openDatabase(join(dir, 'fresh.db'))
     try {
       const applied = dbModule.migrate(db)
-      assert.equal(applied, 7, '001..006+008 applied on fresh db (CP1 批次就地更新 6→7)')
-      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 8, 'fresh db at user_version 8 (CP1 批次就地更新 6→8)')
+      assert.equal(applied, 8, '001..008 applied on fresh db (LR1 批次就地更新 7→8：007 插入 006/008 之间)')
+      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 8, 'fresh db at user_version 8 (终值不变：007 置 7、008 置 8；LR1 就地注记)')
       const cpTables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name))
       for (const t of ['contests', 'contest_nodes', 'contest_reminders', 'contest_reminder_log', 'contest_materials', 'contest_import_jobs', 'contestpin_configs']) {
         assert.ok(cpTables.has(t), `008 table ${t} exists on fresh db (cp1-migration-fresh 并入本用例)`)
@@ -705,8 +731,8 @@ if (isEntrypoint()) {
       ).run()
 
       const applied = dbModule.migrate(db2)
-      assert.equal(applied, 6, 'only 002..006+008 apply to the v1 library (CP1 批次就地更新 5→6)')
-      assert.equal(Number(db2.prepare('PRAGMA user_version').get().user_version), 8, 'v1 upgraded to user_version 8 (CP1 批次就地更新 6→8)')
+      assert.equal(applied, 7, 'only 002..008 apply to the v1 library (LR1 批次就地更新 6→7：007 按序纳入)')
+      assert.equal(Number(db2.prepare('PRAGMA user_version').get().user_version), 8, 'v1 upgraded to user_version 8 (终值不变：007 置 7、008 置 8)')
       const seedAfter = db2.prepare("SELECT value FROM settings WHERE key = 'scan_root'").get()
       assert.ok(seedAfter && seedAfter.value === 'F:\\Active_Project', 'settings seed survived the table rebuild')
       const toolRow = db2.prepare("SELECT path, version FROM environment_tools WHERE environment_id = 1 AND tool = 'python'").get()
@@ -729,7 +755,7 @@ if (isEntrypoint()) {
     await makeTempHome('devhub-scan-')
     try {
       const db = dbModule.getDatabase()
-      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 8, 'home db migrated to 8 (CP1 批次就地更新 6→8)')
+      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 8, 'home db migrated to 8 (终值不变：LR1 007 已按序纳入 001..008)')
 
       const root = mkdtempSync(join(tmpdir(), 'devhub-projects-'))
       await withFixtureProject(root, 'alpha-web', { marker: 'package.json', git: true })
@@ -1004,14 +1030,14 @@ if (isEntrypoint()) {
   // CHANNEL_NOT_ALLOWED（文档权威原则，约束 #6）。
   // ------------------------------------------------------------------
   registerCase(
-    'step6: handler registry keys equal the 100-channel whitelist (CP4 就地更新 97→100); app:version returns injected value; unknown channel folds to CHANNEL_NOT_ALLOWED envelope',
+    'step6: handler registry keys equal the 104-channel whitelist (LR1 并入 main 100→104); app:version returns injected value; unknown channel folds to CHANNEL_NOT_ALLOWED envelope',
     async () => {
       const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
       const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
       const registry = handlers.createHandlerRegistry({ appVersion: '0.1.0-smoke' })
       const keys = Object.keys(registry).sort()
-      assert.equal(keys.length, 100, `registry must hold exactly 100 handlers, got ${keys.length}`)
+      assert.equal(keys.length, 104, `registry must hold exactly 104 handlers, got ${keys.length}`)
       assert.deepEqual(keys, [...channels.IPC_CHANNELS].sort(), 'registry keys must equal IPC_CHANNELS (no more, no less)')
 
       const version = await registry['app:version']({})
@@ -1853,8 +1879,8 @@ if (isEntrypoint()) {
     const db = dbModule.openDatabase(join(dir, 'fresh.db'))
     try {
       const applied = dbModule.migrate(db)
-      assert.equal(applied, 7, '001..006+008 applied on fresh db (CP1 批次就地更新 6→7)')
-      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 8, 'fresh db at user_version 8 (CP1 批次就地更新 6→8)')
+      assert.equal(applied, 8, '001..008 applied on fresh db (LR1 批次就地更新 7→8：007 插入 006/008 之间)')
+      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 8, 'fresh db at user_version 8 (终值不变：007 置 7、008 置 8；LR1 就地注记)')
 
       const columnsOf = (table) => db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name)
       assert.deepEqual(columnsOf('skill_agents'), ['id', 'name', 'platform', 'skills_dir', 'agents_dir', 'include_json', 'enabled', 'created_at', 'updated_at'], 'skill_agents columns')
@@ -1863,8 +1889,8 @@ if (isEntrypoint()) {
       assert.deepEqual(columnsOf('version_targets'), ['id', 'key', 'display_name', 'kind', 'installed_version', 'target_version', 'state', 'last_checked_at'], 'version_targets columns')
       assert.deepEqual(
         columnsOf('archive_runs'),
-        ['id', 'project_id', 'project_name', 'old_path', 'new_path', 'status', 'fixed_files', 'external_files', 'residual_hits', 'stripped_json', 'started_at', 'finished_at'],
-        'archive_runs columns',
+        ['id', 'project_id', 'project_name', 'old_path', 'new_path', 'status', 'fixed_files', 'external_files', 'residual_hits', 'stripped_json', 'started_at', 'finished_at', 'review_pre_json', 'review_post_json'],
+        'archive_runs columns（LR1 批次就地更新：007 追加 review_pre_json/review_post_json 两列，docs/03 §4 条目 8）',
       )
       // skills / archives 重建扩列后既有列仍在，新列就位
       assert.ok(['vault_rel_path', 'frontmatter_json'].every((c) => columnsOf('skills').includes(c)), 'skills gained vault_rel_path/frontmatter_json')
@@ -1916,7 +1942,7 @@ if (isEntrypoint()) {
       ).run(now, now)
 
       const applied = dbModule.migrate(db2)
-      assert.equal(applied, 5, 'only 003..006+008 apply to the v2 library (CP1 批次就地更新 4→5)')
+      assert.equal(applied, 6, 'only 003..008 apply to the v2 library (LR1 批次就地更新 5→6：007 按序纳入)')
       assert.equal(Number(db2.prepare('PRAGMA user_version').get().user_version), 8, 'v2 upgraded to user_version 8 (CP1 批次就地更新 6→8)')
 
       const proj = db2.prepare('SELECT name, win_path FROM projects WHERE id = 1').get()
@@ -2185,7 +2211,9 @@ if (isEntrypoint()) {
       // 进程打开即前移到 4，本断言跟随最新版本 3 → 4。
       // CP1 批次就地更新（docs/22 §2 授权的同一模式）：008 落地后跟随最新版本 6 → 8
       // （007=LR1 序号跳过；真实库在新版进程首次打开后前移到 8）。
-      assert.equal(migrated, 8, `real db at user_version 8, got ${migrated} (CP1 批次就地更新 6→8)`)
+      // LR1 批次就地注记：007 落地后 user_version 终值仍 8（007 对已 8 的存量库
+      // 不再自动应用，真实库列补齐归主控待办），断言值不变。
+      assert.equal(migrated, 8, `real db at user_version 8, got ${migrated} (终值不变：LR1 007 插序落地)`)
       const agents = Number(db.prepare('SELECT COUNT(*) AS c FROM skill_agents').get().c)
       const runs = Number(db.prepare('SELECT COUNT(*) AS c FROM archive_runs').get().c)
       assert.ok(agents >= 1, `real import landed skill_agents rows, got ${agents}`)
@@ -2581,7 +2609,9 @@ if (isEntrypoint()) {
 
     const registry = handlers.createHandlerRegistry({ appVersion: 's2-smoke' })
     const skillChannels = channels.IPC_CHANNELS.filter((c) => c.startsWith('skills:'))
-    assert.equal(skillChannels.length, 14, `14 skills channels whitelisted, got ${JSON.stringify(skillChannels)}`)
+    // LR1 批次就地更新 14→15：skills:reviewMeta（docs/04「LR1 追加」节）落在白名单
+    // 尾部 LR1 尾窗（非 S2 群组内），filter 面按 skills: 前缀统计
+    assert.equal(skillChannels.length, 15, `15 skills channels whitelisted, got ${JSON.stringify(skillChannels)}`)
     for (const ch of skillChannels) {
       assert.ok(typeof registry[ch] === 'function', `${ch} has a registered handler`)
     }
@@ -3503,14 +3533,15 @@ if (isEntrypoint()) {
   //  docs/10 §11 授权的同一模式；AC2 就地更新 55→68，docs/14 §A.1 授权同一模式；
   //  夜间#1 就地更新 68→70，主控任务书授权；CP1 就地更新 70→79，docs/04 ContestPin 节；
   //  CP2 就地更新 79→84，docs/22 §4 悬浮窗 5 条；CP3a 就地更新 84→88，docs/22 §6
-  //  识别配置 4 条）：
+  //  识别配置 4 条；CP3b 就地更新 88→97，CP4 就地更新 97→100；LR1 并入 main
+  //  100→104，docs/04「LR1 追加」节 LLM 复核层 4 条）：
   //  registry 键集 = 白名单 = 契约覆盖
-  registerCase('s4-68: whitelist 45→50 (S5 就地更新为 55，AC2 就地更新 55→68，夜间#1 就地更新 68→70，CP1 就地更新 70→79，CP2 就地更新 79→84，CP3a 就地更新 84→88，CP3b 就地更新 88→97，CP4 就地更新 97→100) — registry keys equal the whitelist and the compile-time contract assertion holds', async () => {
+  registerCase('s4-68: whitelist 45→50 (S5 就地更新为 55，AC2 就地更新 55→68，夜间#1 就地更新 68→70，CP1 就地更新 70→79，CP2 就地更新 79→84，CP3a 就地更新 84→88，CP3b 就地更新 88→97，CP4 就地更新 97→100，LR1 并入 main 100→104) — registry keys equal the whitelist and the compile-time contract assertion holds', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
-    assert.equal(channels.IPC_CHANNELS.length, 100, 'whitelist extended 45 → 50 (S4), 50 → 55 (S5 archive), 55 → 68 (AC2 agents), 68 → 70 (夜间#1), 70 → 79 (CP1 contestpin 9 条), 79 → 84 (CP2 contestpin 悬浮窗 5 条), 84 → 88 (CP3a contestpin 识别配置 4 条), 88 → 97 (CP3b contestpin 材料导入/识别管线/核对界面 9 条), 97 → 100 (CP4 contestpin 提醒 3 条)')
-    assert.equal(new Set(channels.IPC_CHANNELS).size, 100, 'no duplicates after extension')
+    assert.equal(channels.IPC_CHANNELS.length, 104, 'whitelist extended 45 → 50 (S4), 50 → 55 (S5 archive), 55 → 68 (AC2 agents), 68 → 70 (夜间#1), 70 → 79 (CP1 contestpin 9 条), 79 → 84 (CP2 contestpin 悬浮窗 5 条), 84 → 88 (CP3a contestpin 识别配置 4 条), 88 → 97 (CP3b contestpin 材料导入/识别管线/核对界面 9 条), 97 → 100 (CP4 contestpin 提醒 3 条), 100 → 104 (LR1 LLM 复核层 4 条)')
+    assert.equal(new Set(channels.IPC_CHANNELS).size, 104, 'no duplicates after extension')
     // 编译期断言 AssertContractCoversWhitelist 的解析产物（ChannelContract 恰好覆盖白名单）
     assert.equal(handlers.contractCoversWhitelist, true, 'ChannelContract covers exactly the whitelist (compile-time, observed at runtime)')
 
@@ -4396,10 +4427,12 @@ if (isEntrypoint()) {
     try {
       const registry = handlers.createHandlerRegistry({ appVersion: 's5-smoke' })
       const archiveChannels = channels.IPC_CHANNELS.filter((c) => c.startsWith('archive:'))
+      // LR1 批次就地更新 5→7：archive:reviewPre/archive:reviewPost（docs/04「LR1 追加」节，
+      // advisory-only READ_ONLY；execute 管线零改动）
       assert.deepEqual(
         [...archiveChannels].sort(),
-        ['archive:history', 'archive:preview', 'archive:rollback', 'archive:run', 'archive:status'],
-        '5 archive channels per docs/10 §11 naming',
+        ['archive:history', 'archive:preview', 'archive:reviewPost', 'archive:reviewPre', 'archive:rollback', 'archive:run', 'archive:status'],
+        '7 archive channels per docs/10 §11 naming + docs/04 LR1 追加节（LR1 批次就地更新 5→7）',
       )
       for (const ch of archiveChannels) {
         assert.ok(typeof registry[ch] === 'function', `${ch} has a registered handler`)
@@ -4496,8 +4529,8 @@ if (isEntrypoint()) {
     const db = dbModule.openDatabase(join(dir, 'fresh.db'))
     try {
       const applied = dbModule.migrate(db)
-      assert.equal(applied, 7, '001..006+008 applied on fresh db (CP1 批次就地更新 6→7)')
-      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 8, 'fresh db at user_version 8 (CP1 批次就地更新 6→8)')
+      assert.equal(applied, 8, '001..008 applied on fresh db (LR1 批次就地更新 7→8：007 插入 006/008 之间)')
+      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 8, 'fresh db at user_version 8 (终值不变：007 置 7、008 置 8；LR1 就地注记)')
 
       const tables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name))
       for (const t of [
@@ -4588,7 +4621,7 @@ if (isEntrypoint()) {
       assert.ok(before.settings.length >= 5, 'v3 settings carry 001/003 seeds + custom row')
 
       const applied = dbModule.migrate(db2)
-      assert.equal(applied, 4, 'only 004..006+008 apply to the v3 library (CP1 批次就地更新 3→4)')
+      assert.equal(applied, 5, 'only 004..008 apply to the v3 library (LR1 批次就地更新 4→5：007 按序纳入)')
       assert.equal(Number(db2.prepare('PRAGMA user_version').get().user_version), 8, 'v3 upgraded to user_version 8 (CP1 批次就地更新 6→8)')
 
       for (const t of LEGACY_TABLES) {
@@ -4602,9 +4635,18 @@ if (isEntrypoint()) {
           const addedKeys = after.filter((r) => !before.settings.some((b) => b.key === r.key)).map((r) => r.key).sort()
           assert.deepEqual(
             addedKeys,
-            ['agents_monitor_enabled', 'contestpin_default_mode', 'contestpin_overlay_enabled', 'gateway_enabled', 'gateway_port', 'login_autostart'],
-            'exactly the AC2 4 seed keys + CP1 2 contestpin seeds added (docs/13 §6 + docs/22 §2.1; CP1 批次就地更新 +2)',
+            ['agents_monitor_enabled', 'contestpin_default_mode', 'contestpin_overlay_enabled', 'gateway_enabled', 'gateway_port', 'llm_review_base_url', 'llm_review_model', 'login_autostart'],
+            'exactly the AC2 4 seed keys + CP1 2 contestpin seeds + LR1 2 review seeds added (docs/13 §6 + docs/22 §2.1 + 任务书 §5; LR1 批次就地更新 +2)',
           )
+        } else if (t === 'archive_runs') {
+          // LR1 批次就地注记：007 为 archive_runs 追加 review_pre_json/review_post_json
+          // 两列（nullable，旧行 NULL），T1 比较投影剔除这两列后 row-for-row 不变
+          const stripReview = (rows) =>
+            rows.map((r) => {
+              const { review_pre_json, review_post_json, ...rest } = r
+              return rest
+            })
+          assert.deepEqual(stripReview(after), stripReview(before[t]), `legacy table ${t} row-for-row unchanged (T1; 007 两新增 nullable 列投影剔除后比较)`)
         } else {
           assert.deepEqual(after, before[t], `legacy table ${t} row-for-row unchanged (T1; devices/mcp_servers 预留表原样保留)`)
         }
@@ -4640,7 +4682,7 @@ if (isEntrypoint()) {
   }, 'fast')
 
   // 84. agents 13 条 channel：白名单尾部按 docs/14 §A.1 顺序逐字存在 + 注册表覆盖
-  registerCase('ac2-84: agents channels (14, 夜间#1 就地更新 13→14) — whitelist tail in docs/14 §A.1 order, registry handlers, compile-time contract assertion holds（CP4 就地更新 97→100：contestpin 尾窗再前移）', async () => {
+  registerCase('ac2-84: agents channels (14, 夜间#1 就地更新 13→14) — whitelist tail in docs/14 §A.1 order, registry handlers, compile-time contract assertion holds（CP4 就地更新 97→100：contestpin 尾窗再前移；LR1 并入 main 100→104：LLM 复核层 4 条尾窗）', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
@@ -4660,12 +4702,11 @@ if (isEntrypoint()) {
       'agents:diagnostics',
       'agents:probeProvider',
     ]
-    assert.equal(channels.IPC_CHANNELS.length, 100, 'whitelist 55 → 70 (docs/14 §A.2; 夜间#1 就地更新 68→70), 70 → 79 (CP1 就地更新，docs/04 ContestPin 追加节), 79 → 84 (CP2 就地更新，docs/22 §4 悬浮窗 5 条), 84 → 88 (CP3a 就地更新，docs/22 §6 识别配置 4 条), 88 → 97 (CP3b 就地更新，docs/22 §5 材料导入/识别管线 9 条), 97 → 100 (CP4 就地更新，docs/22 §7 提醒 3 条)')
-    // CP3a 就地更新 84→88、CP3b 就地更新 88→97、CP4 就地更新 97→100：CP4 后追加
-    // contestpin 3 条（reminders），agents 尾窗再前移为 slice(-44, -30)
-    assert.deepEqual([...channels.IPC_CHANNELS.slice(-44, -30)], expectedAgents, '14 agents channels appended verbatim in docs/14 §A.1 order (夜间#1 就地更新 13→14)')
+    assert.equal(channels.IPC_CHANNELS.length, 104, 'whitelist 55 → 70 (docs/14 §A.2; 夜间#1 就地更新 68→70), 70 → 79 (CP1 就地更新，docs/04 ContestPin 追加节), 79 → 84 (CP2 就地更新，docs/22 §4 悬浮窗 5 条), 84 → 88 (CP3a 就地更新，docs/22 §6 识别配置 4 条), 88 → 97 (CP3b 就地更新，docs/22 §5 材料导入/识别管线 9 条), 97 → 100 (CP4 就地更新，docs/22 §7 提醒 3 条), 100 → 104 (LR1 并入 main，docs/04 LR1 追加节 LLM 复核层 4 条)')
+    // CP3b/CP4 就地更新后再并入 LR1 4 条（review）——agents 尾窗前移为 slice(-48, -34)
+    assert.deepEqual([...channels.IPC_CHANNELS.slice(-48, -34)], expectedAgents, '14 agents channels appended verbatim in docs/14 §A.1 order (夜间#1 就地更新 13→14)')
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-30, -21)],
+      [...channels.IPC_CHANNELS.slice(-34, -25)],
       [
         'contestpin:list',
         'contestpin:get',
@@ -4680,7 +4721,7 @@ if (isEntrypoint()) {
       '9 contestpin channels appended verbatim in docs/04 ContestPin 追加节 order (CP1 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-21, -16)],
+      [...channels.IPC_CHANNELS.slice(-25, -20)],
       [
         'contestpin:overlayState',
         'contestpin:overlaySetEnabled',
@@ -4691,7 +4732,7 @@ if (isEntrypoint()) {
       '5 contestpin overlay channels appended verbatim in docs/22 §4 order (CP2 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-16, -12)],
+      [...channels.IPC_CHANNELS.slice(-20, -16)],
       [
         'contestpin:configList',
         'contestpin:configSave',
@@ -4701,7 +4742,7 @@ if (isEntrypoint()) {
       '4 contestpin recognition-config channels appended verbatim in docs/22 §6 order (CP3a 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-12, -3)],
+      [...channels.IPC_CHANNELS.slice(-16, -7)],
       [
         'contestpin:materialsList',
         'contestpin:importMaterials',
@@ -4716,13 +4757,23 @@ if (isEntrypoint()) {
       '9 contestpin materials/import/draft channels appended verbatim in docs/22 §5 order (CP3b 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-3)],
+      [...channels.IPC_CHANNELS.slice(-7, -4)],
       [
         'contestpin:reminderUpsert',
         'contestpin:reminderDelete',
         'contestpin:reminderLogList',
       ],
       '3 contestpin reminder channels appended verbatim in docs/22 §7 order (CP4 批次)',
+    )
+    assert.deepEqual(
+      [...channels.IPC_CHANNELS.slice(-4)],
+      [
+        'review:testEndpoint',
+        'archive:reviewPre',
+        'archive:reviewPost',
+        'skills:reviewMeta',
+      ],
+      '4 LLM review channels appended verbatim in docs/04 LR1 追加节 order (LR1 批次；全 READ_ONLY advisory)',
     )
 
     const registry = handlers.createHandlerRegistry({ appVersion: 'ac2-smoke' })
@@ -9073,7 +9124,7 @@ if (isEntrypoint()) {
     const db = dbModule.openDatabase(join(dir, 'fresh.db'))
     try {
       const applied = dbModule.migrate(db)
-      assert.equal(applied, 7, '001..006+008 applied on fresh db (CP1 批次就地更新 6→7)')
+      assert.equal(applied, 8, '001..008 applied on fresh db (LR1 批次就地更新 7→8：007 插入 006/008 之间)')
       assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 8, 'user_version = 8 (CP1 批次就地更新 6→8)')
       const sessionCols = db.prepare('PRAGMA table_info(agent_sessions)').all().map((c) => c.name)
       assert.ok(sessionCols.includes('parent_session_id'), 'agent_sessions.parent_session_id present')
@@ -9100,7 +9151,7 @@ if (isEntrypoint()) {
       db2.prepare("INSERT INTO agent_providers (provider, display_name, created_at, updated_at) VALUES ('zcode', 'ZCode', ?, ?)").run(now, now)
       db2.prepare("INSERT INTO agent_sessions (provider_id, native_id, session_mode, status, created_at, updated_at) VALUES (1, 'sess_v4_keep', 'observed', 'running', ?, ?)").run(now, now)
       const applied = dbModule.migrate(db2)
-      assert.equal(applied, 3, 'only 005+006+008 apply to the v4 library (CP1 批次就地更新 2→3)')
+      assert.equal(applied, 4, 'only 005+006+007+008 apply to the v4 library (LR1 批次就地更新 3→4：007 按序纳入)')
       assert.equal(Number(db2.prepare('PRAGMA user_version').get().user_version), 8, 'v4 upgraded to 8 (CP1 批次就地更新 6→8)')
       const row = db2.prepare("SELECT native_id, parent_session_id, archived_at FROM agent_sessions WHERE native_id = 'sess_v4_keep'").get()
       assert.ok(row !== undefined, 'v4 session row survived the upgrade')
@@ -9120,9 +9171,13 @@ if (isEntrypoint()) {
         assert.equal(Number(db3.prepare('PRAGMA user_version').get().user_version), 5, 'case-5 literal statement works')
         migrateMod.setUserVersionLiteral(db3, 6) // c7b 批次：case-6 已注册，负向样例顺延 6→7
         assert.equal(Number(db3.prepare('PRAGMA user_version').get().user_version), 6, 'case-6 literal statement works (c7b 批次)')
-        migrateMod.setUserVersionLiteral(db3, 8) // CP1 批次：case-8 已注册（007=LR1 未落地，case 7 保持未注册）
+        migrateMod.setUserVersionLiteral(db3, 8) // CP1 批次：case-8 已注册
         assert.equal(Number(db3.prepare('PRAGMA user_version').get().user_version), 8, 'case-8 literal statement works (CP1 批次)')
-        assert.throws(() => migrateMod.setUserVersionLiteral(db3, 7), /no literal user_version statement/, 'unregistered version throws (007=LR1)')
+        // LR1 批次就地更新（同一负向护栏模式）：case-7 已注册（007_llm_review.sql 落地），
+        // 负向样例顺延 7 → 9（下一未注册序号；运行期缺字面量仍必须显式抛错）
+        migrateMod.setUserVersionLiteral(db3, 7)
+        assert.equal(Number(db3.prepare('PRAGMA user_version').get().user_version), 7, 'case-7 literal statement works (LR1 批次)')
+        assert.throws(() => migrateMod.setUserVersionLiteral(db3, 9), /no literal user_version statement/, 'unregistered version throws (009 未注册，负向样例顺延)')
       } finally {
         db3.close()
       }
@@ -12856,7 +12911,87 @@ if (isEntrypoint()) {
         assert.equal(s6.degraded, 1, 'missing applier degrades structurally (openInMain no-op precedent)')
       } finally {
         engine.setNotifyApplier(null) // 恢复未注入态（后续用例零真实通知面）
-        dbModule.closeDatabase()
+        dbModule.closeDatabase()      }
+    },
+    'fast',
+  )
+
+  // ==================================================================
+  // LR1 批次（docs/briefs/lr1-llm-review.md 权威）：LLM 复核层 advisory-only。
+  // 全部经 reviewClient 注入 fake transport 零联网（cp3a 同范式）；回归判据
+  // （任务书 §9/§10 最重要判据）：端点未配置 → 四态全 skipped 且零传输调用，
+  // 归档主流程行为等价现状（S5 归档用例原样全绿即等价性回归通过）。
+  // ==================================================================
+
+  registerCase(
+    'lr1-client: reviewClient 独立轻客户端（fake transport 零联网）——2xx ok 内容提取、500→HTTP_ERROR 带 status、reject→NETWORK、AbortError→TIMEOUT、非 JSON/缺 choices→BAD_RESPONSE、URL 三形态归一、恒无 Authorization 头与请求体零 key 字段',
+    async () => {
+      const client = await import(new URL('../src/main/services/review/reviewClient.ts', import.meta.url).href)
+      const seen = []
+      client.setReviewTransport(async (url, init) => {
+        seen.push({ url, headers: init.headers, body: String(init.body) })
+        return { status: 200, bodyText: JSON.stringify({ choices: [{ message: { content: 'verdict-json' } }] }) }
+      })
+      try {
+        const messages = [{ role: 'system', content: 'sys' }, { role: 'user', content: 'assess' }]
+        const ok = await client.reviewChatCompletion({ baseUrl: 'http://127.0.0.1:11434/v1', model: 'm1' }, messages)
+        assert.equal(ok.ok, true, '2xx → ok')
+        assert.equal(ok.content, 'verdict-json', 'content extracted from choices[0].message.content')
+        assert.equal(typeof ok.latencyMs, 'number')
+        assert.equal(seen[0].url, 'http://127.0.0.1:11434/v1/chat/completions', 'baseUrl normalized to /chat/completions')
+        assert.equal(seen[0].headers.Authorization, undefined, 'v1 零鉴权：恒无 Authorization 头')
+        const body = JSON.parse(seen[0].body)
+        assert.deepEqual(Object.keys(body).sort(), ['messages', 'model', 'stream'], 'request body = {model, messages, stream} — 零 key 字段')
+        assert.equal(body.stream, false, '非流式（任务书 §2）')
+        assert.equal(body.model, 'm1')
+
+        // 非 2xx → HTTP_ERROR 带 status
+        client.setReviewTransport(async () => ({ status: 503, bodyText: 'backend unavailable' }))
+        const httpErr = await client.reviewChatCompletion({ baseUrl: 'http://x/v1', model: 'm' }, messages)
+        assert.equal(httpErr.ok, false)
+        assert.equal(httpErr.failure.kind, 'HTTP_ERROR')
+        assert.equal(httpErr.failure.status, 503)
+        assert.ok(httpErr.failure.message.includes('503'))
+
+        // reject → NETWORK；AbortError → TIMEOUT（30s 超时语义的传输面折叠）
+        client.setReviewTransport(async () => {
+          throw new Error('ECONNREFUSED-ish')
+        })
+        const netErr = await client.reviewChatCompletion({ baseUrl: 'http://x/v1', model: 'm' }, messages)
+        assert.equal(netErr.failure.kind, 'NETWORK')
+        client.setReviewTransport(async () => {
+          const err = new Error('aborted')
+          err.name = 'AbortError'
+          throw err
+        })
+        const timeoutErr = await client.reviewChatCompletion({ baseUrl: 'http://x/v1', model: 'm' }, messages)
+        assert.equal(timeoutErr.failure.kind, 'TIMEOUT', 'AbortError/TimeoutError → TIMEOUT（service 折叠为 skipped）')
+
+        // 2xx 但响应体坏 → BAD_RESPONSE（非 JSON / 缺 choices / content 非字符串）
+        client.setReviewTransport(async () => ({ status: 200, bodyText: 'not-json' }))
+        const bad1 = await client.reviewChatCompletion({ baseUrl: 'http://x/v1', model: 'm' }, messages)
+        assert.equal(bad1.failure.kind, 'BAD_RESPONSE')
+        client.setReviewTransport(async () => ({ status: 200, bodyText: '{"usage":{}}' }))
+        const bad2 = await client.reviewChatCompletion({ baseUrl: 'http://x/v1', model: 'm' }, messages)
+        assert.equal(bad2.failure.kind, 'BAD_RESPONSE')
+
+        // URL 归一（独立实现，与 ContestPin 语义一致）
+        const captured = []
+        client.setReviewTransport(async (url) => {
+          captured.push(url)
+          return { status: 200, bodyText: '{"choices":[{"message":{"content":"x"}}]}' }
+        })
+        await client.reviewChatCompletion({ baseUrl: 'http://y:11434/v1', model: 'm' }, messages)
+        await client.reviewChatCompletion({ baseUrl: 'http://y:11434/v1/', model: 'm' }, messages)
+        await client.reviewChatCompletion({ baseUrl: 'http://y:11434/v1/chat/completions', model: 'm' }, messages)
+        assert.deepEqual(captured, [
+          'http://y:11434/v1/chat/completions',
+          'http://y:11434/v1/chat/completions',
+          'http://y:11434/v1/chat/completions',
+        ], 'baseUrl 三形态归一（/v1 保留）；已带 /chat/completions 原样')
+        assert.equal(client.normalizeReviewChatUrl('  http://z/v1//  '), 'http://z/v1/chat/completions')
+      } finally {
+        client.setReviewTransport(null) // 恢复默认传输（后续用例零联网）
       }
     },
     'fast',
@@ -12944,6 +13079,194 @@ if (isEntrypoint()) {
     },
     'fast',
   )
+
+  registerCase(
+    'lr1-envelopes: reviewService 四态 envelope + reviewPost 缓存 + 端点未配置零调用等价现状（回归判据）——skipped（未配置/超时）/ failed（网络/HTTP）/ unparseable（坏 JSON/结构不符）/ ok（围栏宽容+结构校验）；review:testEndpoint 直测与 dispatch BAD_PAYLOAD；prompt 零文件内容零 key 纪律',
+    async () => {
+      const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+      const settings = await import(new URL('../src/main/services/settingsService.ts', import.meta.url).href)
+      const client = await import(new URL('../src/main/services/review/reviewClient.ts', import.meta.url).href)
+      const svc = await import(new URL('../src/main/services/review/reviewService.ts', import.meta.url).href)
+      const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
+
+      await makeTempHome('devhub-lr1-env-')
+      const db = dbModule.getDatabase()
+      /** fake transport 累计调用数 + 最近一次请求快照（url/headers/body 文本）。 */
+      let calls = 0
+      let lastReq = null
+      const capture = (fn) =>
+        async (url, init) => {
+          calls += 1
+          lastReq = { url, headers: init.headers, body: String(init.body) }
+          return fn(url, init)
+        }
+      try {
+        // ---- 未配置（默认种子空串）：全 skipped + 零传输调用（最重要判据） ----
+        client.setReviewTransport(async () => {
+          calls += 1
+          return { status: 200, bodyText: '{"choices":[{"message":{"content":"{}"}}]}' }
+        })
+        const plan = {
+          projectName: 'Lr1Demo',
+          oldPath: 'C:\\t\\Lr1Demo',
+          destPath: 'D:\\arc\\Lr1Demo',
+          crossVolume: true,
+          totalHits: 3,
+          filesToRewrite: 2,
+          stripDirs: 1,
+          occupiers: 0,
+        }
+        const preSkipped = await svc.runReviewPre({ plan })
+        assert.equal(preSkipped.status, 'skipped', '未配置 → skipped（行为等价现状）')
+        const postSkipped = await svc.runReviewPost(await seedRun(db))
+        assert.equal(postSkipped.status, 'skipped', 'reviewPost 未配置 → skipped')
+        const metaSkipped = await svc.runSkillsMetaReview()
+        assert.equal(metaSkipped.status, 'skipped', 'reviewMeta 未配置 → skipped')
+        assert.equal(calls, 0, '未配置时零传输调用（全流程行为等价现状）')
+
+        // ---- 配置双键后：ok 态 + 围栏宽容 + 结构校验 ----
+        settings.setSetting('llm_review_base_url', 'http://127.0.0.1:11434/v1')
+        settings.setSetting('llm_review_model', 'verdict-model')
+        const verdict = { risk: 'medium', concerns: ['两条外部引用待改写'], rationale: '计划总体安全。' }
+        client.setReviewTransport(capture(async () => ({
+          status: 200,
+          bodyText: JSON.stringify({ choices: [{ message: { content: '```json\n' + JSON.stringify(verdict) + '\n```' } }] }),
+        })))
+        const pre = await svc.runReviewPre({ plan: { ...plan, projectDescription: 'demo desc' } })
+        assert.equal(pre.status, 'ok', '围栏 JSON 宽容解析 → ok')
+        assert.equal(pre.risk, 'medium')
+        assert.deepEqual(pre.concerns, ['两条外部引用待改写'])
+        assert.equal(pre.model, 'verdict-model')
+        assert.equal(typeof pre.latencyMs, 'number')
+        // prompt 纪律：入参仅 plan 摘要（名称/路径/计数）；无 Authorization、无 key 样式串
+        const preBody = `${lastReq.body}\n${JSON.stringify(lastReq.headers)}`
+        assert.ok(preBody.includes('Lr1Demo') && preBody.includes('Reference hits (total): 3'), 'prompt 输入 = plan 摘要字段（名称/计数）')
+        assert.ok(!preBody.includes('Authorization'), '请求无 Authorization 头')
+        assert.ok(!preBody.includes('sk-'), '请求无 key 样式串')
+
+        // ---- reviewPost：ok 落缓存，二调命中缓存不再打端点 ----
+        calls = 0
+        const runId = await seedRun(db)
+        const post1 = await svc.runReviewPost(runId)
+        assert.equal(post1.status, 'ok', 'reviewPost ok 态')
+        assert.equal(post1.cached, undefined, '首调非缓存')
+        assert.equal(calls, 1, '首调打端点一次')
+        assert.equal(post1.risk, 'medium')
+        const cachedRow = db.prepare('SELECT review_post_json FROM archive_runs WHERE id = ?').get(runId)
+        assert.ok(cachedRow.review_post_json !== null, '007 列 review_post_json 已写入缓存')
+        const post2 = await svc.runReviewPost(runId)
+        assert.equal(post2.status, 'ok')
+        assert.equal(post2.cached, true, '二调缓存命中')
+        assert.equal(calls, 1, '缓存命中不再打端点（任务书 §4.2）')
+
+        // ---- failed：网络拒绝 → failed；非 2xx → failed ----
+        client.setReviewTransport(async () => {
+          throw new Error('ECONNREFUSED')
+        })
+        const failed = await svc.runReviewPre({ plan })
+        assert.equal(failed.status, 'failed', '网络错误 → failed')
+        client.setReviewTransport(async () => ({ status: 500, bodyText: 'boom' }))
+        const failedHttp = await svc.runReviewPre({ plan })
+        assert.equal(failedHttp.status, 'failed', '非 2xx → failed')
+
+        // ---- skipped：超时（AbortError）归 skipped，不阻塞语义 ----
+        client.setReviewTransport(async () => {
+          const err = new Error('timeout')
+          err.name = 'AbortError'
+          throw err
+        })
+        const timeout = await svc.runReviewPre({ plan })
+        assert.equal(timeout.status, 'skipped', '超时按 skipped 语义（任务书 §2/§3）')
+
+        // ---- unparseable：模型回非法 JSON / 结构不符 → 不崩；失败态不落缓存 ----
+        client.setReviewTransport(capture(async () => ({ status: 200, bodyText: '{"choices":[{"message":{"content":"sorry, not json"}}]}' })))
+        const unparsed = await svc.runReviewPre({ plan })
+        assert.equal(unparsed.status, 'unparseable', '非法 JSON → unparseable')
+        client.setReviewTransport(capture(async () => ({ status: 200, bodyText: '{"choices":[{"message":{"content":"{\\"risk\\":\\"extreme\\"}"}}]}' })))
+        const badRisk = await svc.runReviewPre({ plan })
+        assert.equal(badRisk.status, 'unparseable', 'risk 越白名单 → 结构校验不过 → unparseable')
+        const failRunId = await seedRun(db, 'Lr1Fail')
+        const postFail = await svc.runReviewPost(failRunId)
+        assert.equal(postFail.status, 'unparseable')
+        const failRow = db.prepare('SELECT review_post_json FROM archive_runs WHERE id = ?').get(failRunId)
+        assert.equal(failRow.review_post_json, null, '只缓存 ok 态，失败态不落缓存')
+
+        // ---- review:testEndpoint：service 直测 + dispatch 形状校验 ----
+        client.setReviewTransport(capture(async () => ({ status: 200, bodyText: '{"choices":[{"message":{"content":"pong"}}]}' })))
+        const test1 = await svc.testReviewEndpoint('http://127.0.0.1:11434/v1', 'm')
+        assert.equal(test1.ok, true, 'testEndpoint ok')
+        assert.equal(typeof test1.latencyMs, 'number')
+        client.setReviewTransport(async () => ({ status: 503, bodyText: 'down' }))
+        const test2 = await svc.testReviewEndpoint('http://127.0.0.1:11434/v1', 'm')
+        assert.equal(test2.ok, false, 'testEndpoint 非 2xx → ok:false')
+        assert.ok(typeof test2.error === 'string' && test2.error.length > 0, 'error 简短原因')
+        const registry = handlers.createHandlerRegistry({ appVersion: 'lr1-smoke' })
+        const badShape = await handlers.dispatchGatewayRequest(registry, { channel: 'review:testEndpoint', payload: { baseUrl: '', model: 'm' } })
+        assert.equal(badShape.ok, false)
+        assert.equal(badShape.error.code, 'BAD_PAYLOAD', '空 baseUrl → BAD_PAYLOAD')
+        const badPlan = await handlers.dispatchGatewayRequest(registry, { channel: 'archive:reviewPre', payload: { plan: { projectName: 'x' } } })
+        assert.equal(badPlan.error.code, 'BAD_PAYLOAD', 'plan 缺字段 → BAD_PAYLOAD')
+        const notFound = await handlers.dispatchGatewayRequest(registry, { channel: 'archive:reviewPost', payload: { runId: 424242 } })
+        assert.equal(notFound.ok, false)
+        assert.equal(notFound.error.code, 'NOT_FOUND', '未知 runId → NOT_FOUND（普通资源查找错误，非复核失败）')
+
+        // ---- skills:reviewMeta 只读性：表行前后一致（只读咨询不落库） ----
+        seedSkills(db)
+        const skillsBefore = db.prepare('SELECT * FROM skills ORDER BY id').all()
+        client.setReviewTransport(capture(async () => ({
+          status: 200,
+          bodyText: JSON.stringify({
+            choices: [{
+              message: {
+                content: JSON.stringify({
+                  flags: [
+                    { skillId: 1, kind: 'short_description', detail: '描述不足 20 字符' },
+                    { skillId: 999, kind: 'language_mismatch', detail: '幻觉 id 应被丢弃' },
+                    { skillId: 2, kind: 'suspected_duplicate', detail: '与 alpha-web 职责重叠' },
+                  ],
+                }),
+              },
+            }],
+          }),
+        })))
+        const meta = await svc.runSkillsMetaReview()
+        assert.equal(meta.status, 'ok')
+        assert.equal(meta.checkedCount, 3)
+        assert.deepEqual(meta.flags.map((f) => [f.skillId, f.kind]), [[1, 'short_description'], [2, 'suspected_duplicate']], '幻觉 skillId 丢弃、kind 白名单')
+        const skillsAfter = db.prepare('SELECT * FROM skills ORDER BY id').all()
+        assert.deepEqual(skillsAfter, skillsBefore, '只读体检：skills 表零写入')
+        // 模型回坏结构 → unparseable（不崩）
+        client.setReviewTransport(async () => ({ status: 200, bodyText: '{"choices":[{"message":{"content":"[{\"flags\":"}}]}' }))
+        const metaBad = await svc.runSkillsMetaReview()
+        assert.equal(metaBad.status, 'unparseable', 'flags 结构不符 → unparseable')
+      } finally {
+        client.setReviewTransport(null) // 恢复默认传输（后续用例零联网）
+        svc._testReset()
+        dbModule.closeDatabase()
+      }
+    },
+    'fast',
+  )
+
+  /** LR1 夹具：archive_runs 插一行 done 记录，返回 runId（reviewPost 缓存用）。 */
+  async function seedRun(db, projectName = 'Lr1Demo') {
+    const result = db
+      .prepare(
+        "INSERT INTO archive_runs (project_id, project_name, old_path, new_path, status, fixed_files, external_files, residual_hits, started_at, finished_at) VALUES (NULL, ?, 'C:\\\\t\\\\lr1-src', 'D:\\\\arc\\\\lr1-dst', 'done', 1, 2, 0, 1788266592, 1788266600)",
+      )
+      .run(projectName)
+    return Number(result.lastInsertRowid)
+  }
+
+  /** LR1 夹具：skills 三行（描述过短 / 正常 / 疑似重复素材）。 */
+  function seedSkills(db) {
+    const insert = db.prepare(
+      "INSERT INTO skills (name, source_path, vault_rel_path, frontmatter_json, description, created_at, updated_at) VALUES (?, NULL, ?, '{}', ?, 0, 0)",
+    )
+    insert.run('alpha-web', 'skills/alpha-web', 'web project helper')
+    insert.run('beta-very-long-description-skill', 'skills/beta-very-long-description-skill', 'a'.repeat(40))
+    insert.run('alpha-web-clone', 'skills/alpha-web-clone', 'web project helper (duplicate)')
+  }
 
   await run(parseTierArg())
 }
