@@ -1104,6 +1104,11 @@ export function beginDeviceSelfRevoke(input: { deviceId: number; idempotencyKey:
     | RemoteCommandRow
     | undefined
   if (existing !== undefined) {
+    // 同 key 异 action → COMMAND_KEY_CONFLICT（docs/14 §B.5 语义；幂等键是全局唯一资源，
+    // 绝不把其他 action 的行误当撤销重放）
+    if (existing.action !== 'revoke_device') {
+      throw new ServiceError('COMMAND_KEY_CONFLICT', 'device self-revoke: idempotency key already used with a different action (docs/14 B.5)')
+    }
     // 同 key 重试：原命令原受理（docs/14 §B.5 语义；撤销为一次性事实，绝不重复执行）
     return { commandId: existing.command_id, replayed: true, status: commandRowStatusToResult(existing.status) }
   }

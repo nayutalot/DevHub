@@ -297,7 +297,15 @@ export function handleCommandFrame(frame: unknown, host: CommandDownlinkHost): v
   //      wire 序保证设备先收 command_ack(accepted) 再收 disconnect(revoked)（§5.3：
   //      终态收口 = disconnect(revoked)，commandId 终态照常落库，回帧不保证送达）。
   if (action === 'revoke_device') {
-    const begun = beginDeviceSelfRevoke({ deviceId: authedDeviceId, idempotencyKey })
+    let begun: ReturnType<typeof beginDeviceSelfRevoke>
+    try {
+      begun = beginDeviceSelfRevoke({ deviceId: authedDeviceId, idempotencyKey })
+    } catch (err) {
+      // 幂等键被他用（跨 action 冲突等）→ 结构化拒绝，绝不出帧执行撤销
+      const code = err instanceof Error && 'code' in err ? String((err as { code: unknown }).code) : 'INTERNAL'
+      reject(code)
+      return
+    }
     // 终态路由登记（执行段 notify → command_result 回帧尝试；设备被踢后投递失败属预期）
     if (!begun.replayed) pendingKeys.set(idempotencyKey, { relayAction: action })
     host.sendAck({
