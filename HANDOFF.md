@@ -1,11 +1,13 @@
-# DevHub 会话交接文档（2026-09-10 02:5x 交接收口，前会话上下文耗尽）
+# DevHub 会话交接文档（2026-09-10 04:3x 收口版——前中途态五项已全部执行完毕）
 
-> **⚠️ 当前中途态（最高优先，恢复会话先读）**：
-> 1. **M3-E1 已并入 main=aadf9a4（已推）——但门禁未跑、commit 消息名不副实**：交接收口时 `git commit` 在 staged 合并上执行，aadf9a4 实为 M3-E1 合并提交（双亲 6730671+6f098a3，含全部 M3-E1 内容+HANDOFF，消息写成 docs 收口——历史注记）。语义已核验（tsc 0/主仓已补装 CP3b 依赖/forwarder 同含 wake+七 action），**但 fast/full/mcp/ecs 门禁未在该树跑过**。**恢复会话第一步**：常驻已下线（免双杀）→ main HEAD 直接跑 `node scripts/smoke.mjs --tier=fast`（预期 98）→ 全量（预期 188）→ `mcp-acceptance`（27）→ `cd ecs-relay && npm test`（99）——全绿则续 LR1 链；任何红=修复前进（git 历史不回退）。
-> 2. **常驻 DevHub.exe 已下线**（交接收口前双杀执行过）；**当前在役安装包（02:16 CP4 版）PDF 识别残缺**（打包时主仓缺依赖，external 化未报错）——**M3-E1+LR1 全合后必须末次重打包（HTTPS_PROXY=http://127.0.0.1:7897）+换装重启**。
-> 3. **LR1 链未开始**：分支 `agent/lr1`（57f1f5f/d10c19e/74bbdbc；migration 007+4 通道，其分支计数 92 vs main 100——合并冲突解决为 104）；合并后**真库补 007**（备份→手工两条 ALTER+种子；真库 user_version=8>7 不会自动应用，不补则 review 缓存降级）。
-> 4. **ECS 部署 M3-E1 未做**：`ecs-relay/sql/0003_self_mgmt_actions.sql`（表重建扩 action CHECK，先备份 /var/lib/devhub-relay/relay.db）+ relay 代码同步（forwarder/config/…，含 RW0 wake 已在线版为基）+ `systemctl restart devhub-relay` + selfcheck（83+1SKIP）+ node --test 99。
-> 5. R-B5/R-B8 活体复验（真 ECS+真机）与 App 安装（assembleDebug APK 已在 m3e1 worktree 产出）留后续批。
+> **✅ 2026-09-10 凌晨会话已把 02:5x 中途态五项全部收口**（详见 §2 台账"凌晨收口会话"行）：
+> 1. M3-E1 门禁已跑全绿（tsc 0/fast 98/full 188【首跑 1 例 flake 复跑自愈未定位】/mcp 27/ecs-relay **110**=RW0 11+M3-E1 2 修正口径）；
+> 2. LR1 已合 main（33dd0ae，冲突四文件双侧保全，白名单 100→**104**，fast 100/full 190/mcp 27）+ **真库 007 已补**（备份 devhub.db.bak-pre007-20260910-034000；两列+两种子；user_version=8 未动；注：本仓用 node:sqlite 非 better-sqlite3）；
+> 3. RW1 已合 main（9eba8ac，Android-only：wake 帧对+submitWakeHost+AgentsScreen 唤醒卡；:core 204/:app 60/assembleDebug 绿）——**待用户真关机 S5 唤醒实测**；
+> 4. ECS M3-E1 已部署（0003 表重建 4 行保全+CHECK 七值+relay_meta v3；selfcheck 83+1SKIP×2；亚秒停机；wake 面//etc 物料零触碰；备份 /root/relay-*-preM3E1-20260910-025705.*）；
+> 5. **末次重打包+换装完成（04:02 常驻在役）**：asar 四项证据全过（**pdfjs-dist 416 条+napi-canvas 原生件=CP3b PDF 残缺修复兑现**+review/spawn/reminder 标识）；health×3 同 PID 稳定+REST 三面 200+零锁；验证遗留设备 #70 已按 CP1 先例撤销（active 回到恰好在役三台 #46/#52/#53）；
+> 6. **卫生批已合 main（aa9dc8e）**：三连幻影事故根治——ac6 系 8746 固定口全改每用例随机口，**真实常驻握 8746 时全量 190/190**（验收真身已过；此后全量门禁常驻在线可跑）。
+> ⚠️ **唯一悬置：GitHub push 被网络阻塞**（直连墙+7897 代理进程活但上游隧道坏）——本地 main=aa9dc8e ahead 7 + 分支 agent/smoke-port-hygiene，后台重试循环在推（2h 视野）；网络恢复自动补推，**恢复会话先查 `git status -sb` 是否 ahead 归零**。
 
 ## 0. 新会话开工须知（用户令：严格约束工作流）
 
@@ -17,7 +19,7 @@
 
 ## 1. 当前状态一句话
 
-**ContestPin CP0-CP4 全部合 main（main=6730671；100 通道/悬浮窗/识别管线/提醒通知全在役）+RW0 已部署 ECS 实测（sent 511ms）+M3-E1 合并挂起待门禁提交+LR1 待合并**；M3-D 观察已提前终止判定通过；常驻已下线**待末次重打包换装（CP3b 依赖修复必做）**；真库 schema v8（007 补丁待 LR1 合并后手工补）；基线=tsc 0/smoke 全量 186（fast 96，M3-E1 后 188）/mcp 27/:core 195/:app 55/ecs-relay 99。
+**凌晨收口会话毕其功：main=aa9dc8e（M3-E1+LR1+RW1+卫生批全合，白名单 104，门禁 tsc 0/fast 100/full 190/mcp 27/ecs-relay 110）**；常驻在役=04:02 末次重打包版（**PDF 依赖修复兑现**，health 稳定）；ECS=M3-E1 版（七值 action+selfcheck 83+1SKIP+RW0 wake 面）；真库 schema v8+007 两列已补；三连幻影事故已根治（全量门禁常驻在线可跑）；**唯一悬置=GitHub push 网络阻塞（后台循环重推中）**。RW1 按钮就绪待用户真关机 S5 实测；ContestPin 下一步=CP5 Agent 模式。
 
 ## 2. C2c→C2e 修复弧线台账（本会话续）
 
@@ -34,6 +36,7 @@
 | 窗内尾巴 W1/W2 | W1 dist 根五件归一（09-07 19:02 构建、常驻零扰动实证同 4 PID/uptime 连续）+dist-v3/gate-fix 清理；W2 docs/18 三处实现层增补注合入（90206f6 纯插入） |
 | 用户裁决（09-07 晚） | **#9=B**（复用 WS command 通道补设备自管理+managed spawn，闭环 R-B5/R-B8；**先文档后编码，编码部署等窗毕**）；**GitHub Release 压后**（终报过→B 复验→安装包更新→统一发）；dist-final worktree 留窗毕清 |
 | M3-E0 文档批（2c6bfbb 合入） | B 裁决四件套落档：docs/18 §5.3（spawn_session+revoke_device，能力门/终态语义/帧形零扩展/零新 REST 端点）+docs/20 R-B5/R-B8 判据（标"待 M3-E 复验"）+docs/21 §7/§8（裁决原文+硬时序+Release 条件链）+m3e1-self-mgmt.md 实施任务书（**开工前置=M3-D 终报通过；窗内零编码零部署**） |
+| **凌晨收口会话（09-10 03:0x-04:3x）** | **五面三波全绿**：①M3-E1 门禁全绿（ecs-relay 口径修正=110）+ECS 部署零回滚（0003 表重建/亚秒停机/selfcheck 83+1SKIP×2）；②LR1 合并 33dd0ae（104 通道/fast 100/full 190/mcp 27）+真库补 007（B1 批）；③RW1 合并 9eba8ac（review 过+独立复跑）+卫生批合并 aa9dc8e（**真实常驻握 8746 全量 190/190=幻影根治验收过**）；④末次重打包 37s+换装 04:02（asar 四项证据：pdfjs 416 条/napi-canvas 原生件/review/spawn/reminder；health×3 同 PID；零锁）；⑤设备账面微清理（#70 撤销+审计，active 恰好三台）。**悬置：push 网络阻塞后台循环重推** |
 
 ## 3. 项目事实基线（main=6062cd0 已推；终局门禁 tsc 0/smoke 172/mcp 27/:core **189**/:app 47/ecs-relay 97）
 
@@ -54,7 +57,7 @@
 5. ~~docs/18 增补注入册~~ ✅ 已毕（W2 合入 90206f6：§3.0#16/§3.11/§3.14 三注，纯插入零规范性改动）
 6. ~~dist-final worktree 处置~~（窗毕顺手清，见 §4.3）；GitHub Release 发布与否待用户一句话（条件链：M3-D 终报通过 ✅ → M3-E1 B 方案复验 → 安装包已更新 ✅（09-09 22:28 根五件）→ 统一发布）
 
-3. **三线批次完成态（09-10 02:5x）**：**M3-E1 已完成**（分支 agent/m3e1 四提交 24dc9f0..6f098a3：ECS 七值 action+sql 0003 表重建/桌面 spawn_session+revoke_device 两段式+SPAWN_REJECTED 码/App 七值+SelfRevokeFlow+Room v4；其自跑门禁=fast 93/:core 195/:app 55/assembleDebug 绿、ecs-relay 99+selfcheck；**两 agent 均自报曾违规跑全量 smoke 打 8746——生产损害已全数清账，在役恰三台**）——**合并进行中见文首中途态 ①**。**LR1 已完成**（分支 agent/lr1 三提交：007 迁移+reviewClient/reviewService 四态 envelope+4 通道+设置卡片/咨询条/体检面板；fast 93；**未配置时零调用行为等价现状**回归判据过）——**链路待办见中途态 ③**。CP3b/CP4 已收官（见 §4.0）。**RW1（App 唤醒按钮）现已解锁可派**（M3-E1 合并落地后）；CP5（Agent 模式）/CP6（备份打包）排队；**卫生批（uxa-147/148/ac6 系 8746 硬编码用例改自起隔离网关）强烈建议提前**——三连事故根治。
+3. **三线批次完成态（09-10 04:3x 全收口）**：**M3-E1 已完成+门禁+部署全闭环**（main 含之；ECS 在役七值 action）。**LR1 已合并**（33dd0ae：007+四态 envelope+4 通道→白名单 104；真库已补 007 两列）。**RW1 已合并**（9eba8ac：App 唤醒按钮全链——**待用户真关机 S5 实测**，或再跑 ECS /root/wake-verify.mjs）。**卫生批已合并**（aa9dc8e：幻影根治）。**末次重打包已换装**（04:02 在役，PDF 依赖修复兑现）。R-B5/R-B8 活体复验（真 ECS+真机）与 App 安装（assembleDebug APK 在 m3e1 worktree 产出；rw1 worktree 亦有新 APK 含唤醒按钮）留后续批。**CP5（Agent 模式）/CP6（备份打包）= ContestPin 下一步**。
 4. **RemoteWake RW 系列（新立项 09-09 深夜，用户令；09-10 用户更正落档）**：手机 App 经 ECS 反向隧道 SSH 到树莓派发 WoL 唤醒 Windows。**✅ 执行层已由用户建成并端到端实测通过**：Pi（用户名=**raspberry**，主机名 Raspberr5；**WiFi 独立上行**，PC 关机隧道存活）的 systemd `wol-tunnel.service` 维持到 ECS `127.0.0.1:2222` 反向转发；ECS `~/.ssh/config` 有 `pi` 别名（127.0.0.1:2222/User raspberry，公钥已在 /home/raspberry/.ssh/authorized_keys）；Pi 侧 `wake-windows` 远端命令发魔术包到 **b0:82:e2:4b:1a:81**（Windows I226-V，S5 魔包唤醒已开）。**RW0 relay 批运行中**（worktrees/rw0，分支 agent/rw0-relay-wake；已按更正简化：执行器 spawn `ssh pi wake-windows`（env WAKE_COMMAND 可覆盖），状态枚举 sent/already_on/exec_failed/timeout/rate_limited/disabled，env 精简为 WAKE_ENABLED/WAKE_COMMAND/WAKE_COOLDOWN_S；帧对 wake_host/wake_result+限速+审计+docs/18 追加）；RW1（App 面）门控 M3-E1 合并。**✅ RW0 已部署并端到端验证（09-10 00:0x，用户「执行」授权链走完）**：合并 main=2fe483e（relay 108/108+root tsc/fast 91）→ ECS 文件同步（备份 relay-backup-preRW0-*.tgz）→ env 3 行 → **服务用户 SSH 物料**（/etc/devhub-relay/{ssh_config,wake_key,wake_known_hosts} 0600 devhub-relay；**踩坑：服务缺 HOME+ProtectHome=yes→ssh 不读 ~/.ssh，必须 -F 绝对路径**；wake_key 公钥经 root 通路装入 Pi）→ WAKE_COMMAND=`ssh -F /etc/devhub-relay/ssh_config pi wake-windows` → **帧验证全过：真实 relay 配对（ecsDeviceId 11）→ already_on 快路径 / 冷却 rate_limited(14995ms) / 桌面离线真实执行 sent(511ms,exit0) / 审计行零敏感物**。测试设备双端已撤销（relay #11+桌面 #66）。**待用户**：真关机 S5 唤醒实测（RW1 App 按钮后从手机触发，或再跑 wake-verify）。
 
 ## 5. 裁决与待办（#9/Release 已裁，余下排队不代答）
@@ -82,5 +85,9 @@
 - **模拟器**：offline→plugin 全挂，SDK CLI 重拉配方（HANDOFF 旧版 §7 全文）；后台包装命令被杀连带 qemu；API 35 CA 注入需 zygote nsenter（一次性手段）
 - **settings DB=%APPDATA%**\DevHub\devhub.db；adb/eumlator 真身路径 `C:/Users/sakuya/AppData/Local/Android/Sdk/`
 - 旧坑仍有效：双杀清单含 electron.exe/PID+镜像名核验/schannel curl 不吃 --cacert/local.properties worktree 复制+JAVA_HOME jbr/mcp-acceptance.mjs 是验收真身/A12=主树语义/gradle 跨 worktree 句柄互斥/electron-builder latest.yml 需 publish 配置/worktree 无 node_modules 先 install
-- **【8746 幻影三连（09-09 夜）】**：smoke 全量档 uxa-147/148/ac6-* 系用例硬编码打真实网关→常驻在线时每次全量运行都在生产库造幻影配对行（三起：CP1 fast 误标 3 行、hotfix 误启 9+3 行、M3-E1/LR1 批 3 行，均已撤销）——**常驻在线期间任何 agent 只准 fast 档；全量门禁必须先双杀**；根治=把 8746 硬编码用例改自起隔离网关（随机端口+makeTempHome，卫生批排队）
+- **【8746 幻影三连（09-09 夜）→ 已根治（09-10 凌晨）】**：smoke 全量档用例曾硬编码 8746 打真实网关→常驻在线时在生产库造幻影配对行（三起均已撤销）——**卫生批 aa9dc8e 已根治**：gwCaseSetup 每用例分配 ephemeral 随机口，~94 处 bind/connect 字面量改走分配口/actualPort（21 用例），缺省值断言 14 行保留；验收=真实常驻握 8746 时全量 190/190。**此后全量门禁常驻在线可跑**（双杀纪律仍推荐但不再是正确性前提）
+- **【@electron/get 离线打包假象（09-10 凌晨）】**：electron zip 虽缓存，SHASUMS256.txt 校验件恒 `cacheMode: Bypass`（必联网）——离线打包需 `electronDownload.isVerifyChecksum:false` 或预置 checksums；GitHub 直连墙+7897 代理上游坏时构建会卡死（本批靠直连恢复窗口 37s 完成）
+- **【产品网关顺延语义（卫生批实证）】**：fallback 是**固定段 8747..8755**（httpServer.ts GATEWAY_PORT_FALLBACK_RANGE），非相对配置口 +1——用例改造按此对齐
+- **【full 档 flake 1 例（09-10 门禁）】**：M3-E1 树首跑 187/188（用例名未捕获，复跑自愈）——后续会话若复现，带完整留档定位
+- **【真库操作工具】**：本仓 DB 层=Node v24 内置 `node:sqlite`（DatabaseSync），**非 better-sqlite3**（node_modules 无此包）；进程外脚本走 DEVHUB_HOME/paths.ts 四级策略落 %APPDATA%\DevHub
 - **【ECS systemd 硬化（RW0）】**：devhub-relay 服务 ProtectHome=yes/ProtectSystem=strict/ReadWritePaths=/var/lib/devhub-relay 且无 HOME——服务内 ssh 不读 ~/.ssh（别名/密钥/known_hosts 全失效，exit 255 毫秒级）；**解法=/etc/devhub-relay/ 下放 ssh_config+wake_key+wake_known_hosts（0600 devhub-relay）+ `ssh -F` 绝对路径**；root 手测通过≠服务内通过，必须以服务用户+同等沙箱验证
