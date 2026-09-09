@@ -39,6 +39,8 @@
 
 ## 4. ⚠️ 未决项（按序处理）
 
+0. **「赛程钉 ContestPin」比赛模块已立项**（用户 2026-09-09 指令，今晚 18:00 后新会话开工）：权威任务书=`docs/briefs/contestpin-charter.md`（逐字原文，32a484c）——八节全规格（管理/多节点/悬浮窗/提醒/两阶段识别/多模态/Agent/备份打包）。**开工流程**：新会话 git pull → 读 charter+本 HANDOFF+docs/00 → 只读审计 → 落批任务书 → omni-agent 体系推进。**时机分流**：M3-D 窗内（至 09-10 08:49）只审计/设计/worktree 隔离编码+不占 8746 的单测（**不杀 DevHub/electron=不跑 smoke/mcp 门禁**），门禁/验证/打包窗毕终报通过后；与 M3-E1/LR1 三线并行按资源登记排队。**双会话防冲突**：M3-D 巡检自动化已改纯观察哨（零文件写入零 git），ContestPin 会话独占全部文件/HANDOFF/记忆同步职责（含把 M3-D 终报结论并入下次同步）。
+
 1. **M3-D 72h 观察（运行中，至 09-10 08:49）**：巡检一行命令 `node scripts/m3d-watch.mjs --summary "C:\Users\sakuya\AppData\Local\DevHub\m3d-watch\watch-m3d-72h.ndjson"`；**已建 12h 定时巡检自动化（窗毕自删+自动终报）**；巡检进程若随宿主重启丢失，用 Start-Process 同款重拉（**勿带 --t0**）；窗内勿动常驻/ECS/巡检进程/包
 2. **#9 裁决后收尾批**：设备自管理通道实现 + App managed spawn 接 WS command face（R-B5 回流/R-B8 UI 面闭环）→ 单面复验（**决策简报已交用户：A admin REST / B WS command 扩权（主控荐）/ C 桌面独占**）
 3. ~~dist 根 NSIS 统一~~ ✅ 已毕（W1：根五件=09-07 19:02 构建，常驻零扰动实证；dist-final worktree 留存=产物在 git 外）
