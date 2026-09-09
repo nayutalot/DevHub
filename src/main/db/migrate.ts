@@ -70,6 +70,11 @@ export function setUserVersionLiteral(db: DatabaseSync, version: number): void {
     case 6:
       db.exec('PRAGMA user_version = 6') // ← 006 批次（M3-C7b 轮换宽限镜像）新增
       return
+    case 8:
+      // CP1 批次（ContestPin）：007 已判给 LR1（docs/03 §4 条目 8），本批从 008 起；
+      // case 7 保持未注册（007 未落地前字面量缺失必须显式暴露，运行期 throw 语义不变）
+      db.exec('PRAGMA user_version = 8')
+      return
     default:
       throw new Error(`no literal user_version statement registered for migration version ${version}`)
   }
