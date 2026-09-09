@@ -21,6 +21,7 @@ import { RateLimits, ReplayGuard, authenticateDeviceToken, authenticateHostCrede
 import { RelayError, errorBody } from './errors.ts'
 import { RelayConnection, computeAcceptKey, validateUpgradeHeaders } from './ws.ts'
 import { handleRestRequest } from './rest.ts'
+import { WakeExecutor, type WakeRunner } from './wake.ts'
 
 export interface RelayServerHandle {
   server: Server
@@ -29,7 +30,7 @@ export interface RelayServerHandle {
   forwarder: Forwarder
 }
 
-export function startRelayServer(options: { config?: ReturnType<typeof loadConfig>; dbPath?: string } = {}): RelayServerHandle {
+export function startRelayServer(options: { config?: ReturnType<typeof loadConfig>; dbPath?: string; wakeRunner?: WakeRunner } = {}): RelayServerHandle {
   const config = options.config ?? loadConfig()
   const store = new Store({ path: options.dbPath ?? config.dbPath })
   const applied = ensureSchema(store, SCHEMA_DIR)
@@ -40,7 +41,8 @@ export function startRelayServer(options: { config?: ReturnType<typeof loadConfi
   const cache = new EventCache(store, config)
   const rateLimits = new RateLimits()
   const replayGuard = new ReplayGuard()
-  const forwarder = new Forwarder({ store, audit, cache, config, rateLimits })
+  const wake = new WakeExecutor({ config, audit, runner: options.wakeRunner })
+  const forwarder = new Forwarder({ store, audit, cache, config, rateLimits, wake })
   const startedAtMs = Date.now()
 
   audit.write({ category: 'relay', action: 'relay_started', outcome: 'success', detail: { version: config.relayVersion, bind: config.bind, port: config.port } })
