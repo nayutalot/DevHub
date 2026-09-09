@@ -111,7 +111,8 @@ AC2 批次 agents 13 条并入（55→68，docs/14 §A.1 权威，本文件未�
 夜间#1 批次（服务端积压补齐）追加 2 条（68→70，见下）；
 CP1 批次 ContestPin 9 条并入（70→**79**，见下「ContestPin 追加」节 + docs/22 §3）；
 CP2 批次 ContestPin 悬浮窗 5 条并入（79→**84**，同节 + docs/22 §4）；
-CP3a 批次 ContestPin 识别配置 4 条并入（84→**88**，同节 + docs/22 §6）。
+CP3a 批次 ContestPin 识别配置 4 条并入（84→**88**，同节 + docs/22 §6）；
+CP3b 批次 ContestPin 材料导入+识别管线+核对界面 9 条并入（88→**97**，同节 + docs/22 §5）。
 
 ### 夜间#1 追加（服务端积压补齐批次；主控任务书授权的同一追加模式）
 
@@ -137,10 +138,12 @@ ContestPin 识别配置 4 条先行占 88）。advisory-only：复核结果
 
 ### ContestPin 追加（赛程钉比赛模块；设计权威 docs/22-contestpin-design.md）
 
-CP 系列分批落地，**状态 = CP3a 已落地（白名单 84→88，2026-09-09 CP3a 批次）**；
-CP3b-CP6 待落地。CP1 首批 9 条（变更类 7 + READ_ONLY 2）+ CP2 悬浮窗 5 条
-（READ_ONLY 1 + 变更类 4）+ CP3a 识别配置 4 条（READ_ONLY 1 + 变更类 3）；
-全量落地（CP3b 识别管线余量/CP4/CP5/CP6）后 88→约 **110**（LR1 另 +4）。
+CP 系列分批落地，**状态 = CP3b 已落地（白名单 88→97，2026-09-09 CP3b 批次）**；
+CP4-CP6 待落地。CP1 首批 9 条（变更类 7 + READ_ONLY 2）+ CP2 悬浮窗 5 条
+（READ_ONLY 1 + 变更类 4）+ CP3a 识别配置 4 条（READ_ONLY 1 + 变更类 3）+
+CP3b 材料导入/识别管线/核对界面 9 条（READ_ONLY 3 + 变更类 4 + 两段式 2；
+任务书 §2.3 计 +6 与列名 7 条不一致，按其「以实际为准」条款实拆 9 条落地）；
+全量落地（CP4/CP5/CP6）后 97→约 **105**（LR1 另 +4）。
 计数断言按既有授权模式"就地更新+注记"。变更类 delete/discard 均为
 CONFIRM_REQUIRED 两段式（先回 impacts）。
 
@@ -164,7 +167,17 @@ CONFIRM_REQUIRED 两段式（先回 impacts）。
 | `contestpin:configSave` | `{ id?, name, role, baseUrl, model, apiKey?, timeoutMs? }`（role ∈ vision\|text\|multimodal；baseUrl 仅 http/https；apiKey 密码框留空=保持既有，新建空 key=无鉴权端点 key_sealed NULL；timeoutMs 正整数毫秒或 null=清空） | RecognitionConfigView（UNIQUE(name,role) 冲突 → `DB_ERROR`；key_sealed 经 getKeyCrypto envelope {v,sealed,fields,plainStore} 照 apihub_profiles 形状） | 变更 | CP3a 已落地（88） |
 | `contestpin:configDelete` | `{ id, confirmed? }` | 无 confirmed → `{ confirmRequired: true, impacts: { importJobs } }`（引用该配置的 contest_import_jobs 计数）；confirmed → 删除行（jobs 侧 FK SET NULL，任务行保留） | 变更 | CP3a 已落地（88） |
 | `contestpin:configTest` | `{ id }` | `{ ok, latencyMs, usage, error? }`（解密→probeConfig：text 发 ping、vision/multimodal 发 1x1 红 PNG→落 last_test_at/last_test_ok/last_test_usage_json 仅实测才写；usage:'unknown'=服务未返回非实测；error.kind 六分类 AUTH/RATE_LIMIT/TIMEOUT/NETWORK/BAD_RESPONSE/HTTP_ERROR + 服务端摘要含 image/multimodal 字样派生 IMAGE_UNSUPPORTED，文案 鉴权失败/限流/超时/网络错误/格式错误/图片不支持） | 变更 | CP3a 已落地（88） |
+| `contestpin:materialsList` | `{}` | `{ materials: ContestMaterialView[] }`（sha256 去重后的材料清单，最新 200 条；stored_path 恒在 `<data>/contestpin/materials/` 下） | READ_ONLY | CP3b 已落地（97） |
+| `contestpin:importMaterials` | `{ paths?: string[], pasteClipboard?: boolean, limits?: { maxFileBytes?, maxBatch? } }`（二选一：paths 由 renderer 文件对话框/拖入经 preload webUtils 落路径——renderer 不拿 Node fs；pasteClipboard 由 main 读系统剪贴板截图（contestpinWire 注入，不可用回 `clipboardUnavailable:true` 结构化 no-op）；limits 越硬上限截断） | `{ materials: ContestMaterialView[], clipboardUnavailable? }`（sha256 UNIQUE 命中回既有行不重复建；kind=pdf/image/other 按扩展名+魔数双证；超限 ServiceError `BAD_PAYLOAD` 带 reason；默认单文件 20MB/单批 20 份，硬上限 ×5） | 变更 | CP3b 已落地（97） |
+| `contestpin:importCreate` | `{ materialIds: number[], mode?, params? }`（mode 缺省读 settings `contestpin_default_mode`，仅 two_stage\|multimodal（agent/manual_pack 归 CP5）；params：pageFrom/pageTo 页范围、skipTextPages 用户显式跳过文字页、visionConfigId/textConfigId、limits 覆盖） | `{ jobs: ContestImportJobView[] }`（每份材料一行任务，建行后异步推进两阶段状态机；识别调用经 openaiClient 注入传输，零真实网络） | 变更 | CP3b 已落地（97） |
+| `contestpin:importStatus` | `{ jobId? }`（缺省 = 全量最新 50） | `{ jobs: ContestImportJobView[] }`（stage 九值/progress 0-100/result_json 投影（preprocessing/vision/draft）/error_json 结构化；含 vision 缓存 reusedFromJobId） | READ_ONLY | CP3b 已落地（97） |
+| `contestpin:importCancel` | `{ jobId }` | `{ cancelled, stage }`（置 stage=cancelled + AbortController.abort；晚到回调检查行 stage 已 cancelled 则丢弃不落库；终态为结构化 no-op） | 变更 | CP3b 已落地（97） |
+| `contestpin:importRetry` | `{ jobId, fromStage }`（fromStage ∈ vision\|text\|validate：重跑该阶段及以后；validate 只重跑本地程序化校验零 LLM；multimodal 无 text 阶段） | `{ job: ContestImportJobView }`（在途/终态/无前置结果 → `BAD_PAYLOAD`） | 变更 | CP3b 已落地（97） |
+| `contestpin:draftList` | `{}` | `{ jobs: ContestImportJobView[] }`（stage='draft' 的待核对任务，全量） | READ_ONLY | CP3b 已落地（97） |
+| `contestpin:draftConfirm` | `{ jobId, confirmed?, mergeIntoContestId?, draft? }`（draft = 核对界面逐字段编辑后的草稿覆盖，服务端过同款程序化校验） | 无 confirmed → `{ confirmRequired: true, draft, similar }`（相似比赛检测：同 name 或 name+year 近似）；confirmed → `{ merged, contestId, contest }`（另建 contest+nodes source='imported'；mergeIntoContestId 只追加节点绝不静默覆盖；多比赛草稿不支持合并指尚） | 变更 | CP3b 已落地（97） |
+| `contestpin:draftDiscard` | `{ jobId, confirmed? }`（仅 stage='draft' 可弃） | 无 confirmed → `{ confirmRequired: true, jobId, materialName }`；confirmed → `{ removed: true }`（删任务行，材料保留） | 变更 | CP3b 已落地（97） |
 
-后续批次通道组（落地时逐批补表）：CP3 识别管线 +12 已落地 4 条（config 四条，
-CP3a），**余 +8 归 CP3b**（materials/import/draft）；CP4 reminder 两条；CP5
+CP3 识别管线（原估 +12）已全部落地：config 4 条（CP3a）+ 材料/导入/草稿 9 条
+（CP3b；draftUpdate 未设通道——逐字段编辑随 draftConfirm 的 draft 载荷提交）。
+后续批次通道组（落地时逐批补表）：CP4 reminder 两条；CP5
 agentStatus/Submit/importPack/exportPack；CP6 backupExport/backupImport。
