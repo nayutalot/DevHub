@@ -51,6 +51,11 @@ import type {
 } from '../../../shared/types.ts'
 import { dbVal, nowSec, ServiceError } from '../internal.ts'
 import { deleteResource, registerResource, relate } from '../resourceGraph.ts'
+import {
+  isValidContestHttpUrl,
+  validateContestYear,
+  validateNodePrecisionState,
+} from './contestRules.ts'
 
 // ---------------------------------------------------------------------------
 // 枚举白名单（表内 CHECK 兜底之外的第二道运行期防线，错误码统一 BAD_PAYLOAD）
@@ -85,10 +90,6 @@ export const CONTEST_REMINDER_OFFSET_KINDS: readonly ContestReminderOffsetKind[]
 ]
 
 export const CONTEST_REMINDER_CHANNELS: readonly ContestReminderChannel[] = ['windows', 'in_app']
-
-/** year 可空；给定时 1990..2100 整数（任务书 §2.9）。 */
-const CONTEST_YEAR_MIN = 1990
-const CONTEST_YEAR_MAX = 2100
 
 /** 列表分页边界（agents 列表同款：默认 100、上限 200）。 */
 export const CONTEST_LIST_LIMIT_MAX = 200
@@ -317,18 +318,14 @@ function requireContestName(name: string | undefined | null, when: string): stri
 
 /** year 可空；给定时 1990..2100 整数。 */
 function validateYear(year: number | null | undefined, when: string): number | null {
-  if (year === undefined || year === null) return null
-  if (!Number.isSafeInteger(year) || year < CONTEST_YEAR_MIN || year > CONTEST_YEAR_MAX) {
-    throw badRequest(`${when}: year must be an integer within ${CONTEST_YEAR_MIN}..${CONTEST_YEAR_MAX} when present`)
-  }
-  return year
+  return validateContestYear(year, when)
 }
 
 /** URL 字段仅 http/https；空串 = 清空（投影为 null）。入参已按 undefined=未提及 在调用侧分流。 */
 function validateUrl(value: string | null, field: string, when: string): string | null {
   const trimmed = value?.trim() ?? ''
   if (trimmed.length === 0) return null
-  if (/^https?:\/\/\S+$/i.test(trimmed) === false) {
+  if (isValidContestHttpUrl(trimmed) === false) {
     throw badRequest(`${when}: ${field} must be an http(s) URL when present`)
   }
   return trimmed
@@ -656,10 +653,8 @@ function resolveNodeLabel(input: ContestNodeInput, kind: ContestNodeKind, when: 
 }
 
 /**
- * 精度/时刻组合校验（docs/22 §2.2 权威语义）：
- *  - 'tbd' → startAt/endAt 恒 NULL；
- *  - 'exact'/'date'/'month' → startAt 必填；
- *  - endAt 给定时 ≥ startAt。
+ * 精度/时刻组合校验（docs/22 §2.2 权威语义）：规则实现自 CP3b 起抽到
+ * contestRules.ts 共享（importPipeline 校验阶段同款），此处委托。
  */
 function validatePrecisionState(
   precision: ContestNodePrecision,
@@ -667,18 +662,7 @@ function validatePrecisionState(
   endAt: number | null,
   when: string,
 ): void {
-  if (precision === 'tbd') {
-    if (startAt !== null || endAt !== null) {
-      throw badRequest(`${when}: precision='tbd' requires startAt/endAt to be null (time TBD)`)
-    }
-    return
-  }
-  if (startAt === null) {
-    throw badRequest(`${when}: precision='${precision}' requires startAt`)
-  }
-  if (endAt !== null && endAt < startAt) {
-    throw badRequest(`${when}: endAt must be >= startAt when present`)
-  }
+  validateNodePrecisionState(precision, startAt, endAt, when)
 }
 
 export function upsertNode(payload: ContestNodeUpsertPayload): ContestNodeView {
@@ -823,4 +807,45 @@ export function linkProject(payload: ContestLinkProjectPayload): { linked: boole
   const projectResId = registerResource(db, 'project', projectRow.id, projectRow.name)
   relate(db, contestResId, projectResId, 'uses')
   return { linked: true }
+}
+
+// ---------------------------------------------------------------------------
+// 导入管线专用（CP3b，任务书 §2.3 #10：draftConfirm 经 contestService 建
+// contest+nodes 且 source='imported'）。仅 service 层内部调用——不暴露 IPC 通道，
+// renderer 永远不能直接伪造 source（upsertNode 仍强制 'manual'）。
+// ---------------------------------------------------------------------------
+
+/** 导入节点输入：时刻已由管线校验阶段解析为 unix 秒（文本→秒在 importPipeline）。 */
+export interface ImportedNodeInput {
+  kind: ContestNodeKind
+  label: string
+  precision: ContestNodePrecision
+  startAt: number | null
+  endAt: number | null
+  rawText: string | null
+}
+
+/** 校验（validateNodePrecisionState 共享规则）后以 source='imported' 落节点行。 */
+export function createImportedNode(contestId: number, input: ImportedNodeInput): ContestNodeView {
+  const db = getDatabase()
+  const contest = getContestRow(db, contestId)
+  if ((CONTEST_NODE_KINDS as readonly string[]).includes(input.kind) === false) {
+    throw badRequest('createImportedNode: kind must be one of: ' + CONTEST_NODE_KINDS.join(' | '))
+  }
+  if ((CONTEST_NODE_PRECISIONS as readonly string[]).includes(input.precision) === false) {
+    throw badRequest('createImportedNode: precision must be one of: ' + CONTEST_NODE_PRECISIONS.join(' | '))
+  }
+  validatePrecisionState(input.precision, input.startAt, input.endAt, 'createImportedNode')
+  const label = input.label.trim().length > 0 ? input.label.trim() : input.kind
+  const now = nowSec()
+  const result = db
+    .prepare(
+      'INSERT INTO contest_nodes (contest_id, kind, label, start_at, end_at, tz, precision, raw_text, done, done_at, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?)',
+    )
+    .run(contest.id, input.kind, label, dbVal(input.startAt), dbVal(input.endAt), 'local', input.precision, dbVal(input.rawText), 'imported', now, now)
+  const created = getNodeRow(db, Number(result.lastInsertRowid))
+  if (created === undefined) {
+    throw new ServiceError('NOT_FOUND', 'imported node disappeared after insert')
+  }
+  return toNodeView(created)
 }
