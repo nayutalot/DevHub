@@ -7,10 +7,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * RelayCodec 16 帧 round-trip 对拍 fixture（docs/20 §2.4：R3×R2 同帧集双端解析一致，防漂移）。
+ * RelayCodec 帧 round-trip 对拍 fixture（docs/20 §2.4：R3×R2 同帧集双端解析一致，防漂移）。
  * fixture = ecs-relay/test/fixtures/frames.json 的只读镜像（随 143ccad 落 core test resources）。
  * 对拍基准 = 偏离单（ecs-relay/README.md）：①event 双 type 键裁定 ②token_rotation 携 deviceId
- * ③register_pairing host 腿控制帧（App 认识并忽略）⑤queued ack。
+ * ③register_pairing host 腿控制帧（App 认识并忽略）⑤queued ack；
+ * 偏离⑥（RW1）：#17/#18 wake 帧对按 docs/18 §3.17 就地追加于 App 侧镜像
+ * （ecs-relay frames.json 属 RW1 零改动面，正集 16→18，见 fixture meta.rw1WakeAppend）。
  */
 class RelayCodecFixtureTest {
 
@@ -37,6 +39,8 @@ class RelayCodecFixtureTest {
         is RelayFrame.TokenRotation -> RelayCodec.TYPE_TOKEN_ROTATION
         is RelayFrame.Disconnect -> RelayCodec.TYPE_DISCONNECT
         is RelayFrame.Error -> RelayCodec.TYPE_ERROR
+        is RelayFrame.WakeHost -> RelayCodec.TYPE_WAKE_HOST
+        is RelayFrame.WakeResult -> RelayCodec.TYPE_WAKE_RESULT
         is RelayFrame.Unknown -> f.type
     }
 
@@ -93,9 +97,9 @@ class RelayCodecFixtureTest {
             (type == "error" && leg == "connection-level")
 
     @Test
-    fun `all 16 frame types parse from device-leg fixture samples`() {
+    fun `all 18 frame types parse from device-leg fixture samples`() {
         val frames = fixture().getJSONArray("frames")
-        assertEquals("fixture 正集必须为 16 帧", 16, frames.length())
+        assertEquals("fixture 正集必须为 18 帧（16 帧 + §3.17 wake 帧对 #17/#18，偏离⑥）", 18, frames.length())
         val seen = HashSet<String>()
         for (i in 0 until frames.length()) {
             val entry = frames.getJSONObject(i)
@@ -219,6 +223,23 @@ class RelayCodecFixtureTest {
         assertEquals(false, sessions.stale)
         assertEquals(337L, sessions.sessions.first().id)
         assertEquals("waiting_input", sessions.sessions.first().status)
+    }
+
+    /** 偏离⑥（RW1）：wake 帧对对拍件仅存 App 侧镜像；帧形权威 docs/18 §3.17。 */
+    @Test
+    fun `wake frame pair parses per section 3_17 shapes`() {
+        val host = findSample("wake_host", "device-to-ecs") as RelayFrame.WakeHost
+        assertEquals("b1e2c3d4-1111-4a5e-9a2b-000000000011", host.requestId)
+        val sent = findSample("wake_result", "ecs-to-device") as RelayFrame.WakeResult
+        assertEquals(WakeResultStatus.SENT, sent.status)
+        assertEquals(812L, sent.latencyMs)
+        val limited = findSample("wake_result", "ecs-to-device-rate-limited") as RelayFrame.WakeResult
+        assertEquals(WakeResultStatus.RATE_LIMITED, limited.status)
+        assertEquals(9300L, limited.retryAfterMs)
+        val failed = findSample("wake_result", "ecs-to-device-exec-failed") as RelayFrame.WakeResult
+        assertEquals(WakeResultStatus.EXEC_FAILED, failed.status)
+        assertEquals(210L, failed.latencyMs)
+        assertTrue(failed.stderrSummary!!.contains("Connection refused"))
     }
 
     /** 偏离③：host 腿控制帧（register_pairing 等）不在 16 帧面——设备腿认识并按 Unknown 忽略。 */

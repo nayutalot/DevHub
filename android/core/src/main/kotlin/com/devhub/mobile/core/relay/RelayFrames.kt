@@ -4,7 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * ECS Relay 16 帧协议模型（docs/18 §3 全表；M2-R3，docs/20 §2.3）。
+ * ECS Relay 帧协议模型（docs/18 §3 全表 16 帧 + §3.17 wake 帧对 #17/#18；M2-R3，docs/20 §2.3）。
  *
  * 对拍权威 = `ecs-relay/test/fixtures/frames.json`（随 143ccad 镜像到
  * `core/src/test/resources/relay/frames-fixture.json`）+ `ecs-relay/README.md` 偏离单：
@@ -14,7 +14,10 @@ import org.json.JSONObject
  * - 偏离③：`register_pairing`/`register_pairing_ack` 属 host 腿控制面，不入 16 帧正集——
  *   设备腿收到时按 Unknown 静默（App 认识并忽略）；
  * - 偏离④：requestId ECS 可内部重写，响应帧回显客户端原 requestId——App 侧关联语义不变；
- * - 偏离⑤：离线排队 `command_ack{status:'accepted', queued:true}`（docs/18 §3.9）。
+ * - 偏离⑤：离线排队 `command_ack{status:'accepted', queued:true}`（docs/18 §3.9）；
+ * - 偏离⑥（RW1）：wake 帧对（#17 wake_host / #18 wake_result，docs/18 §3.17 RW0 增补）的
+ *   对拍件仅存 App 侧镜像——ecs-relay frames.json 属 RW1 零改动面（RW0 未扩 fixture），
+ *   镜像按 §3.17 帧形就地追加并在此登记偏离；正集 16→18。
  *
  * 模式选择纪律（docs/18 §10）：local=docs/14 原样（WsFrames.kt），relay=本文件；
  * 显式 mode 选择、绝不字段嗅探。解析失败（必填字段缺失/类型错）抛 JSONException——绝不猜。
@@ -202,12 +205,49 @@ sealed class RelayFrame {
         val retryAfterSec: Int? = null,
     ) : RelayFrame()
 
+    /** #17 wake_host（D→E；relay 原生执行，绝不转发桌面——docs/18 §3.17。零业务字段：
+     *  目标/端口/凭据全在 ECS 机器级 ssh config/wrapper 层；不入排队/幂等体系——
+     *  relay 侧唯一去重面 = 每设备冷却窗）。 */
+    data class WakeHost(
+        val requestId: String,
+    ) : RelayFrame()
+
+    /** #18 wake_result（E→D 单帧终态，docs/18 §3.17；业务级绝不 close）。 */
+    data class WakeResult(
+        val requestId: String,
+        val status: WakeResultStatus,
+        val latencyMs: Long? = null,
+        val retryAfterMs: Long? = null,
+        /** exec_failed 附加诊断摘要——relay 侧已脱敏（≥32 连续 base64/hex 样串 → <redacted>）+ 截断 ≤200。 */
+        val stderrSummary: String? = null,
+    ) : RelayFrame()
+
     /** 未知类型：设备腿静默忽略（与对端「未知类型回 error 不断连」的非对称容忍面）。 */
     data class Unknown(val type: String) : RelayFrame()
 }
 
 /**
- * Relay 帧编解码（docs/18 §3；16 帧全集 parse/encode，round-trip 对 fixture 验证）。
+ * wake_result status 六态白名单（docs/18 §3.17：白名单制，绝不猜）。
+ * 未知 status 字符串 = 畸形帧 → JSONException（对齐既有解析纪律），绝不降级猜测。
+ */
+enum class WakeResultStatus(val wire: String) {
+    SENT("sent"),
+    ALREADY_ON("already_on"),
+    RATE_LIMITED("rate_limited"),
+    DISABLED("disabled"),
+    EXEC_FAILED("exec_failed"),
+    TIMEOUT("timeout"),
+    ;
+
+    companion object {
+        fun fromWire(value: String): WakeResultStatus =
+            entries.firstOrNull { it.wire == value }
+                ?: throw org.json.JSONException("wake_result unknown status: $value")
+    }
+}
+
+/**
+ * Relay 帧编解码（docs/18 §3；16 帧全集 + §3.17 wake 帧对 parse/encode，round-trip 对 fixture 验证）。
  * encode 面向 round-trip 保真与 D→E 发送；字段缺省时绝不写出猜测值（绝不猜纪律）。
  */
 object RelayCodec {
@@ -227,13 +267,16 @@ object RelayCodec {
     const val TYPE_TOKEN_ROTATION = "token_rotation"
     const val TYPE_DISCONNECT = "disconnect"
     const val TYPE_ERROR = "error"
+    const val TYPE_WAKE_HOST = "wake_host"
+    const val TYPE_WAKE_RESULT = "wake_result"
 
-    /** 16 帧类型全集（对拍完整性断言用）。 */
+    /** 帧类型全集（docs/18 §3.0 16 帧 + §3.17 #17/#18；对拍完整性断言用）。 */
     val ALL_TYPES = listOf(
         TYPE_HELLO, TYPE_PAIR, TYPE_PAIR_ACCEPTED, TYPE_AGENT_LIST, TYPE_SESSION_LIST,
         TYPE_EVENT, TYPE_MESSAGE, TYPE_COMMAND, TYPE_COMMAND_ACK, TYPE_COMMAND_RESULT,
         TYPE_SYNC_REQUEST, TYPE_SYNC_RESPONSE, TYPE_HEARTBEAT, TYPE_TOKEN_ROTATION,
         TYPE_DISCONNECT, TYPE_ERROR,
+        TYPE_WAKE_HOST, TYPE_WAKE_RESULT,
     )
 
     fun parse(text: String): RelayFrame {
@@ -403,6 +446,18 @@ object RelayCodec {
                 message = optString(obj, "message"),
                 retryable = obj.optBoolean("retryable", false),
                 retryAfterSec = optInt(obj, "retryAfterSec"),
+            )
+
+            TYPE_WAKE_HOST -> RelayFrame.WakeHost(
+                requestId = obj.getString("requestId"),
+            )
+
+            TYPE_WAKE_RESULT -> RelayFrame.WakeResult(
+                requestId = obj.getString("requestId"),
+                status = WakeResultStatus.fromWire(obj.getString("status")),
+                latencyMs = optLong(obj, "latencyMs"),
+                retryAfterMs = optLong(obj, "retryAfterMs"),
+                stderrSummary = optString(obj, "stderrSummary"),
             )
 
             else -> RelayFrame.Unknown(type)
@@ -613,6 +668,20 @@ object RelayCodec {
             .putOpt("message", frame.message)
             .put("retryable", frame.retryable)
             .putOpt("retryAfterSec", frame.retryAfterSec)
+            .toString()
+
+        is RelayFrame.WakeHost -> JSONObject()
+            .put("type", TYPE_WAKE_HOST)
+            .put("requestId", frame.requestId)
+            .toString()
+
+        is RelayFrame.WakeResult -> JSONObject()
+            .put("type", TYPE_WAKE_RESULT)
+            .put("requestId", frame.requestId)
+            .put("status", frame.status.wire)
+            .putOpt("latencyMs", frame.latencyMs)
+            .putOpt("retryAfterMs", frame.retryAfterMs)
+            .putOpt("stderrSummary", frame.stderrSummary)
             .toString()
 
         is RelayFrame.Unknown -> JSONObject().put("type", frame.type).toString()
