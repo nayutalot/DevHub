@@ -14,6 +14,8 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Badge, stateTone } from '../components/Badge.tsx'
+import { DraftReviewPanel } from '../components/DraftReviewPanel.tsx'
+import { MaterialImportPanel } from '../components/MaterialImportPanel.tsx'
 import { RecognitionSettingsPanel } from '../components/RecognitionSettingsPanel.tsx'
 import { EmptyState, ErrorState, Loading, Spinner } from '../components/StateViews.tsx'
 import { useApp } from '../lib/appContext.ts'
@@ -88,6 +90,12 @@ export function ContestView({ initialContestId }: { initialContestId?: number })
 
       {/* CP3a：识别设置折叠面板（掩码配置列表 / 新建编辑 / 连接测试 / 两段式删除 / 默认模式） */}
       <RecognitionSettingsPanel />
+
+      {/* CP3b：材料导入与识别进度（文件选择/拖入/粘贴截图 → 两阶段状态机轮询） */}
+      <MaterialImportPanel />
+
+      {/* CP3b：待核对草稿（字段级来源/flags/编辑/相似合并/两段式确认） */}
+      <DraftReviewPanel />
 
       <div className="toolbar" style={{ marginBottom: 8 }}>
         <input
