@@ -126,7 +126,28 @@ import {
   saveConfig,
   testConfig,
 } from '../services/contestpin/recognitionConfigService.ts'
-import type { ContestNodeInput, ContestPatch, ContestStatus } from '../../shared/types.ts'
+import {
+  importFromClipboard,
+  importMaterials,
+  listMaterials,
+  resolveMaterialLimits,
+} from '../services/contestpin/materialService.ts'
+import {
+  cancelImport,
+  confirmDraft,
+  createImportJobs,
+  discardDraft,
+  listDraftJobs,
+  listImportJobs,
+  retryImport,
+} from '../services/contestpin/importPipeline.ts'
+import type {
+  ContestImportCreatePayload,
+  ContestImportDraftConfirmPayload,
+  ContestNodeInput,
+  ContestPatch,
+  ContestStatus,
+} from '../../shared/types.ts'
 import {
   ARCHIVE_HISTORY_LIMIT,
   archiveHistory,
@@ -337,7 +358,8 @@ export const contractCoversWhitelist: AssertContractCoversWhitelist = true
  * Phase 1 21 条 + S2 skills 14 条 = 35 + S3 apihub 6 条 + versions 4 条 = 45
  * + S4 docker 3 条 + wsl 2 条 = 50 + S5 archive 5 条 = 55 + AC2 agents 13 条 = 68
  * + 夜间#1 versions:cancel / agents:probeProvider = 70 + CP1 contestpin 9 条 = 79
- * + CP2 contestpin 悬浮窗 5 条 = 84 + CP3a contestpin 识别配置 4 条 = 88）。
+ * + CP2 contestpin 悬浮窗 5 条 = 84 + CP3a contestpin 识别配置 4 条 = 88
+ * + CP3b contestpin 材料导入/识别管线/核对界面 9 条 = 97）。
  */
 export type HandlerRegistry = Record<IpcChannel, ChannelHandler>
 
@@ -1035,6 +1057,94 @@ export function createHandlerRegistry(deps: HandlerDeps): HandlerRegistry {
     'contestpin:configTest': async (payload) => {
       const p = asPayloadObject('contestpin:configTest', payload)
       return testConfig(requireId('contestpin:configTest', p))
+    },
+
+    // --- contestpin 材料导入+识别管线+核对界面（CP3b 批次，docs/22 §5 + docs/04
+    // 「ContestPin 追加」节；materialsList/importStatus/draftList 为 READ_ONLY；
+    // draftConfirm/draftDiscard 为 CONFIRM_REQUIRED 两段式。识别调用全部落在
+    // importPipeline → openaiClient（测试注入 fake transport，零真实网络）；
+    // importMaterials 的路径由 renderer 经 webUtils 落入 payload（renderer 不拿
+    // Node fs），pasteClipboard 走 main 剪贴板注入（contestpinWire）） ---
+    'contestpin:materialsList': async (payload) => {
+      asPayloadObject('contestpin:materialsList', payload)
+      return listMaterials()
+    },
+    'contestpin:importMaterials': async (payload) => {
+      const p = asPayloadObject('contestpin:importMaterials', payload)
+      const paths = p.paths
+      const paste = p.pasteClipboard
+      if (paths === undefined && paste !== true) {
+        throw badPayload('contestpin:importMaterials', 'paths (string[]) or pasteClipboard (true) is required')
+      }
+      const limits = resolveMaterialLimits(
+        (p.limits ?? undefined) as Partial<Parameters<typeof resolveMaterialLimits>[0]> | undefined,
+      )
+      if (paste === true) {
+        if (paths !== undefined) {
+          throw badPayload('contestpin:importMaterials', 'paths and pasteClipboard are mutually exclusive')
+        }
+        return importFromClipboard(limits)
+      }
+      if (!Array.isArray(paths) || (paths as unknown[]).length === 0 || (paths as unknown[]).some((v) => typeof v !== 'string' || (v as string).trim().length === 0)) {
+        throw badPayload('contestpin:importMaterials', 'paths must be a non-empty array of non-empty strings')
+      }
+      const materials = await importMaterials(paths as string[], limits)
+      return { materials }
+    },
+    'contestpin:importCreate': async (payload) => {
+      const p = asPayloadObject('contestpin:importCreate', payload)
+      if (!Array.isArray(p.materialIds)) {
+        throw badPayload('contestpin:importCreate', 'materialIds must be an array')
+      }
+      const mode = p.mode
+      if (mode !== undefined && mode !== 'two_stage' && mode !== 'multimodal') {
+        throw badPayload('contestpin:importCreate', "mode must be 'two_stage' | 'multimodal' when present")
+      }
+      const params = p.params
+      if (params !== undefined && (typeof params !== 'object' || params === null || Array.isArray(params))) {
+        throw badPayload('contestpin:importCreate', 'params must be an object when present')
+      }
+      return createImportJobs({
+        materialIds: p.materialIds as number[],
+        ...(mode !== undefined ? { mode } : {}),
+        ...(params !== undefined ? { params: params as ContestImportCreatePayload['params'] } : {}),
+      })
+    },
+    'contestpin:importStatus': async (payload) => {
+      const p = asPayloadObject('contestpin:importStatus', payload)
+      const jobId = p.jobId
+      if (jobId !== undefined && (typeof jobId !== 'number' || !Number.isSafeInteger(jobId) || jobId < 1)) {
+        throw badPayload('contestpin:importStatus', 'jobId must be a positive integer when present')
+      }
+      return listImportJobs(jobId as number | undefined)
+    },
+    'contestpin:importCancel': async (payload) => {
+      const p = asPayloadObject('contestpin:importCancel', payload)
+      return cancelImport(requireId('contestpin:importCancel', p, 'jobId'))
+    },
+    'contestpin:importRetry': async (payload) => {
+      const p = asPayloadObject('contestpin:importRetry', payload)
+      const fromStage = p.fromStage
+      if (fromStage !== 'vision' && fromStage !== 'text' && fromStage !== 'validate') {
+        throw badPayload('contestpin:importRetry', "fromStage must be one of: vision | text | validate")
+      }
+      return retryImport({ jobId: requireId('contestpin:importRetry', p, 'jobId'), fromStage })
+    },
+    'contestpin:draftList': async (payload) => {
+      asPayloadObject('contestpin:draftList', payload)
+      return listDraftJobs()
+    },
+    'contestpin:draftConfirm': async (payload) => {
+      const p = asPayloadObject('contestpin:draftConfirm', payload)
+      const typed = p as unknown as ContestImportDraftConfirmPayload
+      if (typed.draft !== undefined && (typeof typed.draft !== 'object' || typed.draft === null || !Array.isArray((typed.draft as { contests?: unknown }).contests))) {
+        throw badPayload('contestpin:draftConfirm', 'draft must be an object with a contests array when present')
+      }
+      return confirmDraft({ jobId: requireId('contestpin:draftConfirm', p, 'jobId'), confirmed: optionalBoolean('contestpin:draftConfirm', p, 'confirmed'), ...(typed.mergeIntoContestId !== undefined ? { mergeIntoContestId: requireId('contestpin:draftConfirm', p, 'mergeIntoContestId') } : {}), ...(typed.draft !== undefined ? { draft: typed.draft } : {}) })
+    },
+    'contestpin:draftDiscard': async (payload) => {
+      const p = asPayloadObject('contestpin:draftDiscard', payload)
+      return discardDraft({ jobId: requireId('contestpin:draftDiscard', p, 'jobId'), confirmed: optionalBoolean('contestpin:draftDiscard', p, 'confirmed') })
     },
   }
 }
