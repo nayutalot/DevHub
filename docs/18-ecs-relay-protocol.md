@@ -108,6 +108,8 @@ endpoint（G2/G7/D7，docs/21 §1）——时间盒属部署期例外，代码�
 | 14 | `token_rotation` | H→E →（E→D） | host→device | 是 | tokenVersion 单调 | 300s 确认宽限 | — | 轮换端到端 Token（docs/15 §3 预留帧转正） |
 | 15 | `disconnect` | 双向 × 两腿 | 优雅关闭 | 部分（携 deviceId 时定点） | — | — | — | 关闭前告知原因（撤销/维护/被替代） |
 | 16 | `error` | 双向 × 两腿 | 错误 | 否 | requestId（可关联） | — | — | 结构化错误（§8 映射表） |
+| 17 | `wake_host` | D→E | device（relay 原生执行） | 否（**绝不转发桌面**） | —（每设备冷却窗 15s） | 15s（执行进程上限） | 1 次（冷却窗内退避） | 唤醒 Windows：Relay 经 Pi 反向 SSH 隧道发 WoL（RW0 增补，§3.17） |
+| 18 | `wake_result` | E→D | device（relay 原生应答） | 否 | requestId（原样回显） | —（响应帧） | — | 唤醒结果单帧终态（RW0 增补，status 枚举见 §3.17） |
 
 > **M3-C7b 实现层现状（2026-09-07，待裁决；增补注，不改上表规范性语义）**：本表 #16 行 error 帧
 > 「中继 = 否」——error 只在单腿内有语义，而协议未定义 H（Windows）生成的 error 如何回程设备
@@ -415,6 +417,81 @@ REST DELETE 面零改动）。
 
 错误码全集与 docs/14 Part C 的映射见 §8。协议级违规（非 JSON、未知 type、字段类型错）→
 `error` 帧 + 关闭（1002/1003，ws.ts 同款状态码语义）；业务级错误只回 `error`/`*_ack` 帧不断连。
+
+### 3.17 wake_host / wake_result（RW0 增补，2026-09-09）
+
+> 需求：手机 App 远控树莓派（Pi）发 WoL 魔术包唤醒 Windows（RW 系列）。本节为 relay 原生帧对，
+> **绝不转发桌面**——桌面 WS 不在线时正是主用例（PC 关机后链路 = App ↔ Relay ↔ Pi 反向 SSH
+> 隧道，Pi 自带 WiFi 上联存活）。帧 #17/#18 为 §3.0 总表的 +1 行组追加（本节为权威定义）；
+> 既有 16 帧全部语义零改动。命令面（§5）不扩：本帧不经 Windows、不占 command 五值域（N-R3 不变）。
+
+帧形（命名/字段风格逐字对齐既有帧，requestId 语义沿用 §3.11）：
+
+```json
+// D→E（已鉴权 device 会话；无业务字段——目标/端口/凭据全部在 ECS 机器级 ssh config /
+// wrapper 层，仓库与代码零凭据零端点字面量）
+{ "type": "wake_host", "requestId": "uuid-…" }
+
+// E→D（单帧终态应答；业务级——绝不因本帧 close 连接）
+{ "type": "wake_result", "requestId": "uuid-…", "status": "sent", "latencyMs": 812 }
+{ "type": "wake_result", "requestId": "uuid-…", "status": "already_on" }
+{ "type": "wake_result", "requestId": "uuid-…", "status": "rate_limited", "retryAfterMs": 9300 }
+{ "type": "wake_result", "requestId": "uuid-…", "status": "disabled" }
+{ "type": "wake_result", "requestId": "uuid-…", "status": "exec_failed", "latencyMs": 210,
+  "stderrSummary": "ssh: connect to host 127.0.0.1 port 2222: Connection refused" }
+{ "type": "wake_result", "requestId": "uuid-…", "status": "timeout", "latencyMs": 15000 }
+```
+
+status 全量枚举（白名单制，绝不猜）：
+
+| status | 语义 | 附加字段 | 审计 outcome |
+| --- | --- | --- | --- |
+| `sent` | 执行命令 exit 0（WoL 为无回执 UDP，「已发出」≠「已开机」） | latencyMs | success |
+| `already_on` | 快路径：host leg（桌面会话）在线 → 零执行 | — | success |
+| `exec_failed` | 进程退出码非 0（隧道死/认证失败/远端命令缺失等——单状态不细分，stderrSummary 供诊断） | latencyMs、stderrSummary（截断 ≤200 字符 + 秘密样串脱敏，零 key/token） | error |
+| `timeout` | 执行进程超 15s 上限被杀（AbortSignal.timeout 语义） | latencyMs | error |
+| `rate_limited` | 该设备冷却窗内重复请求（缺省 15s，env `WAKE_COOLDOWN_S`） | retryAfterMs | denied |
+| `disabled` | `WAKE_ENABLED ≠ 1`（缺省态——未配置即整帧 disabled，不进冷却窗） | — | denied |
+
+时序（主用例 = 桌面离线）：
+
+```
+Android                    ECS Relay                  Pi（反向 SSH 隧道 → ECS 127.0.0.1:2222）
+   │ wake_host{requestId}      │                              │
+   ├──────────► 已鉴权 ✓ → 冷却窗 ✓ → host leg 离线 ✓ → spawn 固定命令
+   │                          │ ── ssh -p 2222 <user>@127.0.0.1 wake-windows ──► WoL 魔术包 → 家庭局域网 Windows
+   │ ◄─ wake_result{sent} ────┤ ◄─ exit 0 ────────────────────┤
+```
+
+安全语义与门控序：
+
+1. 仅已鉴权 device 会话可发（裸连接 → 既有 §2 规则 close 1002；host 腿发此帧 = 未知帧处理，
+   audit + error 不断连——wake 是 device leg 专属帧）。requestId 缺失/类型错 → `error
+   BAD_PAYLOAD`（§3.16 业务级，不断连）。
+2. 门控序：disabled 检查 → 每设备冷却窗（内存态、重启清零——限流三件套同款纪律；先于快路径，
+   已在线重复请求同样计入）→ already_on 快路径 → spawn 执行。**桌面离线不是错误**——恰为主用例。
+3. 执行器（复用用户已实测打通的 wake-win 路径）：spawn 固定命令，**参数数组零 shell 拼接**
+   （WAKE_COMMAND 按空白切分；缺省 `ssh pi wake-windows`——HostName/Port/User/密钥全在 ECS
+   `~/.ssh/config` 的 `pi` 别名层；env 可覆盖为 `/usr/local/bin/wake-win` wrapper）。进程
+   15s 硬顶（AbortSignal.timeout，到点杀归 timeout）。
+4. **stderr 摘要红线**：exec_failed 帧携带的 stderrSummary 必须先脱敏再截断（≥32 连续
+   base64/hex 样字符 → `<redacted>`，覆盖 SSH 公钥 blob/指纹尾/token 样长串）；审计面更严——
+   detail 仅允许 status/latencyMs/exitCode/timedOut 结果与计数字段，**零 argv 零 stderr**
+   （约束 #13 同款）。凭据零字面量（env 变量名可以，值不行）。
+5. 审计：每次尝试落 `relay_audit` 一行（category=`wake`，action=`wake_attempt`，含 deviceId/
+   outcome/detail{status,latencyMs,exitCode,timedOut}）。
+
+env 清单（/etc/devhub-relay/env；缺省全关——未配置即恒 disabled）：
+
+| env | 缺省 | 语义 |
+| --- | --- | --- |
+| `WAKE_ENABLED` | `0` | `1` = 开启 wake 帧面；`0`/未设置 = 恒 disabled |
+| `WAKE_COMMAND` | `ssh pi wake-windows` | 固定执行命令（空白切分为参数数组）；依赖 ECS `~/.ssh/config` 的 `pi` 别名与远端 `wake-windows` 命令（机器级配置，用户已建）；可覆盖为 `/usr/local/bin/wake-win` |
+| `WAKE_COOLDOWN_S` | `15` | 每设备冷却窗（下限 1） |
+
+实现锚点：`ecs-relay/src/wake.ts`（WakeExecutor，runner 注入式——单测零真实 SSH，真实路径
+e2e 属部署后主控手工验证）、`ecs-relay/src/forwarder.ts`（handleWakeHost）、
+`ecs-relay/test/wake.test.mjs`（97→108）。
 
 ---
 
