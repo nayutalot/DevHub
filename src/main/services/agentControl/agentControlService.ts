@@ -1027,7 +1027,7 @@ export async function createPairing(deviceName?: string): Promise<AgentPairingCr
 export function revokeDevice(
   deviceId: number,
   confirmed?: boolean,
-  via: 'ipc' | 'rest-self' = 'ipc',
+  via: 'ipc' | 'rest-self' | 'relay-self' = 'ipc',
 ): AgentDeviceRevokeStart | AgentDeviceRevokeResult {
   const db = getDatabase()
   const row = db.prepare('SELECT * FROM remote_devices WHERE id = ?').get(deviceId) as DeviceRow | undefined
@@ -1073,6 +1073,120 @@ export function revokeDevice(
     }
   }
   return { revoked: true }
+}
+
+// ---------------------------------------------------------------------------
+// M3-E1 — 设备自撤销 WS command 面（docs/18 §5.3 revoke_device；用户裁决
+// 2026-09-07 #9=B）。两段式：受理段（幂等行 + 审计，先回 command_ack）→ 执行段
+// （L3 revoke → §3.15 撤销链自动接管）。commandId 终态照常落库（§5.3 终态收口 =
+// disconnect(revoked) 而非 command_result，回帧不保证送达）。目标恒 = auth Token
+// 对应设备自身（帧无目标字段天然自指；payload 一概不解释——禁止代撤销语义）。
+// remote_commands.action 值域为注释级枚举（无 CHECK，004 建表），写 'revoke_device'
+// 零迁移（任务书 §1 #6「relay action → L3 通道映射」路线）。
+// ---------------------------------------------------------------------------
+
+export interface DeviceSelfRevokeBegin {
+  commandId: string
+  /** true = 幂等重试命中既有行（受理段零新写；撤销已在既往执行）。 */
+  replayed: boolean
+  status: 'accepted' | 'executed' | 'rejected' | 'expired' | 'failed'
+}
+
+/**
+ * 受理段（commandDownlink revoke_device 分支第一步）：幂等键查重 → 落 accepted 行 +
+ * 审计；绝不执行撤销。调用方先以返回的 commandId 回 command_ack，再调执行段——
+ * ack 与 disconnect(revoked) 的 wire 序由此保证（§5.3 受理先于踢线）。
+ */
+export function beginDeviceSelfRevoke(input: { deviceId: number; idempotencyKey: string }): DeviceSelfRevokeBegin {
+  const db = getDatabase()
+  const now = nowSec()
+  const existing = db.prepare('SELECT * FROM remote_commands WHERE idempotency_key = ?').get(input.idempotencyKey) as
+    | RemoteCommandRow
+    | undefined
+  if (existing !== undefined) {
+    // 同 key 异 action → COMMAND_KEY_CONFLICT（docs/14 §B.5 语义；幂等键是全局唯一资源，
+    // 绝不把其他 action 的行误当撤销重放）
+    if (existing.action !== 'revoke_device') {
+      throw new ServiceError('COMMAND_KEY_CONFLICT', 'device self-revoke: idempotency key already used with a different action (docs/14 B.5)')
+    }
+    // 同 key 重试：原命令原受理（docs/14 §B.5 语义；撤销为一次性事实，绝不重复执行）
+    return { commandId: existing.command_id, replayed: true, status: commandRowStatusToResult(existing.status) }
+  }
+  const commandId = `cmd-${randomUUID()}`
+  db.prepare(
+    "INSERT INTO remote_commands (command_id, idempotency_key, device_id, session_id, action, payload_json, status, expires_at, created_at) VALUES (?, ?, ?, NULL, 'revoke_device', NULL, 'accepted', ?, ?)",
+  ).run(commandId, input.idempotencyKey, dbVal(input.deviceId), now + REMOTE_COMMAND_TTL_SEC, now)
+  insertSecurityAudit(
+    'command',
+    'command_accepted',
+    input.deviceId,
+    'success',
+    JSON.stringify({ commandId, action: 'revoke_device', source: 'relay-command' }),
+  )
+  return { commandId, replayed: false, status: 'accepted' }
+}
+
+/**
+ * 执行段（受理回执发出后调用）：L3 revokeDevice(confirmed) → §3.15 撤销链自动接管
+ * （closeDeviceConnections + relayClient disconnect{deviceId,reason:'revoked'} → ECS
+ * 踢线 + 注册表 revoked）。行终态照常落库 + 终态通知（回帧不保证送达，§5.3 终态语义）。
+ */
+export async function executeDeviceSelfRevoke(input: { commandId: string; deviceId: number; idempotencyKey: string }): Promise<void> {
+  const db = getDatabase()
+  try {
+    revokeDevice(input.deviceId, true, 'relay-self')
+    db.prepare("UPDATE remote_commands SET status = 'executed', result_json = ?, executed_at = ? WHERE command_id = ?").run(
+      JSON.stringify({ status: 'executed' }),
+      nowSec(),
+      input.commandId,
+    )
+    notifyRemoteCommandTerminal({
+      commandId: input.commandId,
+      idempotencyKey: input.idempotencyKey,
+      sessionId: 0,
+      action: 'revoke_device',
+      status: 'executed',
+      errorCode: null,
+    })
+  } catch (err) {
+    const errorCode = err instanceof ServiceError ? err.code : 'COMMAND_NOT_EXECUTABLE'
+    try {
+      db.prepare("UPDATE remote_commands SET status = 'failed', error_code = ?, executed_at = ? WHERE command_id = ?").run(
+        errorCode,
+        nowSec(),
+        input.commandId,
+      )
+      insertSecurityAudit('command', 'command_rejected', input.deviceId, 'error', JSON.stringify({ commandId: input.commandId, action: 'revoke_device', errorCode }))
+      notifyRemoteCommandTerminal({
+        commandId: input.commandId,
+        idempotencyKey: input.idempotencyKey,
+        sessionId: 0,
+        action: 'revoke_device',
+        status: 'failed',
+        errorCode,
+      })
+    } catch {
+      /* 双重失败：行保持 accepted + expires_at 兜底（重试幂等覆盖） */
+    }
+  }
+}
+
+/**
+ * provider 能力模式只读投影（M3-E1 commandDownlink spawn_session 拒绝码分类专用）：
+ * 业务键或数字 id → caps.mode（managed|attached|observed）；provider 未知 → null
+ * （分类跳过，由 L3 startProviderManagedSession 折 NOT_FOUND）。绝不写库、绝不
+ * 旁路 L3 门——L3 在执行路径重新权威校验，本投影仅用于错误码映射（§5.3：
+ * 授权矩阵不允许 → COMMAND_NOT_EXECUTABLE；spawn 特有拒绝 → SPAWN_REJECTED）。
+ */
+export function readProviderCapabilityMode(ref: string): 'managed' | 'attached' | 'observed' | null {
+  const numericId = /^\d+$/.test(ref) ? Number.parseInt(ref, 10) : null
+  const row = (
+    numericId !== null
+      ? (getDatabase().prepare('SELECT capabilities_json FROM agent_providers WHERE id = ?').get(numericId) as { capabilities_json: string | null } | undefined)
+      : (getDatabase().prepare('SELECT capabilities_json FROM agent_providers WHERE provider = ?').get(ref) as { capabilities_json: string | null } | undefined)
+  )
+  if (row === undefined) return null
+  return parseCapabilitySet(row.capabilities_json).mode
 }
 
 /**

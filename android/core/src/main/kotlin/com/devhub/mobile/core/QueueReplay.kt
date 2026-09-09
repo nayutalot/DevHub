@@ -35,6 +35,11 @@ object QueueReplayPlanner {
     // （local 面 → 结构化落败 COMMAND_NOT_EXECUTABLE，relay 面 → command 帧）。
     const val KIND_APPROVE = "approve"
     const val KIND_INTERRUPT = "interrupt"
+    // M3-E1（docs/18 §5.3，用户裁决 2026-09-07 #9=B）：设备自管理两值入队面——
+    // spawn_session（无会话自管理命令，sessionId 存 0）/ revoke_device（自撤销）。
+    // 仅 relay 命令面下发；local 面出队 → 结构化落败（与 approve/interrupt 同款）。
+    const val KIND_SPAWN_SESSION = "spawn_session"
+    const val KIND_REVOKE_DEVICE = "revoke_device"
 
     /**
      * 取下一批待补发指令：合法 kind 过滤 → 按时间序 → 截取 batch 上限。
@@ -43,7 +48,8 @@ object QueueReplayPlanner {
         queue.asSequence()
             .filter {
                 it.kind == KIND_REPLY || it.kind == KIND_PAUSE || it.kind == KIND_RESUME ||
-                    it.kind == KIND_APPROVE || it.kind == KIND_INTERRUPT
+                    it.kind == KIND_APPROVE || it.kind == KIND_INTERRUPT ||
+                    it.kind == KIND_SPAWN_SESSION || it.kind == KIND_REVOKE_DEVICE
             }
             .sortedWith(compareBy({ it.createdAtMs }, { it.id }))
             .take(maxBatchSize.coerceAtLeast(1))

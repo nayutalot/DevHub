@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.sp
 import com.devhub.mobile.core.IdempotencyKeys
 import com.devhub.mobile.core.InteractionHonesty
 import com.devhub.mobile.connect.ConnectionManager
+import com.devhub.mobile.connect.ManagedSpawnSubmit
 import com.devhub.mobile.data.ApiProvider
 import com.devhub.mobile.data.FixtureMode
 import com.devhub.mobile.data.remote.AgentDto
@@ -198,28 +199,52 @@ private fun ProviderCard(
                             spawnBusy = true
                             spawnStatus = null
                             scope.launch {
-                                val message: String = try {
-                                    val started = withContext(Dispatchers.IO) {
-                                        ApiProvider.rest(context).startManagedSession(
-                                            providerId = agent.id,
-                                            task = task,
-                                            idempotencyKey = IdempotencyKeys.newKey(),
-                                        )
+                                val message: String = if (ConnectionManager.configuredMode() == "relay") {
+                                    // M3-E1（docs/18 §5.3/§10 通道迁移）：relay 模式走 WS command
+                                    // spawn_session（REST POST /v1/providers/{id}/sessions 打 ECS
+                                    // 必败——§7.2 不开放）；本地模式保持下方 REST 路径零改动。
+                                    when (val r = ConnectionManager.submitManagedSpawnRelay(providerId = agent.id, task = task)) {
+                                        is ManagedSpawnSubmit.Executed -> {
+                                            spawnPanelOpen = false
+                                            spawnTask = ""
+                                            // 跳入新托管会话详情：reply/pause/resume 会话级真实可用（R6.2）
+                                            onOpenSession(r.sessionId)
+                                            "已启动（commandId=${r.commandId}）"
+                                        }
+
+                                        is ManagedSpawnSubmit.AcceptedNoSession ->
+                                            "已受理（${r.status}，commandId=${r.commandId}）；会话列表稍后出现新会话"
+
+                                        ManagedSpawnSubmit.Queued ->
+                                            "已排队（电脑离线）：连接恢复后自动启动"
+
+                                        is ManagedSpawnSubmit.Rejected ->
+                                            InteractionHonesty.spawnRejectionText(r.code, r.message)
                                     }
-                                    val sid = started.sessionId
-                                    if (sid != null) {
-                                        spawnPanelOpen = false
-                                        spawnTask = ""
-                                        // 跳入新托管会话详情：reply/pause/resume 会话级真实可用（R6.2）
-                                        onOpenSession(sid)
-                                        "已启动（commandId=${started.commandId}）"
-                                    } else {
-                                        "已受理（${started.status}，commandId=${started.commandId}）；会话列表稍后出现新会话"
+                                } else {
+                                    try {
+                                        val started = withContext(Dispatchers.IO) {
+                                            ApiProvider.rest(context).startManagedSession(
+                                                providerId = agent.id,
+                                                task = task,
+                                                idempotencyKey = IdempotencyKeys.newKey(),
+                                            )
+                                        }
+                                        val sid = started.sessionId
+                                        if (sid != null) {
+                                            spawnPanelOpen = false
+                                            spawnTask = ""
+                                            // 跳入新托管会话详情：reply/pause/resume 会话级真实可用（R6.2）
+                                            onOpenSession(sid)
+                                            "已启动（commandId=${started.commandId}）"
+                                        } else {
+                                            "已受理（${started.status}，commandId=${started.commandId}）；会话列表稍后出现新会话"
+                                        }
+                                    } catch (err: ApiError) {
+                                        "启动被拒绝：[${err.code}] ${err.message}"
+                                    } catch (err: IOException) {
+                                        "网络不可达，未启动"
                                     }
-                                } catch (err: ApiError) {
-                                    "启动被拒绝：[${err.code}] ${err.message}"
-                                } catch (err: IOException) {
-                                    "网络不可达，未启动"
                                 }
                                 spawnBusy = false
                                 spawnStatus = message

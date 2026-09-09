@@ -11429,6 +11429,201 @@ if (isEntrypoint()) {
   })
 
   // ====================================================================
+  // M3-E1 批次（设备自管理通道 + App managed spawn，docs/18 §5.3 + docs/20 §3
+  // R-B5/R-B8 修订判据，用户裁决 2026-09-07 #9=B）：m3e1-spawn / m3e1-revoke 两条追加。
+  // 全程夹具 Relay 桩（127.0.0.1 随机高端口，零联网零 8746）；临时库隔离；fast 档。
+  // ====================================================================
+
+  // 171. spawn_session 下行（§2.2.1/§2.2.2/§2.2.4）：帧校验（providerId 非空 + task
+  //      非空 ≤4000）→ 授权矩阵预分类（observed → COMMAND_NOT_EXECUTABLE）→ L3 既有
+  //      spawn 托管通道（幂等行/能力门复用）→ command_ack(accepted) + command_result
+  //      (executed, sessionId, action='spawn_session')；nativeId 仅经 command.result
+  //      事件 payload 回流（§5.3 帧形零扩展）；拒绝映射：未验证/过期 →
+  //      AGENT_CAPABILITY_MISSING、spawn 特有（provider 无托管通道）→ SPAWN_REJECTED
+  //      （新码）、未知 provider → NOT_FOUND、坏 payload → BAD_PAYLOAD；拒绝路径零流水行。
+  registerCase('m3e1-spawn: spawn_session downlink — happy path (ack accepted + command_result executed with sessionId, action=spawn_session, remote_commands action=spawn, nativeId flows via command.result event payload), idempotent retry replays without duplicate execution, rejection mapping (observed -> COMMAND_NOT_EXECUTABLE, stale caps -> AGENT_CAPABILITY_MISSING, no managed channel -> SPAWN_REJECTED, unknown provider -> NOT_FOUND, bad payload -> BAD_PAYLOAD) with zero rows on rejections', async () => {
+    const m = await r1CaseSetup('devhub-m3e1-spawn-')
+    const db = m.dbModule.getDatabase()
+    const stub = await r1StartRelayStub()
+    try {
+      r1EnableRelay(m, stub, 'm3e1-relay-cred-spawn')
+      const now = Math.floor(Date.now() / 1000)
+      // 四 provider 行：kimi=managed 新鲜（正路）/ zcode=observed（矩阵不允许）/
+      // kimi-stale=managed 过期（能力门）/ kimi-nochannel=managed 新鲜但桩未实现托管通道
+      const capsManaged = JSON.stringify({ mode: 'managed', granted: ['reply', 'pause', 'resume'], verifiedAt: now, evidence: 'fixture managed' })
+      const capsObserved = JSON.stringify({ mode: 'observed', granted: [], verifiedAt: now, evidence: 'fixture observed' })
+      const capsStale = JSON.stringify({ mode: 'managed', granted: ['reply'], verifiedAt: now - 400, evidence: 'stale fixture' })
+      fixtureProviderRow(db, 'kimi')
+      fixtureProviderRow(db, 'zcode')
+      fixtureProviderRow(db, 'kimi-stale')
+      fixtureProviderRow(db, 'kimi-nochannel')
+      db.prepare('UPDATE agent_providers SET capabilities_json = ? WHERE provider = ?').run(capsManaged, 'kimi')
+      db.prepare('UPDATE agent_providers SET capabilities_json = ? WHERE provider = ?').run(capsObserved, 'zcode')
+      db.prepare('UPDATE agent_providers SET capabilities_json = ? WHERE provider = ?').run(capsStale, 'kimi-stale')
+      db.prepare('UPDATE agent_providers SET capabilities_json = ? WHERE provider = ?').run(capsManaged, 'kimi-nochannel')
+      const spawnCalls = []
+      m.providerRegistry.setProviderOverride('kimi', {
+        ...stubAgentProvider('kimi'),
+        probeHealth: async () => ({ installed: true, health: 'ok' }),
+        getCapabilities: async () => ({ mode: 'managed', granted: ['reply', 'pause', 'resume'], verifiedAt: now, evidence: 'fixture managed' }),
+        startManagedSession: async (task, sink) => {
+          spawnCalls.push(task)
+          sink.onSessionDiscovered?.('kimi', { nativeId: 'managed-kimi-m3e1-1', mode: 'managed', lastActivityAt: now })
+          return { ok: true, nativeId: 'managed-kimi-m3e1-1', detail: 'fixture managed start' }
+        },
+      })
+      // kimi-nochannel：桩刻意不带 startManagedSession（provider 无托管通道 → SPAWN_REJECTED）
+      m.providerRegistry.setProviderOverride('kimi-nochannel', {
+        ...stubAgentProvider('kimi-nochannel'),
+        getCapabilities: async () => ({ mode: 'managed', granted: ['reply'], verifiedAt: now, evidence: 'fixture managed (no channel)' }),
+      })
+      const deviceToken = `m3e1-dev-token-spawn-${randomBytes(8).toString('hex')}`
+      r1FixtureDevice(m, db, 'm3e1-spawn-phone', deviceToken)
+      m.relay.configureRelayClientRuntime({ helloTimeoutMs: 3000, baseDelayMs: 50, maxDelayMs: 200 })
+      m.relay.startRelayClient()
+      await r1HelloNewConnection(stub)
+      await pollUntil(() => m.relay.getRelayClientDiagnostics().status === 'ready', 5000, 30, 'relay ready')
+
+      const authFrame = () => ({ token: deviceToken, ts: Math.floor(Date.now() / 1000), nonce: randomBytes(16).toString('hex') })
+      const spawnFrame = (reqKey, key, payload, action = 'spawn_session') => {
+        const f = r1FixtureFrame(8, 'device-to-ecs')
+        f.requestId = reqKey
+        f.idempotencyKey = key
+        f.action = action
+        delete f.sessionId // §5.3 帧形：尚无会话 → sessionId 缺省
+        f.payload = payload
+        f.auth = authFrame()
+        f.createdAt = Math.floor(Date.now() / 1000)
+        return f
+      }
+
+      // 正路：ack accepted + command_result executed(sessionId)
+      r1StubSend(stub, spawnFrame('m3e1-spawn-req-1', 'm3e1-spawn-key-1', { providerId: 'kimi', task: 'm3e1 fixture turn' }))
+      const ack = await r1StubWait(stub, (f) => f.json?.type === 'command_ack' && f.json.idempotencyKey === 'm3e1-spawn-key-1', 4000, 'spawn ack')
+      assert.equal(ack.json.status, 'accepted')
+      assert.match(ack.json.commandId, /^cmd-/, 'ack carries the L3 commandId')
+      const result = await r1StubWait(stub, (f) => f.json?.type === 'command_result' && f.json.idempotencyKey === 'm3e1-spawn-key-1', 4000, 'spawn result')
+      assert.equal(result.json.action, 'spawn_session', 'command_result uses the relay action name')
+      assert.equal(result.json.status, 'executed')
+      assert.ok(typeof result.json.sessionId === 'number' && result.json.sessionId > 0, 'result carries the new sessionId')
+      assert.ok(!('nativeId' in result.json), 'nativeId never rides the command_result frame (§5.3: event payload only)')
+      assert.deepEqual(spawnCalls, ['m3e1 fixture turn'], 'provider startManagedSession invoked once with the verbatim task')
+      const sessRow = db.prepare('SELECT session_mode, status FROM agent_sessions WHERE id = ?').get(result.json.sessionId)
+      assert.equal(sessRow.session_mode, 'managed', 'session row lands as managed')
+      assert.equal(sessRow.status, 'running', 'session advances to running')
+      const cmdRow = db.prepare('SELECT action, status, result_json FROM remote_commands WHERE command_id = ?').get(ack.json.commandId)
+      assert.equal(cmdRow.action, 'spawn', 'remote_commands reuses the spawn idempotent row (REST 同源通道)')
+      assert.equal(cmdRow.status, 'executed')
+      const ev = db.prepare("SELECT payload_json FROM agent_events WHERE event_type = 'command.result' ORDER BY id DESC LIMIT 1").get()
+      assert.ok(ev !== undefined, 'command.result event recorded')
+      assert.ok(ev.payload_json.includes('"nativeId"'), 'nativeId flows via the command.result event payload (§5.3)')
+
+      // 幂等重试：同 key 同 payload 新 nonce → 原 commandId 原结果，零重复执行
+      const retry = spawnFrame('m3e1-spawn-req-1r', 'm3e1-spawn-key-1', { providerId: 'kimi', task: 'm3e1 fixture turn' })
+      retry.auth = authFrame()
+      r1StubSend(stub, retry)
+      const replayAck = await r1StubWait(stub, (f) => f.json?.type === 'command_ack' && f.json.idempotencyKey === 'm3e1-spawn-key-1', 4000, 'replay ack')
+      assert.equal(replayAck.json.commandId, ack.json.commandId, 'retry replays the original commandId')
+      assert.equal(replayAck.json.requestId, 'm3e1-spawn-req-1r', 'replay ack echoes the retry requestId')
+      const replayResult = await r1StubWait(stub, (f) => f.json?.type === 'command_result' && f.json.idempotencyKey === 'm3e1-spawn-key-1', 4000, 'replayed result')
+      assert.equal(replayResult.json.commandId, ack.json.commandId, 'retry replays the original commandId')
+      assert.equal(replayResult.json.sessionId, result.json.sessionId, 'retry replays the original sessionId')
+      assert.equal(spawnCalls.length, 1, 'no duplicate managed start on retry')
+
+      // 拒绝映射（§2.2.2；拒绝路径零流水行）
+      const expectRejection = async (reqKey, key, payload, provider, expectCode) => {
+        const f = spawnFrame(reqKey, key, payload)
+        if (provider !== undefined) f.payload = { ...payload, providerId: provider }
+        r1StubSend(stub, f)
+        const r = await r1StubWait(stub, (x) => x.json?.type === 'command_ack' && x.json.idempotencyKey === key, 4000, `rejection ${expectCode}`)
+        assert.equal(r.json.status, 'rejected', `${expectCode} rejection status`)
+        assert.equal(r.json.errorCode, expectCode, `${expectCode} mapping`)
+      }
+      await expectRejection('m3e1-spawn-req-o', 'm3e1-spawn-key-o', { providerId: 'zcode', task: 'x' }, undefined, 'COMMAND_NOT_EXECUTABLE')
+      await expectRejection('m3e1-spawn-req-s', 'm3e1-spawn-key-s', { providerId: 'kimi-stale', task: 'x' }, undefined, 'AGENT_CAPABILITY_MISSING')
+      await expectRejection('m3e1-spawn-req-n', 'm3e1-spawn-key-n', { providerId: 'kimi-nochannel', task: 'x' }, undefined, 'SPAWN_REJECTED')
+      await expectRejection('m3e1-spawn-req-u', 'm3e1-spawn-key-u', { providerId: 'ghost', task: 'x' }, undefined, 'NOT_FOUND')
+      await expectRejection('m3e1-spawn-req-b', 'm3e1-spawn-key-b', { providerId: 'kimi', task: '   ' }, undefined, 'BAD_PAYLOAD')
+      await expectRejection('m3e1-spawn-req-p', 'm3e1-spawn-key-p', { task: 'no provider' }, undefined, 'BAD_PAYLOAD')
+      assert.equal(spawnCalls.length, 1, 'rejections never reach the provider')
+      assert.equal(db.prepare('SELECT COUNT(*) c FROM remote_commands').get().c, 1, 'exactly one command row (rejections never land rows)')
+    } finally {
+      m.relay.resetRelayClientForSmoke()
+      await r1StubClose(stub)
+      await r1CaseTeardown(m)
+    }
+  }, 'fast')
+
+  // 172. revoke_device 下行（§2.2.3/§2.3.3）：目标 = auth Token 对应 deviceId（自指；
+  //      payload 一概不解释——「代撤销他设备」语义零承载面）；ack(accepted) 先于
+  //      disconnect(revoked) 出帧（wire 序）；L3 撤销链自动接管（踢线帧 + 注册表
+  //      revoked + 401 语义由 ECS/Windows 双侧承接）；commandId 终态照常落库
+  //      （action='revoke_device'，executed）；同 key 重试零重复撤销；他设备行不受扰。
+  registerCase('m3e1-revoke: revoke_device downlink — self-target only (delegating payload ignored), ack accepted precedes disconnect{deviceId,revoked} on the wire, remote_commands terminal executed with commandId, audit via relay-self, other device row untouched, idempotent replay never re-kicks', async () => {
+    const m = await r1CaseSetup('devhub-m3e1-revoke-')
+    const db = m.dbModule.getDatabase()
+    const stub = await r1StartRelayStub()
+    try {
+      r1EnableRelay(m, stub, 'm3e1-relay-cred-revoke')
+      const tokenA = `m3e1-dev-token-A-${randomBytes(8).toString('hex')}`
+      const tokenB = `m3e1-dev-token-B-${randomBytes(8).toString('hex')}`
+      const deviceA = r1FixtureDevice(m, db, 'm3e1-revoke-phone-A', tokenA)
+      const deviceB = r1FixtureDevice(m, db, 'm3e1-revoke-phone-B', tokenB)
+      m.relay.configureRelayClientRuntime({ helloTimeoutMs: 3000, baseDelayMs: 50, maxDelayMs: 200 })
+      m.relay.startRelayClient()
+      await r1HelloNewConnection(stub)
+      await pollUntil(() => m.relay.getRelayClientDiagnostics().status === 'ready', 5000, 30, 'relay ready')
+
+      const f = r1FixtureFrame(8, 'device-to-ecs')
+      f.requestId = 'm3e1-revoke-req-1'
+      f.idempotencyKey = 'm3e1-revoke-key-1'
+      f.action = 'revoke_device'
+      delete f.sessionId
+      // 越权探针：payload 携带他设备目标——协议无目标字段，Windows 一概不解释（绝不代撤销）
+      f.payload = { deviceId: deviceB, target: 'please revoke the other device' }
+      f.auth = { token: tokenA, ts: Math.floor(Date.now() / 1000), nonce: randomBytes(16).toString('hex') }
+      f.createdAt = Math.floor(Date.now() / 1000)
+      r1StubSend(stub, f)
+
+      // 等踢线帧落桩日志（stub.log 保序 → 事后取 index 断言 wire 序）
+      await pollUntil(() => stub.log.some((e) => e.json?.type === 'disconnect' && e.json.reason === 'revoked'), 4000, 20, 'kick frame')
+      const ackIdx = stub.log.findIndex((e) => e.json?.type === 'command_ack' && e.json.idempotencyKey === 'm3e1-revoke-key-1')
+      assert.ok(ackIdx >= 0, 'revoke command_ack observed')
+      assert.equal(stub.log[ackIdx].json.status, 'accepted')
+      assert.match(stub.log[ackIdx].json.commandId, /^cmd-/, 'revoke ack carries the L3 commandId')
+      const kickIdx = stub.log.findIndex((e) => e.json?.type === 'disconnect' && e.json.reason === 'revoked')
+      assert.ok(kickIdx > ackIdx, 'wire order: ack precedes disconnect{revoked} (docs/18 §5.3 受理先于踢线)')
+      assert.equal(stub.log[kickIdx].json.deviceId, deviceA, 'kick targets the authed device only')
+
+      // commandId 终态照常落库（§5.3 终态收口 = disconnect，回帧不保证送达——本面不发 result 帧）
+      const row = db.prepare('SELECT action, status, device_id FROM remote_commands WHERE command_id = ?').get(stub.log[ackIdx].json.commandId)
+      assert.equal(row.action, 'revoke_device', 'terminal row uses the relay action name')
+      assert.equal(row.status, 'executed', 'terminal state recorded (docs/18 §5.3 commandId 终态照常落库)')
+      assert.equal(row.device_id, deviceA)
+      const audit = db.prepare("SELECT detail_json FROM security_audit_logs WHERE category = 'device' AND action = 'device_revoked' ORDER BY id DESC LIMIT 1").get()
+      assert.ok(audit !== undefined && audit.detail_json.includes('relay-self'), 'audit records the relay-command source (via=relay-self)')
+      // 他设备零扰（自指红线）
+      const rowB = db.prepare('SELECT status FROM remote_devices WHERE id = ?').get(deviceB)
+      assert.equal(rowB.status, 'active', 'payload-delegated target device B is NOT revoked')
+      const rowA = db.prepare('SELECT status FROM remote_devices WHERE id = ?').get(deviceA)
+      assert.equal(rowA.status, 'revoked', 'authed device A revoked')
+
+      // 同 key 重试：原 commandId 原受理，零重复踢线
+      const kickBefore = stub.log.filter((e) => e.json?.type === 'disconnect' && e.json.reason === 'revoked').length
+      r1StubSend(stub, { ...f, requestId: 'm3e1-revoke-req-1r', auth: { ...f.auth, nonce: randomBytes(16).toString('hex') } })
+      await pollUntil(() => stub.log.some((e) => e.json?.type === 'command_ack' && e.json.idempotencyKey === 'm3e1-revoke-key-1' && e.json.requestId === 'm3e1-revoke-req-1r'), 4000, 30, 'replay ack')
+      const kickAfter = stub.log.filter((e) => e.json?.type === 'disconnect' && e.json.reason === 'revoked').length
+      assert.equal(kickAfter, kickBefore, 'idempotent replay never re-kicks')
+      const rowAgain = db.prepare('SELECT COUNT(*) c FROM remote_commands WHERE action = ?').get('revoke_device')
+      assert.equal(rowAgain.c, 1, 'still exactly one revoke_device row')
+    } finally {
+      m.relay.resetRelayClientForSmoke()
+      await r1StubClose(stub)
+      await r1CaseTeardown(m)
+    }
+  }, 'fast')
+
+  // ====================================================================
   // CP1 批次（ContestPin，docs/22 §2/§3 + docs/04「ContestPin 追加」节）：
   // contestService CRUD / 节点精度 / 资源边。全部 makeTempHome 临时库隔离
   // （零进程零端口，fast 档）；迁移断言与 7 表存在性已并入 step3/step5 既有用例

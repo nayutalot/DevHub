@@ -1,6 +1,11 @@
-# DevHub 会话交接文档（2026-09-07 上午，M3-D 72h 运行中·T0=09-07 08:49:27·终点 09-10 08:49）
+# DevHub 会话交接文档（2026-09-10 02:5x 交接收口，前会话上下文耗尽）
 
-> 交接范围：……（前史见 git log/docs/HANDOFF 旧版）→ 四轮联调修复弧线（C2b/C2c/C2d/C2e + C6a-d/C7a/C7b/C8a 共 9 修复批）→ **R-B 表收口至"除用户裁决项外全过" → M3-D 72h 已点火**。**72h 窗内新会话只做巡检（一行命令见 §4.1），勿动常驻/巡检进程/ECS。**
+> **⚠️ 当前中途态（最高优先，恢复会话先读）**：
+> 1. **M3-E1 合并已暂存待提交**：主仓 `git merge --no-commit agent/m3e1` 已过（零冲突、全 staged、MERGE_HEAD 在、语义核验过=forwarder 同时含 wake_host+七 action）；tsc 0（主仓已 `npm install` 补装 CP3b 依赖 pdfjs-dist/@napi-rs——**此前主仓漏装，门禁在 worktree 跑的**）。**待办**：双杀确认（常驻现已下线）→ 跑 `node scripts/smoke.mjs`（全量，预期 fast 98/总 188）+ `mcp-acceptance`（27）+ `cd ecs-relay && npm test`（99）→ 绿后 `git commit`（保留 staged 内容，写 M3-E1 merge message）→ push main。
+> 2. **常驻 DevHub.exe 已下线**（交接收口前双杀执行过）；**当前在役安装包（02:16 CP4 版）PDF 识别残缺**（打包时主仓缺依赖，external 化未报错）——**M3-E1+LR1 全合后必须末次重打包（HTTPS_PROXY=http://127.0.0.1:7897）+换装重启**。
+> 3. **LR1 链未开始**：分支 `agent/lr1`（57f1f5f/d10c19e/74bbdbc；migration 007+4 通道，其分支计数 92 vs main 100——合并冲突解决为 104）；合并后**真库补 007**（备份→手工两条 ALTER+种子；真库 user_version=8>7 不会自动应用，不补则 review 缓存降级）。
+> 4. **ECS 部署 M3-E1 未做**：`ecs-relay/sql/0003_self_mgmt_actions.sql`（表重建扩 action CHECK，先备份 /var/lib/devhub-relay/relay.db）+ relay 代码同步（forwarder/config/…，含 RW0 wake 已在线版为基）+ `systemctl restart devhub-relay` + selfcheck（83+1SKIP）+ node --test 99。
+> 5. R-B5/R-B8 活体复验（真 ECS+真机）与 App 安装（assembleDebug APK 已在 m3e1 worktree 产出）留后续批。
 
 ## 0. 新会话开工须知（用户令：严格约束工作流）
 
@@ -12,7 +17,7 @@
 
 ## 1. 当前状态一句话
 
-**ContestPin CP0-CP3a 已全部合 main（551ccb2）并完成打包换装+实启动验证；M3-D 观察已提前终止判定通过（用户 09-09 21:00，240/240 周期零故障）；三线并行开启：M3-E1/LR1 已派发（worktrees/m3e1 + lr1，分支同）、ContestPin CP3b（材料导入两阶段识别）待任务书**。常驻=main 全量包（09-09 22:28 构建，PID 57016，88 通道+悬浮窗在役）；真库 schema v8（008 已迁，备份 devhub.db.bak-pre008-20260909）；门禁基线 tsc 0/smoke **181**（fast 91）/mcp 27/:core 189/:app 47/ecs-relay 97（android/ecs-relay 对 CP 批零改动免跑）。
+**ContestPin CP0-CP4 全部合 main（main=6730671；100 通道/悬浮窗/识别管线/提醒通知全在役）+RW0 已部署 ECS 实测（sent 511ms）+M3-E1 合并挂起待门禁提交+LR1 待合并**；M3-D 观察已提前终止判定通过；常驻已下线**待末次重打包换装（CP3b 依赖修复必做）**；真库 schema v8（007 补丁待 LR1 合并后手工补）；基线=tsc 0/smoke 全量 186（fast 96，M3-E1 后 188）/mcp 27/:core 195/:app 55/ecs-relay 99。
 
 ## 2. C2c→C2e 修复弧线台账（本会话续）
 
@@ -49,7 +54,7 @@
 5. ~~docs/18 增补注入册~~ ✅ 已毕（W2 合入 90206f6：§3.0#16/§3.11/§3.14 三注，纯插入零规范性改动）
 6. ~~dist-final worktree 处置~~（窗毕顺手清，见 §4.3）；GitHub Release 发布与否待用户一句话（条件链：M3-D 终报通过 ✅ → M3-E1 B 方案复验 → 安装包已更新 ✅（09-09 22:28 根五件）→ 统一发布）
 
-3. **三线并行进行中（09-09 深夜派发）**：**M3-E1**（worktrees/m3e1，分支 agent/m3e1，任务书 m3e1-self-mgmt.md；锚点已更新：88 通道/008 已落/ECS 部署须回主控）+ **LR1**（worktrees/lr1，分支 agent/lr1，任务书 lr1-llm-review.md；007 归它、计数 88→92、fresh 库 applied 断言需随 007 插入调整）+ ContestPin CP3b 待任务书（材料导入两阶段管线；m3a 报告有 CP3b 衔接注记）。**合并纪律**：各分支过主控 review+全量门禁后逐个合 main（channels/migrate 冲突面已在派发书里错开）。
+3. **三线批次完成态（09-10 02:5x）**：**M3-E1 已完成**（分支 agent/m3e1 四提交 24dc9f0..6f098a3：ECS 七值 action+sql 0003 表重建/桌面 spawn_session+revoke_device 两段式+SPAWN_REJECTED 码/App 七值+SelfRevokeFlow+Room v4；其自跑门禁=fast 93/:core 195/:app 55/assembleDebug 绿、ecs-relay 99+selfcheck；**两 agent 均自报曾违规跑全量 smoke 打 8746——生产损害已全数清账，在役恰三台**）——**合并进行中见文首中途态 ①**。**LR1 已完成**（分支 agent/lr1 三提交：007 迁移+reviewClient/reviewService 四态 envelope+4 通道+设置卡片/咨询条/体检面板；fast 93；**未配置时零调用行为等价现状**回归判据过）——**链路待办见中途态 ③**。CP3b/CP4 已收官（见 §4.0）。**RW1（App 唤醒按钮）现已解锁可派**（M3-E1 合并落地后）；CP5（Agent 模式）/CP6（备份打包）排队；**卫生批（uxa-147/148/ac6 系 8746 硬编码用例改自起隔离网关）强烈建议提前**——三连事故根治。
 4. **RemoteWake RW 系列（新立项 09-09 深夜，用户令；09-10 用户更正落档）**：手机 App 经 ECS 反向隧道 SSH 到树莓派发 WoL 唤醒 Windows。**✅ 执行层已由用户建成并端到端实测通过**：Pi（用户名=**raspberry**，主机名 Raspberr5；**WiFi 独立上行**，PC 关机隧道存活）的 systemd `wol-tunnel.service` 维持到 ECS `127.0.0.1:2222` 反向转发；ECS `~/.ssh/config` 有 `pi` 别名（127.0.0.1:2222/User raspberry，公钥已在 /home/raspberry/.ssh/authorized_keys）；Pi 侧 `wake-windows` 远端命令发魔术包到 **b0:82:e2:4b:1a:81**（Windows I226-V，S5 魔包唤醒已开）。**RW0 relay 批运行中**（worktrees/rw0，分支 agent/rw0-relay-wake；已按更正简化：执行器 spawn `ssh pi wake-windows`（env WAKE_COMMAND 可覆盖），状态枚举 sent/already_on/exec_failed/timeout/rate_limited/disabled，env 精简为 WAKE_ENABLED/WAKE_COMMAND/WAKE_COOLDOWN_S；帧对 wake_host/wake_result+限速+审计+docs/18 追加）；RW1（App 面）门控 M3-E1 合并。**✅ RW0 已部署并端到端验证（09-10 00:0x，用户「执行」授权链走完）**：合并 main=2fe483e（relay 108/108+root tsc/fast 91）→ ECS 文件同步（备份 relay-backup-preRW0-*.tgz）→ env 3 行 → **服务用户 SSH 物料**（/etc/devhub-relay/{ssh_config,wake_key,wake_known_hosts} 0600 devhub-relay；**踩坑：服务缺 HOME+ProtectHome=yes→ssh 不读 ~/.ssh，必须 -F 绝对路径**；wake_key 公钥经 root 通路装入 Pi）→ WAKE_COMMAND=`ssh -F /etc/devhub-relay/ssh_config pi wake-windows` → **帧验证全过：真实 relay 配对（ecsDeviceId 11）→ already_on 快路径 / 冷却 rate_limited(14995ms) / 桌面离线真实执行 sent(511ms,exit0) / 审计行零敏感物**。测试设备双端已撤销（relay #11+桌面 #66）。**待用户**：真关机 S5 唤醒实测（RW1 App 按钮后从手机触发，或再跑 wake-verify）。
 
 ## 5. 裁决与待办（#9/Release 已裁，余下排队不代答）

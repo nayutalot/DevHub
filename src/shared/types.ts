@@ -70,6 +70,8 @@ export type ErrorCode =
   | 'RELAY_QUEUE_FULL'
   | 'RELAY_DEVICE_UNKNOWN'
   | 'RELAY_HOST_UNKNOWN'
+  // --- ECS Relay（M3-E1 设备自管理，docs/18 §8.2 append-only：WS 专属码，REST 面为「—」） ---
+  | 'SPAWN_REJECTED'
 
 // ---------------------------------------------------------------------------
 // 2. Exec kernel result (src/main/core/exec.ts, constraint #10)

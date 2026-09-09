@@ -11,6 +11,16 @@
  *      原样；approve/interrupt → 结构化拒绝 AGENT_CAPABILITY_MISSING（G6 默认
  *      恒不授予，docs/19 §6.1——能力验证函数骨架属后续批次）；未知值 → 拒绝
  *      BAD_PAYLOAD。
+ *      M3-E（docs/18 §5.3，用户裁决 2026-09-07 #9=B）追加两 action：
+ *      - spawn_session：帧校验（providerId 非空 + task 非空 ≤4000 → BAD_PAYLOAD）→
+ *        授权矩阵预分类（caps.mode ≠ managed → COMMAND_NOT_EXECUTABLE）→ L3 既有
+ *        spawn 托管通道（幂等/能力门/双上限全复用）；spawn 特有拒绝（无托管通道/
+ *        并发上限/启动失败）→ SPAWN_REJECTED（§8.2 新码，WS 专属）。
+ *      - revoke_device：目标 = auth Token 对应 deviceId（自指；payload 不解释），
+ *        两段式 beginDeviceSelfRevoke（受理行）→ ack → executeDeviceSelfRevoke
+ *        （L3 revoke → §3.15 撤销链自动接管）；无能力门且豁免 gateway 前提
+ *        （安全自助操作）；终态收口 = disconnect(revoked) 而非 command_result。
+ *      两值即 §5.1 五值之外唯一追加面（N-R3：action 全集终点）。
  *   3) 执行：submitRemoteCommand（能力门二次校验 resolveCommandGate + 幂等 +
  *      TTL 300s + 审计全部在 L3，绝不复刻）；本地 Gateway 未启用 → GATEWAY_DISABLED
  *      （docs/19 §4.8 relay 模式前提）。
@@ -39,7 +49,18 @@
  * 只读豁免；gateway/auth 读豁免——约束 #20）。
  */
 
-import { isGatewayEnabled, submitRemoteCommand, getRemoteCommandResultView, setRemoteCommandCompleteListener, type RemoteCommandTerminalEvent } from '../agentControlService.ts'
+import {
+  isGatewayEnabled,
+  submitRemoteCommand,
+  getRemoteCommandResultView,
+  setRemoteCommandCompleteListener,
+  startProviderManagedSession,
+  MANAGED_SESSION_TASK_MAX_CHARS,
+  beginDeviceSelfRevoke,
+  executeDeviceSelfRevoke,
+  readProviderCapabilityMode,
+  type RemoteCommandTerminalEvent,
+} from '../agentControlService.ts'
 import { authenticateBearerToken, checkReplayHeaders } from '../gateway/auth.ts'
 import type { HostToEcsFrame } from './wsClient.ts'
 
@@ -77,6 +98,16 @@ export function internalActionToRelay(action: string): string {
 
 /** approve/interrupt：协议帧面接收，执行面恒结构化拒绝（docs/19 §6.1 默认态）。 */
 const NEVER_GRANTED_ACTIONS: readonly string[] = ['approve', 'interrupt']
+
+/**
+ * M3-E 设备自管理两 action（docs/18 §5.3，用户裁决 2026-09-07 #9=B）：
+ * - spawn_session：managed 会话启动，接 L3 既有 spawn 托管通道（startProviderManagedSession
+ *   幂等行/能力门/双上限全复用，绝不旁路）；
+ * - revoke_device：设备自撤销，目标 = auth Token 对应 deviceId（帧无目标字段天然自指，
+ *   payload 一概不解释——禁止任何「代撤销他设备」语义承载面）。
+ * 两值即 §5.1 五值之外的唯一 M3-E 追加面（N-R3：action 全集终点）。
+ */
+const SELF_MANAGED_ACTIONS: readonly string[] = ['spawn_session', 'revoke_device']
 
 /** reply 文本上限（docs/14 §A.1 #6 同源 ≤4000；commandDownlink 复刻同一校验值）。 */
 export const RELAY_REPLY_TEXT_MAX_CHARS = 4000
@@ -193,12 +224,19 @@ export function handleCommandFrame(frame: unknown, host: CommandDownlinkHost): v
     host.sendError(badPayloadError(requestId, 'command.idempotencyKey must be a non-empty string (docs/18 §3.8)'))
     return
   }
-  if (typeof sessionId !== 'number' || !Number.isSafeInteger(sessionId) || sessionId <= 0) {
-    rejectWithDeviceReturn(host, requestId, idempotencyKey, 'BAD_PAYLOAD', 'command.sessionId must be a positive integer (docs/18 §3.8)')
-    return
-  }
   if (typeof action !== 'string' || action.length === 0) {
     rejectWithDeviceReturn(host, requestId, idempotencyKey, 'BAD_PAYLOAD', 'command.action must be a non-empty string (docs/18 §3.8)')
+    return
+  }
+  // M3-E（docs/18 §5.3）：spawn_session（尚无会话）/ revoke_device（自指无目标）两 action
+  // 的 sessionId 缺省为合法帧形——仅当携带时要求正整数；§5.1 五值维持必带（原语义零变化）。
+  if ((SELF_MANAGED_ACTIONS as readonly string[]).includes(action)) {
+    if (sessionId !== undefined && sessionId !== null && (typeof sessionId !== 'number' || !Number.isSafeInteger(sessionId) || sessionId <= 0)) {
+      rejectWithDeviceReturn(host, requestId, idempotencyKey, 'BAD_PAYLOAD', 'command.sessionId must be a positive integer when present (docs/18 §5.3)')
+      return
+    }
+  } else if (typeof sessionId !== 'number' || !Number.isSafeInteger(sessionId) || sessionId <= 0) {
+    rejectWithDeviceReturn(host, requestId, idempotencyKey, 'BAD_PAYLOAD', 'command.sessionId must be a positive integer (docs/18 §3.8)')
     return
   }
   if (!isObject(auth)) {
@@ -247,8 +285,39 @@ export function handleCommandFrame(frame: unknown, host: CommandDownlinkHost): v
   }
 
   // 3) 本地 Gateway 前提（docs/19 §4.4/§4.8：relay 模式要求 gateway_enabled=1）
-  if (!isGatewayEnabled()) {
+  //    M3-E 例外：revoke_device 置于此前提之外（§5.3 门控列「无能力门」——设备自撤销是
+  //    安全自助操作，绝不因 gateway 禁用态被阻断而失去自我保护路径）。
+  if (action !== 'revoke_device' && !isGatewayEnabled()) {
     reject('GATEWAY_DISABLED')
+    return
+  }
+
+  // 3.5) M3-E revoke_device（docs/18 §5.3）：目标 = auth Token 对应 deviceId（帧无目标
+  //      字段天然自指）；payload 一概不解释。两段式受理/执行——ack 先于执行段出帧，
+  //      wire 序保证设备先收 command_ack(accepted) 再收 disconnect(revoked)（§5.3：
+  //      终态收口 = disconnect(revoked)，commandId 终态照常落库，回帧不保证送达）。
+  if (action === 'revoke_device') {
+    let begun: ReturnType<typeof beginDeviceSelfRevoke>
+    try {
+      begun = beginDeviceSelfRevoke({ deviceId: authedDeviceId, idempotencyKey })
+    } catch (err) {
+      // 幂等键被他用（跨 action 冲突等）→ 结构化拒绝，绝不出帧执行撤销
+      const code = err instanceof Error && 'code' in err ? String((err as { code: unknown }).code) : 'INTERNAL'
+      reject(code)
+      return
+    }
+    // 终态路由登记（执行段 notify → command_result 回帧尝试；设备被踢后投递失败属预期）
+    if (!begun.replayed) pendingKeys.set(idempotencyKey, { relayAction: action })
+    host.sendAck({
+      type: 'command_ack',
+      ...(typeof requestId === 'string' && requestId.length > 0 ? { requestId } : {}),
+      idempotencyKey,
+      commandId: begun.commandId,
+      status: 'accepted',
+    })
+    if (!begun.replayed) {
+      void executeDeviceSelfRevoke({ commandId: begun.commandId, deviceId: authedDeviceId, idempotencyKey })
+    }
     return
   }
 
@@ -258,6 +327,71 @@ export function handleCommandFrame(frame: unknown, host: CommandDownlinkHost): v
     reject('AGENT_CAPABILITY_MISSING')
     return
   }
+
+  // 4.5) M3-E spawn_session（docs/18 §5.3）：managed 会话启动——帧校验 → 授权矩阵
+  //      预分类 → L3 既有 spawn 托管通道（幂等行/能力门/双上限全复用，绝不旁路）。
+  if (action === 'spawn_session') {
+    // 帧校验（任务书 §2.2.1：payload.providerId 非空 + task 非空 ≤4000，违反 → BAD_PAYLOAD；
+    // 与本地 REST BAD_PAYLOAD 边界同源，MANAGED_SESSION_TASK_MAX_CHARS = 4000）
+    const payloadObj = isObject(payload) ? payload : null
+    const providerId = payloadObj === null ? undefined : payloadObj.providerId
+    const task = payloadObj === null ? undefined : payloadObj.task
+    if (
+      typeof providerId !== 'string' || providerId.trim().length === 0 ||
+      typeof task !== 'string' || task.trim().length === 0 || task.length > MANAGED_SESSION_TASK_MAX_CHARS
+    ) {
+      reject('BAD_PAYLOAD')
+      return
+    }
+    // 拒绝码分类（§2.2.2）：授权矩阵不允许（caps.mode ≠ managed）→ COMMAND_NOT_EXECUTABLE。
+    // readProviderCapabilityMode 为只读投影（provider 未知 → null 放行，L3 折 NOT_FOUND）；
+    // L3 在执行路径重新权威校验，此处仅决定错误码命名域（绝不旁路任何既有校验）。
+    const capsMode = readProviderCapabilityMode(providerId)
+    if (capsMode !== null && capsMode !== 'managed') {
+      reject('COMMAND_NOT_EXECUTABLE')
+      return
+    }
+    // startProviderManagedSession 同步执行至终态：resolve = 受理结果（executed 含
+    // sessionId/nativeId 还原）；throw = 业务拒绝（幂等行已在 L3 内处理）。
+    void startProviderManagedSession({ deviceId: authedDeviceId, provider: providerId, task, idempotencyKey })
+      .then((result) => {
+        // 受理回执先行（§5.2 时序 command → command_ack → command_result；spawn 的
+        // L3 通道同步执行至终态——与本地 REST「202 executed 同步响应」同语义，延迟由
+        // 幂等键兜底），终态帧随后：§2.2.4 —— command_result(action='spawn_session',
+        // status='executed', sessionId=新会话 id)；nativeId 不入帧（经 command.result
+        // 事件 payload 回流）。幂等重试命中已终态命令 → 原结果重放（docs/14 §B.5）。
+        host.sendAck({
+          type: 'command_ack',
+          ...(typeof requestId === 'string' && requestId.length > 0 ? { requestId } : {}),
+          idempotencyKey,
+          commandId: result.commandId,
+          status: result.status === 'rejected' ? 'rejected' : 'accepted',
+        })
+        const terminal = result.status !== 'accepted'
+        if (terminal) {
+          host.sendResult({
+            type: 'command_result',
+            commandId: result.commandId,
+            idempotencyKey,
+            ...(result.sessionId !== undefined ? { sessionId: result.sessionId } : {}),
+            action: 'spawn_session',
+            status: result.status === 'rejected' ? 'rejected' : 'executed',
+            errorCode: null,
+            timestamp: Math.floor(Date.now() / 1000),
+          })
+        }
+      })
+      .catch((err: unknown) => {
+        const code = err instanceof Error && 'code' in err ? String((err as { code: unknown }).code) : 'INTERNAL'
+        // 拒绝映射（§2.2.2）：mode 分类已前置拦截非 managed → 此处剩余 COMMAND_NOT_EXECUTABLE
+        // 均为 spawn 特有拒绝（provider 无托管通道/并发上限/启动失败）→ SPAWN_REJECTED
+        // （docs/18 §8.2 新码，WS 专属）；其余码（NOT_FOUND/BAD_PAYLOAD/COMMAND_KEY_CONFLICT/
+        // COMMAND_EXPIRED/AGENT_CAPABILITY_MISSING/AGENT_PROVIDER_UNAVAILABLE）同码透传。
+        reject(code === 'COMMAND_NOT_EXECUTABLE' ? 'SPAWN_REJECTED' : code)
+      })
+    return
+  }
+
   const internalAction = relayActionToInternal(action)
   if (internalAction === null) {
     reject('BAD_PAYLOAD')
@@ -286,9 +420,11 @@ export function handleCommandFrame(frame: unknown, host: CommandDownlinkHost): v
   pendingKeys.set(idempotencyKey, { relayAction: action })
 
   // 6) 执行（L3 submitRemoteCommand：能力门二次校验 + 幂等 + TTL + 审计）
+  //    （sessionRef：§5.1 路径的 sessionId 已在步骤 1 校验为正整数——此处显式收窄）
+  const sessionRef = sessionId as number
   void submitRemoteCommand({
     deviceId: authedDeviceId,
-    sessionId,
+    sessionId: sessionRef,
     action: internalAction,
     ...(text !== undefined ? { text } : {}),
     idempotencyKey,
