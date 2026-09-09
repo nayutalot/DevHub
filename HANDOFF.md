@@ -12,7 +12,7 @@
 
 ## 1. 当前状态一句话
 
-**M3-D 72h 稳定期运行中（T0=2026-09-07 08:49:27 本地，终点 09-10 08:49）**：巡检进程 node PID 31300（分离，15min 周期）落 `%LOCALAPPDATA%\DevHub\m3d-watch\watch-m3d-72h.ndjson`，首周期四检查全 ok（gateway/relay connected/publicRelay/cert 88.8 天 pin match）；常驻=main 桌面全量包 PID 39856 connected=true；R-B 表 6 PASS+R-B6 app-off 复验全过（C8a）——**残项仅用户裁决项**（R-B5 managed 回流/R-B8 UI 发起面=#9；R-B7 触发面=裁定标注）。
+**ContestPin CP0-CP3a 已全部合 main（551ccb2）并完成打包换装+实启动验证；M3-D 观察已提前终止判定通过（用户 09-09 21:00，240/240 周期零故障）；三线并行开启：M3-E1/LR1 已派发（worktrees/m3e1 + lr1，分支同）、ContestPin CP3b（材料导入两阶段识别）待任务书**。常驻=main 全量包（09-09 22:28 构建，PID 57016，88 通道+悬浮窗在役）；真库 schema v8（008 已迁，备份 devhub.db.bak-pre008-20260909）；门禁基线 tsc 0/smoke **181**（fast 91）/mcp 27/:core 189/:app 47/ecs-relay 97（android/ecs-relay 对 CP 批零改动免跑）。
 
 ## 2. C2c→C2e 修复弧线台账（本会话续）
 
@@ -39,7 +39,7 @@
 
 ## 4. ⚠️ 未决项（按序处理）
 
-0. **「赛程钉 ContestPin」比赛模块已立项·开工中**（用户 2026-09-09 指令，当晚新会话已开工）：权威任务书=`docs/briefs/contestpin-charter.md`（逐字原文，32a484c）——八节全规格（管理/多节点/悬浮窗/提醒/两阶段识别/多模态/Agent/备份打包）。**进度（09-09 晚）**：三面只读审计完成 → CP0 文档批已合 main（9067e8e：docs/22 设计书+docs/03 008 预告【007 留 LR1】+docs/04 CP1 通道 70→79 预告+m1 任务书）→ **CP1 数据层批已完成并过主控 review**（agent/contestpin 分支 6 commits 22d023d..5c7395d 已推：008 迁移 7 表+9 通道 79+contestService+fast 用例；主控独立复跑 tsc 0 error+fast 85/85；**合 main 等窗毕全量门禁**）→ **CP2 悬浮窗批已完成并过主控 review**（分支累计至 9ab2752：overlayWire/renderer 比赛视图+OverlayApp/tray checkbox/单实例三处收紧/通道 79→84/fast 88→88 全过；review 发现折叠态重启高度错位已回修 9ab2752）→ **CP3a 识别客户端+配置批派发中**（m3a 任务书 2bc33f7：openaiClient 传输注入/识别配置 KeyCrypto envelope/通道 84→88，零联网 fake transport 测试）。**⚠️ CP1 事故（已闭环，见 §4 条目 2）**：uxa-147 误标 fast 档打真实网关 3 次配对→幻影设备行已撤销+审计落库+ECS 核对干净；档位已归位 fast→full。**窗毕队列（执行中）**：①M3-D 终报落档 ✅（§4.1）；②幻影设备撤销 ✅（§4.2）；③全量门禁（tsc/smoke 全量/mcp/:core/:app/ecs-relay）→ 合 agent/contestpin → main（**等 CP3a 批完成后执行，避免树抖动**）；④CP2 悬浮窗 electron 实启动逐项验证（14 项清单在 CP2 报告）；⑤常驻换装（桌面代码改动批后必须）+ 重启；⑥backlog：uxa-147/148 的 8746 硬编码与端口顺延脱钩（归原批次修）。**三线并行解锁**：M3-E1（m3e1-self-mgmt.md 任务书已备）与 LR1（lr1-llm-review.md）门控条件=M3-D 终报通过——**已满足**，ContestPin 合并后即派（避免 channels/migrate 冲突叠加）。
+0. **「赛程钉 ContestPin」比赛模块已立项·开工中**（用户 2026-09-09 指令，当晚新会话已开工）：权威任务书=`docs/briefs/contestpin-charter.md`（逐字原文，32a484c）——八节全规格（管理/多节点/悬浮窗/提醒/两阶段识别/多模态/Agent/备份打包）。**进度（09-09 晚）**：三面只读审计完成 → CP0 文档批已合 main（9067e8e：docs/22 设计书+docs/03 008 预告【007 留 LR1】+docs/04 CP1 通道 70→79 预告+m1 任务书）→ **CP1 数据层批已完成并过主控 review**（agent/contestpin 分支 6 commits 22d023d..5c7395d 已推：008 迁移 7 表+9 通道 79+contestService+fast 用例；主控独立复跑 tsc 0 error+fast 85/85；**合 main 等窗毕全量门禁**）→ **CP2 悬浮窗批已完成并过主控 review**（分支累计至 9ab2752：overlayWire/renderer 比赛视图+OverlayApp/tray checkbox/单实例三处收紧/通道 79→84/fast 88→88 全过；review 发现折叠态重启高度错位已回修 9ab2752）→ **CP3a 识别客户端+配置批派发中**（m3a 任务书 2bc33f7：openaiClient 传输注入/识别配置 KeyCrypto envelope/通道 84→88，零联网 fake transport 测试）。**⚠️ CP1 事故（已闭环，见 §4 条目 2）**：uxa-147 误标 fast 档打真实网关 3 次配对→幻影设备行已撤销+审计落库+ECS 核对干净；档位已归位 fast→full。**✅ 窗毕队列全执行完毕（09-09 深夜）**：M3-D 终报落档（§4.1）→ 幻影设备撤销（§4.2）→ 全量门禁（双杀后 tsc 0/smoke **181/181**/mcp 27/27；android+ecs-relay 对分支零改动免跑有据）→ **CP1+CP2+CP3a 合 main（20b160d）** → 真库 008 迁移（6→8，先备份）→ 打包（21:50）→ 常驻换装（21:51 起）→ 实启动验证：悬浮窗渲染/折叠往返/位置记忆/单实例/openInMain/openLink（Chrome 实开）全过；**发现热修级缺陷**：主窗口同文档 hash 导航不重载（openInMain 落 Dashboard、托盘 #agents 同病）→ hotfix1（4622c0b，App.tsx hashchange 监听）合 main=551ccb2，重打包（22:28）换装复验**直达比赛详情通过**（详情视图节点精度语义 date/exact/tbd 全对）。**遗留用户日常验证项**：拖动/缩放/托盘菜单点击/多显示器拔插/DPI/干净退出（代码路径均已 review）。**ContestPin 下一步=CP3b**：材料导入+两阶段识别管线（m3a 已铺 client/config，任务书待落；依赖裁决 pdfjs-dist+@napi-rs/canvas 实测）。**backlog**：uxa-147/148 的 8746 硬编码与端口顺延脱钩（归原批次修）。
 
 1. ~~**M3-D 72h 观察**~~ ✅ **已终止并落档（2026-09-09 21:00 用户令「观察结束」，提前 ~12h 终止）**：**终报数据：240/240 周期 100% ok、零 malformed、零错误、零网关下线时段、证书余量 86.3 天**；首周期 09-07 08:49:27（T0）、末周期 09-09 20:34 本地（覆盖 ~59.75h/计划 72h；巡检进程与 12h 自动化均已不在=CronList 空、无残留需清）。**判定：稳定性观察通过（全程零故障）→ 解锁 M3-E1/LR1/ContestPin 合并门禁/常驻换装/Release 条件链**（Release 本身仍待用户一句话）。ndjson 留档 `watch-m3d-72h.ndjson`。
 2. ~~CP1 幻影设备清理~~ ✅ **已闭环（09-09 21:0x）**：桌面库 uxa-147-phone 三行（#54/55/56=CP1 事故产物）经生产函数 `revokeDevice(id, true)` 撤销（=应用内 agents:deviceRevoke 同路径），审计行 747/748/749（device_revoked/success）落库；**active 账面恢复为恰好在役三台**（#46/#52 模拟器+#53 V2507A 真机，未触碰）；**ECS 侧 relay_devices 核对零 uxa-147 行**（active=2/revoked=8，未受扰动）——双端干净。
@@ -47,7 +47,9 @@
 3. ~~dist 根 NSIS 统一~~ ✅ 已毕（W1：根五件=09-07 19:02 构建，常驻零扰动实证；dist-final worktree 留存=产物在 git 外）
 4. ~~worktree 尾巴~~ ✅ 已毕（dist-v3 移除+gate-fix 目录句柄释放删除成功）
 5. ~~docs/18 增补注入册~~ ✅ 已毕（W2 合入 90206f6：§3.0#16/§3.11/§3.14 三注，纯插入零规范性改动）
-6. dist-final worktree 处置（产物已部署根件，worktree 可清——留待 M3-D 窗毕顺手）；GitHub Release 发布与否待用户一句话
+6. ~~dist-final worktree 处置~~（窗毕顺手清，见 §4.3）；GitHub Release 发布与否待用户一句话（条件链：M3-D 终报通过 ✅ → M3-E1 B 方案复验 → 安装包已更新 ✅（09-09 22:28 根五件）→ 统一发布）
+
+3. **三线并行进行中（09-09 深夜派发）**：**M3-E1**（worktrees/m3e1，分支 agent/m3e1，任务书 m3e1-self-mgmt.md；锚点已更新：88 通道/008 已落/ECS 部署须回主控）+ **LR1**（worktrees/lr1，分支 agent/lr1，任务书 lr1-llm-review.md；007 归它、计数 88→92、fresh 库 applied 断言需随 007 插入调整）+ ContestPin CP3b 待任务书（材料导入两阶段管线；m3a 报告有 CP3b 衔接注记）。**合并纪律**：各分支过主控 review+全量门禁后逐个合 main（channels/migrate 冲突面已在派发书里错开）。
 
 ## 5. 裁决与待办（#9/Release 已裁，余下排队不代答）
 
