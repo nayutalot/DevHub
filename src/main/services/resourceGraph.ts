@@ -27,6 +27,7 @@ export type ResourceType =
   | 'agent'
   | 'session'
   | 'device'
+  | 'contest' // CP1 批次（ContestPin，docs/22 §2.3）：比赛资源节点，关联 Project 复用 'uses' 边（source=contest, target=project）
 export type RelationType = 'uses' | 'contains' | 'depends_on' | 'located_in' | 'monitors' | 'exposes' | 'controls'
 
 interface ResourceIdRow {

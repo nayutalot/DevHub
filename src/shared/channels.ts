@@ -32,6 +32,19 @@ export const IPC_GATEWAY = 'devhub:invoke' as const
  * 夜间#1 批次 note（主控任务书授权的同一模式就地更新）：versions:cancel（docs/09
  * §7.2 cancelled 分支主动取消）+ agents:probeProvider（UX 验收 backlog，
  * known-limitations §3.2 per-provider 单独重探）并入，68 → 70。
+ * CP1 批次 note（ContestPin，docs/04「ContestPin 追加」节 + docs/22 §3 授权的同一
+ * 模式就地更新）：contestpin 9 条并入，70 → 79（list/get/create/update/delete/
+ * archive/nodeUpsert/nodeDelete/linkProject；delete/nodeDelete 为 CONFIRM_REQUIRED
+ * 两段式，先回 impacts）。
+ * CP2 批次 note（ContestPin 悬浮窗，docs/22 §4 + docs/04「ContestPin 追加」节授权的
+ * 同一模式就地更新）：contestpin 5 条并入，79 → 84（overlayState READ_ONLY /
+ * overlaySetEnabled / overlaySetCollapsed / openInMain / openLink——openLink 仅
+ * http/https 经 service validateExternalUrl 校验后默认浏览器；窗口胶水在
+ * overlayWire.ts，handlers 经 overlayStateService 注入 applier，零 electron import）。
+ * CP3a 批次 note（ContestPin 识别配置，docs/22 §6 + docs/04「ContestPin 追加」节
+ * 授权的同一模式就地更新）：contestpin 4 条并入，84 → 88（configList READ_ONLY
+ * 掩码 / configSave / configDelete CONFIRM_REQUIRED 两段式 / configTest——
+ * service 经 openaiClient 传输注入面，smoke fake transport 零联网）。
  */
 export const IPC_CHANNELS = [
   // scan
@@ -129,6 +142,34 @@ export const IPC_CHANNELS = [
   // 夜间#1 批次：per-provider 单独重探（UX 验收 backlog，known-limitations §3.2；
   // 轮询模式不变，docs/14 §A.3 授权的同一追加模式）
   'agents:probeProvider',
+  // contestpin（CP1 批次，docs/04「ContestPin 追加」节逐字命名；delete/nodeDelete
+  // 为 CONFIRM_REQUIRED 两段式——缺省回 { confirmRequired: true, impacts }，
+  // docker:action / archive:run 先例；全部轮询 channel，无广播）
+  'contestpin:list',
+  'contestpin:get',
+  'contestpin:create',
+  'contestpin:update',
+  'contestpin:delete',
+  'contestpin:archive',
+  'contestpin:nodeUpsert',
+  'contestpin:nodeDelete',
+  'contestpin:linkProject',
+  // contestpin（CP2 批次，docs/22 §4 悬浮窗：overlayState READ_ONLY；开关/折叠
+  // 经 settings 持久化 + overlayWire 窗口即时生效；openInMain 聚焦主窗口导航
+  // contest:<id>；openLink 仅 http/https，service 校验后默认浏览器）
+  'contestpin:overlayState',
+  'contestpin:overlaySetEnabled',
+  'contestpin:overlaySetCollapsed',
+  'contestpin:openInMain',
+  'contestpin:openLink',
+  // contestpin（CP3a 批次，docs/22 §6 识别配置：configList READ_ONLY 掩码视图；
+  // configSave 密码框留空=不改 key；configDelete 为 CONFIRM_REQUIRED 两段式——
+  // 缺省回 { confirmRequired: true, impacts: { importJobs } }；configTest 解密→
+  // probeConfig→落 last_test_*，传输面经 openaiClient 注入，测试零联网）
+  'contestpin:configList',
+  'contestpin:configSave',
+  'contestpin:configDelete',
+  'contestpin:configTest',
 ] as const
 
 /** Compile-time whitelist: a handler map must be keyed by IpcChannel. */

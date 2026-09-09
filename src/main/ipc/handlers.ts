@@ -101,6 +101,33 @@ import {
 } from '../services/dockerService.ts'
 import { knownDistroNames, wslAction, wslDistroStatsSummary, wslShutdownAll } from '../services/wslService.ts'
 import {
+  archiveContest,
+  contestExists,
+  createContest,
+  deleteContest,
+  deleteNode,
+  getContest,
+  linkProject,
+  listContests,
+  updateContest,
+  upsertNode,
+} from '../services/contestpin/contestService.ts'
+import {
+  getOverlayState,
+  openContestInMain,
+  openExternalLink,
+  setOverlayCollapsed,
+  setOverlayEnabled,
+} from '../services/contestpin/overlayStateService.ts'
+import {
+  deleteConfig,
+  isRecognitionConfigRole,
+  listConfigs,
+  saveConfig,
+  testConfig,
+} from '../services/contestpin/recognitionConfigService.ts'
+import type { ContestNodeInput, ContestPatch, ContestStatus } from '../../shared/types.ts'
+import {
   ARCHIVE_HISTORY_LIMIT,
   archiveHistory,
   archiveStatus,
@@ -255,6 +282,27 @@ function optionalListLimit(channel: IpcChannel, payload: Record<string, unknown>
   return value
 }
 
+/** 分页 offset：非负整数（contestpin:list）。 */
+function optionalNonNegativeInt(channel: IpcChannel, payload: Record<string, unknown>, key: string): number | undefined {
+  const value = payload[key]
+  if (value === undefined) return undefined
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw badPayload(channel, `${key} must be a non-negative integer when present`)
+  }
+  return value
+}
+
+/** contest 年份：整数或 null（null = 清空/缺少年份不编造，docs/22 §2.2）；undefined = 未提及。 */
+function optionalYear(channel: IpcChannel, payload: Record<string, unknown>): number | null | undefined {
+  const value = payload.year
+  if (value === undefined) return undefined
+  if (value === null) return null
+  if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
+    throw badPayload(channel, 'year must be an integer or null when present')
+  }
+  return value
+}
+
 /** agents:sessions 的 status 白名单（9 值全集，docs/12 §4）。 */
 function optionalSessionStatus(channel: IpcChannel, payload: Record<string, unknown>): SessionStatus | undefined {
   const value = optionalString(channel, payload, 'status')
@@ -288,7 +336,8 @@ export const contractCoversWhitelist: AssertContractCoversWhitelist = true
  * 全覆盖：缺一条 / 多一条都是类型错误，权威清单见 shared/channels.ts ——
  * Phase 1 21 条 + S2 skills 14 条 = 35 + S3 apihub 6 条 + versions 4 条 = 45
  * + S4 docker 3 条 + wsl 2 条 = 50 + S5 archive 5 条 = 55 + AC2 agents 13 条 = 68
- * + 夜间#1 versions:cancel / agents:probeProvider = 70）。
+ * + 夜间#1 versions:cancel / agents:probeProvider = 70 + CP1 contestpin 9 条 = 79
+ * + CP2 contestpin 悬浮窗 5 条 = 84 + CP3a contestpin 识别配置 4 条 = 88）。
  */
 export type HandlerRegistry = Record<IpcChannel, ChannelHandler>
 
@@ -830,6 +879,162 @@ export function createHandlerRegistry(deps: HandlerDeps): HandlerRegistry {
     'agents:probeProvider': async (payload) => {
       const p = asPayloadObject('agents:probeProvider', payload)
       return probeProviderById(requireId('agents:probeProvider', p, 'providerId'))
+    },
+
+    // --- contestpin（CP1 批次，docs/04「ContestPin 追加」节逐字契约；delete/
+    // nodeDelete 为 CONFIRM_REQUIRED 两段式，docker:action / archive:run 先例；
+    // 枚举/年份/URL 业务校验在 contestService，形状校验在此） ---
+    'contestpin:list': async (payload) => {
+      const p = asPayloadObject('contestpin:list', payload)
+      const status = optionalString('contestpin:list', p, 'status')
+      return listContests({
+        query: optionalString('contestpin:list', p, 'query'),
+        ...(status !== undefined ? { status: status as ContestStatus } : {}),
+        archived: optionalBoolean('contestpin:list', p, 'archived'),
+        limit: optionalPositiveInt('contestpin:list', p, 'limit'),
+        offset: optionalNonNegativeInt('contestpin:list', p, 'offset'),
+      })
+    },
+    'contestpin:get': async (payload) => {
+      const p = asPayloadObject('contestpin:get', payload)
+      return getContest(requireId('contestpin:get', p))
+    },
+    'contestpin:create': async (payload) => {
+      const p = asPayloadObject('contestpin:create', payload)
+      const status = optionalString('contestpin:create', p, 'status')
+      return createContest({
+        name: requireNonEmptyString('contestpin:create', p, 'name'),
+        year: optionalYear('contestpin:create', p),
+        edition: optionalString('contestpin:create', p, 'edition'),
+        organizer: optionalString('contestpin:create', p, 'organizer'),
+        note: optionalString('contestpin:create', p, 'note'),
+        ...(status !== undefined ? { status: status as ContestStatus } : {}),
+        officialSite: optionalString('contestpin:create', p, 'officialSite'),
+        signupUrl: optionalString('contestpin:create', p, 'signupUrl'),
+        submitUrl: optionalString('contestpin:create', p, 'submitUrl'),
+      })
+    },
+    'contestpin:update': async (payload) => {
+      const p = asPayloadObject('contestpin:update', payload)
+      const patch = p.patch
+      if (typeof patch !== 'object' || patch === null || Array.isArray(patch)) {
+        throw badPayload('contestpin:update', 'patch must be an object')
+      }
+      return updateContest({ id: requireId('contestpin:update', p), patch: patch as ContestPatch })
+    },
+    'contestpin:delete': async (payload) => {
+      const p = asPayloadObject('contestpin:delete', payload)
+      return deleteContest({ id: requireId('contestpin:delete', p), confirmed: optionalBoolean('contestpin:delete', p, 'confirmed') })
+    },
+    'contestpin:archive': async (payload) => {
+      const p = asPayloadObject('contestpin:archive', payload)
+      const archived = p.archived
+      if (typeof archived !== 'boolean') {
+        throw badPayload('contestpin:archive', 'archived must be a boolean')
+      }
+      return archiveContest({ id: requireId('contestpin:archive', p), archived })
+    },
+    'contestpin:nodeUpsert': async (payload) => {
+      const p = asPayloadObject('contestpin:nodeUpsert', payload)
+      const node = p.node
+      if (node === undefined || node === null || typeof node !== 'object' || Array.isArray(node)) {
+        throw badPayload('contestpin:nodeUpsert', 'node must be an object')
+      }
+      const n = node as Record<string, unknown>
+      // 节点数值/布尔字段形状校验（枚举与精度语义在 service 层）
+      for (const key of ['startAt', 'endAt'] as const) {
+        if (n[key] !== undefined && n[key] !== null && (typeof n[key] !== 'number' || !Number.isSafeInteger(n[key]))) {
+          throw badPayload('contestpin:nodeUpsert', `node.${key} must be a unix-seconds integer or null when present`)
+        }
+      }
+      return upsertNode({ contestId: requireId('contestpin:nodeUpsert', p, 'contestId'), node: node as ContestNodeInput })
+    },
+    'contestpin:nodeDelete': async (payload) => {
+      const p = asPayloadObject('contestpin:nodeDelete', payload)
+      return deleteNode({ id: requireId('contestpin:nodeDelete', p), confirmed: optionalBoolean('contestpin:nodeDelete', p, 'confirmed') })
+    },
+    'contestpin:linkProject': async (payload) => {
+      const p = asPayloadObject('contestpin:linkProject', payload)
+      const projectId = p.projectId
+      if (projectId !== null && (typeof projectId !== 'number' || !Number.isSafeInteger(projectId) || projectId < 1)) {
+        throw badPayload('contestpin:linkProject', 'projectId must be a positive integer or null')
+      }
+      return linkProject({ contestId: requireId('contestpin:linkProject', p, 'contestId'), projectId: projectId as number | null })
+    },
+
+    // --- contestpin 悬浮窗（CP2 批次，docs/22 §4；窗口/浏览器胶水在 overlayWire.ts，
+    // handlers 只经 electron-free 的 overlayStateService —— applier 未注入的纯 Node
+    // 语境为结构化 no-op（opened:false），openLink 的 URL 校验恒在 service 侧执行） ---
+    'contestpin:overlayState': async (payload) => {
+      asPayloadObject('contestpin:overlayState', payload)
+      return getOverlayState()
+    },
+    'contestpin:overlaySetEnabled': async (payload) => {
+      const p = asPayloadObject('contestpin:overlaySetEnabled', payload)
+      const enabled = p.enabled
+      if (typeof enabled !== 'boolean') {
+        throw badPayload('contestpin:overlaySetEnabled', 'enabled must be a boolean')
+      }
+      return setOverlayEnabled(enabled)
+    },
+    'contestpin:overlaySetCollapsed': async (payload) => {
+      const p = asPayloadObject('contestpin:overlaySetCollapsed', payload)
+      const collapsed = p.collapsed
+      if (typeof collapsed !== 'boolean') {
+        throw badPayload('contestpin:overlaySetCollapsed', 'collapsed must be a boolean')
+      }
+      return setOverlayCollapsed(collapsed)
+    },
+    'contestpin:openInMain': async (payload) => {
+      const p = asPayloadObject('contestpin:openInMain', payload)
+      const contestId = requireId('contestpin:openInMain', p, 'contestId')
+      // 存在性校验在 handler 侧（service 的 openContestInMain 只管 applier 转发）
+      if (contestExists(contestId) === false) {
+        throw new ServiceError('NOT_FOUND', `contest ${contestId} not found`)
+      }
+      return openContestInMain(contestId)
+    },
+    'contestpin:openLink': async (payload) => {
+      const p = asPayloadObject('contestpin:openLink', payload)
+      // 仅 http/https（javascript:/file:/ftp:/空白拒绝）——校验在 overlayStateService
+      return openExternalLink(requireNonEmptyString('contestpin:openLink', p, 'url'))
+    },
+
+    // --- contestpin 识别配置（CP3a 批次，docs/22 §6 + docs/04「ContestPin 追加」节；
+    // configDelete 为 CONFIRM_REQUIRED 两段式（impacts=引用导入任务计数）；role 枚举/
+    // timeoutMs 正整数形状校验在此，baseUrl/UNIQUE/掩码业务语义在 recognitionConfigService；
+    // configTest 的真实出站只在生产 renderer 触发，测试面经 openaiClient 注入 fake transport） ---
+    'contestpin:configList': async (payload) => {
+      asPayloadObject('contestpin:configList', payload)
+      return listConfigs()
+    },
+    'contestpin:configSave': async (payload) => {
+      const p = asPayloadObject('contestpin:configSave', payload)
+      if (!isRecognitionConfigRole(p.role)) {
+        throw badPayload('contestpin:configSave', 'role must be one of: vision | text | multimodal')
+      }
+      const timeoutMs = p.timeoutMs
+      if (timeoutMs !== undefined && timeoutMs !== null && (typeof timeoutMs !== 'number' || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1)) {
+        throw badPayload('contestpin:configSave', 'timeoutMs must be a positive integer or null when present')
+      }
+      return saveConfig({
+        ...(p.id !== undefined ? { id: requireId('contestpin:configSave', p, 'id') } : {}),
+        name: requireNonEmptyString('contestpin:configSave', p, 'name'),
+        role: p.role,
+        baseUrl: requireNonEmptyString('contestpin:configSave', p, 'baseUrl'),
+        model: requireNonEmptyString('contestpin:configSave', p, 'model'),
+        // 密码框约定：apiKey 空串/undefined = 保持既有（service 语义）
+        apiKey: optionalString('contestpin:configSave', p, 'apiKey'),
+        ...(timeoutMs !== undefined ? { timeoutMs: timeoutMs as number | null } : {}),
+      })
+    },
+    'contestpin:configDelete': async (payload) => {
+      const p = asPayloadObject('contestpin:configDelete', payload)
+      return deleteConfig({ id: requireId('contestpin:configDelete', p), confirmed: optionalBoolean('contestpin:configDelete', p, 'confirmed') })
+    },
+    'contestpin:configTest': async (payload) => {
+      const p = asPayloadObject('contestpin:configTest', payload)
+      return testConfig(requireId('contestpin:configTest', p))
     },
   }
 }

@@ -4,7 +4,7 @@
  * services 层 electron-free 纪律不变（keyStoreWire.setKeyCrypto 同款注入先例）：
  * 本模块是唯一把 app.setLoginItemSettings 能力交给 agentControlService 的胶水，
  * 放 main 根目录（electron import 白名单 = index.ts / keyStoreWire.ts /
- * ipc/gateway.ts / 本模块 / trayWire.ts）。
+ * ipc/gateway.ts / 本模块 / trayWire.ts / overlayWire.ts——CP2 悬浮窗批次新增）。
  *
  * Windows path 语义（docs/12 §10）：使用 app.setLoginItemSettings 默认 path——
  * Electron 对打包产物自写自身路径；dev 模式 process.execPath 是 electron.exe

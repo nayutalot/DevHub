@@ -1883,6 +1883,451 @@ export interface AgentDiagnosticsResult {
 }
 
 // ---------------------------------------------------------------------------
+// 6g. ContestPin（CP1 批次，docs/22 §2/§3 + docs/04「ContestPin 追加」节逐字契约）。
+// 时间语义权威 = docs/22 §2.2：precision 'date'/'month'/'tbd' 不得提升为 'exact'
+// （除非 payload 显式携带原文 raw_text 依据）；'tbd' → start/end 恒 NULL；
+// 提醒策略与 precision 分开保存。delete/nodeDelete 为 CONFIRM_REQUIRED 两段式
+// （缺省回 { confirmRequired: true, impacts }，docker:action / archive:run 先例）。
+// ---------------------------------------------------------------------------
+
+export type ContestStatus = 'watching' | 'registered' | 'submitted' | 'completed' | 'given_up'
+
+export type ContestNodeKind =
+  | 'signup_start'
+  | 'signup_deadline'
+  | 'payment_deadline'
+  | 'contest_start'
+  | 'contest_end'
+  | 'submit_deadline'
+  | 'custom'
+
+export type ContestNodePrecision = 'exact' | 'date' | 'month' | 'tbd'
+
+export type ContestNodeSource = 'manual' | 'imported' | 'agent'
+
+export type ContestReminderOffsetKind = 'before_days' | 'before_hours' | 'at_time'
+
+export type ContestReminderChannel = 'windows' | 'in_app'
+
+/** contestpin:list 的行投影（名称/年份/状态/归档 + 节点计数，轻于 ContestView）。
+ * CP2 起携带三链接 URL（悬浮窗入口按钮直用，省逐条 get）与 dueNode/nextNode 投影。 */
+export interface ContestListItem {
+  id: number
+  name: string
+  /** 可空：缺少年份不编造（docs/22 §2.2）。 */
+  year: number | null
+  edition?: string
+  organizer?: string
+  status: ContestStatus
+  archived: boolean
+  officialSite?: string
+  signupUrl?: string
+  submitUrl?: string
+  nodeCount: number
+  /** 当前节点投影（CP2 due-node 计算，docs/22 §4 悬浮窗展示）；无候选节点时 null。 */
+  dueNode?: ContestDueNode | null
+  /** dueNode 之后的下一未完成节点；无 → null。 */
+  nextNode?: ContestDueNode | null
+  createdAt: number
+  updatedAt: number
+}
+
+/** contestpin:create/update/archive 的返回投影（比赛行全量 + nodeCount）。 */
+export interface ContestView {
+  id: number
+  name: string
+  year: number | null
+  edition?: string
+  organizer?: string
+  note?: string
+  status: ContestStatus
+  archived: boolean
+  officialSite?: string
+  signupUrl?: string
+  submitUrl?: string
+  nodeCount: number
+  dueNode?: ContestDueNode | null
+  nextNode?: ContestDueNode | null
+  createdAt: number
+  updatedAt: number
+}
+
+/**
+ * due-node 投影（CP2，docs/22 §4 + 任务书 §2.1 #6）：悬浮窗/详情的"当前节点"。
+ * 临近优先（未 done 且 start_at 最近未来）；全过期 → dueNode 带 overdue:true；
+ * done 后自然推进下一节点；tbd（无 start_at）排最后；precision 传递给展示层
+ * （'date' 展示"日期 · 未注明具体时刻"，'tbd' 展示"时间待定"，docs/22 §2.2）。
+ */
+export interface ContestDueNode {
+  nodeId: number
+  contestId: number
+  kind: ContestNodeKind
+  label: string
+  /** tbd 节点为 null（排最后，仅无时刻候选时才被选为 dueNode）。 */
+  startAt: number | null
+  precision: ContestNodePrecision
+  done: boolean
+  /** dueNode 来自"最近的过去未完成节点"（全部候选已过期）时 true。 */
+  overdue: boolean
+}
+
+/** 单个时间节点视图（precision/raw_text 为时间语义与原文依据，docs/22 §2.2）。 */
+export interface ContestNodeView {
+  id: number
+  contestId: number
+  kind: ContestNodeKind
+  label: string
+  startAt: number | null
+  endAt: number | null
+  /** IANA 名或 'local'（自由文本，不强校验）。 */
+  tz: string
+  precision: ContestNodePrecision
+  /** 原文依据（低精度→exact 提升的显式证据）。 */
+  rawText?: string
+  done: boolean
+  doneAt?: number | null
+  source: ContestNodeSource
+  createdAt: number
+  updatedAt: number
+}
+
+/** 提醒策略视图（CP4 引擎落地；CP1 随 detail 只读带出）。 */
+export interface ContestReminderView {
+  id: number
+  nodeId: number
+  offsetKind: ContestReminderOffsetKind
+  offsetValue: number
+  channel: ContestReminderChannel
+  enabled: boolean
+  lastFiredAt?: number | null
+  createdAt: number
+  updatedAt: number
+}
+
+/** 材料视图（sha256 文件级去重；CP1 无导入通道，detail 恒为真实空集）。 */
+export interface ContestMaterialView {
+  id: number
+  sha256: string
+  originalName: string
+  storedPath: string
+  sizeBytes?: number | null
+  pages?: number | null
+  kind: 'pdf' | 'image' | 'other'
+  importedAt: number
+}
+
+/** 关联项目（经 resources/relationships `uses` 边反查，docs/22 §2.3）。 */
+export interface ContestLinkedProject {
+  id: number
+  name: string
+}
+
+/** contestpin:get 返回：比赛全量 + nodes/materials/reminders/关联 project。 */
+export interface ContestDetailView extends ContestView {
+  nodes: ContestNodeView[]
+  materials: ContestMaterialView[]
+  reminders: ContestReminderView[]
+  project: ContestLinkedProject | null
+}
+
+// --- contestpin:list ---
+
+export interface ContestListPayload {
+  /** 名称/年份模糊搜索（LIKE 包含匹配）。 */
+  query?: string
+  status?: ContestStatus
+  /** 缺省排除已归档；true = 含已归档一并返回。 */
+  archived?: boolean
+  limit?: number
+  offset?: number
+}
+
+export interface ContestListResult {
+  items: ContestListItem[]
+  total: number
+}
+
+// --- contestpin:get ---
+
+export interface ContestGetPayload {
+  id: number
+}
+
+// --- contestpin:create ---
+
+export interface ContestCreatePayload {
+  name: string
+  /** 可空；给定时 1990..2100 整数（运行期校验）。 */
+  year?: number | null
+  edition?: string
+  organizer?: string
+  note?: string
+  /** 缺省 'watching'。 */
+  status?: ContestStatus
+  officialSite?: string
+  signupUrl?: string
+  submitUrl?: string
+}
+
+// --- contestpin:update ---
+
+export interface ContestPatch {
+  name?: string
+  year?: number | null
+  edition?: string
+  organizer?: string
+  note?: string
+  status?: ContestStatus
+  officialSite?: string
+  signupUrl?: string
+  submitUrl?: string
+}
+
+export interface ContestUpdatePayload {
+  id: number
+  patch: ContestPatch
+}
+
+// --- contestpin:delete（CONFIRM_REQUIRED 两段式） ---
+
+export interface ContestDeleteImpacts {
+  nodes: number
+  materials: number
+  reminders: number
+}
+
+export interface ContestDeleteStart {
+  confirmRequired: true
+  impacts: ContestDeleteImpacts
+}
+
+export interface ContestDeletePayload {
+  id: number
+  confirmed?: boolean
+}
+
+export interface ContestDeleteResult {
+  /** 判别字段：结果分支恒为 undefined（Start 分支为 true，docker:action 同款）。 */
+  confirmRequired?: undefined
+  removed: true
+}
+
+// --- contestpin:archive ---
+
+export interface ContestArchivePayload {
+  id: number
+  archived: boolean
+}
+
+// --- contestpin:nodeUpsert ---
+
+export interface ContestNodeInput {
+  /** 带 id = 更新既有节点；缺省 = 新建。 */
+  id?: number
+  /** 缺省 'custom'。 */
+  kind?: ContestNodeKind
+  /** kind='custom' 必填非空；其余 kind 缺省以 kind 值兜底展示。 */
+  label?: string
+  startAt?: number | null
+  endAt?: number | null
+  /** 缺省 'local'（自由文本，IANA 名不强校验）。 */
+  tz?: string
+  /** 缺省 'exact'；已有低精度→'exact' 必须显式携带 rawText 依据。 */
+  precision?: ContestNodePrecision
+  rawText?: string
+  done?: boolean
+}
+
+export interface ContestNodeUpsertPayload {
+  contestId: number
+  node: ContestNodeInput
+}
+
+// --- contestpin:nodeDelete（CONFIRM_REQUIRED 两段式） ---
+
+export interface ContestNodeDeleteImpacts {
+  reminders: number
+}
+
+export interface ContestNodeDeleteStart {
+  confirmRequired: true
+  impacts: ContestNodeDeleteImpacts
+}
+
+export interface ContestNodeDeletePayload {
+  id: number
+  confirmed?: boolean
+}
+
+export interface ContestNodeDeleteResult {
+  confirmRequired?: undefined
+  removed: true
+}
+
+// --- contestpin:linkProject ---
+
+export interface ContestLinkProjectPayload {
+  contestId: number
+  /** null = 解除关联（删 contest→project `uses` 边）。 */
+  projectId: number | null
+}
+
+export interface ContestLinkProjectResult {
+  linked: boolean
+}
+
+// --- contestpin:overlayState（CP2，docs/22 §4；READ_ONLY） ---
+
+/** 悬浮窗 bounds（Electron DIP 坐标，docs/22 §4.3——不自行换算 DPI scale）。 */
+export interface ContestOverlayBounds {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface ContestOverlayStateResult {
+  enabled: boolean
+  /** null = 未持久化过位置（wire 层居中主显示器 workArea）。 */
+  bounds: ContestOverlayBounds | null
+  collapsed: boolean
+}
+
+// --- contestpin:overlaySetEnabled / contestpin:overlaySetCollapsed ---
+
+export interface ContestOverlaySetEnabledPayload {
+  enabled: boolean
+}
+
+export interface ContestOverlaySetEnabledResult {
+  enabled: boolean
+}
+
+export interface ContestOverlaySetCollapsedPayload {
+  collapsed: boolean
+}
+
+export interface ContestOverlaySetCollapsedResult {
+  collapsed: boolean
+}
+
+// --- contestpin:openInMain / contestpin:openLink ---
+
+export interface ContestOpenInMainPayload {
+  contestId: number
+}
+
+export interface ContestOpenInMainResult {
+  /** 悬浮窗/纯 Node 语境未注入 applier 时 false（结构化 no-op，非错误）。 */
+  opened: boolean
+}
+
+export interface ContestOpenLinkPayload {
+  url: string
+}
+
+export interface ContestOpenLinkResult {
+  /** 同上：applier 未注入时 false；URL 非法为 BAD_PAYLOAD 错误分支。 */
+  opened: boolean
+}
+
+// --- contestpin 识别配置（CP3a，docs/22 §6；configList/configSave/configDelete/
+//     configTest 四条。掩码视图绝不含明文 key 或 sealed envelope —— docs/22 §6 密钥红线） ---
+
+/** 识别配置角色（008 contestpin_configs.role CHECK 同款枚举）。 */
+export type RecognitionConfigRole = 'vision' | 'text' | 'multimodal'
+
+/** contestpin:configList 行投影：掩码视图（尾 4 位 + 长度 + 是否已设置布尔）。 */
+export interface RecognitionConfigView {
+  id: number
+  name: string
+  role: RecognitionConfigRole
+  baseUrl: string
+  model: string
+  /** 掩码尾 4 位（maskKey 唯一脱敏出口）；无 key / 不可解密 → null。 */
+  apiKeyTail: string | null
+  apiKeyLen: number | null
+  /** true = 已设置 key（含不可解密形态）；false = 无鉴权端点（key_sealed NULL）。 */
+  apiKeySet: boolean
+  /** 可空 = 用客户端默认超时（60000ms）。 */
+  timeoutMs: number | null
+  /** 最近连接测试 unix 秒；null = 未测过。 */
+  lastTestAt: number | null
+  /** null = 未测过；true/false = 最近一次测试结果。 */
+  lastTestOk: boolean | null
+  /** 实测 usage（仅服务真实返回才落）；null = 无实测。 */
+  lastTestUsage: Record<string, unknown> | null
+  createdAt: number
+  updatedAt: number
+}
+
+export interface RecognitionConfigListPayload {
+  // 预留：role 过滤等（当前面板按角色分组在前端分组，不加服务端参数）
+}
+
+export interface RecognitionConfigListResult {
+  configs: RecognitionConfigView[]
+}
+
+export interface RecognitionConfigSavePayload {
+  /** 缺省 = 新建；带 id = 编辑。 */
+  id?: number
+  name: string
+  role: RecognitionConfigRole
+  /** 仅 http/https 绝对 URL（service 校验，validateExternalUrl 风格本地实现）。 */
+  baseUrl: string
+  model: string
+  /** 密码框约定：空串/undefined = 保持既有（编辑）或不设 key（新建=无鉴权端点）。 */
+  apiKey?: string
+  /** 正整数毫秒；null = 清空（回客户端默认）。 */
+  timeoutMs?: number | null
+}
+
+export interface RecognitionConfigDeletePayload {
+  id: number
+  confirmed?: boolean
+}
+
+export interface RecognitionConfigDeleteImpacts {
+  /** 引用该配置的 contest_import_jobs 计数（vision_config_id / text_config_id）。 */
+  importJobs: number
+}
+
+export interface RecognitionConfigDeleteStart {
+  confirmRequired: true
+  impacts: RecognitionConfigDeleteImpacts
+}
+
+export interface RecognitionConfigDeleteResult {
+  /** 判别字段：结果分支恒为 undefined（Start 分支为 true，contest:delete 同款）。 */
+  confirmRequired?: undefined
+  removed: true
+}
+
+export interface RecognitionConfigTestPayload {
+  id: number
+}
+
+/** 连接测试错误分类：客户端六分类 + 服务端错误摘要可判时的 IMAGE_UNSUPPORTED 派生。 */
+export type RecognitionTestErrorKind =
+  | 'AUTH'
+  | 'RATE_LIMIT'
+  | 'TIMEOUT'
+  | 'NETWORK'
+  | 'BAD_RESPONSE'
+  | 'HTTP_ERROR'
+  | 'IMAGE_UNSUPPORTED'
+
+export interface RecognitionTestResult {
+  ok: boolean
+  latencyMs: number
+  /** 实测 usage 原样透传；'unknown' = 服务端未返回（非实测，绝不伪造）。 */
+  usage: Record<string, unknown> | 'unknown'
+  /** ok=false 时携带：分类 kind + 分类文案（鉴权失败/限流/超时/网络错误/格式错误/图片不支持/HTTP 状态）。 */
+  error?: { kind: RecognitionTestErrorKind; message: string }
+}
+
+// ---------------------------------------------------------------------------
 // 7. Gateway request & channel contract table (constraint #17)
 // ---------------------------------------------------------------------------
 
@@ -1979,6 +2424,30 @@ export interface ChannelContract {
   'agents:diagnostics': [AgentDiagnosticsPayload, AgentDiagnosticsResult]
   // 夜间#1 批次：per-provider 单独重探（UX 验收 backlog，known-limitations §3.2）
   'agents:probeProvider': [AgentProbeProviderPayload, AgentProbeProviderResult]
+  // --- contestpin (CP1 batch, docs/22 §3 + docs/04「ContestPin 追加」节；
+  //     delete / nodeDelete 为 CONFIRM_REQUIRED 两段式) ---
+  'contestpin:list': [ContestListPayload, ContestListResult]
+  'contestpin:get': [ContestGetPayload, ContestDetailView]
+  'contestpin:create': [ContestCreatePayload, ContestView]
+  'contestpin:update': [ContestUpdatePayload, ContestView]
+  'contestpin:delete': [ContestDeletePayload, ContestDeleteStart | ContestDeleteResult]
+  'contestpin:archive': [ContestArchivePayload, ContestView]
+  'contestpin:nodeUpsert': [ContestNodeUpsertPayload, ContestNodeView]
+  'contestpin:nodeDelete': [ContestNodeDeletePayload, ContestNodeDeleteStart | ContestNodeDeleteResult]
+  'contestpin:linkProject': [ContestLinkProjectPayload, ContestLinkProjectResult]
+  // --- contestpin (CP2 batch, docs/22 §4 悬浮窗；overlayState 为 READ_ONLY，
+  //     openLink 经 validateExternalUrl 仅 http/https，openInMain 聚焦主窗口导航) ---
+  'contestpin:overlayState': [Record<string, never>, ContestOverlayStateResult]
+  'contestpin:overlaySetEnabled': [ContestOverlaySetEnabledPayload, ContestOverlaySetEnabledResult]
+  'contestpin:overlaySetCollapsed': [ContestOverlaySetCollapsedPayload, ContestOverlaySetCollapsedResult]
+  'contestpin:openInMain': [ContestOpenInMainPayload, ContestOpenInMainResult]
+  'contestpin:openLink': [ContestOpenLinkPayload, ContestOpenLinkResult]
+  // --- contestpin (CP3a batch, docs/22 §6 + docs/04「ContestPin 追加」节；
+  //     configList 为 READ_ONLY 掩码视图，configDelete 为 CONFIRM_REQUIRED 两段式) ---
+  'contestpin:configList': [RecognitionConfigListPayload, RecognitionConfigListResult]
+  'contestpin:configSave': [RecognitionConfigSavePayload, RecognitionConfigView]
+  'contestpin:configDelete': [RecognitionConfigDeletePayload, RecognitionConfigDeleteStart | RecognitionConfigDeleteResult]
+  'contestpin:configTest': [RecognitionConfigTestPayload, RecognitionTestResult]
 }
 
 /** Compile-time assertion that ChannelContract covers exactly the whitelist. */

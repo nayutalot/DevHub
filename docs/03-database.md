@@ -235,7 +235,7 @@ INSERT INTO settings (key, value) VALUES
    review_pre_json TEXT` 与 `ADD COLUMN review_post_json TEXT`（均可空，LLM 复核
    envelope 缓存；append-only，不改既有迁移）——设计见 docs/briefs/lr1-llm-review.md
    （硬门：M3-D 72h 终报通过后开工）。
-9. **migration 008（预告，ContestPin 待落地）**：赛程钉比赛模块 7 张新表——
+9. **migration 008（ContestPin CP1 已落地，2026-09-09 批次）**：赛程钉比赛模块 7 张新表——
    `contests`（名称/届次/主办方/参赛状态/三入口链接/archived）、`contest_nodes`
    （多时间节点：kind 枚举+自定义、start/end unix 秒可空、tz、precision 枚举
    exact/date/month/tbd、raw_text 原文依据、done、source）、`contest_reminders`
@@ -248,10 +248,16 @@ INSERT INTO settings (key, value) VALUES
    `contestpin_default_mode`/`contestpin_overlay_enabled`（WHERE NOT EXISTS）。
    时间语义权威（precision 不得 date→exact 提升等）见 docs/22 §2.2；
    设计见 docs/22-contestpin-design.md。fresh 库迁移后 applied=7、
-   user_version=8；resourceGraph ResourceType 同批追加 'contest'（docs/05
-   枚举表随批更新）。
+   user_version=8；resourceGraph ResourceType 已同批追加 'contest'（docs/05
+   枚举表已随批入册）。
 
-## 5. 表清单（S1 起，19 张）
+## 5. 表清单（CP1 起，34 张）
 
 Phase 1 的 14 张 + 003 新增 5 张（skill_agents、skill_links、apihub_profiles、
-version_targets、archive_runs）。skills / archives 在 003 中重建扩列（仍是一张表）。
+version_targets、archive_runs；skills / archives 在 003 中重建扩列，仍是一张表）+
+004 新增 8 张 AC 域表（agent_providers、agent_sessions、agent_messages、
+agent_events、remote_devices、remote_commands、event_deliveries、
+security_audit_logs，见 docs/13 §4）+ **008 新增 7 张 ContestPin 域表**
+（contests、contest_nodes、contest_reminders、contest_reminder_log、
+contest_materials、contest_import_jobs、contestpin_configs，见 §4 条目 9 与
+docs/22 §2.1）。005/006 仅扩列/扩索引，不新增表。

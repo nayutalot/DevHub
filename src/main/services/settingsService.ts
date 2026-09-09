@@ -35,6 +35,12 @@ const ALLOWED_KEYS: readonly string[] = [
   'relay_enabled',
   'relay_endpoint',
   'relay_last_sent_seq',
+  // CP1 批次（ContestPin，docs/22 §2.1）：default_mode/overlay_enabled 为 008 种子
+  // （'two_stage'/'0'）；overlay_state 为运行期键（悬浮窗 bounds+collapsed JSON，
+  // contestService 直写，不经 renderer settings:set）
+  'contestpin_default_mode',
+  'contestpin_overlay_enabled',
+  'contestpin_overlay_state',
 ]
 
 function assertAllowedKey(key: string): void {

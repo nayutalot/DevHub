@@ -44,3 +44,19 @@ services 表行 + 上述关系边展开出的项目归属。
 - 新关系 = `relation_type` 新增枚举值，无需迁移既有边。
 - 图查询 = relationships 的递归 CTE（SQLite `WITH RECURSIVE`）即可支持多跳遍历，
   Phase 1 不实现，仅保证模型可扩展（devices / skills / mcp_servers / archives 建表即为预留节点类型）。
+
+## 5. resource_type 枚举（随批入册）
+
+`ResourceType` 联合类型定义于 `src/main/services/resourceGraph.ts`；枚举行随批次入册：
+
+| resource_type | 锚定表 | 登记批次 | 备注 |
+| --- | --- | --- | --- |
+| `project` | projects | Phase 1 | |
+| `repository` | repositories | Phase 1 | |
+| `environment` | environments | Phase 1 | |
+| `service` | services | Phase 1 | |
+| `container` | containers | Phase 1 | |
+| `agent` | agent_providers | AC2 | |
+| `session` | agent_sessions | AC2 | |
+| `device` | remote_devices | AC2 | |
+| `contest` | contests | CP1（ContestPin） | 比赛↔Project 关联复用 `uses` 边（source=contest, target=project，INSERT OR IGNORE 幂等），设计见 docs/22 §2.3 |
