@@ -11808,5 +11808,248 @@ if (isEntrypoint()) {
     'fast',
   )
 
+  // ====================================================================
+  // CP3a 批次（ContestPin 识别配置 + OpenAI 兼容客户端，docs/22 §6 +
+  // docs/04「ContestPin 追加」节 CP3a 四行）。三个 fast 用例全部经
+  // setChatTransport 注入 fake transport —— 零真实网络（时窗红线）；
+  // finally 恢复默认传输（setChatTransport(null)，默认实现仅生产可达）。
+  // ====================================================================
+
+  registerCase(
+    'cp3a-config-crud: recognitionConfigService save（key envelope 落库非明文）/list 掩码（无明文无 sealed）/UNIQUE(name,role) 冲突/空 key 保持与无鉴权新建/testConfig 落 last_test_*（fake transport）/delete 两段式（impacts.importJobs）',
+    async () => {
+      const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+      const keyStore = await import(new URL('../src/main/services/apihub/keyStore.ts', import.meta.url).href)
+      const client = await import(new URL('../src/main/services/contestpin/openaiClient.ts', import.meta.url).href)
+      const svc = await import(new URL('../src/main/services/contestpin/recognitionConfigService.ts', import.meta.url).href)
+
+      await makeTempHome('devhub-cp3a-crud-')
+      // plaintext 夹具显式注入（生产 = keyStoreWire safeStorage；smoke 场景同款降级实现）
+      keyStore.setKeyCrypto(keyStore.plaintextKeyCrypto())
+      // fake transport：200 + usage；捕获 url/headers/body 供断言（零联网）
+      const seen = []
+      client.setChatTransport(async (url, init) => {
+        seen.push({ url, headers: init.headers, body: String(init.body) })
+        return {
+          status: 200,
+          bodyText: JSON.stringify({
+            choices: [{ message: { content: 'pong' } }],
+            usage: { prompt_tokens: 3, completion_tokens: 4, total_tokens: 7 },
+          }),
+        }
+      })
+      const db = dbModule.getDatabase()
+      try {
+        // save（带 key）：掩码视图 + 落库 envelope
+        const saved = await svc.saveConfig({
+          name: 'vis-main',
+          role: 'vision',
+          baseUrl: 'https://api.example.com/v1',
+          model: 'vl-model',
+          apiKey: 'sk-test-abcd1234',
+          timeoutMs: 5000,
+        })
+        assert.equal(saved.apiKeySet, true)
+        assert.equal(saved.apiKeyTail, '1234', 'masked tail = last 4')
+        assert.equal(saved.apiKeyLen, 'sk-test-abcd1234'.length, 'masked len')
+        const viewJson = JSON.stringify(saved)
+        assert.ok(!viewJson.includes('sk-test-abcd1234'), 'view never carries plaintext key')
+        assert.ok(!viewJson.includes('sealed') && !viewJson.includes('keySealed'), 'view never carries sealed envelope fields')
+        const rawRow = db.prepare('SELECT key_sealed FROM contestpin_configs WHERE id = ?').get(saved.id)
+        const envelope = JSON.parse(String(rawRow.key_sealed))
+        assert.equal(envelope.v, 1, 'envelope v=1 (profileStore shape)')
+        assert.equal(envelope.plainStore, true, 'plaintext fixture marks plainStore:true')
+        assert.ok(!String(rawRow.key_sealed).includes('sk-test-abcd1234'), 'stored form is not plaintext')
+
+        // list：掩码视图整体无明文/无 sealed 键
+        const listed = await svc.listConfigs()
+        assert.equal(listed.configs.length, 1)
+        assert.ok(!JSON.stringify(listed).includes('sk-test-abcd1234'), 'list view zero plaintext')
+
+        // 编辑空 apiKey = 保持既有；UNIQUE 只对 (name, role) 联合唯一
+        const edited = await svc.saveConfig({ id: saved.id, name: 'vis-main', role: 'vision', baseUrl: 'https://api.example.com/v1', model: 'vl-model-2', apiKey: '' })
+        assert.equal(edited.apiKeyTail, '1234', 'empty apiKey keeps existing key')
+        assert.equal(edited.model, 'vl-model-2', 'model updated')
+        await assert.rejects(
+          () => svc.saveConfig({ name: 'vis-main', role: 'vision', baseUrl: 'https://x.example.com', model: 'm' }),
+          /识别配置已存在/,
+          'UNIQUE(name,role) duplicate rejected',
+        )
+        const sameNameOtherRole = await svc.saveConfig({ name: 'vis-main', role: 'text', baseUrl: 'https://api.example.com/v1', model: 'txt-model' })
+        assert.equal(sameNameOtherRole.apiKeySet, false, 'create without key = keyless endpoint allowed')
+        assert.equal(db.prepare('SELECT key_sealed FROM contestpin_configs WHERE id = ?').get(sameNameOtherRole.id).key_sealed, null, 'keyless row stores NULL')
+
+        // testConfig（vision，带 key）：ok + 实测 usage 落库
+        seen.length = 0
+        const test1 = await svc.testConfig(saved.id)
+        assert.equal(test1.ok, true)
+        assert.equal(typeof test1.latencyMs, 'number')
+        assert.equal(test1.usage.total_tokens, 7, 'measured usage returned')
+        const persisted = db.prepare('SELECT last_test_ok, last_test_usage_json FROM contestpin_configs WHERE id = ?').get(saved.id)
+        assert.equal(persisted.last_test_ok, 1, 'last_test_ok stamped')
+        assert.equal(JSON.parse(persisted.last_test_usage_json).total_tokens, 7, 'measured usage persisted as JSON')
+        assert.equal(seen[0].url, 'https://api.example.com/v1/chat/completions', 'configTest hits normalized URL')
+        assert.equal(seen[0].headers.Authorization, 'Bearer sk-test-abcd1234', 'bearer header present for keyed config')
+        assert.ok(seen[0].body.includes('image_url') && seen[0].body.includes('data:image/png;base64,'), 'vision probe carries image_url data URL')
+
+        // testConfig（text，无 key）：Authorization 缺省 + ping 探针
+        seen.length = 0
+        const test2 = await svc.testConfig(sameNameOtherRole.id)
+        assert.equal(test2.ok, true)
+        assert.equal(seen[0].headers.Authorization, undefined, 'keyless config sends no Authorization')
+        assert.ok(seen[0].body.includes('"content":"ping"'), 'text probe sends ping')
+
+        // 服务端 429 → 分类限流 + last_test_ok=0 + usage 清空（不残留旧实测）
+        client.setChatTransport(async () => ({ status: 429, bodyText: 'rate limited' }))
+        const test3 = await svc.testConfig(saved.id)
+        assert.equal(test3.ok, false)
+        assert.equal(test3.error.kind, 'RATE_LIMIT')
+        assert.ok(test3.error.message.includes('限流'), 'rate-limit copy for 429')
+        const persistedFail = db.prepare('SELECT last_test_ok, last_test_usage_json FROM contestpin_configs WHERE id = ?').get(saved.id)
+        assert.equal(persistedFail.last_test_ok, 0, 'failure stamped')
+        assert.equal(persistedFail.last_test_usage_json, null, 'no stale measured usage after failure')
+
+        // IMAGE_UNSUPPORTED 派生：服务端错误摘要含 image 字样（HTTP 400 → HTTP_ERROR 基类）
+        client.setChatTransport(async () => ({ status: 400, bodyText: 'this endpoint does not support image input' }))
+        const test4 = await svc.testConfig(saved.id)
+        assert.equal(test4.error.kind, 'IMAGE_UNSUPPORTED', 'image keyword derives IMAGE_UNSUPPORTED')
+
+        // delete 两段式：impacts.importJobs 计数引用任务；confirmed 后删除（jobs 行保留、引用置空）
+        db.prepare(
+          "INSERT INTO contest_import_jobs (mode, stage, vision_config_id, created_at, updated_at) VALUES ('two_stage', 'imported', ?, 0, 0)",
+        ).run(saved.id)
+        const delStart = svc.deleteConfig({ id: saved.id })
+        assert.equal(delStart.confirmRequired, true)
+        assert.equal(delStart.impacts.importJobs, 1, 'impacts counts referencing import jobs')
+        const delDone = svc.deleteConfig({ id: saved.id, confirmed: true })
+        assert.equal(delDone.confirmRequired, undefined)
+        assert.equal(delDone.removed, true)
+        const jobAfter = db.prepare('SELECT vision_config_id FROM contest_import_jobs').get()
+        assert.equal(jobAfter.vision_config_id, null, 'job row survives with NULLed reference (FK SET NULL)')
+        assert.throws(() => svc.deleteConfig({ id: saved.id }), /not found/, 'unknown config NOT_FOUND')
+      } finally {
+        client.setChatTransport(null) // 恢复默认传输（后续用例零联网）
+        dbModule.closeDatabase()
+      }
+    },
+    'fast',
+  )
+
+  registerCase(
+    'cp3a-client-taxonomy: chatCompletion 错误六分类与 usage 捕获（fake transport：401/403→AUTH、429→RATE_LIMIT、500→HTTP_ERROR 带 status、非 JSON 与缺 choices→BAD_RESPONSE、2xx 无 usage→unknown、带 usage→实测、AbortError/TimeoutError→TIMEOUT、reject→NETWORK）+ 错误摘要不含 key',
+    async () => {
+      const client = await import(new URL('../src/main/services/contestpin/openaiClient.ts', import.meta.url).href)
+      const zlib = await import('node:zlib')
+      const cfg = { baseUrl: 'https://tax.example.com/v1', model: 'tax-model', apiKey: 'sk-secret-xyz-9999', timeoutMs: 1000 }
+
+      async function runWith(fake) {
+        client.setChatTransport(fake)
+        return client.chatCompletion(cfg, [{ role: 'user', content: 'ping' }])
+      }
+
+      // 401/403 → AUTH；429 → RATE_LIMIT；500 → HTTP_ERROR（带 status）
+      let r = await runWith(async () => ({ status: 401, bodyText: 'Unauthorized' }))
+      assert.equal(r.ok === false && r.failure.kind, 'AUTH', '401 → AUTH')
+      r = await runWith(async () => ({ status: 403, bodyText: 'Forbidden' }))
+      assert.equal(r.ok === false && r.failure.kind, 'AUTH', '403 → AUTH')
+      r = await runWith(async () => ({ status: 429, bodyText: 'slow down' }))
+      assert.equal(r.ok === false && r.failure.kind, 'RATE_LIMIT', '429 → RATE_LIMIT')
+      r = await runWith(async () => ({ status: 500, bodyText: 'boom' }))
+      assert.equal(r.ok === false && r.failure.kind, 'HTTP_ERROR', '500 → HTTP_ERROR')
+      assert.equal(r.ok === false && r.failure.status, 500, 'HTTP_ERROR carries status')
+
+      // 服务端错误体回显 key → 摘要打码（密钥红线在错误出口兜底）
+      r = await runWith(async () => ({ status: 401, bodyText: 'Incorrect API key provided: sk-secret-xyz-9999.' }))
+      assert.equal(r.ok === false && r.failure.message.includes('sk-secret-xyz-9999'), false, 'server-echoed key is masked out of failure message')
+
+      // 非 JSON / 缺 choices / 缺 content → BAD_RESPONSE
+      r = await runWith(async () => ({ status: 200, bodyText: '<html>not json</html>' }))
+      assert.equal(r.ok === false && r.failure.kind, 'BAD_RESPONSE', 'non-JSON 2xx → BAD_RESPONSE')
+      r = await runWith(async () => ({ status: 200, bodyText: '{"choices":[]}' }))
+      assert.equal(r.ok === false && r.failure.kind, 'BAD_RESPONSE', 'empty choices → BAD_RESPONSE')
+      r = await runWith(async () => ({ status: 200, bodyText: '{"choices":[{"message":{}}]}' }))
+      assert.equal(r.ok === false && r.failure.kind, 'BAD_RESPONSE', 'missing content → BAD_RESPONSE')
+
+      // 2xx 无 usage → 'unknown'；带 usage → 实测；content 透传
+      r = await runWith(async () => ({ status: 200, bodyText: JSON.stringify({ choices: [{ message: { content: 'hi' } }] }) }))
+      assert.equal(r.ok === true && r.usage, 'unknown', 'no usage field → unknown (never faked)')
+      r = await runWith(async () => ({ status: 200, bodyText: JSON.stringify({ choices: [{ message: { content: 'hi' } }], usage: { prompt_tokens: 5, completion_tokens: 6, total_tokens: 11 } }) }))
+      assert.equal(r.ok === true && r.content, 'hi', 'content passed through')
+      assert.equal(r.ok === true && r.usage.total_tokens, 11, 'measured usage captured')
+
+      // TIMEOUT：AbortError / TimeoutError；NETWORK：其他 reject
+      r = await runWith(async () => {
+        throw Object.assign(new Error('aborted'), { name: 'AbortError' })
+      })
+      assert.equal(r.ok === false && r.failure.kind, 'TIMEOUT', 'AbortError → TIMEOUT')
+      r = await runWith(async () => {
+        throw Object.assign(new Error('expired'), { name: 'TimeoutError' })
+      })
+      assert.equal(r.ok === false && r.failure.kind, 'TIMEOUT', 'TimeoutError → TIMEOUT')
+      r = await runWith(async () => {
+        throw new Error('ECONNREFUSED 127.0.0.1:443')
+      })
+      assert.equal(r.ok === false && r.failure.kind, 'NETWORK', 'fetch reject → NETWORK')
+
+      // probeConfig：text = ping；vision = 1x1 红 PNG data URL + 一词描述指令；
+      // stream:false 与 model 在请求体；Authorization 仅带 key 时存在
+      const seen = []
+      client.setChatTransport(async (url, init) => {
+        seen.push({ url, headers: init.headers, body: String(init.body) })
+        return { status: 200, bodyText: JSON.stringify({ choices: [{ message: { content: 'red' } }] }) }
+      })
+      await client.probeConfig(cfg, 'text')
+      assert.ok(seen[0].body.includes('"content":"ping"'), 'text probe body')
+      assert.ok(seen[0].body.includes('"stream":false') && seen[0].body.includes('"model":"tax-model"'), 'body carries model + stream:false')
+      assert.equal(seen[0].headers.Authorization, 'Bearer sk-secret-xyz-9999', 'bearer header from apiKey')
+      await client.probeConfig({ baseUrl: cfg.baseUrl, model: cfg.model }, 'vision')
+      assert.equal(seen[1].headers.Authorization, undefined, 'no Authorization without apiKey')
+      assert.ok(seen[1].body.includes('image_url') && seen[1].body.includes('data:image/png;base64,'), 'vision probe carries data URL')
+      assert.ok(seen[1].body.includes('Describe this image in one word.'), 'vision probe instruction')
+
+      // 探针 PNG 语义锚定：1x1、8bit truecolor、扫描线 = filter 0 + RGB(255,0,0)
+      const png = Buffer.from(client.PROBE_PNG_BASE64, 'base64')
+      assert.equal(png.length < 128, true, 'probe png ~100 bytes')
+      assert.equal(png.readUInt32BE(16), 1, 'width 1')
+      assert.equal(png.readUInt32BE(20), 1, 'height 1')
+      const idatLen = png.readUInt32BE(33)
+      const raw = zlib.inflateSync(png.subarray(41, 41 + idatLen))
+      assert.deepEqual([...raw], [0, 255, 0, 0], 'scanline = no-filter + pure red pixel')
+
+      client.setChatTransport(null)
+    },
+    'fast',
+  )
+
+  registerCase(
+    'cp3a-baseurl-normalize: baseUrl 三形态 URL 断言（https://x/v1、https://x/v1/、已带 /chat/completions 原样；补零路径形态）——经 fake transport 捕获 url，零联网',
+    async () => {
+      const client = await import(new URL('../src/main/services/contestpin/openaiClient.ts', import.meta.url).href)
+      const captured = []
+      client.setChatTransport(async (url) => {
+        captured.push(url)
+        return { status: 200, bodyText: JSON.stringify({ choices: [{ message: { content: 'ok' } }] }) }
+      })
+      try {
+        const messages = [{ role: 'user', content: 'ping' }]
+        await client.chatCompletion({ baseUrl: 'https://x/v1', model: 'm' }, messages)
+        await client.chatCompletion({ baseUrl: 'https://x/v1/', model: 'm' }, messages)
+        await client.chatCompletion({ baseUrl: 'https://x/v1/chat/completions', model: 'm' }, messages)
+        await client.chatCompletion({ baseUrl: 'https://x', model: 'm' }, messages)
+        assert.deepEqual(captured, [
+          'https://x/v1/chat/completions',
+          'https://x/v1/chat/completions',
+          'https://x/v1/chat/completions',
+          'https://x/chat/completions',
+        ], 'all baseUrl spellings converge on <base>/chat/completions; already-suffixed URL untouched')
+        // 纯函数面直接断言（含多余尾斜杠与环绕空白归一）
+        assert.equal(client.normalizeChatCompletionsUrl('  https://y/v1//  '), 'https://y/v1/chat/completions')
+      } finally {
+        client.setChatTransport(null)
+      }
+    },
+    'fast',
+  )
+
   await run(parseTierArg())
 }
