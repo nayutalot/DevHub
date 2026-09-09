@@ -284,6 +284,9 @@ export function recordCommandResult(input: {
       commandId: input.commandId,
       action: input.action,
       status: input.status,
+      // M3-E（docs/18 §5.3）：spawn 的 nativeId 不入 command_result 帧——仅经本事件
+      // payload 回流（帧形零扩展）；无 nativeId 的指令与既有投影形状不变。
+      ...(input.nativeId !== undefined ? { nativeId: input.nativeId } : {}),
       ...(input.errorCode !== undefined ? { errorCode: input.errorCode } : {}),
     },
     fingerprint: `${input.commandId}:${input.status}:${randomUUID()}`,
