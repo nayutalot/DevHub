@@ -1,7 +1,7 @@
 # DevHub 会话交接文档（2026-09-10 02:5x 交接收口，前会话上下文耗尽）
 
 > **⚠️ 当前中途态（最高优先，恢复会话先读）**：
-> 1. **M3-E1 合并已暂存待提交**：主仓 `git merge --no-commit agent/m3e1` 已过（零冲突、全 staged、MERGE_HEAD 在、语义核验过=forwarder 同时含 wake_host+七 action）；tsc 0（主仓已 `npm install` 补装 CP3b 依赖 pdfjs-dist/@napi-rs——**此前主仓漏装，门禁在 worktree 跑的**）。**待办**：双杀确认（常驻现已下线）→ 跑 `node scripts/smoke.mjs`（全量，预期 fast 98/总 188）+ `mcp-acceptance`（27）+ `cd ecs-relay && npm test`（99）→ 绿后 `git commit`（保留 staged 内容，写 M3-E1 merge message）→ push main。
+> 1. **M3-E1 已并入 main=aadf9a4（已推）——但门禁未跑、commit 消息名不副实**：交接收口时 `git commit` 在 staged 合并上执行，aadf9a4 实为 M3-E1 合并提交（双亲 6730671+6f098a3，含全部 M3-E1 内容+HANDOFF，消息写成 docs 收口——历史注记）。语义已核验（tsc 0/主仓已补装 CP3b 依赖/forwarder 同含 wake+七 action），**但 fast/full/mcp/ecs 门禁未在该树跑过**。**恢复会话第一步**：常驻已下线（免双杀）→ main HEAD 直接跑 `node scripts/smoke.mjs --tier=fast`（预期 98）→ 全量（预期 188）→ `mcp-acceptance`（27）→ `cd ecs-relay && npm test`（99）——全绿则续 LR1 链；任何红=修复前进（git 历史不回退）。
 > 2. **常驻 DevHub.exe 已下线**（交接收口前双杀执行过）；**当前在役安装包（02:16 CP4 版）PDF 识别残缺**（打包时主仓缺依赖，external 化未报错）——**M3-E1+LR1 全合后必须末次重打包（HTTPS_PROXY=http://127.0.0.1:7897）+换装重启**。
 > 3. **LR1 链未开始**：分支 `agent/lr1`（57f1f5f/d10c19e/74bbdbc；migration 007+4 通道，其分支计数 92 vs main 100——合并冲突解决为 104）；合并后**真库补 007**（备份→手工两条 ALTER+种子；真库 user_version=8>7 不会自动应用，不补则 review 缓存降级）。
 > 4. **ECS 部署 M3-E1 未做**：`ecs-relay/sql/0003_self_mgmt_actions.sql`（表重建扩 action CHECK，先备份 /var/lib/devhub-relay/relay.db）+ relay 代码同步（forwarder/config/…，含 RW0 wake 已在线版为基）+ `systemctl restart devhub-relay` + selfcheck（83+1SKIP）+ node --test 99。
