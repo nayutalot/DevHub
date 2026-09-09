@@ -7,6 +7,9 @@
  * 节点/材料/提醒计数后才 confirmed）、contestpin:nodeUpsert / nodeDelete
  * （节点增删改；precision 时间语义 docs/22 §2.2）、contestpin:linkProject
  * （关联项目选择器）、contestpin:openLink（官网/报名/提交入口）。
+ * CP4 起：节点卡内提醒规则（NodeReminders：contestpin:reminderUpsert 启停/
+ * reminderDelete 两段式/编辑器预设+通道多选）与触发记录面板（ReminderLogPanel，
+ * contestpin:reminderLogList 按本比赛过滤）。
  * 全部真实 IPC 无 mock（约束 #23）；三态强制（约束 #24）。
  */
 
@@ -14,6 +17,7 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Badge, stateTone } from '../components/Badge.tsx'
 import { ErrorState, Loading, Spinner, Toast, useToast } from '../components/StateViews.tsx'
+import { NodeReminders, ReminderLogPanel } from '../components/ReminderPanels.tsx'
 import { useApp } from '../lib/appContext.ts'
 import {
   CONTEST_NODE_KIND_LABEL,
@@ -275,6 +279,16 @@ export function ContestDetailView({
                   删除
                 </button>
               </div>
+              {/* CP4 提醒规则（任务书 §1.3 #8）：该节点提醒行 + 添加/编辑器入口 */}
+              <NodeReminders
+                node={n}
+                reminders={c.reminders.filter((r) => r.nodeId === n.id)}
+                notify={show}
+                onChanged={() => {
+                  detail.refresh()
+                  onChanged()
+                }}
+              />
             </div>
           ))
         )}
@@ -289,6 +303,9 @@ export function ContestDetailView({
       )}
 
       <LinkedProjectSection contestId={id} linkedProject={c.project} onChanged={() => { detail.refresh(); onChanged() }} />
+
+      {/* CP4：闹钟触发记录面板（近触发账本，按本比赛过滤，任务书 §1.3 #8） */}
+      <ReminderLogPanel contestId={id} contestName={c.name} />
 
       {deleteImpacts !== null && (
         <div className="cp-modal-overlay" role="dialog" aria-modal="true">

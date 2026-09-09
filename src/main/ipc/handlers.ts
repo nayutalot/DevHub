@@ -141,11 +141,17 @@ import {
   listImportJobs,
   retryImport,
 } from '../services/contestpin/importPipeline.ts'
+import {
+  deleteReminderRule,
+  listReminderLog,
+  upsertReminderRule,
+} from '../services/contestpin/reminderEngine.ts'
 import type {
   ContestImportCreatePayload,
   ContestImportDraftConfirmPayload,
   ContestNodeInput,
   ContestPatch,
+  ContestReminderUpsertPayload,
   ContestStatus,
 } from '../../shared/types.ts'
 import {
@@ -359,7 +365,8 @@ export const contractCoversWhitelist: AssertContractCoversWhitelist = true
  * + S4 docker 3 条 + wsl 2 条 = 50 + S5 archive 5 条 = 55 + AC2 agents 13 条 = 68
  * + 夜间#1 versions:cancel / agents:probeProvider = 70 + CP1 contestpin 9 条 = 79
  * + CP2 contestpin 悬浮窗 5 条 = 84 + CP3a contestpin 识别配置 4 条 = 88
- * + CP3b contestpin 材料导入/识别管线/核对界面 9 条 = 97）。
+ * + CP3b contestpin 材料导入/识别管线/核对界面 9 条 = 97
+ * + CP4 contestpin 提醒 3 条 = 100）。
  */
 export type HandlerRegistry = Record<IpcChannel, ChannelHandler>
 
@@ -1145,6 +1152,31 @@ export function createHandlerRegistry(deps: HandlerDeps): HandlerRegistry {
     'contestpin:draftDiscard': async (payload) => {
       const p = asPayloadObject('contestpin:draftDiscard', payload)
       return discardDraft({ jobId: requireId('contestpin:draftDiscard', p, 'jobId'), confirmed: optionalBoolean('contestpin:draftDiscard', p, 'confirmed') })
+    },
+
+    // --- contestpin 提醒（CP4 批次，docs/22 §7 + docs/04「ContestPin 追加」节；
+    // reminderDelete 为 CONFIRM_REQUIRED 两段式（impacts=log 行数）；
+    // reminderLogList 为 READ_ONLY 触发账本（含小铃铛近 24h 已触发/未来 24h 待办
+    // 聚合）。通知面不在 handler：引擎经 reminderEngine.setNotifyApplier 注入，
+    // 生产实现 = notifyWire 的 Electron Notification，零 handler 侧 electron import） ---
+    'contestpin:reminderUpsert': async (payload) => {
+      const p = asPayloadObject('contestpin:reminderUpsert', payload)
+      const rule = p.rule
+      if (rule !== undefined && (typeof rule !== 'object' || rule === null || Array.isArray(rule))) {
+        throw badPayload('contestpin:reminderUpsert', 'rule must be an object when present')
+      }
+      return upsertReminderRule({
+        nodeId: requireId('contestpin:reminderUpsert', p, 'nodeId'),
+        ...(rule !== undefined ? { rule: rule as ContestReminderUpsertPayload['rule'] } : {}),
+      })
+    },
+    'contestpin:reminderDelete': async (payload) => {
+      const p = asPayloadObject('contestpin:reminderDelete', payload)
+      return deleteReminderRule({ id: requireId('contestpin:reminderDelete', p), confirmed: optionalBoolean('contestpin:reminderDelete', p, 'confirmed') })
+    },
+    'contestpin:reminderLogList': async (payload) => {
+      const p = asPayloadObject('contestpin:reminderLogList', payload)
+      return listReminderLog({ limit: optionalPositiveInt('contestpin:reminderLogList', p, 'limit') })
     },
   }
 }

@@ -31,6 +31,7 @@ import {
 import { closeDatabase, getDatabase } from './db/index.ts'
 import { createSafeStorageKeyCrypto } from './keyStoreWire.ts'
 import { installContestpinWire, shutdownContestpinWire } from './contestpinWire.ts'
+import { initNotifyWire, shutdownNotifyWire } from './notifyWire.ts'
 import { registerGateway } from './ipc/gateway.ts'
 import { setKeyCrypto } from './services/apihub/keyStore.ts'
 import { injectAutoStart } from './autostartWire.ts'
@@ -202,8 +203,13 @@ function showMainWindowNavigateContest(contestId: number): void {
  * CP2：destroyOverlay 挂在最前（与 trayRefreshTimer 并列、先于 closeDatabase）——
  * overlayWire 内部 ref'd 防抖定时器同样会经 getDatabase() 惰性重开已关闭 DB，
  * 必须最先清；destroy 同步非阻塞，5s 硬上限内完成。
+ * CP4：shutdownNotifyWire 挂在最最前（同/ref'd 60s 桶扫句柄 + powerMonitor 监听
+ * + notifyApplier，notifyWire.ts 头注）——提醒调度面先于一切收尾撤干净。
  */
 async function runQuitTeardown(): Promise<void> {
+  // CP4：提醒 60s 桶扫句柄/powerMonitor 监听最先撤（notifyWire 内 ref 语义同
+  // trayRefreshTimer——ref'd 定时器会拖住事件循环并经 getDatabase() 惰性重开已关 DB）
+  shutdownNotifyWire()
   destroyOverlay()
   shutdownContestpinWire()
   if (trayRefreshTimer !== null) {
@@ -211,7 +217,7 @@ async function runQuitTeardown(): Promise<void> {
     trayRefreshTimer = null
   }
   destroyTray()
-  logger.info('quit teardown: overlay destroyed + tray destroyed + 2s refresh interval cleared (AC9 exit fix)')
+  logger.info('quit teardown: notify wire cleared + overlay destroyed + tray destroyed + 2s refresh interval cleared (AC9 exit fix)')
   try {
     await shutdownAgentControlRuntime()
     logger.info('quit teardown: agent control runtime shut down (monitors cancelled, providers disposed)')
@@ -323,6 +329,11 @@ function bootstrapMainProcess(): void {
 
       // ContestPin main 侧胶水注入（CP3b）：系统剪贴板图片读取器（粘贴截图）
       installContestpinWire()
+
+      // ContestPin 提醒调度（CP4，docs/22 §7）：生产 Notification applier 注册
+      // （点击 → showMainWindowNavigateContest，openInMain 同款导航）+ 启动补发
+      // 重扫 + 60s 桶扫（unref；退出路径 runQuitTeardown 最前 shutdownNotifyWire）
+      initNotifyWire({ navigateToContest: (contestId) => showMainWindowNavigateContest(contestId) })
 
       // 自启注入 + 按现值应用一次（docs/12 §10：login_autostart 驱动 setLoginItemSettings）
       injectAutoStart()

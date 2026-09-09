@@ -190,6 +190,31 @@ loadRenderer hash `contest:<id>`（ViewTarget 扩展）；主窗口隐藏时照�
   节点 done 后停提醒；不承诺关机/彻底退出后实时提醒（charter §八原文）。
 - 通知点击 → 主窗口对应比赛详情（同 §4.5 导航）。
 
+### 7.1 CP4 落地注记（2026-09-09，白名单 97→100）
+
+- 计划语义实现裁决：before_days 在 date 精度节点 =「节点日 − N 自然日」当日
+  **本地 09:00**，fire_key 取**自然日桶** `r<id>@d<YYYY-MM-DD>`（时钟扰动/时区
+  漂移不重复）；exact 精度 = start_at − N*86400（秒桶 `r<id>@s<sec>`）。
+  **month 精度无自然日语义 → before_days 计划期跳过**（flag
+  month_precision_unsupported，不产 due 不补发）；before_hours 仅 exact
+  （date/month/tbd 在 reminderUpsert 期 `BAD_PAYLOAD` 硬挡 + 计划期 flag 兜底
+  精度后续变更）；tbd（start_at NULL）无计划。
+- computeDue 过期地板 = 1 自然日（86 400s）；scanCatchUp 补发窗口默认 48h
+  （REMINDER_CATCHUP_WINDOW_SEC_DEFAULT），窗外错过只记 skipped 统计绝不补发。
+- 幂等去重根 = contest_reminder_log UNIQUE(reminder_id, fire_key)：触发即
+  INSERT OR IGNORE（冲突=已发过跳过）+ last_fired_at touch；channel=in_app
+  仅落账（账本即 in-app 记录），channel=windows 落账后交注入 applier——
+  未注入（纯 Node/测试）或 applier 抛错 → degraded 统计，账本行保留，绝不抛。
+- 调度：notifyWire 模块级 setInterval 60s（unref，runQuitTeardown 最最前
+  shutdownNotifyWire 清理）+ powerMonitor resume/shutdown/system-clock-changed
+  → catchup 重扫。**'system-clock-changed' 未收录进 Electron 44.1.1
+  electron.d.ts**（任务书「事件名以实测为准」）：经 EventEmitter 接口防御性
+  注册，实机验证清单覆盖「时钟变化重扫」一项。
+- 通道实拆 3 条（任务书 §1.3 逐字命名 reminderUpsert/reminderDelete/
+  reminderLogList；docs/04 旧预注「CP4 reminder 两条」以实际为准）：logList
+  同时返回 summary { firedLast24h, upcoming24h } 供 ContestView 顶栏小铃铛
+  轮询聚合——不新增推送 channel（§1.2 #6「不加新推送面」）。
+
 ## 8. Agent 模式（CP5）
 
 - **能力矩阵（审计实测）**：codex = 唯一 managed（reply/pause/resume 逐方法

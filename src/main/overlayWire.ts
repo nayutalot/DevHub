@@ -3,7 +3,8 @@
  *
  * 唯一新增 electron import 位（autostartWire.ts 纪律注记扩展）：electron import
  * 白名单 = index.ts / keyStoreWire.ts / ipc/gateway.ts / autostartWire.ts /
- * trayWire.ts / 本模块。窗口/屏幕能力只在本文件出现；handlers/renderer 经
+ * trayWire.ts / 本模块 / contestpinWire.ts（CP3b 剪贴板）/ notifyWire.ts（CP4
+ * Notification+powerMonitor）。窗口/屏幕能力只在本文件出现；handlers/renderer 经
  * overlayStateService 的注入 applier 间接到达（service 层保持 electron-free）。
  *
  * 职责（docs/22 §4.1–§4.4）：
