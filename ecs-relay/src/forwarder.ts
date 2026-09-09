@@ -72,7 +72,7 @@ export class Forwarder {
   private readonly config: RelayConfig
   private readonly rateLimits: RateLimits
   /** RW0：wake 帧执行器（docs/18 §3.17；注入式 runner——单测零真实 SSH）。 */
-  private readonly wake: WakeExecutor
+  readonly wake: WakeExecutor
 
   /** device leg 已鉴权连接（同设备多连接，docs/18 §2）。 */
   private readonly deviceConns = new Map<number, Set<RelayConnection>>()
