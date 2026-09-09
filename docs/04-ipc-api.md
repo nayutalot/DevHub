@@ -116,3 +116,17 @@ AC2 批次 agents 13 条并入（55→68，docs/14 §A.1 权威，本文件未�
 | --- | --- | --- |
 | `versions:cancel` | `{ jobId? }`（缺省 = 取消当前唯一活跃任务；多个活跃时不指定 jobId → BAD_PAYLOAD 消歧） | running job → killTree（github 重建为流水线步间合作式取消）+ `{ cancelled: true, jobId, entryId, status: 'cancelled' }`；无活跃任务 → `{ cancelled: false, note }`（结构化空操作）；未知 jobId → `NOT_FOUND`；已结束 → `{ cancelled: false, status, note }`（docs/09 §7.2 cancelled 分支的主动取消，超时兜底之外的真中断） |
 | `agents:probeProvider` | `{ providerId }`（正整数；未注册 → `NOT_FOUND`） | 单家 provider 立即重探（force 语义，绕过 60s 节流）：probeHealth + agent_providers 落库 + 过期能力重验 + 该家会话快照强刷，返回 `{ provider: AgentProviderView, healthChanged }`（known-limitations §3.2 遗留的 per-provider 单独重探） |
+
+### LR1 追加（LLM 复核层，advisory-only；用户裁决 2026-09-09 恢复，设计权威 docs/briefs/lr1-llm-review.md）
+
+LLM 前/后复核 + Skills 元数据体检 4 条，**全 READ_ONLY**，**状态 = LR1 待落地**
+（硬门：M3-D 72h 终报通过后开工；落地后白名单 70→**74**）。advisory-only：复核结果
+永不阻塞归档主流程，端点未配置/不可达 → skipped 态，全流程行为等价现状。
+不改 MCP、不改归档 execute 管线。
+
+| channel | payload | result data | 读写 | 状态 |
+| --- | --- | --- | --- | --- |
+| `review:testEndpoint` | `{ baseUrl, model }`（base URL 占位 `http://<lan-ip>:11434/v1`） | `{ ok, latencyMs, error? }`（连通性/延迟探测，设置卡片端点测试入口） | READ_ONLY | LR1 待落地 |
+| `archive:reviewPre` | preview 既有 plan 摘要（零额外扫描，仅路径/名称/描述/计数） | 四态 envelope（ok/skipped/failed/unparseable）；ok 态含 `{ risk: 'low'\|'medium'\|'high', concerns[], rationale }`（确认弹窗咨询条展示，不拦截 DOUBLE_CONFIRM） | READ_ONLY | LR1 待落地 |
+| `archive:reviewPost` | `{ runId }`（archive_runs 行 id） | 四态 envelope（同上）；run 详情查看时按需触发，结果缓存 `review_post_json`，缓存命中不再打端点 | READ_ONLY | LR1 待落地 |
+| `skills:reviewMeta` | `{}` | 批量 flags（描述过短 / 语言不一致 / 疑似重复）；只读咨询不落库，doctor 语义不变 | READ_ONLY | LR1 待落地 |

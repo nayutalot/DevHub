@@ -231,6 +231,10 @@ INSERT INTO settings (key, value) VALUES
    `PRAGMA user_version = 3` 由 migrate.ts 字面量赋值。表结构全文见
    `src/main/db/migrations/003_merge_legacy.sql`；模块设计见 docs/09、docs/10。
    S1 起 fresh 库一次迁到 3；v2 库升级仅应用 003 且既有数据保留。
+8. **migration 007（预告，LR1 待落地）**：`ALTER TABLE archive_runs ADD COLUMN
+   review_pre_json TEXT` 与 `ADD COLUMN review_post_json TEXT`（均可空，LLM 复核
+   envelope 缓存；append-only，不改既有迁移）——设计见 docs/briefs/lr1-llm-review.md
+   （硬门：M3-D 72h 终报通过后开工）。
 
 ## 5. 表清单（S1 起，19 张）
 

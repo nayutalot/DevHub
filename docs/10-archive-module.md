@@ -1,8 +1,12 @@
 # DevHub Archive 模块设计（S1 设计，后续批次实现）
 
 > 合并来源：ArchiveKeeper（`F:\Active_Project\Archive-Tool\source`，项目归档引擎）。
-> 范围裁决（用户已确认）：归档引擎全量移植；**Agent 复核层不移植**（agentPre/agentPost、
-> profiles、configCrypto、configTransfer、secrets.json 一概不迁——DevHub 不做 LLM 复核）。
+> 范围修订（用户裁决 2026-09-09，推翻原「Agent 复核层不移植」裁决）：恢复 LLM 复核层，限定：
+> (1) 仅咨询性（advisory-only），复核结果永不阻塞归档主流程；(2) 端点=局域网 OpenAI
+> chat/completions 兼容本地服务（用户自备硬件 Jetson Orin Nano；Orin 侧不在项目范围），
+> v1 无鉴权、零 key 字段；(3) 端点未配置/不可达 → 复核步骤落 skipped 态，全流程行为等价现状；
+> (4) 复核输入仅路径/名称/描述/计数，零文件内容。老 agentPre/agentPost/profiles/configCrypto/
+> secrets.json 仍不移植——本层为全新轻量实现（LR 批次，设计见 docs/briefs/lr1-llm-review.md）。
 > 数据策略：`%APPDATA%\project-archiver\config.json` 只读，元数据迁入 DevHub SQLite
 >（archive_runs，migration 003）；老软件目录与数据文件永久只读。
 > 铁律基线同 docs/09 §11（exec 入口 / electron-free services / 零新依赖 / TS 风格）。
@@ -14,6 +18,8 @@
 ```
 预检(precheck) → 引用预览(preview) → 确认(confirm) → 执行(execute) → 复核(verify) → 回滚(rollback, 按需)
 ```
+
+LLM 前/后复核（advisory）：见 docs/briefs/lr1-llm-review.md；skipped 态等价现状
 
 | 阶段 | 内容 | 失败语义 |
 | --- | --- | --- |

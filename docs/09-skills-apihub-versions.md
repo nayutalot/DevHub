@@ -387,3 +387,15 @@ WSL 动作不新增 channel：`wsl:action`（terminate/boot/shutdownAll）与 `w
   upsert 入 003 新表；输出导入报告；可重复运行（幂等，按唯一键 upsert + 历史按
   old_path+at 查重）；绝不写老目录任何文件。详见 docs/03 §5 与脚本头注释。
 - ApiHub blob：只登记 needs_rekey=1 占位（§6.2），不解密。
+
+## 13. Skills 元数据体检（`skills:reviewMeta`，LR1 待落地；advisory）
+
+- 依据：用户裁决 2026-09-09 恢复 LLM 复核层（advisory-only），设计权威见
+  docs/briefs/lr1-llm-review.md；本节只登记 Skills 侧落点。
+- 入口：Skills 页**手动按钮**（无自动触发）；经 IPC `skills:reviewMeta`
+  （全 READ_ONLY，docs/04「LR1 追加」节，硬门 = M3-D 72h 终报通过）。
+- 行为：对 skills 元数据做批量体检，产出 flags——**描述过短 / 语言不一致 / 疑似重复**。
+- **只读咨询不落库**：结果不写任何表（与 skill_links 等落库缓存无关），仅 UI 展示。
+- **doctor 语义不变**：体检结果不进 §4.3 DoctorItem 判定，不改变 doctor 扫描源与修复行为。
+- 输入仅路径/名称/描述/计数级元数据，**零文件内容零 key**；端点未配置/不可达 →
+  skipped 态，页面行为等价现状。
