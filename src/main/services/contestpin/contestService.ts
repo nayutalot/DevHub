@@ -39,6 +39,7 @@ import type {
   ContestNodeSource,
   ContestNodeUpsertPayload,
   ContestNodeView,
+  ContestDueNode,
   ContestLinkProjectPayload,
   ContestPatch,
   ContestReminderChannel,
@@ -202,6 +203,10 @@ function toListItem(row: ContestRowWithNodeCount): ContestListItem {
     organizer: row.organizer ?? undefined,
     status: row.status as ContestStatus,
     archived: row.archived === 1,
+    // CP2：三链接随行投影（悬浮窗入口按钮直用，省逐条 contestpin:get）
+    officialSite: row.official_site ?? undefined,
+    signupUrl: row.signup_url ?? undefined,
+    submitUrl: row.submit_url ?? undefined,
     nodeCount: Number(row.node_count),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -343,6 +348,70 @@ function contestResourceId(db: DatabaseSync, contestId: number, name: string): n
 }
 
 // ---------------------------------------------------------------------------
+// due-node 投影（CP2，任务书 §2.1 #6）：悬浮窗/详情的"当前节点"纯逻辑计算，
+// smoke 可直调断言。语义（docs/22 §2.2/§4）：
+//  - 临近优先：未 done 且 start_at 最近的未来节点（start_at >= now）；
+//  - 全部候选已过期 → 最近的过去未 done 节点带 overdue:true；
+//  - done 后推进下一节点（候选集排除 done，自然前移）；
+//  - tbd（无 start_at）排最后：仅在无任何时刻候选时充当 dueNode；
+//  - precision 随投影返回，展示层据此区分"日期 · 未注明具体时刻"/"时间待定"。
+// ---------------------------------------------------------------------------
+export function computeDueNodes(
+  nodes: readonly ContestNodeView[],
+  now: number,
+): { dueNode: ContestDueNode | null; nextNode: ContestDueNode | null } {
+  const open = nodes.filter((n) => !n.done)
+  const timed = open
+    .filter((n) => n.startAt !== null)
+    .sort((a, b) => (a.startAt as number) - (b.startAt as number) || a.id - b.id)
+  const tbdNodes = open.filter((n) => n.startAt === null)
+  const ordered = [...timed, ...tbdNodes]
+  const toDue = (n: ContestNodeView, overdue: boolean): ContestDueNode => ({
+    nodeId: n.id,
+    contestId: n.contestId,
+    kind: n.kind,
+    label: n.label,
+    startAt: n.startAt,
+    precision: n.precision,
+    done: n.done,
+    overdue,
+  })
+
+  const firstFutureIdx = timed.findIndex((n) => (n.startAt as number) >= now)
+  let dueIdx: number
+  let overdue = false
+  if (firstFutureIdx !== -1) {
+    dueIdx = firstFutureIdx
+  } else if (timed.length > 0) {
+    dueIdx = timed.length - 1 // 全过期：最近的过去节点
+    overdue = true
+  } else if (tbdNodes.length > 0) {
+    dueIdx = timed.length // 只剩 tbd：排最后的待定节点
+  } else {
+    return { dueNode: null, nextNode: null }
+  }
+  const due = ordered[dueIdx]
+  const next = ordered[dueIdx + 1]
+  return {
+    dueNode: toDue(due, overdue),
+    nextNode: next !== undefined ? toDue(next, false) : null,
+  }
+}
+
+/** 单比赛的节点拉取 + due 投影（list 逐行 / get 单条共用）。 */
+function dueProjection(
+  db: DatabaseSync,
+  contestId: number,
+  now: number,
+): { dueNode: ContestDueNode | null; nextNode: ContestDueNode | null } {
+  const rows = db.prepare(LIST_NODES_SQL).all(contestId) as unknown as ContestNodeDbRow[]
+  return computeDueNodes(
+    rows.map(toNodeView),
+    now,
+  )
+}
+
+// ---------------------------------------------------------------------------
 // contestpin:list / contestpin:get
 // ---------------------------------------------------------------------------
 
@@ -385,11 +454,20 @@ export function listContests(payload: ContestListPayload = {}): ContestListResul
        ORDER BY c.updated_at DESC, c.id DESC LIMIT ? OFFSET ?`,
     )
     .all(...params, limit, offset) as unknown as ContestRowWithNodeCount[]
+
+  const now = nowSec()
+  const items = rows.map((row) => {
+    const item = toListItem(row)
+    const projection = dueProjection(db, row.id, now)
+    item.dueNode = projection.dueNode
+    item.nextNode = projection.nextNode
+    return item
+  })
   const totalRow = db
     .prepare(`SELECT COUNT(*) AS c FROM contests c${whereSql}`)
     .get(...params) as { c: number | bigint }
 
-  return { items: rows.map(toListItem), total: Number(totalRow.c) }
+  return { items, total: Number(totalRow.c) }
 }
 
 export function getContest(id: number): ContestDetailView {
@@ -404,6 +482,7 @@ export function getContest(id: number): ContestDetailView {
     toMaterialView,
   )
   const project = (db.prepare(FIND_PROJECT_BY_CONTEST_SQL).get(id) as ContestLinkedProject | undefined) ?? null
+  const projection = dueProjection(db, row.id, nowSec())
 
   return {
     id: row.id,
@@ -418,6 +497,8 @@ export function getContest(id: number): ContestDetailView {
     signupUrl: row.signup_url ?? undefined,
     submitUrl: row.submit_url ?? undefined,
     nodeCount: nodes.length,
+    dueNode: projection.dueNode,
+    nextNode: projection.nextNode,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     nodes,
@@ -425,6 +506,12 @@ export function getContest(id: number): ContestDetailView {
     reminders,
     project,
   }
+}
+
+/** 轻量存在性检查（contestpin:openInMain 先校验后导航，handlers 调用）。 */
+export function contestExists(id: number): boolean {
+  const row = getDatabase().prepare('SELECT 1 FROM contests WHERE id = ?').get(id)
+  return row !== undefined
 }
 
 // ---------------------------------------------------------------------------

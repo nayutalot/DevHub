@@ -36,6 +36,11 @@ export const IPC_GATEWAY = 'devhub:invoke' as const
  * 模式就地更新）：contestpin 9 条并入，70 → 79（list/get/create/update/delete/
  * archive/nodeUpsert/nodeDelete/linkProject；delete/nodeDelete 为 CONFIRM_REQUIRED
  * 两段式，先回 impacts）。
+ * CP2 批次 note（ContestPin 悬浮窗，docs/22 §4 + docs/04「ContestPin 追加」节授权的
+ * 同一模式就地更新）：contestpin 5 条并入，79 → 84（overlayState READ_ONLY /
+ * overlaySetEnabled / overlaySetCollapsed / openInMain / openLink——openLink 仅
+ * http/https 经 service validateExternalUrl 校验后默认浏览器；窗口胶水在
+ * overlayWire.ts，handlers 经 overlayStateService 注入 applier，零 electron import）。
  */
 export const IPC_CHANNELS = [
   // scan
@@ -145,6 +150,14 @@ export const IPC_CHANNELS = [
   'contestpin:nodeUpsert',
   'contestpin:nodeDelete',
   'contestpin:linkProject',
+  // contestpin（CP2 批次，docs/22 §4 悬浮窗：overlayState READ_ONLY；开关/折叠
+  // 经 settings 持久化 + overlayWire 窗口即时生效；openInMain 聚焦主窗口导航
+  // contest:<id>；openLink 仅 http/https，service 校验后默认浏览器）
+  'contestpin:overlayState',
+  'contestpin:overlaySetEnabled',
+  'contestpin:overlaySetCollapsed',
+  'contestpin:openInMain',
+  'contestpin:openLink',
 ] as const
 
 /** Compile-time whitelist: a handler map must be keyed by IpcChannel. */

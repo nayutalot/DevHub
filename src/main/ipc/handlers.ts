@@ -102,6 +102,7 @@ import {
 import { knownDistroNames, wslAction, wslDistroStatsSummary, wslShutdownAll } from '../services/wslService.ts'
 import {
   archiveContest,
+  contestExists,
   createContest,
   deleteContest,
   deleteNode,
@@ -111,6 +112,13 @@ import {
   updateContest,
   upsertNode,
 } from '../services/contestpin/contestService.ts'
+import {
+  getOverlayState,
+  openContestInMain,
+  openExternalLink,
+  setOverlayCollapsed,
+  setOverlayEnabled,
+} from '../services/contestpin/overlayStateService.ts'
 import type { ContestNodeInput, ContestPatch, ContestStatus } from '../../shared/types.ts'
 import {
   ARCHIVE_HISTORY_LIMIT,
@@ -321,7 +329,8 @@ export const contractCoversWhitelist: AssertContractCoversWhitelist = true
  * 全覆盖：缺一条 / 多一条都是类型错误，权威清单见 shared/channels.ts ——
  * Phase 1 21 条 + S2 skills 14 条 = 35 + S3 apihub 6 条 + versions 4 条 = 45
  * + S4 docker 3 条 + wsl 2 条 = 50 + S5 archive 5 条 = 55 + AC2 agents 13 条 = 68
- * + 夜间#1 versions:cancel / agents:probeProvider = 70 + CP1 contestpin 9 条 = 79）。
+ * + 夜间#1 versions:cancel / agents:probeProvider = 70 + CP1 contestpin 9 条 = 79
+ * + CP2 contestpin 悬浮窗 5 条 = 84）。
  */
 export type HandlerRegistry = Record<IpcChannel, ChannelHandler>
 
@@ -944,6 +953,44 @@ export function createHandlerRegistry(deps: HandlerDeps): HandlerRegistry {
         throw badPayload('contestpin:linkProject', 'projectId must be a positive integer or null')
       }
       return linkProject({ contestId: requireId('contestpin:linkProject', p, 'contestId'), projectId: projectId as number | null })
+    },
+
+    // --- contestpin 悬浮窗（CP2 批次，docs/22 §4；窗口/浏览器胶水在 overlayWire.ts，
+    // handlers 只经 electron-free 的 overlayStateService —— applier 未注入的纯 Node
+    // 语境为结构化 no-op（opened:false），openLink 的 URL 校验恒在 service 侧执行） ---
+    'contestpin:overlayState': async (payload) => {
+      asPayloadObject('contestpin:overlayState', payload)
+      return getOverlayState()
+    },
+    'contestpin:overlaySetEnabled': async (payload) => {
+      const p = asPayloadObject('contestpin:overlaySetEnabled', payload)
+      const enabled = p.enabled
+      if (typeof enabled !== 'boolean') {
+        throw badPayload('contestpin:overlaySetEnabled', 'enabled must be a boolean')
+      }
+      return setOverlayEnabled(enabled)
+    },
+    'contestpin:overlaySetCollapsed': async (payload) => {
+      const p = asPayloadObject('contestpin:overlaySetCollapsed', payload)
+      const collapsed = p.collapsed
+      if (typeof collapsed !== 'boolean') {
+        throw badPayload('contestpin:overlaySetCollapsed', 'collapsed must be a boolean')
+      }
+      return setOverlayCollapsed(collapsed)
+    },
+    'contestpin:openInMain': async (payload) => {
+      const p = asPayloadObject('contestpin:openInMain', payload)
+      const contestId = requireId('contestpin:openInMain', p, 'contestId')
+      // 存在性校验在 handler 侧（service 的 openContestInMain 只管 applier 转发）
+      if (contestExists(contestId) === false) {
+        throw new ServiceError('NOT_FOUND', `contest ${contestId} not found`)
+      }
+      return openContestInMain(contestId)
+    },
+    'contestpin:openLink': async (payload) => {
+      const p = asPayloadObject('contestpin:openLink', payload)
+      // 仅 http/https（javascript:/file:/ftp:/空白拒绝）——校验在 overlayStateService
+      return openExternalLink(requireNonEmptyString('contestpin:openLink', p, 'url'))
     },
   }
 }

@@ -1909,7 +1909,8 @@ export type ContestReminderOffsetKind = 'before_days' | 'before_hours' | 'at_tim
 
 export type ContestReminderChannel = 'windows' | 'in_app'
 
-/** contestpin:list 的行投影（名称/年份/状态/归档 + 节点计数，轻于 ContestView）。 */
+/** contestpin:list 的行投影（名称/年份/状态/归档 + 节点计数，轻于 ContestView）。
+ * CP2 起携带三链接 URL（悬浮窗入口按钮直用，省逐条 get）与 dueNode/nextNode 投影。 */
 export interface ContestListItem {
   id: number
   name: string
@@ -1919,7 +1920,14 @@ export interface ContestListItem {
   organizer?: string
   status: ContestStatus
   archived: boolean
+  officialSite?: string
+  signupUrl?: string
+  submitUrl?: string
   nodeCount: number
+  /** 当前节点投影（CP2 due-node 计算，docs/22 §4 悬浮窗展示）；无候选节点时 null。 */
+  dueNode?: ContestDueNode | null
+  /** dueNode 之后的下一未完成节点；无 → null。 */
+  nextNode?: ContestDueNode | null
   createdAt: number
   updatedAt: number
 }
@@ -1938,8 +1946,29 @@ export interface ContestView {
   signupUrl?: string
   submitUrl?: string
   nodeCount: number
+  dueNode?: ContestDueNode | null
+  nextNode?: ContestDueNode | null
   createdAt: number
   updatedAt: number
+}
+
+/**
+ * due-node 投影（CP2，docs/22 §4 + 任务书 §2.1 #6）：悬浮窗/详情的"当前节点"。
+ * 临近优先（未 done 且 start_at 最近未来）；全过期 → dueNode 带 overdue:true；
+ * done 后自然推进下一节点；tbd（无 start_at）排最后；precision 传递给展示层
+ * （'date' 展示"日期 · 未注明具体时刻"，'tbd' 展示"时间待定"，docs/22 §2.2）。
+ */
+export interface ContestDueNode {
+  nodeId: number
+  contestId: number
+  kind: ContestNodeKind
+  label: string
+  /** tbd 节点为 null（排最后，仅无时刻候选时才被选为 dueNode）。 */
+  startAt: number | null
+  precision: ContestNodePrecision
+  done: boolean
+  /** dueNode 来自"最近的过去未完成节点"（全部候选已过期）时 true。 */
+  overdue: boolean
 }
 
 /** 单个时间节点视图（precision/raw_text 为时间语义与原文依据，docs/22 §2.2）。 */
@@ -2147,6 +2176,61 @@ export interface ContestLinkProjectResult {
   linked: boolean
 }
 
+// --- contestpin:overlayState（CP2，docs/22 §4；READ_ONLY） ---
+
+/** 悬浮窗 bounds（Electron DIP 坐标，docs/22 §4.3——不自行换算 DPI scale）。 */
+export interface ContestOverlayBounds {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface ContestOverlayStateResult {
+  enabled: boolean
+  /** null = 未持久化过位置（wire 层居中主显示器 workArea）。 */
+  bounds: ContestOverlayBounds | null
+  collapsed: boolean
+}
+
+// --- contestpin:overlaySetEnabled / contestpin:overlaySetCollapsed ---
+
+export interface ContestOverlaySetEnabledPayload {
+  enabled: boolean
+}
+
+export interface ContestOverlaySetEnabledResult {
+  enabled: boolean
+}
+
+export interface ContestOverlaySetCollapsedPayload {
+  collapsed: boolean
+}
+
+export interface ContestOverlaySetCollapsedResult {
+  collapsed: boolean
+}
+
+// --- contestpin:openInMain / contestpin:openLink ---
+
+export interface ContestOpenInMainPayload {
+  contestId: number
+}
+
+export interface ContestOpenInMainResult {
+  /** 悬浮窗/纯 Node 语境未注入 applier 时 false（结构化 no-op，非错误）。 */
+  opened: boolean
+}
+
+export interface ContestOpenLinkPayload {
+  url: string
+}
+
+export interface ContestOpenLinkResult {
+  /** 同上：applier 未注入时 false；URL 非法为 BAD_PAYLOAD 错误分支。 */
+  opened: boolean
+}
+
 // ---------------------------------------------------------------------------
 // 7. Gateway request & channel contract table (constraint #17)
 // ---------------------------------------------------------------------------
@@ -2255,6 +2339,13 @@ export interface ChannelContract {
   'contestpin:nodeUpsert': [ContestNodeUpsertPayload, ContestNodeView]
   'contestpin:nodeDelete': [ContestNodeDeletePayload, ContestNodeDeleteStart | ContestNodeDeleteResult]
   'contestpin:linkProject': [ContestLinkProjectPayload, ContestLinkProjectResult]
+  // --- contestpin (CP2 batch, docs/22 §4 悬浮窗；overlayState 为 READ_ONLY，
+  //     openLink 经 validateExternalUrl 仅 http/https，openInMain 聚焦主窗口导航) ---
+  'contestpin:overlayState': [Record<string, never>, ContestOverlayStateResult]
+  'contestpin:overlaySetEnabled': [ContestOverlaySetEnabledPayload, ContestOverlaySetEnabledResult]
+  'contestpin:overlaySetCollapsed': [ContestOverlaySetCollapsedPayload, ContestOverlaySetCollapsedResult]
+  'contestpin:openInMain': [ContestOpenInMainPayload, ContestOpenInMainResult]
+  'contestpin:openLink': [ContestOpenLinkPayload, ContestOpenLinkResult]
 }
 
 /** Compile-time assertion that ChannelContract covers exactly the whitelist. */
