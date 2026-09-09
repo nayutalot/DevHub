@@ -146,6 +146,12 @@ object ConnectionManager {
      */
     private const val REVOKE_CLOSURE_TIMEOUT_MS = 15_000L
 
+    /**
+     * RW1 wake_result 等待窗（docs/18 §3.17）：20s > relay 执行上限 15s（进程硬顶），
+     * 超时如实展示 timeout 文案（与 relay timeout 态同文案，绝不谎报 sent）。
+     */
+    private const val WAKE_TIMEOUT_MS = 20_000L
+
     /** R5.3 事件驱动刷新信号的节流窗（事件风暴 → 至多每 500ms 一次 UI 拉取触发）。 */
     private const val REFRESH_BUMP_THROTTLE_MS = 500L
 
@@ -246,6 +252,13 @@ object ConnectionManager {
     // M3-E1：revoke_device 收口信号（onAuthFatal(DEVICE_REVOKED) 时完成；§5.3 收口语义）
     @Volatile
     private var selfRevokeClosure: CompletableDeferred<Unit>? = null
+
+    // RW1：wake_host → wake_result 挂起表（key = requestId，ECS 原样回显；docs/18 §3.17）。
+    // 不入 QueueReplay/幂等体系——relay 侧唯一去重面 = 每设备冷却窗，排队重放会撞窗且语义撒谎。
+    private val pendingWakes = ConcurrentHashMap<String, CompletableDeferred<RelayFrame.WakeResult>>()
+
+    /** RW1 wake 提交序列（20s 等待窗 > relay 执行上限 15s；超时如实展示 timeout，不谎报 sent）。 */
+    private val wakeSubmitter = WakeHostSubmitter(WAKE_TIMEOUT_MS, pendingWakes)
 
     /**
      * 初始化（幂等）：Application.onCreate 调用。
@@ -693,6 +706,8 @@ object ConnectionManager {
 
             is RelayFrame.CommandResult -> settleCommandResult(frame)
 
+            is RelayFrame.WakeResult -> settleWakeResult(frame)
+
             is RelayFrame.Error -> {
                 _lastWsError.value = "relay error [${frame.code}] ${frame.message ?: ""}" +
                     (frame.retryAfterSec?.let { "（retry after ${it}s）" } ?: "")
@@ -884,6 +899,25 @@ object ConnectionManager {
                 }
             }
         }
+    }
+
+    /** wake_result 终态（docs/18 §3.17 单帧结算）：requestId 匹配挂起请求；无主迟到帧即弃。 */
+    private fun settleWakeResult(frame: RelayFrame.WakeResult) {
+        pendingWakes.remove(frame.requestId)?.let { deferred ->
+            if (deferred.isActive) deferred.complete(frame)
+        }
+    }
+
+    /**
+     * RW1 relay 模式唤醒 Windows（docs/18 §3.17 wake_host/wake_result；仅 relay 面——
+     * 本地面无此能力，UI 不渲染按钮）。已鉴权 relay WS 会话直发单帧，requestId 挂起单帧结算；
+     * **不入队**：非 Connected → NotConnected 如实返回（不排队不伪成功，排队重放会撞
+     * relay 每设备冷却窗）；20s 等待窗超时 → Timeout（> relay 15s 执行上限）。
+     */
+    suspend fun submitWakeHost(): WakeSubmit = withContext(Dispatchers.IO) {
+        val ws = webSocket
+        val connected = ws != null && _state.value is ConnState.Connected
+        wakeSubmitter.submit(connected) { ws?.send(it) == true }
     }
 
     // ---------------------------------------------------------------------------

@@ -6,6 +6,7 @@
     "purpose": "M2 三线契约一致性对拍（docs/20 §2.4/§5：R1 relay-client × R2 ecs-relay × R3 android-relay 同帧集双端解析一致，防漂移）",
     "createdAt": "2026-09-05",
     "directionLegend": "D→E=Android→ECS；E→D=ECS→Android；H→E=relayClient→ECS；E→H=ECS→relayClient",
+    "rw1WakeAppend": "偏离⑥（RW1，2026-09-10）：#17 wake_host/#18 wake_result 对拍件仅存 App 侧镜像（ecs-relay frames.json 属 RW1 零改动面，保持 16 帧正集）；帧形权威 = docs/18 §3.17，正集 16→18",
     "conventions": {
       "eventFrameTypeResolution": "docs/18 §3.6 示例中 'type' 键出现两次（discriminator 'event' 与事件类型，JSON 重复键非法）。fixture 裁定：帧判别字段 type='event'（docs/18 §3.0 总表 #6 与 docs/19 §7.2 RelayCodec 帧清单的稳定判别面），事件类型承载于 'eventType' 字段（docs/14 原名，§4.1 改名的值语义保留）。R1/R3 对拍以此为准；契约修订须回 docs/18 广播（docs/20 §2.4）。",
       "tokenRotationRouting": "docs/18 §3.14 H→E token_rotation 帧形未含路由目标。R2 实现要求帧携带 'deviceId'（Windows 侧 remote_devices.id）以定位 relay_devices 行（sha256(newToken) 同步），否则回 BAD_PAYLOAD error 帧（见 ecs-relay/README.md 偏离单）。",
@@ -105,7 +106,12 @@
             "type": "pair_accepted",
             "requestId": "0d3f2a10-7c1a-4a5e-9a2b-000000000001",
             "ecsDeviceId": 7,
-            "device": { "deviceId": 12, "deviceName": "Pixel 8", "platform": "android", "tokenVersion": 1 },
+            "device": {
+              "deviceId": 12,
+              "deviceName": "Pixel 8",
+              "platform": "android",
+              "tokenVersion": 1
+            },
             "deviceToken": "<256-bit-base64url-device-token>",
             "gatewayName": "devhub-gateway"
           }
@@ -133,7 +139,10 @@
       "samples": [
         {
           "leg": "device-to-ecs",
-          "frame": { "type": "agent_list", "requestId": "0d3f2a10-7c1a-4a5e-9a2b-000000000004" }
+          "frame": {
+            "type": "agent_list",
+            "requestId": "0d3f2a10-7c1a-4a5e-9a2b-000000000004"
+          }
         },
         {
           "leg": "ecs-to-device",
@@ -147,7 +156,11 @@
                 "health": "ok",
                 "capabilities": {
                   "mode": "managed",
-                  "granted": ["reply", "pause", "resume"],
+                  "granted": [
+                    "reply",
+                    "pause",
+                    "resume"
+                  ],
                   "verifiedAt": 1757000000,
                   "evidence": "app-server handshake ok"
                 }
@@ -169,7 +182,10 @@
           "frame": {
             "type": "session_list",
             "requestId": "0d3f2a10-7c1a-4a5e-9a2b-000000000005",
-            "query": { "providerId": "codex", "limit": 100 }
+            "query": {
+              "providerId": "codex",
+              "limit": 100
+            }
           }
         },
         {
@@ -212,7 +228,10 @@
             "eventType": "session.waiting_input",
             "timestamp": 1757000000,
             "summary": "Codex 会话等待输入（≤120 字符脱敏摘要）",
-            "payload": { "sessionId": 337, "status": "waiting_input" },
+            "payload": {
+              "sessionId": 337,
+              "status": "waiting_input"
+            },
             "requiresUserAction": true
           }
         },
@@ -229,7 +248,10 @@
             "eventType": "session.waiting_input",
             "timestamp": 1757000000,
             "summary": "Codex 会话等待输入（≤120 字符脱敏摘要）",
-            "payload": { "sessionId": 337, "status": "waiting_input" },
+            "payload": {
+              "sessionId": 337,
+              "status": "waiting_input"
+            },
             "requiresUserAction": true
           }
         }
@@ -263,7 +285,12 @@
                 "role": "assistant",
                 "contentRedacted": "（脱敏投影全文）",
                 "occurredAt": 1757000000,
-                "segments": [{ "kind": "thinking", "content": "（结构化分段投影）" }]
+                "segments": [
+                  {
+                    "kind": "thinking",
+                    "content": "（结构化分段投影）"
+                  }
+                ]
               }
             ],
             "prevAfter": 8800
@@ -287,7 +314,9 @@
             "idempotencyKey": "b1e2c3d4-1111-4a5e-9a2b-000000000008",
             "sessionId": 337,
             "action": "send_message",
-            "payload": { "text": "继续" },
+            "payload": {
+              "text": "继续"
+            },
             "auth": {
               "token": "<256-bit-base64url-device-token>",
               "ts": 1757000000,
@@ -415,7 +444,10 @@
                 "eventType": "message.appended",
                 "timestamp": 1757000001,
                 "summary": "消息已追加（脱敏摘要）",
-                "payload": { "sessionId": 337, "messageId": 9001 },
+                "payload": {
+                  "sessionId": 337,
+                  "messageId": 9001
+                },
                 "requiresUserAction": false
               }
             ]
@@ -443,21 +475,39 @@
       "samples": [
         {
           "leg": "device-to-ecs",
-          "frame": { "type": "heartbeat", "ts": 1757000000, "lastAckedSeq": 14800, "tokenVersion": 1 }
+          "frame": {
+            "type": "heartbeat",
+            "ts": 1757000000,
+            "lastAckedSeq": 14800,
+            "tokenVersion": 1
+          }
         },
         {
           "leg": "ecs-to-device",
-          "frame": { "type": "heartbeat", "ts": 1757000000, "upstream": "connected", "queuedCommands": 0 }
+          "frame": {
+            "type": "heartbeat",
+            "ts": 1757000000,
+            "upstream": "connected",
+            "queuedCommands": 0
+          }
         },
         {
           "leg": "host-to-ecs",
           "note": "H→E（host 上行进度）",
-          "frame": { "type": "heartbeat", "ts": 1757000000, "lastSentSeq": 14871 }
+          "frame": {
+            "type": "heartbeat",
+            "ts": 1757000000,
+            "lastSentSeq": 14871
+          }
         },
         {
           "leg": "ecs-to-host",
           "note": "E→H（ECS 对 host 恒回 ack 进度）",
-          "frame": { "type": "heartbeat", "ts": 1757000000, "lastAckedSeq": 14800 }
+          "frame": {
+            "type": "heartbeat",
+            "ts": 1757000000,
+            "lastAckedSeq": 14800
+          }
         }
       ]
     },
@@ -502,17 +552,27 @@
       "samples": [
         {
           "leg": "ecs-to-device-server-shutdown",
-          "frame": { "type": "disconnect", "reason": "server_shutdown" }
+          "frame": {
+            "type": "disconnect",
+            "reason": "server_shutdown"
+          }
         },
         {
           "leg": "host-to-ecs",
           "note": "H→E（撤销定点踢线：deviceId = Windows 侧设备 id）",
-          "frame": { "type": "disconnect", "deviceId": 4, "reason": "revoked" }
+          "frame": {
+            "type": "disconnect",
+            "deviceId": 4,
+            "reason": "revoked"
+          }
         },
         {
           "leg": "ecs-to-device-revoked",
           "note": "E→D（被踢设备最后一帧）",
-          "frame": { "type": "disconnect", "reason": "revoked" }
+          "frame": {
+            "type": "disconnect",
+            "reason": "revoked"
+          }
         }
       ]
     },
@@ -541,6 +601,61 @@
             "type": "error",
             "code": "INTERNAL",
             "message": "relay internal error"
+          }
+        }
+      ]
+    },
+    {
+      "no": 17,
+      "type": "wake_host",
+      "source": "docs/18 §3.17（RW0 增补，2026-09-09；relay 原生执行，绝不转发桌面）",
+      "directions": "D→E",
+      "notes": "仅已鉴权 device 会话可发；零业务字段——目标/端口/凭据全在 ECS 机器级 ssh config/wrapper 层；每设备冷却窗（缺省 15s）；requestId 缺失/类型错 → error BAD_PAYLOAD（§3.16 业务级）；不入排队/幂等体系",
+      "samples": [
+        {
+          "leg": "device-to-ecs",
+          "frame": {
+            "type": "wake_host",
+            "requestId": "b1e2c3d4-1111-4a5e-9a2b-000000000011"
+          }
+        }
+      ]
+    },
+    {
+      "no": 18,
+      "type": "wake_result",
+      "source": "docs/18 §3.17（RW0 增补；单帧终态，requestId 原样回显）",
+      "directions": "E→D",
+      "notes": "status 白名单六态：sent(+latencyMs)/already_on/rate_limited(+retryAfterMs)/disabled/exec_failed(+latencyMs+stderrSummary，relay 侧已脱敏截断 ≤200)/timeout(+latencyMs)；业务级绝不 close",
+      "samples": [
+        {
+          "leg": "ecs-to-device",
+          "frame": {
+            "type": "wake_result",
+            "requestId": "b1e2c3d4-1111-4a5e-9a2b-000000000011",
+            "status": "sent",
+            "latencyMs": 812
+          }
+        },
+        {
+          "leg": "ecs-to-device-rate-limited",
+          "note": "冷却窗内重复请求（先于 already_on 快路径计入）",
+          "frame": {
+            "type": "wake_result",
+            "requestId": "b1e2c3d4-1111-4a5e-9a2b-000000000013",
+            "status": "rate_limited",
+            "retryAfterMs": 9300
+          }
+        },
+        {
+          "leg": "ecs-to-device-exec-failed",
+          "note": "stderrSummary 供诊断（已脱敏）；桌面离线不是错误——恰为主用例，隧道死才落此态",
+          "frame": {
+            "type": "wake_result",
+            "requestId": "b1e2c3d4-1111-4a5e-9a2b-000000000012",
+            "status": "exec_failed",
+            "latencyMs": 210,
+            "stderrSummary": "ssh: connect to host 127.0.0.1 port 2222: Connection refused"
           }
         }
       ]

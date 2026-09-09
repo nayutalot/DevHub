@@ -37,8 +37,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.devhub.mobile.core.IdempotencyKeys
 import com.devhub.mobile.core.InteractionHonesty
+import com.devhub.mobile.core.relay.WakeResultStatus
 import com.devhub.mobile.connect.ConnectionManager
+import com.devhub.mobile.connect.ConnState
 import com.devhub.mobile.connect.ManagedSpawnSubmit
+import com.devhub.mobile.connect.WakeSubmit
 import com.devhub.mobile.data.ApiProvider
 import com.devhub.mobile.data.FixtureMode
 import com.devhub.mobile.data.remote.AgentDto
@@ -54,6 +57,12 @@ import java.io.IOException
 
 /** 托管任务输入上限（与服务端 MANAGED_SESSION_TASK_MAX_CHARS 对齐）。 */
 private const val SPAWN_TASK_MAX_CHARS = 4_000
+
+/**
+ * RW1 wake 本地冷却窗（纯防抖 UX；权威在 relay WAKE_COOLDOWN_S 缺省 15s，docs/18 §3.17）：
+ * sent/already_on 后本地禁用 15s；rate_limited 以回传 retryAfterMs 为准。
+ */
+private const val WAKE_LOCAL_COOLDOWN_MS = 15_000L
 
 /**
  * 页面 3：Agent 列表（GET /v1/agents，docs/14 §B.1；体验整改批 C 交互诚实化）。
@@ -94,6 +103,8 @@ fun AgentsScreen(onOpenSession: (Long) -> Unit = {}) {
         Spacer(Modifier.height(8.dp))
         Text("Agents", style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(4.dp))
+        // RW1：relay 分支连接区「唤醒 Windows」（本地模式不渲染——wake 是 relay 原生能力）
+        WakeHostCard()
         val list = agents
         when {
             list == null && error == null -> Column(Modifier.padding(24.dp)) { CircularProgressIndicator() }
@@ -110,6 +121,136 @@ fun AgentsScreen(onOpenSession: (Long) -> Unit = {}) {
             }
         }
     }
+}
+
+/**
+ * RW1（docs/18 §3.17）：relay 分支连接区「唤醒 Windows」。
+ * - 仅 relay 模式渲染（activeMode==relay；本地 REST 模式 = wake 是 relay 原生能力，不渲染）；
+ * - WS 非 Connected → 按钮不可用并如实展示「不排队不伪成功」（wake 禁入 QueueReplay）；
+ * - 六态文案不美化：disabled=未启用、rate_limited=冷却中、sent=已发出≠已开机、
+ *   exec_failed 含 relay 回传 stderrSummary（relay 侧已脱敏截断）；
+ * - App 侧 20s 等待窗超时与 relay timeout 态同文案，绝不谎报 sent；
+ * - 冷却倒计时纯本地防抖（权威在 relay）：sent/already_on → 15s，rate_limited → retryAfterMs；
+ * - loading / disabled / 结果三态强制，数据全部来自真实 ConnectionManager 面（零 mock）。
+ */
+@Composable
+private fun WakeHostCard() {
+    val scope = rememberCoroutineScope()
+    val connState by ConnectionManager.state.collectAsState()
+    val activeMode by ConnectionManager.activeMode.collectAsState()
+
+    // 本地模式（REST）不渲染该卡（设计裁决 3：wake 是 relay 原生能力）
+    if (activeMode != "relay") return
+
+    var busy by remember { mutableStateOf(false) }
+    var statusText by remember { mutableStateOf<String?>(null) }
+    var cooldownUntilMs by remember { mutableStateOf(0L) }
+    var cooldownRemainSec by remember { mutableStateOf(0) }
+
+    // 冷却倒计时（本地节拍 250ms；权威在 relay，本窗仅防抖）
+    LaunchedEffect(cooldownUntilMs) {
+        while (true) {
+            val remain = ((cooldownUntilMs - System.currentTimeMillis()) / 1000L).toInt().coerceAtLeast(0)
+            cooldownRemainSec = remain
+            if (remain <= 0) break
+            delay(250)
+        }
+    }
+
+    val connected = connState is ConnState.Connected
+    val cooling = cooldownRemainSec > 0
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = {
+                    if (busy || cooling || !connected) return@Button
+                    busy = true
+                    statusText = null
+                    scope.launch {
+                        val r = ConnectionManager.submitWakeHost()
+                        when (r) {
+                            is WakeSubmit.Result -> {
+                                statusText = wakeResultText(r)
+                                val cooldownMs = when (r.status) {
+                                    WakeResultStatus.RATE_LIMITED -> r.retryAfterMs ?: WAKE_LOCAL_COOLDOWN_MS
+                                    WakeResultStatus.SENT, WakeResultStatus.ALREADY_ON -> WAKE_LOCAL_COOLDOWN_MS
+                                    else -> 0L
+                                }
+                                if (cooldownMs > 0) cooldownUntilMs = System.currentTimeMillis() + cooldownMs
+                            }
+
+                            WakeSubmit.NotConnected ->
+                                statusText = "未连接：唤醒仅在 Relay 已连接时可用（不排队、不伪成功）"
+
+                            WakeSubmit.Timeout ->
+                                // App 侧等待窗超时：与 relay timeout 态同文案（不谎报 sent）
+                                statusText = "唤醒超时（timeout）：15s 内未完成，可稍后重试"
+                        }
+                        busy = false
+                    }
+                },
+                enabled = connected && !busy && !cooling,
+            ) {
+                Text(
+                    when {
+                        busy -> "发送中…"
+                        cooling -> "冷却中 ${cooldownRemainSec}s"
+                        else -> "唤醒 Windows"
+                    },
+                    fontSize = 13.sp,
+                )
+            }
+            if (busy) CircularProgressIndicator(Modifier.width(16.dp).height(16.dp), strokeWidth = 2.dp)
+        }
+
+        // 结果行（六态如实投影；exec_failed 的 stderrSummary 由 relay 脱敏截断后直显）
+        statusText?.let {
+            Text(it, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+
+        // 状态行（未连接 / 冷却中——诚实禁用原因，绝不静默）
+        if (!busy && statusText == null) {
+            when {
+                !connected ->
+                    Text(
+                        "未连接：唤醒仅在 Relay 已连接时可用（不排队、不伪成功）",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+
+                cooling ->
+                    Text(
+                        "冷却中：${cooldownRemainSec}s 后可再试（本地防抖，以 relay 实际判定为准）",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+            }
+        }
+    }
+}
+
+/** wake 六态 → 如实文案（绝不美化；exec_failed 携 relay 已脱敏 stderr 摘要）。 */
+private fun wakeResultText(r: WakeSubmit.Result): String = when (r.status) {
+    WakeResultStatus.SENT ->
+        "唤醒指令已发出（sent，${r.latencyMs ?: "?"}ms）。「已发出」≠「已开机」，以主机实际状态为准"
+
+    WakeResultStatus.ALREADY_ON -> "Windows 已在线（already_on），无需唤醒"
+
+    WakeResultStatus.RATE_LIMITED ->
+        "Relay 冷却窗拒绝（rate_limited）：需 ${((r.retryAfterMs ?: 15_000L) + 999) / 1000}s 后重试"
+
+    WakeResultStatus.DISABLED -> "Relay 未启用唤醒功能（disabled）：需在 ECS 配置 WAKE_ENABLED=1"
+
+    WakeResultStatus.EXEC_FAILED ->
+        "唤醒执行失败（exec_failed）：" + (r.stderrSummary?.takeIf { it.isNotBlank() } ?: "无诊断摘要")
+
+    WakeResultStatus.TIMEOUT -> "唤醒超时（timeout）：15s 内未完成，可稍后重试"
 }
 
 @Composable
