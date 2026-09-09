@@ -11,7 +11,11 @@
  * 的 settings 普通键值非凭据——三键并落，白名单 10→13；对 §4.7「10→12」的
  * 计数偏离 = §4.3 该键的明文授权，非凭据属性经本注记声明。Relay 凭据/注册码
  * 绝不入 settings，凭据走 %LOCALAPPDATA%\DevHub\relay\credential 机器本地文件，
- * docs/19 §2.2 红线）；
+ * docs/19 §2.2 红线）/
+ * contestpin_default_mode / contestpin_overlay_enabled / contestpin_overlay_state
+ * （CP1：008 种子两键 + 运行期键，docs/22 §2.1）/
+ * llm_review_base_url / llm_review_model（LR1：007 种子两键，默认空 = 停用，
+ * 双键同设才生效；docs/briefs/lr1-llm-review.md §5，白名单 16→18）；
  * 一切 SQL 参数绑定（约束 #11）。
  */
 
@@ -41,6 +45,12 @@ const ALLOWED_KEYS: readonly string[] = [
   'contestpin_default_mode',
   'contestpin_overlay_enabled',
   'contestpin_overlay_state',
+  // LR1 批次（LLM 复核层 advisory-only，docs/briefs/lr1-llm-review.md §5）：
+  // 007 种子的两键，默认空 = 停用，双键同设才生效（任一为空即 skipped 态）。
+  // v1 零 key 字段（局域网自备端点无鉴权）；将来引入鉴权时凭据必须走
+  // safeStorage 封装存储，禁止明文写 settings（任务书 §5 红线）
+  'llm_review_base_url',
+  'llm_review_model',
 ]
 
 function assertAllowedKey(key: string): void {

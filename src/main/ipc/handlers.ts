@@ -135,6 +135,15 @@ import {
   rollbackArchive,
   runArchive,
 } from '../services/archiveService.ts'
+import {
+  runReviewPost,
+  runReviewPre,
+  runSkillsMetaReview,
+  testReviewEndpoint,
+} from '../services/review/reviewService.ts'
+import type {
+  ArchiveReviewPrePayload,
+} from '../../shared/types.ts'
 
 /** scan:start 的 kind 合法值（docs/04 §2）。 */
 const SCAN_KINDS: readonly ScanKind[] = ['full', 'projects', 'services', 'environment']
@@ -337,7 +346,8 @@ export const contractCoversWhitelist: AssertContractCoversWhitelist = true
  * Phase 1 21 条 + S2 skills 14 条 = 35 + S3 apihub 6 条 + versions 4 条 = 45
  * + S4 docker 3 条 + wsl 2 条 = 50 + S5 archive 5 条 = 55 + AC2 agents 13 条 = 68
  * + 夜间#1 versions:cancel / agents:probeProvider = 70 + CP1 contestpin 9 条 = 79
- * + CP2 contestpin 悬浮窗 5 条 = 84 + CP3a contestpin 识别配置 4 条 = 88）。
+ * + CP2 contestpin 悬浮窗 5 条 = 84 + CP3a contestpin 识别配置 4 条 = 88
+ * + LR1 LLM 复核层 4 条 = 92）。
  */
 export type HandlerRegistry = Record<IpcChannel, ChannelHandler>
 
@@ -1035,6 +1045,68 @@ export function createHandlerRegistry(deps: HandlerDeps): HandlerRegistry {
     'contestpin:configTest': async (payload) => {
       const p = asPayloadObject('contestpin:configTest', payload)
       return testConfig(requireId('contestpin:configTest', p))
+    },
+
+    // --- LLM 复核层（LR1 批次，docs/04「LR1 追加」节；4 条全 READ_ONLY。
+    // reviewService advisory-only：端点任何失败折叠为四态 envelope，永不抛异常
+    // 打断调用方；archive:reviewPre 的 plan 形状校验在此（零额外扫描），
+    // archive:reviewPost 的 runId 存在性/缓存/端点调用在 service） ---
+    'review:testEndpoint': async (payload) => {
+      const p = asPayloadObject('review:testEndpoint', payload)
+      const baseUrl = p.baseUrl
+      const model = p.model
+      if (typeof baseUrl !== 'string' || baseUrl.trim().length === 0) {
+        throw badPayload('review:testEndpoint', 'baseUrl must be a non-empty string')
+      }
+      if (typeof model !== 'string' || model.trim().length === 0) {
+        throw badPayload('review:testEndpoint', 'model must be a non-empty string')
+      }
+      return testReviewEndpoint(baseUrl, model)
+    },
+    'archive:reviewPre': async (payload) => {
+      const p = asPayloadObject('archive:reviewPre', payload)
+      const plan = p.plan
+      if (typeof plan !== 'object' || plan === null || Array.isArray(plan)) {
+        throw badPayload('archive:reviewPre', 'plan must be an object (preview impacts summary)')
+      }
+      const planRecord = plan as Record<string, unknown>
+      for (const key of ['projectName', 'oldPath', 'destPath'] as const) {
+        if (typeof planRecord[key] !== 'string' || (planRecord[key] as string).trim().length === 0) {
+          throw badPayload('archive:reviewPre', `plan.${key} must be a non-empty string`)
+        }
+      }
+      if (typeof planRecord.crossVolume !== 'boolean') {
+        throw badPayload('archive:reviewPre', 'plan.crossVolume must be a boolean')
+      }
+      for (const key of ['totalHits', 'filesToRewrite', 'stripDirs', 'occupiers'] as const) {
+        const value = planRecord[key]
+        if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+          throw badPayload('archive:reviewPre', `plan.${key} must be a non-negative integer`)
+        }
+      }
+      if (planRecord.projectDescription !== undefined && typeof planRecord.projectDescription !== 'string') {
+        throw badPayload('archive:reviewPre', 'plan.projectDescription must be a string when present')
+      }
+      const planInput: ArchiveReviewPrePayload['plan'] = {
+        projectName: planRecord.projectName as string,
+        oldPath: planRecord.oldPath as string,
+        destPath: planRecord.destPath as string,
+        crossVolume: planRecord.crossVolume,
+        totalHits: planRecord.totalHits as number,
+        filesToRewrite: planRecord.filesToRewrite as number,
+        stripDirs: planRecord.stripDirs as number,
+        occupiers: planRecord.occupiers as number,
+        ...(planRecord.projectDescription !== undefined ? { projectDescription: planRecord.projectDescription as string } : {}),
+      }
+      return runReviewPre({ plan: planInput })
+    },
+    'archive:reviewPost': async (payload) => {
+      const p = asPayloadObject('archive:reviewPost', payload)
+      return runReviewPost(requireId('archive:reviewPost', p, 'runId'))
+    },
+    'skills:reviewMeta': async (payload) => {
+      asPayloadObject('skills:reviewMeta', payload)
+      return runSkillsMetaReview()
     },
   }
 }

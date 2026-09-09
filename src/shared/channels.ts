@@ -45,6 +45,11 @@ export const IPC_GATEWAY = 'devhub:invoke' as const
  * 授权的同一模式就地更新）：contestpin 4 条并入，84 → 88（configList READ_ONLY
  * 掩码 / configSave / configDelete CONFIRM_REQUIRED 两段式 / configTest——
  * service 经 openaiClient 传输注入面，smoke fake transport 零联网）。
+ * LR1 批次 note（LLM 复核层 advisory-only，docs/04「LR1 追加」节 + 任务书 §8
+ * 授权的同一模式就地更新）：review/archive-review/skills-review 4 条并入，
+ * 88 → 92（review:testEndpoint / archive:reviewPre / archive:reviewPost /
+ * skills:reviewMeta——全 READ_ONLY，service 经 reviewClient 传输注入面，
+ * smoke fake transport 零联网；advisory-only 永不阻塞归档主流程）。
  */
 export const IPC_CHANNELS = [
   // scan
@@ -170,6 +175,12 @@ export const IPC_CHANNELS = [
   'contestpin:configSave',
   'contestpin:configDelete',
   'contestpin:configTest',
+  // LLM 复核层（LR1 批次，docs/04「LR1 追加」节逐字命名；全 READ_ONLY，
+  // advisory-only：复核结果永不阻塞归档主流程，端点未配置/不可达 → skipped）
+  'review:testEndpoint',
+  'archive:reviewPre',
+  'archive:reviewPost',
+  'skills:reviewMeta',
 ] as const
 
 /** Compile-time whitelist: a handler map must be keyed by IpcChannel. */
