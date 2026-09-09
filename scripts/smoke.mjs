@@ -111,8 +111,11 @@ if (isEntrypoint()) {
   // CP1 批次 note（ContestPin，docs/04「ContestPin 追加」节授权的同一模式就地更新）：
   // contestpin 9 条并入，70 → 79（list/get/create/update/delete/archive/nodeUpsert/
   // nodeDelete/linkProject；delete/nodeDelete 为 CONFIRM_REQUIRED 两段式）。
+  // CP2 批次 note（ContestPin 悬浮窗，docs/22 §4 授权的同一模式就地更新）：
+  // contestpin 5 条并入，79 → 84（overlayState/overlaySetEnabled/overlaySetCollapsed/
+  // openInMain/openLink）。
   // ------------------------------------------------------------------
-  registerCase('step1: channels whitelist has exactly 79 entries (CP1 就地更新 70→79) and IPC_GATEWAY', async () => {
+  registerCase('step1: channels whitelist has exactly 84 entries (CP2 就地更新 79→84) and IPC_GATEWAY', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     assert.equal(channels.IPC_GATEWAY, 'devhub:invoke', 'gateway channel')
     const expected = [
@@ -204,10 +207,16 @@ if (isEntrypoint()) {
       'contestpin:nodeUpsert',
       'contestpin:nodeDelete',
       'contestpin:linkProject',
+      // CP2 contestpin overlay group (docs/22 §4 + docs/04「ContestPin 追加」节)
+      'contestpin:overlayState',
+      'contestpin:overlaySetEnabled',
+      'contestpin:overlaySetCollapsed',
+      'contestpin:openInMain',
+      'contestpin:openLink',
     ]
-    assert.equal(channels.IPC_CHANNELS.length, 79, `expected 79 channels, got ${channels.IPC_CHANNELS.length}`)
-    assert.deepEqual([...channels.IPC_CHANNELS], expected, 'whitelist must match docs/04 + docs/09 §9 + docs/10 §11 + docs/14 §A.1 + docs/04 ContestPin 追加节 exactly')
-    assert.equal(new Set(channels.IPC_CHANNELS).size, 79, 'no duplicate channels')
+    assert.equal(channels.IPC_CHANNELS.length, 84, `expected 84 channels, got ${channels.IPC_CHANNELS.length}`)
+    assert.deepEqual([...channels.IPC_CHANNELS], expected, 'whitelist must match docs/04 + docs/09 §9 + docs/10 §11 + docs/14 §A.1 + docs/04 ContestPin 追加节 + docs/22 §4 exactly')
+    assert.equal(new Set(channels.IPC_CHANNELS).size, 84, 'no duplicate channels')
   }, 'fast')
 
   // ------------------------------------------------------------------
@@ -964,14 +973,14 @@ if (isEntrypoint()) {
   // CHANNEL_NOT_ALLOWED（文档权威原则，约束 #6）。
   // ------------------------------------------------------------------
   registerCase(
-    'step6: handler registry keys equal the 79-channel whitelist (CP1 就地更新 70→79); app:version returns injected value; unknown channel folds to CHANNEL_NOT_ALLOWED envelope',
+    'step6: handler registry keys equal the 84-channel whitelist (CP2 就地更新 79→84); app:version returns injected value; unknown channel folds to CHANNEL_NOT_ALLOWED envelope',
     async () => {
       const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
       const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
       const registry = handlers.createHandlerRegistry({ appVersion: '0.1.0-smoke' })
       const keys = Object.keys(registry).sort()
-      assert.equal(keys.length, 79, `registry must hold exactly 79 handlers, got ${keys.length}`)
+      assert.equal(keys.length, 84, `registry must hold exactly 84 handlers, got ${keys.length}`)
       assert.deepEqual(keys, [...channels.IPC_CHANNELS].sort(), 'registry keys must equal IPC_CHANNELS (no more, no less)')
 
       const version = await registry['app:version']({})
@@ -3461,14 +3470,15 @@ if (isEntrypoint()) {
 
   // 68. handlers 编译期白名单覆盖断言更新（45→50，S5 就地更新 50→55，
   //  docs/10 §11 授权的同一模式；AC2 就地更新 55→68，docs/14 §A.1 授权同一模式；
-  //  夜间#1 就地更新 68→70，主控任务书授权；CP1 就地更新 70→79，docs/04 ContestPin 节）：
+  //  夜间#1 就地更新 68→70，主控任务书授权；CP1 就地更新 70→79，docs/04 ContestPin 节；
+  //  CP2 就地更新 79→84，docs/22 §4 悬浮窗 5 条）：
   //  registry 键集 = 白名单 = 契约覆盖
-  registerCase('s4-68: whitelist 45→50 (S5 就地更新为 55，AC2 就地更新 55→68，夜间#1 就地更新 68→70，CP1 就地更新 70→79) — registry keys equal the whitelist and the compile-time contract assertion holds', async () => {
+  registerCase('s4-68: whitelist 45→50 (S5 就地更新为 55，AC2 就地更新 55→68，夜间#1 就地更新 68→70，CP1 就地更新 70→79，CP2 就地更新 79→84) — registry keys equal the whitelist and the compile-time contract assertion holds', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
-    assert.equal(channels.IPC_CHANNELS.length, 79, 'whitelist extended 45 → 50 (S4), 50 → 55 (S5 archive), 55 → 68 (AC2 agents), 68 → 70 (夜间#1), 70 → 79 (CP1 contestpin 9 条)')
-    assert.equal(new Set(channels.IPC_CHANNELS).size, 79, 'no duplicates after extension')
+    assert.equal(channels.IPC_CHANNELS.length, 84, 'whitelist extended 45 → 50 (S4), 50 → 55 (S5 archive), 55 → 68 (AC2 agents), 68 → 70 (夜间#1), 70 → 79 (CP1 contestpin 9 条), 79 → 84 (CP2 contestpin 悬浮窗 5 条)')
+    assert.equal(new Set(channels.IPC_CHANNELS).size, 84, 'no duplicates after extension')
     // 编译期断言 AssertContractCoversWhitelist 的解析产物（ChannelContract 恰好覆盖白名单）
     assert.equal(handlers.contractCoversWhitelist, true, 'ChannelContract covers exactly the whitelist (compile-time, observed at runtime)')
 
@@ -4618,11 +4628,12 @@ if (isEntrypoint()) {
       'agents:diagnostics',
       'agents:probeProvider',
     ]
-    assert.equal(channels.IPC_CHANNELS.length, 79, 'whitelist 55 → 70 (docs/14 §A.2; 夜间#1 就地更新 68→70), 70 → 79 (CP1 就地更新，docs/04 ContestPin 追加节)')
-    // CP1 就地更新：agents 14 条后追加了 contestpin 9 条，agents 尾窗从 slice(-14) 前移为 slice(-23, -9)
-    assert.deepEqual([...channels.IPC_CHANNELS.slice(-23, -9)], expectedAgents, '14 agents channels appended verbatim in docs/14 §A.1 order (夜间#1 就地更新 13→14)')
+    assert.equal(channels.IPC_CHANNELS.length, 84, 'whitelist 55 → 70 (docs/14 §A.2; 夜间#1 就地更新 68→70), 70 → 79 (CP1 就地更新，docs/04 ContestPin 追加节), 79 → 84 (CP2 就地更新，docs/22 §4 悬浮窗 5 条)')
+    // CP2 就地更新：agents 14 条 + CP1 contestpin 9 条后追加 CP2 contestpin 5 条，
+    // agents 尾窗前移为 slice(-28, -14)
+    assert.deepEqual([...channels.IPC_CHANNELS.slice(-28, -14)], expectedAgents, '14 agents channels appended verbatim in docs/14 §A.1 order (夜间#1 就地更新 13→14)')
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-9)],
+      [...channels.IPC_CHANNELS.slice(-14, -5)],
       [
         'contestpin:list',
         'contestpin:get',
@@ -4635,6 +4646,17 @@ if (isEntrypoint()) {
         'contestpin:linkProject',
       ],
       '9 contestpin channels appended verbatim in docs/04 ContestPin 追加节 order (CP1 批次)',
+    )
+    assert.deepEqual(
+      [...channels.IPC_CHANNELS.slice(-5)],
+      [
+        'contestpin:overlayState',
+        'contestpin:overlaySetEnabled',
+        'contestpin:overlaySetCollapsed',
+        'contestpin:openInMain',
+        'contestpin:openLink',
+      ],
+      '5 contestpin overlay channels appended verbatim in docs/22 §4 order (CP2 批次)',
     )
 
     const registry = handlers.createHandlerRegistry({ appVersion: 'ac2-smoke' })
@@ -11571,6 +11593,190 @@ if (isEntrypoint()) {
         assert.equal(svc.deleteContest({ id: contest.id, confirmed: true }).removed, true, 'contest deleted')
         assert.equal(db.prepare("SELECT COUNT(*) c FROM resources WHERE resource_type = 'contest' AND ref_id = ?").get(contest.id).c, 0, 'contest resource node removed')
         assert.equal(countEdges(), 0, 'uses edge removed with contest')
+      } finally {
+        dbModule.closeDatabase()
+      }
+    },
+    'fast',
+  )
+
+  // ====================================================================
+  // CP2 批次（ContestPin 悬浮窗，docs/22 §4 + 任务书 §2.3）：overlay 状态往返 /
+  // URL 校验 / due-node 投影。全部 makeTempHome 临时库隔离（零网络零端口零进程，
+  // fast 档）；通道计数断言 4 处（step1/step6/s4-68/ac2-84）已就地更新 79→84。
+  // ====================================================================
+
+  registerCase(
+    'cp2-overlay-state: overlayStateService save/get 往返 + 非法 JSON/形状回默认 + enabled 开关持久化 + setOverlayCollapsed 往返（applier 未注入 = 结构化 no-op）',
+    async () => {
+      const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+      const settings = await import(new URL('../src/main/services/settingsService.ts', import.meta.url).href)
+      const svc = await import(new URL('../src/main/services/contestpin/overlayStateService.ts', import.meta.url).href)
+
+      await makeTempHome('devhub-cp2-state-')
+      try {
+        // 默认态：未持久化 → bounds null + collapsed false + enabled false（种子 '0'）
+        const def = svc.getOverlayState()
+        assert.equal(def.bounds, null, 'no persisted state → bounds null (wire centers on primary display)')
+        assert.equal(def.collapsed, false, 'default collapsed false')
+        assert.equal(def.enabled, false, 'default enabled false (008 seed contestpin_overlay_enabled=0)')
+
+        // enabled 开关持久化（service 半边；无 wire applier → 仅持久化，零 electron）
+        assert.equal(svc.setOverlayEnabled(true).enabled, true, 'setOverlayEnabled(true)')
+        assert.equal(settings.getSetting('contestpin_overlay_enabled'), '1', 'enabled persisted to settings')
+        assert.equal(svc.getOverlayState().enabled, true, 'state reflects enabled')
+        assert.equal(svc.isOverlayEnabled(), true, 'isOverlayEnabled true')
+
+        // save/get 往返
+        svc.saveOverlayState({ x: 10, y: 20, width: 320, height: 420 }, false)
+        let st = svc.getOverlayState()
+        assert.deepEqual(st.bounds, { x: 10, y: 20, width: 320, height: 420 }, 'bounds round-trip')
+        assert.equal(st.collapsed, false, 'collapsed round-trip')
+
+        // 非法 JSON → 回默认（拒绝脏数据不抛）
+        settings.setSetting('contestpin_overlay_state', '{not-json')
+        st = svc.getOverlayState()
+        assert.equal(st.bounds, null, 'malformed JSON → default bounds')
+        assert.equal(st.collapsed, false, 'malformed JSON → default collapsed')
+
+        // 形状非法（bounds 缺字段 / 类型错 / 负尺寸；collapsed 非布尔）→ 逐项回默认
+        settings.setSetting('contestpin_overlay_state', JSON.stringify({ bounds: { x: 'a', y: 2, width: 3, height: 4 }, collapsed: false }))
+        assert.equal(svc.getOverlayState().bounds, null, 'non-numeric x → default bounds')
+        settings.setSetting('contestpin_overlay_state', JSON.stringify({ bounds: { x: 1, y: 2, width: -3, height: 4 }, collapsed: false }))
+        assert.equal(svc.getOverlayState().bounds, null, 'negative width → default bounds')
+        settings.setSetting('contestpin_overlay_state', JSON.stringify({ bounds: null, collapsed: 'yes' }))
+        st = svc.getOverlayState()
+        assert.equal(st.bounds, null, 'explicit null bounds preserved as null')
+        assert.equal(st.collapsed, false, 'non-boolean collapsed → default false')
+
+        // save 入参非法 → BAD_PAYLOAD
+        assert.throws(
+          () => svc.saveOverlayState({ x: 0, y: 0, width: -5, height: 100 }, false),
+          /bounds must be \{x, y, width>0, height>0\}/,
+          'save rejects negative width',
+        )
+        assert.throws(
+          () => svc.saveOverlayState({ x: 0, y: 0, width: 100, height: 100 }, 'nope'),
+          /collapsed must be a boolean/,
+          'save rejects non-boolean collapsed',
+        )
+
+        // collapsed 往返（applier 未注入 → 结构化 no-op，持久化照常）
+        assert.equal(svc.setOverlayCollapsed(true).collapsed, true, 'setOverlayCollapsed(true)')
+        assert.equal(svc.getOverlayState().collapsed, true, 'collapsed persisted')
+        assert.equal(svc.setOverlayCollapsed(false).collapsed, false, 'setOverlayCollapsed(false)')
+
+        // openContestInMain 无 applier → 结构化 no-op（opened:false，非错误）
+        assert.equal(svc.openContestInMain(1).opened, false, 'openInMain without applier is structured no-op')
+      } finally {
+        dbModule.closeDatabase()
+      }
+    },
+    'fast',
+  )
+
+  registerCase(
+    'cp2-openlink-guard: validateExternalUrl 仅 http/https —— javascript:/file:/ftp:/空白/相对路径/不可解析拒绝；大小写 scheme 与空白环绕放行并规范化',
+    async () => {
+      const svc = await import(new URL('../src/main/services/contestpin/overlayStateService.ts', import.meta.url).href)
+
+      // 正例：http/https 放行（new URL 规范化：补尾斜杠、scheme 小写、去环绕空白）
+      assert.equal(svc.validateExternalUrl('https://icpc.example.com/a?b=1'), 'https://icpc.example.com/a?b=1', 'https URL with query passes')
+      assert.equal(svc.validateExternalUrl('http://signup.example.com'), 'http://signup.example.com/', 'http URL normalized (trailing slash)')
+      assert.equal(svc.validateExternalUrl('  HTTPS://Example.COM/Path  '), 'https://example.com/Path', 'surrounding whitespace stripped + scheme lowercased')
+      assert.equal(svc.validateExternalUrl('http://192.168.1.10:8080/register'), 'http://192.168.1.10:8080/register', 'host with port passes')
+
+      // 反例：非 http(s) scheme / 空白 / 相对路径 / 不可解析 → BAD_PAYLOAD
+      assert.throws(() => svc.validateExternalUrl('javascript:alert(1)'), /must be an http\(s\) URL \(got scheme: javascript:\)/, 'javascript: rejected')
+      assert.throws(() => svc.validateExternalUrl('file:///C:/Windows/System32'), /got scheme: file:/, 'file: rejected')
+      assert.throws(() => svc.validateExternalUrl('ftp://files.example.com'), /got scheme: ftp:/, 'ftp: rejected')
+      assert.throws(() => svc.validateExternalUrl('data:text/html;base64,AAA'), /got scheme: data:/, 'data: rejected')
+      assert.throws(() => svc.validateExternalUrl('   '), /must be a non-empty http\(s\) URL/, 'blank rejected')
+      assert.throws(() => svc.validateExternalUrl(''), /must be a non-empty http\(s\) URL/, 'empty rejected')
+      assert.throws(() => svc.validateExternalUrl('/relative/path'), /absolute http\(s\) URL/, 'relative path rejected')
+      assert.throws(() => svc.validateExternalUrl('not a url at all'), /absolute http\(s\) URL/, 'unparseable rejected')
+
+      // openExternalLink：service 校验先行（非法即抛）；无 applier → opened:false
+      assert.throws(() => svc.openExternalLink('javascript:x'), /http\(s\)/, 'openExternalLink validates before applier')
+      assert.equal(svc.openExternalLink('https://ok.example.com').opened, false, 'no applier (pure Node context) → structured no-op')
+    },
+    'fast',
+  )
+
+  registerCase(
+    'cp2-due-node: computeDueNodes 纯逻辑（临近优先/全过期 overdue:true/done 推进/tbd 排后/空集 null）+ list/get 投影携带 dueNode/nextNode + 行投影携带三链接',
+    async () => {
+      const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+      const svc = await import(new URL('../src/main/services/contestpin/contestService.ts', import.meta.url).href)
+
+      await makeTempHome('devhub-cp2-due-')
+      try {
+        const NOW = 1_800_000_000
+        const DAY = 86_400
+        const contest = svc.createContest({
+          name: 'Due Fixture Contest',
+          officialSite: 'https://due.example.com',
+          signupUrl: 'http://signup.due.example.com/join',
+        })
+
+        // 空节点 → 双 null
+        assert.deepEqual(svc.computeDueNodes([], NOW), { dueNode: null, nextNode: null }, 'empty nodes → null/null')
+        const emptyDetail = svc.getContest(contest.id)
+        assert.deepEqual(emptyDetail.dueNode, null, 'detail dueNode null on fresh contest')
+        assert.deepEqual(emptyDetail.nextNode, null, 'detail nextNode null on fresh contest')
+
+        const past = svc.upsertNode({ contestId: contest.id, node: { kind: 'signup_deadline', label: '报名截止', precision: 'date', startAt: NOW - 10 * DAY } })
+        const near = svc.upsertNode({ contestId: contest.id, node: { kind: 'contest_start', label: '比赛开始', precision: 'exact', startAt: NOW + 3_600 } })
+        const far = svc.upsertNode({ contestId: contest.id, node: { kind: 'submit_deadline', label: '提交截止', precision: 'date', startAt: NOW + 30 * DAY } })
+        const tbd = svc.upsertNode({ contestId: contest.id, node: { kind: 'custom', label: '复审时间待定', precision: 'tbd' } })
+
+        // 临近优先：最近的未来节点为 dueNode，其后为 far；tbd 排最后
+        let proj = svc.computeDueNodes(svc.getContest(contest.id).nodes, NOW)
+        assert.equal(proj.dueNode.nodeId, near.id, 'nearest future node wins')
+        assert.equal(proj.dueNode.overdue, false, 'future dueNode not overdue')
+        assert.equal(proj.dueNode.precision, 'exact', 'precision carried to display layer')
+        assert.equal(proj.nextNode.nodeId, far.id, 'nextNode follows dueNode in start_at order')
+
+        // 全过期：最近的过去未 done 节点带 overdue:true；next 推进到 tbd
+        proj = svc.computeDueNodes(svc.getContest(contest.id).nodes, NOW + 60 * DAY)
+        assert.equal(proj.dueNode.nodeId, far.id, 'all past → latest past node')
+        assert.equal(proj.dueNode.overdue, true, 'past dueNode flagged overdue')
+        assert.equal(proj.nextNode.nodeId, tbd.id, 'tbd ranked last but still surfaces as next')
+
+        // done 推进：完成 near 后 dueNode 前移到 far（未来语义恢复）
+        svc.upsertNode({ contestId: contest.id, node: { id: near.id, done: true } })
+        proj = svc.computeDueNodes(svc.getContest(contest.id).nodes, NOW)
+        assert.equal(proj.dueNode.nodeId, far.id, 'done advances dueNode to next candidate')
+        assert.equal(proj.dueNode.overdue, false, 'advanced dueNode is future again')
+
+        // 全部 timed 完成（near/far/past 依次 done）→ 只剩 tbd 作 dueNode
+        // （无 start_at 排最后、仅无时刻候选时才充当）
+        svc.upsertNode({ contestId: contest.id, node: { id: far.id, done: true } })
+        svc.upsertNode({ contestId: contest.id, node: { id: past.id, done: true } })
+        proj = svc.computeDueNodes(svc.getContest(contest.id).nodes, NOW)
+        assert.equal(proj.dueNode.nodeId, tbd.id, 'tbd-only candidates → tbd dueNode')
+        assert.equal(proj.dueNode.startAt, null, 'tbd dueNode has null startAt')
+        assert.equal(proj.nextNode, null, 'nothing after last tbd')
+
+        // tbd 也完成 → 双 null
+        svc.upsertNode({ contestId: contest.id, node: { id: tbd.id, done: true } })
+        proj = svc.computeDueNodes(svc.getContest(contest.id).nodes, NOW)
+        assert.equal(proj.dueNode, null, 'all done → null dueNode')
+
+        // 恢复 far 与 tbd 为未完成（past 保持 done），验证 list/get 投影与行内三链接
+        // （CP2 悬浮窗数据源）；done 节点不参与候选，dueNode 不会回退到已完成节点
+        svc.upsertNode({ contestId: contest.id, node: { id: far.id, done: false } })
+        svc.upsertNode({ contestId: contest.id, node: { id: tbd.id, done: false } })
+        const item = svc.listContests({}).items.find((i) => i.id === contest.id)
+        assert.ok(item, 'list contains fixture contest')
+        assert.equal(item.dueNode.nodeId, far.id, 'list projection carries dueNode')
+        assert.equal(item.nextNode.nodeId, tbd.id, 'list projection carries nextNode')
+        assert.equal(item.officialSite, 'https://due.example.com', 'list row carries officialSite (overlay entry buttons)')
+        assert.equal(item.signupUrl, 'http://signup.due.example.com/join', 'list row carries signupUrl')
+
+        // done 节点不参与候选（past 已 done，未来 far → due，不回退到过期节点）
+        assert.notEqual(item.dueNode.nodeId, past.id, 'done past node excluded from candidates')
+        assert.equal(past.done, false, 'past node still open — full-overdue branch covered in cp2 fixture above')
       } finally {
         dbModule.closeDatabase()
       }
