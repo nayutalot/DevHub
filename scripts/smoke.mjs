@@ -11661,9 +11661,14 @@ if (isEntrypoint()) {
           'save rejects non-boolean collapsed',
         )
 
-        // collapsed 往返（applier 未注入 → 结构化 no-op，持久化照常）
+        // collapsed 往返（applier 未注入 → 结构化 no-op，持久化照常）；且 collapsed=true
+        // 时持久化 bounds.height 语义=展开态高度（service 侧不重写高度；wire 层
+        // 「折叠态重启恢复=建窗即折叠高度」由 overlayWire 保证，BrowserWindow 无法纯 Node 测）
+        svc.saveOverlayState({ x: 1, y: 2, width: 320, height: 420 }, false)
         assert.equal(svc.setOverlayCollapsed(true).collapsed, true, 'setOverlayCollapsed(true)')
-        assert.equal(svc.getOverlayState().collapsed, true, 'collapsed persisted')
+        const collapsedState = svc.getOverlayState()
+        assert.equal(collapsedState.collapsed, true, 'collapsed persisted')
+        assert.deepEqual(collapsedState.bounds, { x: 1, y: 2, width: 320, height: 420 }, 'collapsed=true keeps bounds.height as expanded height')
         assert.equal(svc.setOverlayCollapsed(false).collapsed, false, 'setOverlayCollapsed(false)')
 
         // openContestInMain 无 applier → 结构化 no-op（opened:false，非错误）

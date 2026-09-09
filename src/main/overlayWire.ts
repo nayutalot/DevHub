@@ -14,6 +14,7 @@
  *    不写第二个 preload）。
  *  - 位置/尺寸：启动恢复时 screen.getDisplayMatching 校验 + workArea 裁剪（显示器
  *    变化后回可见区；Electron bounds 为 DIP，不自行换算 DPI scale factor）；
+ *    折叠态重启恢复=建窗即折叠高度（展开高度由 expandedHeight 记忆，取消折叠回它）。
  *    display-removed / display-metrics-changed 主动 relocate。
  *  - move/resize 防抖（600ms）→ overlayStateService.saveOverlayState（写库唯一经
  *    service，wire 层不写 SQL）；collapsed 时持久化高度记展开态高度。
@@ -199,7 +200,10 @@ function createOverlayWindow(): void {
   expandedHeight = state.bounds !== null ? state.bounds.height : OVERLAY_DEFAULT_HEIGHT
   // 恢复位置：持久化 bounds 经 displayMatching 校验 + workArea 裁剪（显示器被拔/
   // 分辨率变化后回可见区）；无持久化 → 主显示器居中
-  const bounds = state.bounds !== null ? clampBoundsToWorkArea(state.bounds) : defaultBounds()
+  const restored = state.bounds !== null ? clampBoundsToWorkArea(state.bounds) : defaultBounds()
+  // 折叠态重启恢复=建窗即折叠高度（宽度/x/y 不变；展开高度已由 expandedHeight 记忆，
+  // applyOverlayCollapsed(false) 时回到它）——否则高个子窗体配折叠单行内容，视觉错位
+  const bounds = collapsed ? { ...restored, height: OVERLAY_COLLAPSED_HEIGHT } : restored
 
   const win = new BrowserWindow({
     ...bounds,
