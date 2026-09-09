@@ -109,7 +109,8 @@ S2/S3 条目的 payload/result 契约见 docs/09 §9；S4 条目如下；S5 条�
 合计（Phase 1 + S2 + S3 + S4 + S5）= 3+6+4+2+2+4 + 14 + 6+4 + 3+2 + 5 = **55 条**；
 AC2 批次 agents 13 条并入（55→68，docs/14 §A.1 权威，本文件未逐行展开）；
 夜间#1 批次（服务端积压补齐）追加 2 条（68→70，见下）；
-CP1 批次 ContestPin 9 条并入（70→**79**，见下「ContestPin 追加」节 + docs/22 §3）。
+CP1 批次 ContestPin 9 条并入（70→**79**，见下「ContestPin 追加」节 + docs/22 §3）；
+CP2 批次 ContestPin 悬浮窗 5 条并入（79→**84**，同节 + docs/22 §4）。
 
 ### 夜间#1 追加（服务端积压补齐批次；主控任务书授权的同一追加模式）
 
@@ -121,7 +122,7 @@ CP1 批次 ContestPin 9 条并入（70→**79**，见下「ContestPin 追加」�
 ### LR1 追加（LLM 复核层，advisory-only；用户裁决 2026-09-09 恢复，设计权威 docs/briefs/lr1-llm-review.md）
 
 LLM 前/后复核 + Skills 元数据体检 4 条，**全 READ_ONLY**，**状态 = LR1 待落地**
-（硬门：M3-D 72h 终报通过后开工；落地后白名单 79→**83**）。advisory-only：复核结果
+（硬门：M3-D 72h 终报通过后开工；落地后白名单 84→**88**）。advisory-only：复核结果
 永不阻塞归档主流程，端点未配置/不可达 → skipped 态，全流程行为等价现状。
 不改 MCP、不改归档 execute 管线。
 
@@ -134,16 +135,16 @@ LLM 前/后复核 + Skills 元数据体检 4 条，**全 READ_ONLY**，**状态 
 
 ### ContestPin 追加（赛程钉比赛模块；设计权威 docs/22-contestpin-design.md）
 
-CP 系列分批落地，**状态 = CP1 已落地（白名单 70→79，2026-09-09 CP1 批次）**；
-CP2-CP6 待落地。CP1 首批 9 条（变更类 7 + READ_ONLY 2）；全量落地（CP2-CP6
-悬浮窗/识别/提醒/Agent/备份）后 79→约 **110**（LR1 另 +4）。计数断言按既有授权
-模式"就地更新+注记"。变更类 delete/discard 均为 CONFIRM_REQUIRED 两段式（先回
-impacts）。
+CP 系列分批落地，**状态 = CP2 已落地（白名单 79→84，2026-09-09 CP2 批次）**；
+CP3-CP6 待落地。CP1 首批 9 条（变更类 7 + READ_ONLY 2）+ CP2 悬浮窗 5 条
+（READ_ONLY 1 + 变更类 4）；全量落地（CP3-CP6 识别/提醒/Agent/备份）后
+84→约 **110**（LR1 另 +4）。计数断言按既有授权模式"就地更新+注记"。变更类
+delete/discard 均为 CONFIRM_REQUIRED 两段式（先回 impacts）。
 
 | channel | payload | result data | 读写 | 状态 |
 | --- | --- | --- | --- | --- |
-| `contestpin:list` | `{ query?, status?, archived?, limit?, offset? }` | `{ items: ContestListItem[], total }`（名称/年份模糊搜索+状态筛选，archived 缺省排除） | READ_ONLY | CP1 已落地 |
-| `contestpin:get` | `{ id }` | ContestDetailView（nodes/materials/reminders/关联 project） | READ_ONLY | CP1 已落地 |
+| `contestpin:list` | `{ query?, status?, archived?, limit?, offset? }` | `{ items: ContestListItem[], total }`（名称/年份模糊搜索+状态筛选，archived 缺省排除；CP2 起行内携带三链接 URL 与 dueNode/nextNode 投影） | READ_ONLY | CP1 已落地 |
+| `contestpin:get` | `{ id }` | ContestDetailView（nodes/materials/reminders/关联 project；CP2 起增 dueNode/nextNode） | READ_ONLY | CP1 已落地 |
 | `contestpin:create` | `{ name, year?, edition?, organizer?, note?, status?, officialSite?, signupUrl?, submitUrl? }` | ContestView（同时登记 resources contest 节点） | 变更 | CP1 已落地 |
 | `contestpin:update` | `{ id, patch }` | ContestView（改名同步 resource display_name） | 变更 | CP1 已落地 |
 | `contestpin:delete` | `{ id, confirmed? }` | 无 confirmed → `{ confirmRequired: true, impacts: { nodes, materials, reminders } }`；confirmed → 级联删（含 resource 节点与边） | 变更 | CP1 已落地 |
@@ -151,8 +152,12 @@ impacts）。
 | `contestpin:nodeUpsert` | `{ contestId, node? }`（node 带 id=更新；precision 校验禁止 date→exact 提升） | ContestNodeView | 变更 | CP1 已落地 |
 | `contestpin:nodeDelete` | `{ id, confirmed? }` | CONFIRM_REQUIRED 两段式 | 变更 | CP1 已落地 |
 | `contestpin:linkProject` | `{ contestId, projectId: number \| null }` | `{ linked: bool }`（resources+relationships `uses` 边，INSERT OR IGNORE；null=解边） | 变更 | CP1 已落地 |
+| `contestpin:overlayState` | `{}` | `{ enabled: bool, bounds: {x,y,width,height} \| null, collapsed: bool }`（非法持久化值拒绝并回默认，bounds=null → wire 层居中主显示器） | READ_ONLY | CP2 已落地 |
+| `contestpin:overlaySetEnabled` | `{ enabled: bool }` | `{ enabled: bool }`（settings 持久化经 overlayStateService + overlayWire 窗口创建/show 或 hide 即时生效；托盘 checkbox 同一收敛点） | 变更 | CP2 已落地 |
+| `contestpin:overlaySetCollapsed` | `{ collapsed: bool }` | `{ collapsed: bool }`（持久化 + 窗口高度调整，宽度不变；折叠态持久化高度记展开态） | 变更 | CP2 已落地 |
+| `contestpin:openInMain` | `{ contestId }` | `{ opened: bool }`（存在性校验后聚焦主窗口并导航 `#contest:<id>`；applier 未注入的纯 Node 语境 → opened:false 结构化 no-op） | 变更 | CP2 已落地 |
+| `contestpin:openLink` | `{ url }` | `{ opened: bool }`（validateExternalUrl 仅 http/https——javascript:/file:/ftp:/空白/相对路径拒绝，service 校验后经 shell.openExternal 默认浏览器） | 变更 | CP2 已落地 |
 
-后续批次通道组（落地时逐批补表）：CP2 `overlayState`/`overlaySetEnabled`/
-`openInMain`/`openLink`（http/https 校验后默认浏览器）；CP3 config 四条 +
+后续批次通道组（落地时逐批补表）：CP3 config 四条 +
 materials/import/draft 十二条；CP4 reminder 两条；CP5 agentStatus/Submit/
 importPack/exportPack；CP6 backupExport/backupImport。

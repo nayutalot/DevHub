@@ -30,6 +30,15 @@ Renderer (React 19, sandboxed preload — contextBridge 仅暴露 invoke，约�
 数据流向唯一：`Renderer → devhub:invoke → gateway(白名单) → service → adapter/core → 结构化结果 → Renderer`。
 Renderer 永远不直接触达 adapter / db / exec。
 
+**electron import 白名单（wire 层纪律，CP2 批次入册）**：main 进程内允许
+`import 'electron'` 的文件收敛为白名单（autostartWire.ts 文件头纪律注记为权威
+锚点）：`index.ts` / `keyStoreWire.ts` / `ipc/gateway.ts` / `autostartWire.ts` /
+`trayWire.ts` / `overlayWire.ts`（CP2 悬浮窗批次新增，docs/22 §4）。Service 层
+（含 `services/contestpin/*`）与 `ipc/handlers.ts` 保持 electron-free、可被
+smoke 在系统 Node 下直测；electron 能力经"wire 层注册生产实现 → service 层注入
+applier 接口"反向供给（`setKeyCrypto` / `setAutoStartApplier` / overlay 三
+applier 先例）。
+
 ### 1.1 paths 策略（跨进程 DB 对齐）
 
 数据目录（DB 与日志的根）由 `src/main/core/paths.ts` 的 `getDataDir()` 按四级回落解析：
