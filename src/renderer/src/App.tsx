@@ -10,7 +10,7 @@
  * 解析进比赛视图详情态（悬浮窗卡片 openInMain 导航入口）。
  */
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Sidebar } from './components/Sidebar.tsx'
 import { AgentsView } from './views/AgentsView.tsx'
 import { ApiHubView } from './views/ApiHubView.tsx'
@@ -69,6 +69,13 @@ export default function App() {
 function MainApp() {
   const [target, setTarget] = useState<ViewTarget>(initialTarget)
   const [refreshKey, setRefreshKey] = useState(0)
+
+  // 同文档 hash 导航（loadFile 仅换 fragment）Chromium 不重载页面：hashchange 时重解析目标，覆盖 openInMain `#contest:<id>` 与托盘 `#agents` 两路径。
+  useEffect(() => {
+    const onHashChange = (): void => setTarget(initialTarget())
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+  }, [])
 
   const refreshAll = useCallback(() => setRefreshKey((k) => k + 1), [])
   const navigate = useCallback((t: ViewTarget) => setTarget(t), [])
