@@ -32,6 +32,10 @@ export const IPC_GATEWAY = 'devhub:invoke' as const
  * 夜间#1 批次 note（主控任务书授权的同一模式就地更新）：versions:cancel（docs/09
  * §7.2 cancelled 分支主动取消）+ agents:probeProvider（UX 验收 backlog，
  * known-limitations §3.2 per-provider 单独重探）并入，68 → 70。
+ * CP1 批次 note（ContestPin，docs/04「ContestPin 追加」节 + docs/22 §3 授权的同一
+ * 模式就地更新）：contestpin 9 条并入，70 → 79（list/get/create/update/delete/
+ * archive/nodeUpsert/nodeDelete/linkProject；delete/nodeDelete 为 CONFIRM_REQUIRED
+ * 两段式，先回 impacts）。
  */
 export const IPC_CHANNELS = [
   // scan
@@ -129,6 +133,18 @@ export const IPC_CHANNELS = [
   // 夜间#1 批次：per-provider 单独重探（UX 验收 backlog，known-limitations §3.2；
   // 轮询模式不变，docs/14 §A.3 授权的同一追加模式）
   'agents:probeProvider',
+  // contestpin（CP1 批次，docs/04「ContestPin 追加」节逐字命名；delete/nodeDelete
+  // 为 CONFIRM_REQUIRED 两段式——缺省回 { confirmRequired: true, impacts }，
+  // docker:action / archive:run 先例；全部轮询 channel，无广播）
+  'contestpin:list',
+  'contestpin:get',
+  'contestpin:create',
+  'contestpin:update',
+  'contestpin:delete',
+  'contestpin:archive',
+  'contestpin:nodeUpsert',
+  'contestpin:nodeDelete',
+  'contestpin:linkProject',
 ] as const
 
 /** Compile-time whitelist: a handler map must be keyed by IpcChannel. */

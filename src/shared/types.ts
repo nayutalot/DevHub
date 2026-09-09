@@ -1883,6 +1883,271 @@ export interface AgentDiagnosticsResult {
 }
 
 // ---------------------------------------------------------------------------
+// 6g. ContestPin（CP1 批次，docs/22 §2/§3 + docs/04「ContestPin 追加」节逐字契约）。
+// 时间语义权威 = docs/22 §2.2：precision 'date'/'month'/'tbd' 不得提升为 'exact'
+// （除非 payload 显式携带原文 raw_text 依据）；'tbd' → start/end 恒 NULL；
+// 提醒策略与 precision 分开保存。delete/nodeDelete 为 CONFIRM_REQUIRED 两段式
+// （缺省回 { confirmRequired: true, impacts }，docker:action / archive:run 先例）。
+// ---------------------------------------------------------------------------
+
+export type ContestStatus = 'watching' | 'registered' | 'submitted' | 'completed' | 'given_up'
+
+export type ContestNodeKind =
+  | 'signup_start'
+  | 'signup_deadline'
+  | 'payment_deadline'
+  | 'contest_start'
+  | 'contest_end'
+  | 'submit_deadline'
+  | 'custom'
+
+export type ContestNodePrecision = 'exact' | 'date' | 'month' | 'tbd'
+
+export type ContestNodeSource = 'manual' | 'imported' | 'agent'
+
+export type ContestReminderOffsetKind = 'before_days' | 'before_hours' | 'at_time'
+
+export type ContestReminderChannel = 'windows' | 'in_app'
+
+/** contestpin:list 的行投影（名称/年份/状态/归档 + 节点计数，轻于 ContestView）。 */
+export interface ContestListItem {
+  id: number
+  name: string
+  /** 可空：缺少年份不编造（docs/22 §2.2）。 */
+  year: number | null
+  edition?: string
+  organizer?: string
+  status: ContestStatus
+  archived: boolean
+  nodeCount: number
+  createdAt: number
+  updatedAt: number
+}
+
+/** contestpin:create/update/archive 的返回投影（比赛行全量 + nodeCount）。 */
+export interface ContestView {
+  id: number
+  name: string
+  year: number | null
+  edition?: string
+  organizer?: string
+  note?: string
+  status: ContestStatus
+  archived: boolean
+  officialSite?: string
+  signupUrl?: string
+  submitUrl?: string
+  nodeCount: number
+  createdAt: number
+  updatedAt: number
+}
+
+/** 单个时间节点视图（precision/raw_text 为时间语义与原文依据，docs/22 §2.2）。 */
+export interface ContestNodeView {
+  id: number
+  contestId: number
+  kind: ContestNodeKind
+  label: string
+  startAt: number | null
+  endAt: number | null
+  /** IANA 名或 'local'（自由文本，不强校验）。 */
+  tz: string
+  precision: ContestNodePrecision
+  /** 原文依据（低精度→exact 提升的显式证据）。 */
+  rawText?: string
+  done: boolean
+  doneAt?: number | null
+  source: ContestNodeSource
+  createdAt: number
+  updatedAt: number
+}
+
+/** 提醒策略视图（CP4 引擎落地；CP1 随 detail 只读带出）。 */
+export interface ContestReminderView {
+  id: number
+  nodeId: number
+  offsetKind: ContestReminderOffsetKind
+  offsetValue: number
+  channel: ContestReminderChannel
+  enabled: boolean
+  lastFiredAt?: number | null
+  createdAt: number
+  updatedAt: number
+}
+
+/** 材料视图（sha256 文件级去重；CP1 无导入通道，detail 恒为真实空集）。 */
+export interface ContestMaterialView {
+  id: number
+  sha256: string
+  originalName: string
+  storedPath: string
+  sizeBytes?: number | null
+  pages?: number | null
+  kind: 'pdf' | 'image' | 'other'
+  importedAt: number
+}
+
+/** 关联项目（经 resources/relationships `uses` 边反查，docs/22 §2.3）。 */
+export interface ContestLinkedProject {
+  id: number
+  name: string
+}
+
+/** contestpin:get 返回：比赛全量 + nodes/materials/reminders/关联 project。 */
+export interface ContestDetailView extends ContestView {
+  nodes: ContestNodeView[]
+  materials: ContestMaterialView[]
+  reminders: ContestReminderView[]
+  project: ContestLinkedProject | null
+}
+
+// --- contestpin:list ---
+
+export interface ContestListPayload {
+  /** 名称/年份模糊搜索（LIKE 包含匹配）。 */
+  query?: string
+  status?: ContestStatus
+  /** 缺省排除已归档；true = 含已归档一并返回。 */
+  archived?: boolean
+  limit?: number
+  offset?: number
+}
+
+export interface ContestListResult {
+  items: ContestListItem[]
+  total: number
+}
+
+// --- contestpin:get ---
+
+export interface ContestGetPayload {
+  id: number
+}
+
+// --- contestpin:create ---
+
+export interface ContestCreatePayload {
+  name: string
+  /** 可空；给定时 1990..2100 整数（运行期校验）。 */
+  year?: number | null
+  edition?: string
+  organizer?: string
+  note?: string
+  /** 缺省 'watching'。 */
+  status?: ContestStatus
+  officialSite?: string
+  signupUrl?: string
+  submitUrl?: string
+}
+
+// --- contestpin:update ---
+
+export interface ContestPatch {
+  name?: string
+  year?: number | null
+  edition?: string
+  organizer?: string
+  note?: string
+  status?: ContestStatus
+  officialSite?: string
+  signupUrl?: string
+  submitUrl?: string
+}
+
+export interface ContestUpdatePayload {
+  id: number
+  patch: ContestPatch
+}
+
+// --- contestpin:delete（CONFIRM_REQUIRED 两段式） ---
+
+export interface ContestDeleteImpacts {
+  nodes: number
+  materials: number
+  reminders: number
+}
+
+export interface ContestDeleteStart {
+  confirmRequired: true
+  impacts: ContestDeleteImpacts
+}
+
+export interface ContestDeletePayload {
+  id: number
+  confirmed?: boolean
+}
+
+export interface ContestDeleteResult {
+  /** 判别字段：结果分支恒为 undefined（Start 分支为 true，docker:action 同款）。 */
+  confirmRequired?: undefined
+  removed: true
+}
+
+// --- contestpin:archive ---
+
+export interface ContestArchivePayload {
+  id: number
+  archived: boolean
+}
+
+// --- contestpin:nodeUpsert ---
+
+export interface ContestNodeInput {
+  /** 带 id = 更新既有节点；缺省 = 新建。 */
+  id?: number
+  /** 缺省 'custom'。 */
+  kind?: ContestNodeKind
+  /** kind='custom' 必填非空；其余 kind 缺省以 kind 值兜底展示。 */
+  label?: string
+  startAt?: number | null
+  endAt?: number | null
+  /** 缺省 'local'（自由文本，IANA 名不强校验）。 */
+  tz?: string
+  /** 缺省 'exact'；已有低精度→'exact' 必须显式携带 rawText 依据。 */
+  precision?: ContestNodePrecision
+  rawText?: string
+  done?: boolean
+}
+
+export interface ContestNodeUpsertPayload {
+  contestId: number
+  node: ContestNodeInput
+}
+
+// --- contestpin:nodeDelete（CONFIRM_REQUIRED 两段式） ---
+
+export interface ContestNodeDeleteImpacts {
+  reminders: number
+}
+
+export interface ContestNodeDeleteStart {
+  confirmRequired: true
+  impacts: ContestNodeDeleteImpacts
+}
+
+export interface ContestNodeDeletePayload {
+  id: number
+  confirmed?: boolean
+}
+
+export interface ContestNodeDeleteResult {
+  confirmRequired?: undefined
+  removed: true
+}
+
+// --- contestpin:linkProject ---
+
+export interface ContestLinkProjectPayload {
+  contestId: number
+  /** null = 解除关联（删 contest→project `uses` 边）。 */
+  projectId: number | null
+}
+
+export interface ContestLinkProjectResult {
+  linked: boolean
+}
+
+// ---------------------------------------------------------------------------
 // 7. Gateway request & channel contract table (constraint #17)
 // ---------------------------------------------------------------------------
 
@@ -1979,6 +2244,17 @@ export interface ChannelContract {
   'agents:diagnostics': [AgentDiagnosticsPayload, AgentDiagnosticsResult]
   // 夜间#1 批次：per-provider 单独重探（UX 验收 backlog，known-limitations §3.2）
   'agents:probeProvider': [AgentProbeProviderPayload, AgentProbeProviderResult]
+  // --- contestpin (CP1 batch, docs/22 §3 + docs/04「ContestPin 追加」节；
+  //     delete / nodeDelete 为 CONFIRM_REQUIRED 两段式) ---
+  'contestpin:list': [ContestListPayload, ContestListResult]
+  'contestpin:get': [ContestGetPayload, ContestDetailView]
+  'contestpin:create': [ContestCreatePayload, ContestView]
+  'contestpin:update': [ContestUpdatePayload, ContestView]
+  'contestpin:delete': [ContestDeletePayload, ContestDeleteStart | ContestDeleteResult]
+  'contestpin:archive': [ContestArchivePayload, ContestView]
+  'contestpin:nodeUpsert': [ContestNodeUpsertPayload, ContestNodeView]
+  'contestpin:nodeDelete': [ContestNodeDeletePayload, ContestNodeDeleteStart | ContestNodeDeleteResult]
+  'contestpin:linkProject': [ContestLinkProjectPayload, ContestLinkProjectResult]
 }
 
 /** Compile-time assertion that ChannelContract covers exactly the whitelist. */
