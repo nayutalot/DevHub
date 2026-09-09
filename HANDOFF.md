@@ -50,6 +50,7 @@
 6. ~~dist-final worktree 处置~~（窗毕顺手清，见 §4.3）；GitHub Release 发布与否待用户一句话（条件链：M3-D 终报通过 ✅ → M3-E1 B 方案复验 → 安装包已更新 ✅（09-09 22:28 根五件）→ 统一发布）
 
 3. **三线并行进行中（09-09 深夜派发）**：**M3-E1**（worktrees/m3e1，分支 agent/m3e1，任务书 m3e1-self-mgmt.md；锚点已更新：88 通道/008 已落/ECS 部署须回主控）+ **LR1**（worktrees/lr1，分支 agent/lr1，任务书 lr1-llm-review.md；007 归它、计数 88→92、fresh 库 applied 断言需随 007 插入调整）+ ContestPin CP3b 待任务书（材料导入两阶段管线；m3a 报告有 CP3b 衔接注记）。**合并纪律**：各分支过主控 review+全量门禁后逐个合 main（channels/migrate 冲突面已在派发书里错开）。
+4. **RemoteWake RW 系列（新立项 09-09 深夜，用户令）**：手机 App 经 ECS 反向隧道 SSH 到树莓派发 WoL 唤醒 Windows。**RW0 relay 批派发中**（worktrees/rw0，分支 agent/rw0-relay-wake，任务书 rw0-relay-wake.md@0c6a3e8：wake_host/wake_result relay 原生帧+Pi SSH 执行器+限速审计+WAKE_ENABLED env 缺省 0+docs/18 追加）；RW1（App 面）门控 M3-E1 合并。**⚠️ 阻塞待用户**：ECS 公钥注入 Pi 的真实密码（raspberry 全变体已拒，隧道内+LAN 直连两路实测）；注入后 e2e（在线 SSH+wol 实测→用户关机实测 S5）。拓扑事实：Pi=用户名 Raspberr5/WiFi 独立上行（PC 关机隧道存活）/反向隧道 ECS 127.0.0.1:2222/目标 MAC B0:82:E2:4B:1A:81（I226-V 直连网线）/Windows WoL 驱动全开含 S5。部署链：RW0 review→merge→/opt/devhub-relay 更新+env 6 行+restart→手工帧验证。
 
 ## 5. 裁决与待办（#9/Release 已裁，余下排队不代答）
 
