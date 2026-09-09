@@ -236,6 +236,58 @@ test('host 在线：command 原样中继 → command_ack rejected（errorCode �
   assert.equal(ack.errorCode, 'AGENT_CAPABILITY_MISSING')
 })
 
+// ---- M3-E 设备自管理两 action（docs/18 §5.3，用户裁决 2026-09-07 #9=B） ----
+
+test('M3-E：spawn_session/revoke_device 原样中继（sessionId 缺省帧形；ECS 零语义解释）', async (t) => {
+  const world = await setupWorld(t)
+  const { device } = await pairDevice(world)
+
+  // spawn_session：docs/18 §5.3 帧形——尚无会话 → sessionId 缺省，payload {providerId, task}
+  device.send({
+    type: 'command', requestId: 'm3e-spawn-1', idempotencyKey: 'm3e-spawn-key-1',
+    action: 'spawn_session', payload: { providerId: 'kimi', task: 'fixture turn' },
+    auth: { token: 't', ts: 1, nonce: randomHex32() }, createdAt: Math.floor(Date.now() / 1000),
+  })
+  const relayedSpawn = await world.host.recvFrame()
+  assert.equal(relayedSpawn.type, 'command', 'spawn_session 中继到 host 腿')
+  assert.equal(relayedSpawn.action, 'spawn_session', 'action 原样透传')
+  assert.equal(relayedSpawn.sessionId, undefined, 'sessionId 缺省帧形原样（零字段注入）')
+  assert.deepEqual(relayedSpawn.payload, { providerId: 'kimi', task: 'fixture turn' })
+  world.host.send({ type: 'command_ack', requestId: 'm3e-spawn-1', idempotencyKey: 'm3e-spawn-key-1', commandId: 'cmd-spawn-1', status: 'accepted' })
+  const spawnAck = await device.recvFrame()
+  assert.equal(spawnAck.status, 'accepted')
+
+  // revoke_device：payload {} 原样；受理回执（终态收口 = disconnect(revoked)，ECS 不关心）
+  device.send({
+    type: 'command', requestId: 'm3e-revoke-1', idempotencyKey: 'm3e-revoke-key-1',
+    action: 'revoke_device', payload: {},
+    auth: { token: 't', ts: 1, nonce: randomHex32() }, createdAt: Math.floor(Date.now() / 1000),
+  })
+  const relayedRevoke = await world.host.recvFrame()
+  assert.equal(relayedRevoke.type, 'command', 'revoke_device 中继到 host 腿')
+  assert.equal(relayedRevoke.action, 'revoke_device', 'action 原样透传')
+  assert.deepEqual(relayedRevoke.payload, {})
+  world.host.send({ type: 'command_ack', requestId: 'm3e-revoke-1', idempotencyKey: 'm3e-revoke-key-1', commandId: 'cmd-revoke-1', status: 'accepted' })
+  const revokeAck = await device.recvFrame()
+  assert.equal(revokeAck.status, 'accepted')
+})
+
+test('M3-E：未知 action 仍 BAD_PAYLOAD（值域扩展不放松白名单，业务错误不断连）', async (t) => {
+  const world = await setupWorld(t)
+  const { device } = await pairDevice(world)
+  device.send({ type: 'command', requestId: 'm3e-bad-1', idempotencyKey: 'm3e-bad-key-1', sessionId: 1, action: 'dance', auth: { token: 't', ts: 1, nonce: 'n' }, createdAt: 1 })
+  const err = await device.recvFrame()
+  assert.equal(err.type, 'error', '未知 action → error 帧（docs/18 §3.16 业务级不断连）')
+  assert.equal(err.code, 'BAD_PAYLOAD')
+  assert.match(err.message, /command\.action must be one of/)
+  assert.ok(err.message.includes('spawn_session') && err.message.includes('revoke_device'), '错误信息反映七值白名单')
+  // 连接保持（业务级错误不断连）：后续合法帧仍可达 host
+  device.send({ type: 'command', requestId: 'm3e-bad-2', idempotencyKey: 'm3e-bad-key-2', sessionId: 1, action: 'pause', auth: { token: 't', ts: 1, nonce: 'n2' }, createdAt: 1 })
+  const relayed = await world.host.recvFrame()
+  assert.equal(relayed.action, 'pause', 'BAD_PAYLOAD 后连接保持，后续命令继续中继')
+})
+
+
 test('A⑥ 修 1：僵尸窗口排队态重发 → 立即 queued:true + 武装帧保留（host 重连重投）', async (t) => {
   const world = await setupWorld(t)
   const { device } = await pairDevice(world)

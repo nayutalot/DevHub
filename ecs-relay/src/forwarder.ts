@@ -24,7 +24,10 @@ import { sha256Hex } from './auth.ts'
 import type { RateLimits } from './auth.ts'
 import { claimPairing, registerPairing, findPendingDevice } from './pairing.ts'
 
-export const RELAY_ACTIONS = ['send_message', 'approve', 'pause', 'resume', 'interrupt'] as const
+// M3-E（docs/18 §5.3，用户裁决 2026-09-07 #9=B）：值域追加 spawn_session/revoke_device
+// 两值——设备自管理通道。仅值域扩展：ECS 仍不解释语义（命令纯透传给 host 腿，
+// §5.3「Windows 执行通道」列），帧形零扩展、零新逻辑分支（N-R3：两值即 action 全集终点）。
+export const RELAY_ACTIONS = ['send_message', 'approve', 'pause', 'resume', 'interrupt', 'spawn_session', 'revoke_device'] as const
 
 type Frame = { type: string; [key: string]: unknown }
 

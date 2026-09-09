@@ -479,6 +479,46 @@ try {
     }
 
     // ===========================================================================
+    step('M3-E 设备自管理两 action（docs/18 §5.3：spawn_session/revoke_device 正常中继 + 未知 action 仍 BAD_PAYLOAD）')
+    {
+      // ① 新 action 正常中继（host 在线 → 原样中继 → host 回执回流；sessionId 缺省帧形）
+      globalThis.selfcheckDevice.send({
+        type: 'command', requestId: 'sc-m3e-spawn', idempotencyKey: 'sc-m3e-spawn-key',
+        action: 'spawn_session', payload: { providerId: 'kimi', task: 'selfcheck managed spawn' },
+        auth: { token: deviceToken, ts: Math.floor(Date.now() / 1000), nonce: crypto.randomBytes(16).toString('hex') },
+        createdAt: Math.floor(Date.now() / 1000),
+      })
+      const relayedSpawn = await globalThis.selfcheckHost.recvFrame(5000)
+      assert(relayedSpawn.type === 'command' && relayedSpawn.action === 'spawn_session', 'spawn_session 原样中继到 host 腿（ECS 零语义解释）')
+      assert(relayedSpawn.sessionId === undefined, 'spawn_session sessionId 缺省帧形原样（零字段注入，docs/18 §5.3）')
+      globalThis.selfcheckHost.send({ type: 'command_ack', requestId: 'sc-m3e-spawn', idempotencyKey: 'sc-m3e-spawn-key', commandId: 'cmd-sc-m3e-spawn', status: 'accepted' })
+      const spawnAck = await globalThis.selfcheckDevice.recvFrame(5000)
+      assert(spawnAck.type === 'command_ack' && spawnAck.status === 'accepted', 'spawn_session host 回执回流设备')
+
+      globalThis.selfcheckDevice.send({
+        type: 'command', requestId: 'sc-m3e-revoke', idempotencyKey: 'sc-m3e-revoke-key',
+        action: 'revoke_device', payload: {},
+        auth: { token: deviceToken, ts: Math.floor(Date.now() / 1000), nonce: crypto.randomBytes(16).toString('hex') },
+        createdAt: Math.floor(Date.now() / 1000),
+      })
+      const relayedRevoke = await globalThis.selfcheckHost.recvFrame(5000)
+      assert(relayedRevoke.type === 'command' && relayedRevoke.action === 'revoke_device', 'revoke_device 原样中继到 host 腿（目标=auth 设备自身由 Windows 判定）')
+      globalThis.selfcheckHost.send({ type: 'command_ack', requestId: 'sc-m3e-revoke', idempotencyKey: 'sc-m3e-revoke-key', commandId: 'cmd-sc-m3e-revoke', status: 'accepted' })
+      const revokeAck = await globalThis.selfcheckDevice.recvFrame(5000)
+      assert(revokeAck.type === 'command_ack' && revokeAck.status === 'accepted', 'revoke_device host 回执回流设备')
+
+      // ② 未知 action 仍 BAD_PAYLOAD（值域扩展不放松白名单；业务级错误不断连）
+      globalThis.selfcheckDevice.send({
+        type: 'command', requestId: 'sc-m3e-bad', idempotencyKey: 'sc-m3e-bad-key', sessionId: 7,
+        action: 'dance', auth: { token: deviceToken, ts: Math.floor(Date.now() / 1000), nonce: crypto.randomBytes(16).toString('hex') },
+        createdAt: Math.floor(Date.now() / 1000),
+      })
+      const badAction = await globalThis.selfcheckDevice.recvFrame(5000)
+      assert(badAction.type === 'error' && badAction.code === 'BAD_PAYLOAD', '未知 action → error BAD_PAYLOAD（docs/18 §3.16 业务级不断连）')
+      assert(String(badAction.message).includes('spawn_session') && String(badAction.message).includes('revoke_device'), 'BAD_PAYLOAD 消息反映七值白名单')
+    }
+
+    // ===========================================================================
     step('3. 命令过期（queued TTL → expired + COMMAND_EXPIRED 回流）')
     {
       globalThis.selfcheckHost.destroy()
