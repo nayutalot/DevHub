@@ -17,6 +17,7 @@ import { Badge, stateTone } from '../components/Badge.tsx'
 import { DraftReviewPanel } from '../components/DraftReviewPanel.tsx'
 import { MaterialImportPanel } from '../components/MaterialImportPanel.tsx'
 import { RecognitionSettingsPanel } from '../components/RecognitionSettingsPanel.tsx'
+import { ReminderBell } from '../components/ReminderPanels.tsx'
 import { EmptyState, ErrorState, Loading, Spinner } from '../components/StateViews.tsx'
 import { useApp } from '../lib/appContext.ts'
 import {
@@ -71,6 +72,8 @@ export function ContestView({ initialContestId }: { initialContestId?: number })
           <p className="view-sub">赛程钉 — 比赛、时间节点与悬浮窗提醒源</p>
         </div>
         <div className="view-actions">
+          {/* CP4：顶栏小铃铛（近 24h 已触发/待办聚合，60s 轮询 reminderLogList summary） */}
+          <ReminderBell />
           <button type="button" className="btn btn-primary" onClick={() => setCreateOpen((v) => !v)}>
             New Contest
           </button>

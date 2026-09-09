@@ -11,6 +11,7 @@ import type {
   ContestDueNode,
   ContestNodeKind,
   ContestNodePrecision,
+  ContestReminderOffsetKind,
   ContestStatus,
 } from '../../../shared/types.ts'
 import { toMs } from './format.ts'
@@ -103,4 +104,11 @@ export function dueNodeSummary(due: ContestDueNode, nowMs?: number): string {
   const kind = CONTEST_NODE_KIND_LABEL[due.kind]
   if (due.startAt === null) return `${kind} · ${due.label} · 时间待定`
   return `${kind} · ${due.label} · ${formatDate(toMs(due.startAt))} · ${daysRemainingText(due.startAt, nowMs)}`
+}
+
+/** 提醒提前量文案（CP4；date 精度 before_days 实际触发时刻为当日 09:00 本地）。 */
+export function reminderOffsetText(offsetKind: ContestReminderOffsetKind, offsetValue: number): string {
+  if (offsetKind === 'before_days') return `提前 ${offsetValue} 天`
+  if (offsetKind === 'before_hours') return `提前 ${offsetValue} 小时`
+  return '准时（开始时刻）'
 }
