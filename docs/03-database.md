@@ -235,6 +235,21 @@ INSERT INTO settings (key, value) VALUES
    review_pre_json TEXT` 与 `ADD COLUMN review_post_json TEXT`（均可空，LLM 复核
    envelope 缓存；append-only，不改既有迁移）——设计见 docs/briefs/lr1-llm-review.md
    （硬门：M3-D 72h 终报通过后开工）。
+9. **migration 008（预告，ContestPin 待落地）**：赛程钉比赛模块 7 张新表——
+   `contests`（名称/届次/主办方/参赛状态/三入口链接/archived）、`contest_nodes`
+   （多时间节点：kind 枚举+自定义、start/end unix 秒可空、tz、precision 枚举
+   exact/date/month/tbd、raw_text 原文依据、done、source）、`contest_reminders`
+   （提醒策略，与 precision 分开保存；UNIQUE(node,offset,channel)）、
+   `contest_reminder_log`（补发去重账本，UNIQUE(reminder_id,fire_key)）、
+   `contest_materials`（sha256 UNIQUE 文件级去重，附件复制到
+   `getDataDir()/contestpin/materials/`）、`contest_import_jobs`（两阶段识别
+   状态机 imported→…→confirmed + 指纹缓存列）、`contestpin_configs`（识别
+   配置，key_sealed 走 KeyCrypto envelope 绝不落明文）+ settings 种子
+   `contestpin_default_mode`/`contestpin_overlay_enabled`（WHERE NOT EXISTS）。
+   时间语义权威（precision 不得 date→exact 提升等）见 docs/22 §2.2；
+   设计见 docs/22-contestpin-design.md。fresh 库迁移后 applied=7、
+   user_version=8；resourceGraph ResourceType 同批追加 'contest'（docs/05
+   枚举表随批更新）。
 
 ## 5. 表清单（S1 起，19 张）
 

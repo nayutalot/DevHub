@@ -130,3 +130,27 @@ LLM 前/后复核 + Skills 元数据体检 4 条，**全 READ_ONLY**，**状态 
 | `archive:reviewPre` | preview 既有 plan 摘要（零额外扫描，仅路径/名称/描述/计数） | 四态 envelope（ok/skipped/failed/unparseable）；ok 态含 `{ risk: 'low'\|'medium'\|'high', concerns[], rationale }`（确认弹窗咨询条展示，不拦截 DOUBLE_CONFIRM） | READ_ONLY | LR1 待落地 |
 | `archive:reviewPost` | `{ runId }`（archive_runs 行 id） | 四态 envelope（同上）；run 详情查看时按需触发，结果缓存 `review_post_json`，缓存命中不再打端点 | READ_ONLY | LR1 待落地 |
 | `skills:reviewMeta` | `{}` | 批量 flags（描述过短 / 语言不一致 / 疑似重复）；只读咨询不落库，doctor 语义不变 | READ_ONLY | LR1 待落地 |
+
+### ContestPin 追加（赛程钉比赛模块；设计权威 docs/22-contestpin-design.md）
+
+CP 系列分批落地，**状态 = ContestPin 待落地**；CP1 首批 9 条（变更类 7 + 
+READ_ONLY 2），落地后白名单 70→**79**；全量落地（CP2-CP6 悬浮窗/识别/提醒/
+Agent/备份）后 70→约 **101**（LR1 另 +4）。计数断言按既有授权模式"就地更新+
+注记"。变更类 delete/discard 均为 CONFIRM_REQUIRED 两段式（先回 impacts）。
+
+| channel | payload | result data | 读写 | 状态 |
+| --- | --- | --- | --- | --- |
+| `contestpin:list` | `{ query?, status?, archived?, limit?, offset? }` | `{ items: ContestListItem[], total }`（名称/年份模糊搜索+状态筛选，archived 缺省排除） | READ_ONLY | CP1 待落地 |
+| `contestpin:get` | `{ id }` | ContestDetailView（nodes/materials/reminders/关联 project） | READ_ONLY | CP1 待落地 |
+| `contestpin:create` | `{ name, year?, edition?, organizer?, note?, status?, officialSite?, signupUrl?, submitUrl? }` | ContestView（同时登记 resources contest 节点） | 变更 | CP1 待落地 |
+| `contestpin:update` | `{ id, patch }` | ContestView（改名同步 resource display_name） | 变更 | CP1 待落地 |
+| `contestpin:delete` | `{ id, confirmed? }` | 无 confirmed → `{ confirmRequired: true, impacts: { nodes, materials, reminders } }`；confirmed → 级联删（含 resource 节点与边） | 变更 | CP1 待落地 |
+| `contestpin:archive` | `{ id, archived: bool }` | ContestView | 变更 | CP1 待落地 |
+| `contestpin:nodeUpsert` | `{ contestId, node? }`（node 带 id=更新；precision 校验禁止 date→exact 提升） | ContestNodeView | 变更 | CP1 待落地 |
+| `contestpin:nodeDelete` | `{ id, confirmed? }` | CONFIRM_REQUIRED 两段式 | 变更 | CP1 待落地 |
+| `contestpin:linkProject` | `{ contestId, projectId: number \| null }` | `{ linked: bool }`（resources+relationships `uses` 边，INSERT OR IGNORE；null=解边） | 变更 | CP1 待落地 |
+
+后续批次通道组（落地时逐批补表）：CP2 `overlayState`/`overlaySetEnabled`/
+`openInMain`/`openLink`（http/https 校验后默认浏览器）；CP3 config 四条 +
+materials/import/draft 十二条；CP4 reminder 两条；CP5 agentStatus/Submit/
+importPack/exportPack；CP6 backupExport/backupImport。
