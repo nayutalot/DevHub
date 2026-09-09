@@ -5,13 +5,16 @@
  * 数据源：contestpin:list（服务端搜索/状态筛选/含归档开关/分页）。操作：
  * contestpin:create（内联表单：名称/年份/届次/主办方/备注/状态/三链接 URL）；
  * 详情侧 ContestDetailView（编辑 / 归档 / 两段式删除（弹窗展示 impacts）/
- * 节点增删改 / 关联项目选择器）。全部数据经真实 IPC，无 mock（约束 #23）；
+ * 节点增删改 / 关联项目选择器）。CP3a 起含「识别设置」折叠面板
+ * （RecognitionSettingsPanel：掩码配置列表/新建编辑/连接测试/两段式删除/
+ * 默认识别模式，docs/22 §6）。全部数据经真实 IPC，无 mock（约束 #23）；
  * loading/empty/error 三态强制（约束 #24）。
  */
 
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Badge, stateTone } from '../components/Badge.tsx'
+import { RecognitionSettingsPanel } from '../components/RecognitionSettingsPanel.tsx'
 import { EmptyState, ErrorState, Loading, Spinner } from '../components/StateViews.tsx'
 import { useApp } from '../lib/appContext.ts'
 import {
@@ -82,6 +85,9 @@ export function ContestView({ initialContestId }: { initialContestId?: number })
           onCancel={() => setCreateOpen(false)}
         />
       )}
+
+      {/* CP3a：识别设置折叠面板（掩码配置列表 / 新建编辑 / 连接测试 / 两段式删除 / 默认模式） */}
+      <RecognitionSettingsPanel />
 
       <div className="toolbar" style={{ marginBottom: 8 }}>
         <input
