@@ -28,9 +28,9 @@ export const sha256hex = (v) => createHash('sha256').update(v, 'utf8').digest('h
 
 export const rid = () => `${randomHex32()}-${randomHex32()}`
 
-/** 起服 + 注册 host + host WS 连接（集成测试共用世界）。 */
-export async function setupWorld(t, overrides = {}) {
-  const world = await bootRelay(t, overrides)
+/** 起服 + 注册 host + host WS 连接（集成测试共用世界）。extras.wakeRunner → 注入式 wake 执行缝（RW0）。 */
+export async function setupWorld(t, overrides = {}, extras = {}) {
+  const world = await bootRelay(t, overrides, extras)
   const enrollRes = await fetch(`http://127.0.0.1:${world.port}/relay/host`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${world.config.registrationCode}` },
@@ -96,9 +96,10 @@ export async function pairDevice(world, { code = 'A3K7M9XY', deviceToken = `devt
 
 /**
  * 起一个 127.0.0.1 随机端口实例（端口 0 = OS 分配，天然段外）。
- * overrides 直接映射 env 名（loadConfig 语义）。
+ * overrides 直接映射 env 名（loadConfig 语义）；extras.wakeRunner = 注入式 wake 执行缝
+ * （RW0，docs/18 §3.17——单测零真实 SSH）。
  */
-export async function bootRelay(t, overrides = {}) {
+export async function bootRelay(t, overrides = {}, extras = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'relay-test-'))
   const env = {
     RELAY_BIND: '127.0.0.1',
@@ -108,7 +109,7 @@ export async function bootRelay(t, overrides = {}) {
     ...overrides,
   }
   const config = loadConfig(env)
-  const handle = startRelayServer({ config, dbPath: config.dbPath })
+  const handle = startRelayServer({ config, dbPath: config.dbPath, wakeRunner: extras.wakeRunner })
   await waitFor(() => handle.server.listening === true)
   await waitFor(() => handle.port > 0)
   if (t !== null && typeof t?.after === 'function') {

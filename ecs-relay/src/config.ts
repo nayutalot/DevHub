@@ -58,6 +58,17 @@ export interface RelayConfig {
   auditRetentionSec: number
   /** 容量预算护栏（docs/19 §5.5：WS 连接 ≤64）。 */
   maxWsConnections: number
+  // ---- wake 面（RW0，docs/18 §3.17，主控更正版）：全部 env 注入、缺省禁用——未配置即 wake_host 恒回 disabled ----
+  /** 1 = 开启 wake 帧面；0/未设置 = 恒 disabled。 */
+  wakeEnabled: boolean
+  /**
+   * 固定执行命令（按空白切分为参数数组 spawn，零 shell）。缺省 'ssh pi wake-windows'：
+   * HostName/Port/User/密钥全在 ECS ~/.ssh/config 的 `pi` 别名层——机器级配置，
+   * 仓库与代码零凭据零端点字面量。env WAKE_COMMAND 可覆盖（如 /usr/local/bin/wake-win）。
+   */
+  wakeCommand: string
+  /** 每设备冷却窗秒数（下限 1——intEnv 语义）。 */
+  wakeCooldownSec: number
 }
 
 function intEnv(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
@@ -106,5 +117,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RelayConfig {
     evictionIntervalMs: intEnv(env, 'RELAY_EVICTION_INTERVAL_SEC', 300) * 1000,
     auditRetentionSec: intEnv(env, 'RELAY_AUDIT_RETENTION_DAYS', 180) * 86400,
     maxWsConnections: intEnv(env, 'RELAY_MAX_WS_CONNECTIONS', 64),
+    wakeEnabled: env.WAKE_ENABLED === '1',
+    wakeCommand: env.WAKE_COMMAND !== undefined && env.WAKE_COMMAND.trim().length > 0 ? env.WAKE_COMMAND.trim() : 'ssh pi wake-windows',
+    wakeCooldownSec: intEnv(env, 'WAKE_COOLDOWN_S', 15),
   }
 }

@@ -23,6 +23,7 @@ import { RelayError, errorFrame } from './errors.ts'
 import { sha256Hex } from './auth.ts'
 import type { RateLimits } from './auth.ts'
 import { claimPairing, registerPairing, findPendingDevice } from './pairing.ts'
+import type { WakeExecutor } from './wake.ts'
 
 export const RELAY_ACTIONS = ['send_message', 'approve', 'pause', 'resume', 'interrupt'] as const
 
@@ -70,6 +71,8 @@ export class Forwarder {
   readonly cache: EventCache
   private readonly config: RelayConfig
   private readonly rateLimits: RateLimits
+  /** RW0：wake 帧执行器（docs/18 §3.17；注入式 runner——单测零真实 SSH）。 */
+  private readonly wake: WakeExecutor
 
   /** device leg 已鉴权连接（同设备多连接，docs/18 §2）。 */
   private readonly deviceConns = new Map<number, Set<RelayConnection>>()
@@ -100,12 +103,13 @@ export class Forwarder {
   /** 周期 timer（淘汰/排队过期清扫）。 */
   private timers: NodeJS.Timeout[] = []
 
-  constructor(deps: { store: Store; audit: Audit; cache: EventCache; config: RelayConfig; rateLimits: RateLimits }) {
+  constructor(deps: { store: Store; audit: Audit; cache: EventCache; config: RelayConfig; rateLimits: RateLimits; wake: WakeExecutor }) {
     this.store = deps.store
     this.audit = deps.audit
     this.cache = deps.cache
     this.config = deps.config
     this.rateLimits = deps.rateLimits
+    this.wake = deps.wake
     const sweepMs = Math.min(30000, Math.max(1000, Math.floor((deps.config.commandTtlSec * 1000) / 10)))
     this.timers.push(setInterval(() => this.sweepExpiredQueued(), sweepMs))
     // 宽限清扫节奏：窗口的 1/4（下限 500ms 供测试短窗，上限 30s——docs/18 §3.14 300s → 7.5s）
@@ -378,6 +382,9 @@ export class Forwarder {
       case 'heartbeat':
         this.handleDeviceHeartbeat(conn, deviceId, frame)
         return
+      case 'wake_host':
+        this.handleWakeHost(conn, deviceId, frame)
+        return
       case 'disconnect':
         // 客户端优雅关闭告知（随后必须紧跟 close 帧，docs/18 §3.15）；服务端等待 close
         return
@@ -647,6 +654,35 @@ export class Forwarder {
       upstream: this.hostOnline ? 'connected' : 'disconnected',
       queuedCommands: this.store.get<{ n: number }>("SELECT COUNT(*) AS n FROM relay_commands WHERE device_id = ? AND status = 'queued'", deviceId)?.n ?? 0,
     })
+  }
+
+  /**
+   * wake_host（RW0，docs/18 §3.17）：relay 原生「唤醒 Windows」帧——绝不转发桌面
+   * （桌面 WS 离线正是主用例）。结果以 wake_result 单帧应答（业务级，不断连）；
+   * 门控序/冷却窗/审计全在 WakeExecutor（注入式 runner，单测零真实 SSH）。
+   */
+  private handleWakeHost(conn: RelayConnection, deviceId: number, frame: Frame): void {
+    const requestId = asString(frame.requestId, 'requestId')
+    this.touchDevice(deviceId)
+    void this.wake.execute(deviceId, this.hostOnline).then(
+      (result) => {
+        if (conn.closed) return
+        conn.sendFrame({
+          type: 'wake_result',
+          requestId,
+          status: result.status,
+          ...(result.latencyMs !== undefined ? { latencyMs: result.latencyMs } : {}),
+          ...(result.retryAfterMs !== undefined ? { retryAfterMs: result.retryAfterMs } : {}),
+          ...(result.stderrSummary !== undefined ? { stderrSummary: result.stderrSummary } : {}),
+        })
+      },
+      () => {
+        // 执行器契约：错误全部映射为 status 绝不抛出；此处兜底仅防实现破坏契约
+        this.audit.write({ category: 'wake', action: 'wake_attempt', outcome: 'error', deviceId, detail: { status: 'exec_failed', reason: 'executor_rejected' } })
+        if (conn.closed) return
+        conn.sendFrame({ type: 'wake_result', requestId, status: 'exec_failed' })
+      },
+    )
   }
 
   private observeDeviceTokenVersion(deviceId: number, tokenVersion: number): void {

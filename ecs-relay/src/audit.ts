@@ -7,7 +7,7 @@
  */
 import type { Store } from './store.ts'
 
-export type AuditCategory = 'pairing' | 'auth' | 'command' | 'device' | 'relay'
+export type AuditCategory = 'pairing' | 'auth' | 'command' | 'device' | 'relay' | 'wake'
 export type AuditOutcome = 'success' | 'denied' | 'error'
 
 export interface AuditEntry {
