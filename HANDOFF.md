@@ -39,7 +39,7 @@
 
 ## 4. ⚠️ 未决项（按序处理）
 
-0. **「赛程钉 ContestPin」比赛模块已立项**（用户 2026-09-09 指令，今晚 18:00 后新会话开工）：权威任务书=`docs/briefs/contestpin-charter.md`（逐字原文，32a484c）——八节全规格（管理/多节点/悬浮窗/提醒/两阶段识别/多模态/Agent/备份打包）。**开工流程**：新会话 git pull → 读 charter+本 HANDOFF+docs/00 → 只读审计 → 落批任务书 → omni-agent 体系推进。**时机分流**：M3-D 窗内（至 09-10 08:49）只审计/设计/worktree 隔离编码+不占 8746 的单测（**不杀 DevHub/electron=不跑 smoke/mcp 门禁**），门禁/验证/打包窗毕终报通过后；与 M3-E1/LR1 三线并行按资源登记排队。**双会话防冲突**：M3-D 巡检自动化已改纯观察哨（零文件写入零 git），ContestPin 会话独占全部文件/HANDOFF/记忆同步职责（含把 M3-D 终报结论并入下次同步）。
+0. **「赛程钉 ContestPin」比赛模块已立项·开工中**（用户 2026-09-09 指令，当晚新会话已开工）：权威任务书=`docs/briefs/contestpin-charter.md`（逐字原文，32a484c）——八节全规格（管理/多节点/悬浮窗/提醒/两阶段识别/多模态/Agent/备份打包）。**进度（09-09 晚）**：三面只读审计完成（窗口托盘/数据 IPC/ApiHub 密钥 Agent）→ CP0 文档批已合 main（9067e8e：docs/22 设计书 + docs/03 migration 008 预告【007 留 LR1】+ docs/04 CP1 通道 70→79 预告 + docs/briefs/contestpin-m1.md 任务书）→ worktree `DevHub-worktrees/contestpin`（分支 agent/contestpin）已建 → CP1 数据层批派发中（omni-agent；窗内验证=tsc+smoke --tier=fast）。**时机分流不变**：M3-D 窗内（至 09-10 08:49）只审计/设计/worktree 隔离编码+纯 Node 单测（**不杀 DevHub/electron=不跑全量 smoke/mcp 门禁**），门禁/真实启动验证/打包窗毕终报通过后；与 M3-E1/LR1 三线并行按资源登记排队（当前仅 ContestPin 解锁，M3-E1/LR1 均门控 M3-D 终报）。**双会话防冲突**：M3-D 巡检自动化已改纯观察哨（零文件写入零 git），ContestPin 会话独占全部文件/HANDOFF/记忆同步职责（含把 M3-D 终报结论并入下次同步）。
 
 1. **M3-D 72h 观察（运行中，至 09-10 08:49）**：巡检一行命令 `node scripts/m3d-watch.mjs --summary "C:\Users\sakuya\AppData\Local\DevHub\m3d-watch\watch-m3d-72h.ndjson"`；**已建 12h 定时巡检自动化（窗毕自删+自动终报）**；巡检进程若随宿主重启丢失，用 Start-Process 同款重拉（**勿带 --t0**）；窗内勿动常驻/ECS/巡检进程/包
 2. **#9 裁决后收尾批**：设备自管理通道实现 + App managed spawn 接 WS command face（R-B5 回流/R-B8 UI 面闭环）→ 单面复验（**决策简报已交用户：A admin REST / B WS command 扩权（主控荐）/ C 桌面独占**）
