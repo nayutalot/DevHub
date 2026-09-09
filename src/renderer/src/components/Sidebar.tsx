@@ -1,9 +1,9 @@
 /**
  * components/Sidebar.tsx — 固定导航（docs/06 §2；S2 批次追加 Skills，S3 批次追加
  * ApiHub / Versions，S4 批次追加 Docker，S5 批次启用 Archive，AC5 批次启用
- * Agents）：Dashboard / Projects / Environment / Services / Skills / ApiHub /
- * Versions / Docker / Archive / Agents，图标为内联 SVG（无图标库依赖），
- * 高亮当前项；不折叠。
+ * Agents，CP2 批次追加 Contests）：Dashboard / Projects / Environment / Services /
+ * Skills / ApiHub / Versions / Docker / Archive / Agents / Contests，图标为内联
+ * SVG（无图标库依赖），高亮当前项；不折叠。
  */
 
 import type { ReactElement } from 'react'
@@ -20,6 +20,7 @@ const NAV_ITEMS: { target: ViewTarget; label: string; icon: ReactElement }[] = [
   { target: { view: 'docker' }, label: 'Docker', icon: <IconDocker /> },
   { target: { view: 'archive' }, label: 'Archive', icon: <IconArchive /> },
   { target: { view: 'agents' }, label: 'Agents', icon: <IconAgents /> },
+  { target: { view: 'contest' }, label: 'Contests', icon: <IconContests /> },
 ]
 
 function iconProps() {
@@ -147,6 +148,20 @@ function IconAgents() {
       <line x1="9" y1="13" x2="9" y2="13.01" />
       <line x1="15" y1="13" x2="15" y2="13.01" />
       <path d="M9.5 16.5h5" />
+    </svg>
+  )
+}
+
+/** Contests：奖杯形态（赛程钉比赛模块页，CP2）。 */
+function IconContests() {
+  return (
+    <svg {...iconProps()}>
+      <path d="M8 4h8v5a4 4 0 0 1-8 0Z" />
+      <path d="M8 5H5a3 3 0 0 0 3 4" />
+      <path d="M16 5h3a3 3 0 0 1-3 4" />
+      <line x1="12" y1="13" x2="12" y2="16" />
+      <line x1="9" y1="20" x2="15" y2="20" />
+      <line x1="10" y1="16" x2="14" y2="16" />
     </svg>
   )
 }

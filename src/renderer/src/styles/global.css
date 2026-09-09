@@ -1714,3 +1714,126 @@ table.table {
   flex-direction: column;
   gap: 10px;
 }
+
+/* ---------------------------------------------------------------------------
+   ContestPin（CP2，docs/22 §4）——比赛删除确认弹窗 + 悬浮窗
+   （CSP default-src 'self'：全部走本文件样式，仅布局微调用 style 属性级内联）
+   --------------------------------------------------------------------------- */
+
+/* 两段式删除确认弹窗（ContestDetailView impacts 展示） */
+.cp-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.cp-modal {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  width: 440px;
+  max-width: 92%;
+}
+
+/* 悬浮窗壳（#overlay hash 分流，OverlayApp）：
+   整窗 drag 由组件内联 -webkit-app-region 控制，交互位 no-drag */
+.overlay-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 12px;
+  user-select: none;
+  overflow: hidden;
+}
+
+.ovl-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  flex: none;
+}
+
+.ovl-title {
+  font-weight: 600;
+}
+
+.ovl-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ovl-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.ovl-card:hover {
+  border-color: var(--accent-bright);
+}
+
+.ovl-name {
+  font-weight: 600;
+  margin-bottom: 4px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.ovl-due {
+  color: var(--fg-dim);
+  margin-bottom: 6px;
+}
+
+.ovl-due-overdue {
+  color: var(--status-err);
+  font-weight: 600;
+}
+
+.ovl-links {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ovl-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+}
+
+/* 折叠态单行摘要 */
+.ovl-collapsed-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.ovl-collapsed-bar .ovl-due {
+  margin-bottom: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

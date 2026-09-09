@@ -9,7 +9,7 @@
 
 import { createContext, useContext } from 'react'
 
-/** 目标视图；projects 可携带要选中的项目 id（跨视图跳转到详情）。 */
+/** 目标视图；projects 可携带要选中的项目 id、contest 可携带比赛 id（跨视图跳转到详情，CP2 悬浮窗 openInMain）。 */
 export type ViewTarget =
   | { view: 'dashboard' }
   | { view: 'projects'; projectId?: number }
@@ -21,6 +21,7 @@ export type ViewTarget =
   | { view: 'docker' }
   | { view: 'archive' }
   | { view: 'agents' }
+  | { view: 'contest'; contestId?: number }
 
 export interface AppState {
   /** 全局刷新键：refreshAll 自增，视图把它并进 useAsync deps 实现整体重拉。 */
