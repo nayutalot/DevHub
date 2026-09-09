@@ -7,7 +7,7 @@
 > 4. ECS M3-E1 已部署（0003 表重建 4 行保全+CHECK 七值+relay_meta v3；selfcheck 83+1SKIP×2；亚秒停机；wake 面//etc 物料零触碰；备份 /root/relay-*-preM3E1-20260910-025705.*）；
 > 5. **末次重打包+换装完成（04:02 常驻在役）**：asar 四项证据全过（**pdfjs-dist 416 条+napi-canvas 原生件=CP3b PDF 残缺修复兑现**+review/spawn/reminder 标识）；health×3 同 PID 稳定+REST 三面 200+零锁；验证遗留设备 #70 已按 CP1 先例撤销（active 回到恰好在役三台 #46/#52/#53）；
 > 6. **卫生批已合 main（aa9dc8e）**：三连幻影事故根治——ac6 系 8746 固定口全改每用例随机口，**真实常驻握 8746 时全量 190/190**（验收真身已过；此后全量门禁常驻在线可跑）。
-> ⚠️ **唯一悬置：GitHub push 被网络阻塞**（直连墙+7897 代理进程活但上游隧道坏）——本地 main=aa9dc8e ahead 7 + 分支 agent/smoke-port-hygiene，后台重试循环在推（2h 视野）；网络恢复自动补推，**恢复会话先查 `git status -sb` 是否 ahead 归零**。
+> ⚠️ ~~唯一悬置：GitHub push 被网络阻塞~~ **已解决（06:4x）**：经 ECS SSH 动态转发推送成功——`ssh -i ~/.ssh/devhub_ecs -D 127.0.0.1:1081 -fN root@59.110.149.11` + `git -c http.proxy=socks5h://127.0.0.1:1081 push ...`（TLS 端到端不变，ECS 只做 TCP 中继；**main=7758b35 已推齐 + 分支 agent/smoke-port-hygiene 已建**）。网络墙期推送一律走此配方（见 §7 台账）。
 
 ## 0. 新会话开工须知（用户令：严格约束工作流）
 
@@ -19,7 +19,7 @@
 
 ## 1. 当前状态一句话
 
-**凌晨收口会话毕其功：main=aa9dc8e（M3-E1+LR1+RW1+卫生批全合，白名单 104，门禁 tsc 0/fast 100/full 190/mcp 27/ecs-relay 110）**；常驻在役=04:02 末次重打包版（**PDF 依赖修复兑现**，health 稳定）；ECS=M3-E1 版（七值 action+selfcheck 83+1SKIP+RW0 wake 面）；真库 schema v8+007 两列已补；三连幻影事故已根治（全量门禁常驻在线可跑）；**唯一悬置=GitHub push 网络阻塞（后台循环重推中）**。RW1 按钮就绪待用户真关机 S5 实测；ContestPin 下一步=CP5 Agent 模式。
+**凌晨收口会话毕其功：main=7758b35 已全量推 GitHub（M3-E1+LR1+RW1+卫生批全合，白名单 104，门禁 tsc 0/fast 100/full 190/mcp 27/ecs-relay 110）**；常驻在役=04:02 末次重打包版（**PDF 依赖修复兑现**，health 稳定）；ECS=M3-E1 版（七值 action+selfcheck 83+1SKIP+RW0 wake 面）；真库 schema v8+007 两列已补；三连幻影事故已根治（全量门禁常驻在线可跑）。RW1 按钮就绪待用户真关机 S5 实测；ContestPin 下一步=CP5 Agent 模式。
 
 ## 2. C2c→C2e 修复弧线台账（本会话续）
 
@@ -89,5 +89,6 @@
 - **【@electron/get 离线打包假象（09-10 凌晨）】**：electron zip 虽缓存，SHASUMS256.txt 校验件恒 `cacheMode: Bypass`（必联网）——离线打包需 `electronDownload.isVerifyChecksum:false` 或预置 checksums；GitHub 直连墙+7897 代理上游坏时构建会卡死（本批靠直连恢复窗口 37s 完成）
 - **【产品网关顺延语义（卫生批实证）】**：fallback 是**固定段 8747..8755**（httpServer.ts GATEWAY_PORT_FALLBACK_RANGE），非相对配置口 +1——用例改造按此对齐
 - **【full 档 flake 1 例（09-10 门禁）】**：M3-E1 树首跑 187/188（用例名未捕获，复跑自愈）——后续会话若复现，带完整留档定位
+- **【GitHub 墙期推送配方（09-10 凌晨实证）】**：直连 TLS 被 reset+7897 代理上游坏时——`ssh -i ~/.ssh/devhub_ecs -D 127.0.0.1:1081 -fN root@59.110.149.11` 建 SOCKS（出口=阿里云干净线路）→ `git -c http.proxy=socks5h://127.0.0.1:1081 push ...`；用毕杀 sshd 转发进程。同思路可救 electron-builder 联网（socks 代理）
 - **【真库操作工具】**：本仓 DB 层=Node v24 内置 `node:sqlite`（DatabaseSync），**非 better-sqlite3**（node_modules 无此包）；进程外脚本走 DEVHUB_HOME/paths.ts 四级策略落 %APPDATA%\DevHub
 - **【ECS systemd 硬化（RW0）】**：devhub-relay 服务 ProtectHome=yes/ProtectSystem=strict/ReadWritePaths=/var/lib/devhub-relay 且无 HOME——服务内 ssh 不读 ~/.ssh（别名/密钥/known_hosts 全失效，exit 255 毫秒级）；**解法=/etc/devhub-relay/ 下放 ssh_config+wake_key+wake_known_hosts（0600 devhub-relay）+ `ssh -F` 绝对路径**；root 手测通过≠服务内通过，必须以服务用户+同等沙箱验证
