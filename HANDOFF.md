@@ -4,10 +4,10 @@
 
 > **✅ 日间第二波（09-10 11:0x-13:3x，用户令"真关机不能进行，其他可以继续"）**：
 > 1. **CP5 Agent 模式已合 main（9dfe1ed，已推）**：codex managed 自动路径（L3 只消费）+任务包手动路径，4 通道白名单 104→**108**，零新 migration；合并树四门禁全绿 tsc 0/fast 102/full 192/mcp 27。
-> 2. **D 批 R-B5/R-B8 活体复验完成（证据 56e1141 入册）**：R-B8 四断言全过+R-B5 腿1 过+RW1 already_on 真实链路过；**R-B5 腿2「真实推理回流」=用户裁决挂起（2026-09-10 傍晚「codex 不用管了，官方限流 429」）**——链路全绿，诊断史见 §7 codex 条（挂起不追）；腿2 补验等 codex 可用后 1 次 spawn 即闭环，或用户明示豁免后直接发 Release。
+> 2. **D 批 R-B5/R-B8 活体复验完成（证据 56e1141 入册）**：R-B8 四断言全过+R-B5 腿1 过+RW1 already_on 真实链路过；**R-B5 腿2「真实推理回流」=用户终裁烂尾（2026-09-10 晚「codex 不用管了，当烂尾了」）——不再补验**；链路全绿，诊断史见 §7 codex 条。
 > 3. **App hotfix 已合**（c53df25→合并已推）：parseSessionDetail 对 capabilities=null/缺失宽容缺省空能力（D 批两处 FATAL 根治；:app 63 绿）。
 > 4. 卫生收尾：package-lock 坏条目修复（3db2b7a，CP3b 引入 fresh clone 必炸）、worktree/分支保洁（保留 rw1/cp5→cp5 毕后可清）、设备账面三次清理（#70/#72/#73 生产函数撤销+审计；**active 现役= #46/#53**）。
-> 5. **✅ Release 已发布（2026-09-10 16:5x，用户令「直接release」豁免链②）**：https://github.com/nayutalot/DevHub/releases/tag/v0.1.0（tag→37beb5c，新构建 108 通道版 asar 快验过；资产三件 Setup exe 129.8MB+blockmap+latest.yml 上传核验 sha256 一致 PE 头 ✓；常驻同步换装新版 health 200；仓库 private；latest.yml path 字段连字符形态差异=electron-builder 固有，启用 electron-updater 前需核对）。R-B5 腿2/CP5 真实 codex 实测仍挂起（codex 可用后 1 次 spawn 补验，属发布后补验性质）。
+> 5. **✅ Release 已发布（2026-09-10 16:5x，用户令「直接release」豁免链②）**：https://github.com/nayutalot/DevHub/releases/tag/v0.1.0（tag→37beb5c，新构建 108 通道版 asar 快验过；资产三件 Setup exe 129.8MB+blockmap+latest.yml 上传核验 sha256 一致 PE 头 ✓；常驻同步换装新版 health 200；仓库 private；latest.yml path 字段连字符形态差异=electron-builder 固有，启用 electron-updater 前需核对）。R-B5 腿2/CP5 真实 codex 实测**已烂尾销账（用户终裁 09-10 晚）——CP5 自动路径保留实现+fake 测试全绿，真实推理回流永不追；手动任务包路径不受影响**。
 > ⚠️ **mcp-A13 与常驻互斥已实证（新铁律）**：单实例锁在 bootstrap 前执行且 **DEVHUB_HOME 不重定向 userData**（paths.ts 只读不 setPath）→常驻在线时任何第二实例（dev/packaged）静默秒退，mcp A13 全绿必须**先停常驻跑完再拉回**（smoke 因卫生批已常驻在线安全；mcp 没有）。
 
 > **✅ 2026-09-10 凌晨会话已把 02:5x 中途态五项全部收口**（详见 §2 台账"凌晨收口会话"行）：
@@ -102,6 +102,6 @@
 - **【full 档 flake 1 例（09-10 门禁）】**：M3-E1 树首跑 187/188（用例名未捕获，复跑自愈）——后续会话若复现，带完整留档定位
 - **【GitHub 墙期推送配方（09-10 凌晨实证）】**：直连 TLS 被 reset+7897 代理上游坏时——`ssh -i ~/.ssh/devhub_ecs -D 127.0.0.1:1081 -fN root@59.110.149.11` 建 SOCKS（出口=阿里云干净线路）→ `git -c http.proxy=socks5h://127.0.0.1:1081 push ...`；用毕杀 sshd 转发进程。同思路可救 electron-builder 联网（socks 代理）
 - **【mcp-A13 与常驻互斥（09-10 日间实证）】**：`requestSingleInstanceLock()` 在 bootstrap 前执行（index.ts ~L394），**DEVHUB_HOME 不重定向 userData**（paths.ts 只读它不 setPath）→常驻在线时 dev/packaged 第二实例均静默秒退（exit 0 零输出）；**mcp 27/27 铁律=先停常驻跑完再拉回**（smoke 已被卫生批根治常驻在线可跑，mcp 没有——A13 起 dev app 必撞锁；偶发过的"常驻在线 mcp 绿"是轮询撞上秒退进程的竞态假绿）
-- **【codex 静默挂死·诊断史与终局（09-10 下午五批诊断，证据 acceptance/agents-mobile/{rb5-preprobe,rb5-rootcause,rb5-leg2-final,codex-appserver-diag,codex-noproxy-var}-20260910-1*/；**用户裁决收线：官方限流 429，不再追**）】**：诊断史=系统代理 7897 吞流式 POST 假设曾实证（NO_PROXY env 双路径即通）；用户终判=官方限流 429（外部服务侧，与 DevHub 无关）。**腿2/CP5 真实 codex 实测挂起**，codex 可用后 1 次 spawn 单点补验（standin 驱动 acceptance/agents-mobile/rb5-leg2-final-20260910-150707/leg2-final-driver.mjs）或用户豁免直发 Release。备选未实施：DevHub spawn 注入 NO_PROXY 的 settings 开关
+- **【codex 静默挂死·诊断史与终局（09-10 下午五批诊断，证据 acceptance/agents-mobile/{rb5-preprobe,rb5-rootcause,rb5-leg2-final,codex-appserver-diag,codex-noproxy-var}-20260910-1*/；**用户终裁：烂尾销账，永不追**）】**：诊断史=凭据/二进制/notify 全证伪，系统代理 7897 吞流式 POST 假设曾实证（NO_PROXY env 双路径即通），用户终判=官方限流 429。腿2/CP5 真实实测已销账；standin 驱动与证据留档纯备查。
 - **【真库操作工具】**：本仓 DB 层=Node v24 内置 `node:sqlite`（DatabaseSync），**非 better-sqlite3**（node_modules 无此包）；进程外脚本走 DEVHUB_HOME/paths.ts 四级策略落 %APPDATA%\DevHub（纯 Node 回落取 name 小写 devhub——大小写不敏感同一文件，非缺陷勿"修"）
 - **【ECS systemd 硬化（RW0）】**：devhub-relay 服务 ProtectHome=yes/ProtectSystem=strict/ReadWritePaths=/var/lib/devhub-relay 且无 HOME——服务内 ssh 不读 ~/.ssh（别名/密钥/known_hosts 全失效，exit 255 毫秒级）；**解法=/etc/devhub-relay/ 下放 ssh_config+wake_key+wake_known_hosts（0600 devhub-relay）+ `ssh -F` 绝对路径**；root 手测通过≠服务内通过，必须以服务用户+同等沙箱验证
