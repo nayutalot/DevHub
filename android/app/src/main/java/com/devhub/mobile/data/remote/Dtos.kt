@@ -200,7 +200,12 @@ object Dtos {
             ?: sessionObj.optJSONArray("childSessions")
         return SessionDetailDto(
             session = parseSession(sessionObj),
-            capabilities = parseCapabilities(body.getJSONObject("capabilities")),
+            // CP5 hotfix：桌面内部发起的托管会话（device_id=null）能力投影可缺省
+            //（capabilities 字段缺失或 JSON null）→ 空能力缺省（零 granted → ControlGate
+            // 全部控件保持关闭，spawn 门亦不假开），绝不抛 JSONException
+            //（DTO 投影对可空字段纪律 = 宽容缺省；帧白名单面的抛错纪律不适用于此）。
+            capabilities = body.optJSONObject("capabilities")?.let { parseCapabilities(it) }
+                ?: CapabilitiesDto(mode = "", granted = emptyList(), verifiedAtSec = 0, evidence = ""),
             childSessions = children?.mapObjects { raw -> parseSession(JSONObject(raw)) } ?: emptyList(),
         )
     }
