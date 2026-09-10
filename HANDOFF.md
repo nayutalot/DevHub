@@ -1,4 +1,12 @@
-# DevHub 会话交接文档（2026-09-10 04:3x 收口版——前中途态五项已全部执行完毕）
+# DevHub 会话交接文档（2026-09-10 13:3x 第二波收口——凌晨五项+日间 D/F/G/H 四批全闭环）
+
+> **✅ 日间第二波（09-10 11:0x-13:3x，用户令"真关机不能进行，其他可以继续"）**：
+> 1. **CP5 Agent 模式已合 main（9dfe1ed，已推）**：codex managed 自动路径（L3 只消费）+任务包手动路径，4 通道白名单 104→**108**，零新 migration；合并树四门禁全绿 tsc 0/fast 102/full 192/mcp 27。
+> 2. **D 批 R-B5/R-B8 活体复验完成（证据 56e1141 入册）**：R-B8 四断言全过+R-B5 腿1 过+RW1 already_on 真实链路过；**R-B5 腿2「真实推理回流」未达**——spawn/command/事件链路全绿，codex CLI 写完 rollout 输入即静默退出（非网络），**疑 codex 凭据失效=用户侧修复项**；修复后单点补验（1 次 spawn 配额+复用证据基线）即闭环 Release 条件链 ②→④（③ 已满足）。
+> 3. **App hotfix 已合**（c53df25→合并已推）：parseSessionDetail 对 capabilities=null/缺失宽容缺省空能力（D 批两处 FATAL 根治；:app 63 绿）。
+> 4. 卫生收尾：package-lock 坏条目修复（3db2b7a，CP3b 引入 fresh clone 必炸）、worktree/分支保洁（保留 rw1/cp5→cp5 毕后可清）、设备账面三次清理（#70/#72/#73 生产函数撤销+审计；**active 现役= #46/#53**）。
+> 5. **Release（docs/21 §8 ④）待用户**：链 ①③已满足；②差 R-B5 腿2（=codex 凭据）；用户修复凭据→单点补验→即可统一发布。
+> ⚠️ **mcp-A13 与常驻互斥已实证（新铁律）**：单实例锁在 bootstrap 前执行且 **DEVHUB_HOME 不重定向 userData**（paths.ts 只读不 setPath）→常驻在线时任何第二实例（dev/packaged）静默秒退，mcp A13 全绿必须**先停常驻跑完再拉回**（smoke 因卫生批已常驻在线安全；mcp 没有）。
 
 > **✅ 2026-09-10 凌晨会话已把 02:5x 中途态五项全部收口**（详见 §2 台账"凌晨收口会话"行）：
 > 1. M3-E1 门禁已跑全绿（tsc 0/fast 98/full 188【首跑 1 例 flake 复跑自愈未定位】/mcp 27/ecs-relay **110**=RW0 11+M3-E1 2 修正口径）；
@@ -37,6 +45,7 @@
 | 用户裁决（09-07 晚） | **#9=B**（复用 WS command 通道补设备自管理+managed spawn，闭环 R-B5/R-B8；**先文档后编码，编码部署等窗毕**）；**GitHub Release 压后**（终报过→B 复验→安装包更新→统一发）；dist-final worktree 留窗毕清 |
 | M3-E0 文档批（2c6bfbb 合入） | B 裁决四件套落档：docs/18 §5.3（spawn_session+revoke_device，能力门/终态语义/帧形零扩展/零新 REST 端点）+docs/20 R-B5/R-B8 判据（标"待 M3-E 复验"）+docs/21 §7/§8（裁决原文+硬时序+Release 条件链）+m3e1-self-mgmt.md 实施任务书（**开工前置=M3-D 终报通过；窗内零编码零部署**） |
 | **凌晨收口会话（09-10 03:0x-04:3x）** | **五面三波全绿**：①M3-E1 门禁全绿（ecs-relay 口径修正=110）+ECS 部署零回滚（0003 表重建/亚秒停机/selfcheck 83+1SKIP×2）；②LR1 合并 33dd0ae（104 通道/fast 100/full 190/mcp 27）+真库补 007（B1 批）；③RW1 合并 9eba8ac（review 过+独立复跑）+卫生批合并 aa9dc8e（**真实常驻握 8746 全量 190/190=幻影根治验收过**）；④末次重打包 37s+换装 04:02（asar 四项证据：pdfjs 416 条/napi-canvas 原生件/review/spawn/reminder；health×3 同 PID；零锁）；⑤设备账面微清理（#70 撤销+审计，active 恰好三台）。**悬置：push 网络阻塞后台循环重推** |
+| **日间第二波（09-10 11:0x-13:3x）** | **D/F/G/H 四批**：D=R-B5/R-B8 活体复验（R-B8 全过/R-B5 腿1 过/**腿2 codex 静默退出待用户凭据**+RW1 already_on 过；新发现 App 详情页崩→H 热修）；F=CP5 合并 9dfe1ed（108 通道/四门禁绿）；G=保洁（5 worktree+9 分支）；H=capabilities=null 热修（c53df25）。微批×3：锁文件坏条目 3db2b7a/#70/#72+#73 撤销。**mcp-A13 常驻互斥实证**（停常驻跑 mcp 27/27 再拉回） |
 
 ## 3. 项目事实基线（main=6062cd0 已推；终局门禁 tsc 0/smoke 172/mcp 27/:core **189**/:app 47/ecs-relay 97）
 
@@ -90,5 +99,7 @@
 - **【产品网关顺延语义（卫生批实证）】**：fallback 是**固定段 8747..8755**（httpServer.ts GATEWAY_PORT_FALLBACK_RANGE），非相对配置口 +1——用例改造按此对齐
 - **【full 档 flake 1 例（09-10 门禁）】**：M3-E1 树首跑 187/188（用例名未捕获，复跑自愈）——后续会话若复现，带完整留档定位
 - **【GitHub 墙期推送配方（09-10 凌晨实证）】**：直连 TLS 被 reset+7897 代理上游坏时——`ssh -i ~/.ssh/devhub_ecs -D 127.0.0.1:1081 -fN root@59.110.149.11` 建 SOCKS（出口=阿里云干净线路）→ `git -c http.proxy=socks5h://127.0.0.1:1081 push ...`；用毕杀 sshd 转发进程。同思路可救 electron-builder 联网（socks 代理）
-- **【真库操作工具】**：本仓 DB 层=Node v24 内置 `node:sqlite`（DatabaseSync），**非 better-sqlite3**（node_modules 无此包）；进程外脚本走 DEVHUB_HOME/paths.ts 四级策略落 %APPDATA%\DevHub
+- **【mcp-A13 与常驻互斥（09-10 日间实证）】**：`requestSingleInstanceLock()` 在 bootstrap 前执行（index.ts ~L394），**DEVHUB_HOME 不重定向 userData**（paths.ts 只读它不 setPath）→常驻在线时 dev/packaged 第二实例均静默秒退（exit 0 零输出）；**mcp 27/27 铁律=先停常驻跑完再拉回**（smoke 已被卫生批根治常驻在线可跑，mcp 没有——A13 起 dev app 必撞锁；偶发过的"常驻在线 mcp 绿"是轮询撞上秒退进程的竞态假绿）
+- **【codex 静默退出（09-10 D 批实证，待用户）】**：spawn 链路全绿但 codex CLI 写完 rollout 输入即退出（无 error/无模型输出，endpoint 可达）→疑凭据失效；**Release ② 与 CP5 真实 codex 实测同源阻塞**，用户修复后单点补验（1 次 spawn）
+- **【真库操作工具】**：本仓 DB 层=Node v24 内置 `node:sqlite`（DatabaseSync），**非 better-sqlite3**（node_modules 无此包）；进程外脚本走 DEVHUB_HOME/paths.ts 四级策略落 %APPDATA%\DevHub（纯 Node 回落取 name 小写 devhub——大小写不敏感同一文件，非缺陷勿"修"）
 - **【ECS systemd 硬化（RW0）】**：devhub-relay 服务 ProtectHome=yes/ProtectSystem=strict/ReadWritePaths=/var/lib/devhub-relay 且无 HOME——服务内 ssh 不读 ~/.ssh（别名/密钥/known_hosts 全失效，exit 255 毫秒级）；**解法=/etc/devhub-relay/ 下放 ssh_config+wake_key+wake_known_hosts（0600 devhub-relay）+ `ssh -F` 绝对路径**；root 手测通过≠服务内通过，必须以服务用户+同等沙箱验证
