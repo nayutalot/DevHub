@@ -20,3 +20,5 @@ android/.kotlin/
 
 # 生成物：mcp-acceptance 每次运行刷新（时间戳在内），追踪会弄脏工作树并使 A12 干净树断言自反
 acceptance/mcp-scenario-report.json
+# CP6 安装包备料独立输出目录（不替换在役 dist/win-unpacked）
+dist-cp6/

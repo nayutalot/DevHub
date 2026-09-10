@@ -196,6 +196,16 @@ export async function exportBackup(payload: ContestBackupExportPayload): Promise
     throw badRequest('Export', 'destDir must be an absolute path')
   }
   const destDir = payload.destDir.trim()
+  // 目标目录必须已存在（CP5 exportPack 同款校验；绝不静默 mkdir 用户目录）
+  let destStat
+  try {
+    destStat = await stat(destDir)
+  } catch {
+    throw badRequest('Export', `目标目录不存在或不可访问：${destDir}`)
+  }
+  if (!destStat.isDirectory()) {
+    throw badRequest('Export', `目标不是目录：${destDir}`)
+  }
   const db = getDatabase()
 
   // ---- 拒绝覆盖：任何复制动作发生前先查 manifest（诚实面）----

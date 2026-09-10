@@ -13,6 +13,7 @@
 
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
+import { BackupPanel } from '../components/BackupPanel.tsx'
 import { Badge, stateTone } from '../components/Badge.tsx'
 import { DraftReviewPanel } from '../components/DraftReviewPanel.tsx'
 import { MaterialImportPanel } from '../components/MaterialImportPanel.tsx'
@@ -96,6 +97,10 @@ export function ContestView({ initialContestId }: { initialContestId?: number })
 
       {/* CP3b：材料导入与识别进度（文件选择/拖入/粘贴截图 → 两阶段状态机轮询） */}
       <MaterialImportPanel />
+
+      {/* CP6：备份导出 / 恢复导入（manifest 零凭据 + materials sha256 复制幂等；
+          导入 → 一份待核对草稿走下方核对界面，绝不静默覆盖） */}
+      <BackupPanel />
 
       {/* CP3b：待核对草稿（字段级来源/flags/编辑/相似合并/两段式确认） */}
       <DraftReviewPanel />
