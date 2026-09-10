@@ -1,4 +1,10 @@
-# DevHub 会话交接文档（2026-09-10 17:3x 终版——ContestPin CP0-CP6 全齐+Release v0.1.0 已发布）
+# DevHub 会话交接文档（2026-09-11 05:3x——CP0-CP6+Release v0.1.0+远程工作区双批全上线）
+
+> **✅ 凌晨增补（09-11 02:00-05:30，用户令「远程控制不该要人在电脑旁粘贴链接」）**：
+> 1. **Q 批「远程工作区」屏**（已合 main）：WebView 内嵌 https 页（JS/domStorage、http(s) 白名单、证书错误绝不 proceed、返回键先页内）+Room v5 条目表+剪贴板填；:app 72 绿。
+> 2. **S 批 workspace_link**（已合 main=4ec7e94，全门禁 tsc0/fast106/full196/mcp27/ecs112/:app86/:core204）：桌面 zcodeLinkProvider 磁盘三文件重建 ZCode 遥控 URL（R 批侦察：setting.json deviceSid+credentials.json enc:v1 AES-GCM 信封（密钥 sha256(env ZCODE_CREDENTIAL_SECRET 优先|fallback 串)、tag 居中）+telemetry mid）→relay 八值 action+0004+result_json 落库面脱敏 {provider}（转发帧原样）→App「ZCode 工作区」智能条目 tab 打开自动请求一点即开；审计三面零 URL 子串实测。
+> 3. **T 批部署链完成**：ECS 0004（16 行保全/relay_meta v4/selfcheck 88/88）+桌面重打包换装（asar 实证）+新 APK（dist/DevHub-Android-0.1.0-debug.apk，sha256 fb48c6b8…）。
+> 4. **真机待办仍挂**：手机配证书指纹（sha256/oH96t3vC…=Trust anchor not found 的解）→配对→「远程工作区」tab 即自动拿链接。遗留小项：ECS relay_audit 4 行 FK 孤儿（存量现象 preWLINK 快照对照无增量）；app-rws/wlink worktree 待清。
 
 > **✅ 末批 CP6 已合 main（02be999，已推）：ContestPin 八节全收官**——backupExport/backupImport 白名单 108→**110**，manifest 零凭据红线+sha256 材料包+待核对式导入；合并树四门禁全绿 tsc 0/fast **104**/full **194**/mcp 27；dist-cp6 独立备料（110 通道下一版候选）在 **worktrees/cp6/dist-cp6/**（该 worktree 因此暂留勿清；在役常驻=Release 版 108 通道，属设计内滞后）。
 
