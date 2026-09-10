@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 // AC7b 编译修复：移除 internal 符号 import（RowColumnParentData.weight）；
 // Modifier.weight 为 RowScope/ColumnScope 成员扩展，无需 import。
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Place
@@ -26,6 +27,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,15 +39,18 @@ import com.devhub.mobile.connect.ConnectionManager
 import com.devhub.mobile.connect.ConnState
 
 /**
- * 主框架：底部四标签（会话 / Agents / 诊断 / 设备）+ 顶部连接状态条。
+ * 主框架：底部五标签（会话 / Agents / 远程工作区 / 诊断 / 设备）+ 顶部连接状态条。
  */
 @Composable
 fun MainTabs(
     initialTab: String,
     onOpenSession: (Long) -> Unit,
     onGatewayConfig: () -> Unit,
+    onOpenRemoteEntry: (Long) -> Unit = {},
 ) {
-    var selected by remember { mutableStateOf(initialTab) }
+    // Q 批：rememberSaveable——跳「远程工作区」全屏 WebView 后返回，选中 tab 不再
+    // 丢失回默认会话（main 条目在返回栈上，状态随 SavedStateRegistry 存续）。
+    var selected by rememberSaveable { mutableStateOf(initialTab) }
 
     Scaffold(
         // 视觉打磨批 D：顶部 inset 单计——外层 DevHubRoot Scaffold 已把状态栏 inset
@@ -65,6 +70,14 @@ fun MainTabs(
                     onClick = { selected = "agents" },
                     icon = { Icon(Icons.Filled.Star, contentDescription = "Agents") },
                     label = { Text("Agents") },
+                )
+                // Q 批「远程工作区」：与 Agents/诊断 平级的主导航入口（核心图标集无地球，
+                // 取 ExitToApp 对齐既有 Filled 风格）
+                NavigationBarItem(
+                    selected = selected == "remote",
+                    onClick = { selected = "remote" },
+                    icon = { Icon(Icons.Filled.ExitToApp, contentDescription = "远程工作区") },
+                    label = { Text("远程工作区") },
                 )
                 NavigationBarItem(
                     selected = selected == "diagnostics",
@@ -90,6 +103,8 @@ fun MainTabs(
             when (selected) {
                 // 批次 C R6.2：Agents 页「启动托管会话」→ 202 后跳入新会话详情
                 "agents" -> AgentsScreen(onOpenSession = onOpenSession)
+                // Q 批「远程工作区」：条目列表；点条目 → 全屏 WebView 独立目的地
+                "remote" -> RemoteWorkspaceScreen(onOpenEntry = onOpenRemoteEntry)
                 "diagnostics" -> DiagnosticsScreen()
                 "device" -> DeviceScreen()
                 else -> SessionsScreen(onOpenSession = onOpenSession)

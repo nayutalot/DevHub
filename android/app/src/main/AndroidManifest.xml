@@ -18,11 +18,13 @@
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="true">
 
-        <!-- 深链 devhub://session/{id}：事件通知点击直达会话详情（脱敏完整内容按需加载） -->
+        <!-- 深链 devhub://session/{id}：事件通知点击直达会话详情（脱敏完整内容按需加载）；
+             Q 批：windowSoftInputMode=adjustResize——远程工作区 WebView 页软键盘局部处理 -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTask">
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
