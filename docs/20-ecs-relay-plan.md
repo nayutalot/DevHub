@@ -86,10 +86,10 @@ M1（契约冻结）──┬─► R1 relay-client ──┐
 | R-B2 | 公网配对 | B2 配对 claim | 桌面签发 → 手机 relay 模式 pair → pair_accepted → 设备双侧列表可见（origin=relay）；post-pairing 自动轮换发生（token_version=2） |
 | R-B3 | 长连 + 实时事件 | B3 WS 长连（300,137ms 零断连先例） | wss 长连 ≥5 分钟零断连；waiting_input 事件实时到达且 requiresUserAction=true |
 | R-B4 | 防重放/限流三态 | B4 三态全做 | REST 面同 nonce 重放 401 / 窗外 401 / 合法 200；命令帧面同 nonce 重放被 Windows 拒（AUTH_REPLAYED） |
-| R-B5 | 指令门 | B5 公网路径门 403 | observed 会话 command → command_ack rejected `COMMAND_NOT_EXECUTABLE`；managed 会话经 WS command `spawn_session` → accepted → 真实推理回流（**待 M3-E 实施后复验（docs/18 §5.3 M3-E 修订，用户裁决 2026-09-07 #9=B）**） |
+| R-B5 | 指令门 | B5 公网路径门 403 | observed 会话 command → command_ack rejected `COMMAND_NOT_EXECUTABLE`；managed 会话经 WS command `spawn_session` → accepted → 真实推理回流（**M3-E1 复验 2026-09-10：腿1 拒绝面 PASS（68ms）；腿2 spawn/命令/事件链路全绿而「真实推理回流」未达——codex 上游限流 429，用户终裁烂尾不追（证据 acceptance/agents-mobile/rb5-*-20260910-1*/）**） |
 | R-B6 | 断链补发 | B6 未跑（frp 版欠账） | **必跑**：杀 App → 期间产生事件 → 重连 sync_request 补齐零丢失（sequence 连续）；host 断链 → 命令 queued → 上线投递 → result 回流 |
 | R-B7 | token 轮换 | —（frp 版无此面） | 手动触发轮换：Keystore 原子更新 → heartbeat 确认 → 旧 Token 宽限后 401；轮换失败路径（拒更新）→ 重配对引导 |
-| R-B8 | 撤销踢线 | B8 回环限制不可触发（frp 属性） | 经 WS command `revoke_device`（或桌面 UI）→ disconnect(revoked) 到达 → 设备停止重连；再连 401 `DEVICE_REVOKED`；ECS 注册表同步 revoked（**待 M3-E 实施后复验（docs/18 §5.3 M3-E 修订，用户裁决 2026-09-07 #9=B）**） |
+| R-B8 | 撤销踢线 | B8 回环限制不可触发（frp 属性） | 经 WS command `revoke_device`（或桌面 UI）→ disconnect(revoked) 到达 → 设备停止重连；再连 401 `DEVICE_REVOKED`；ECS 注册表同步 revoked（**M3-E1 复验 2026-09-10 PASS：四断言全过——踢线 72ms/停重连 ≥96s/再连 401 418ms/ECS 注册表同步；证据 acceptance/agents-mobile/rb5-rb8-20260910-112842/**） |
 | R-B9 | TLS 信任三拒 | —（frp 版明文无此面） | 错误证书被拒 / 错误指纹被拒 / 过期证书被拒；正确证书+正确指纹（含双指纹窗口内新旧任一）握手成功（专项说明见表后） |
 
 R-B1…R-B9 全过 + 72h 稳定（T2）= G8 §3.2 删除触发点成立 → 允许进入 M4 P3/P4。
