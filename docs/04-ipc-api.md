@@ -114,7 +114,8 @@ CP2 批次 ContestPin 悬浮窗 5 条并入（79→**84**，同节 + docs/22 §4
 CP3a 批次 ContestPin 识别配置 4 条并入（84→**88**，同节 + docs/22 §6）；
 CP3b 批次 ContestPin 材料导入+识别管线+核对界面 9 条并入（88→**97**，同节 + docs/22 §5）；
 CP4 批次 ContestPin 提醒系统 3 条并入（97→**100**，同节 + docs/22 §7）；
-LR1 批次 LLM 复核层 4 条并入（100→**104**，见下「LR1 追加」节）。
+LR1 批次 LLM 复核层 4 条并入（100→**104**，见下「LR1 追加」节）；
+CP5 批次 ContestPin Agent 模式 4 条并入（104→**108**，同节 + docs/22 §8）。
 
 ### 夜间#1 追加（服务端积压补齐批次；主控任务书授权的同一追加模式）
 
@@ -141,13 +142,14 @@ LLM 前/后复核 + Skills 元数据体检 4 条，**全 READ_ONLY**，**状态 
 
 ### ContestPin 追加（赛程钉比赛模块；设计权威 docs/22-contestpin-design.md）
 
-CP 系列分批落地，**状态 = CP4 已落地（白名单 97→100，2026-09-09 CP4 批次）**；
-CP5-CP6 待落地。CP1 首批 9 条（变更类 7 + READ_ONLY 2）+ CP2 悬浮窗 5 条
+CP 系列分批落地，**状态 = CP5 已落地（白名单 104→108，2026-09-10 CP5 批次）**；
+CP6 待落地。CP1 首批 9 条（变更类 7 + READ_ONLY 2）+ CP2 悬浮窗 5 条
 （READ_ONLY 1 + 变更类 4）+ CP3a 识别配置 4 条（READ_ONLY 1 + 变更类 3）+
 CP3b 材料导入/识别管线/核对界面 9 条（READ_ONLY 3 + 变更类 4 + 两段式 2；
 任务书 §2.3 计 +6 与列名 7 条不一致，按其「以实际为准」条款实拆 9 条落地）+
-CP4 提醒 3 条（READ_ONLY 1 + 变更类 1 + 两段式 1）；LR1 另 +4 已落地（白名单 **104**）；
-CP5/CP6 落地后 104→约 **109**。
+CP4 提醒 3 条（READ_ONLY 1 + 变更类 1 + 两段式 1）+ CP5 Agent 模式 4 条
+（READ_ONLY 2 + 变更类 2；取消复用 importCancel 不设第五条通道，docs/22 §8）；
+LR1 另 +4 已落地（白名单 **104**）；CP5 落地 104→**108**；CP6 落地后 108→约 **110**。
 计数断言按既有授权模式"就地更新+注记"。变更类 delete/discard 均为
 CONFIRM_REQUIRED 两段式（先回 impacts）。
 
@@ -183,10 +185,16 @@ CONFIRM_REQUIRED 两段式（先回 impacts）。
 | `contestpin:reminderUpsert` | `{ nodeId, rule? }`（rule = `{ offsetKind, offsetValue?, channel, enabled? }`；UNIQUE(node_id, offset_kind, offset_value, channel) 冲突=更新 id 不变；before_hours 仅 exact 节点合法——date/month/tbd → `BAD_PAYLOAD`；at_time 恒 offsetValue=0；enabled 缺省 true） | ContestReminderView | 变更 | CP4 已落地（100） |
 | `contestpin:reminderDelete` | `{ id, confirmed? }` | 无 confirmed → `{ confirmRequired: true, impacts: { logRows } }`（触发账本行数）；confirmed → 删提醒行（log 随 FK CASCADE 一并删） | 变更 | CP4 已落地（100） |
 | `contestpin:reminderLogList` | `{ limit? }`（缺省 100、上限 200） | `{ entries: ContestReminderLogEntry[]（联 contest/node 展示字段）, summary: { firedLast24h, upcoming24h } }`——READ_ONLY 触发账本 + 顶栏小铃铛近 24h 已触发/未来 24h 待触发聚合（轮询本通道，无推送面）；补发去重根 = contest_reminder_log UNIQUE(reminder_id, fire_key)，fire_key=`r<id>@d<YYYY-MM-DD>`（date 精度自然日桶）或 `r<id>@s<sec>`（秒桶） | READ_ONLY | CP4 已落地（100） |
+| `contestpin:agentStatus` | `{ jobId? }`（缺省 = agent/manual_pack 任务全量最新 50；指定 jobId 而任务 mode 不符 → `BAD_PAYLOAD`，不存在 → `NOT_FOUND`） | `{ jobs: ContestAgentJobView[] }`（导入任务行投影 + mode='agent' 行联查托管会话态 `agent: { provider, sessionId, nativeId, sessionStatus }`；会话行缺失 → 'unknown' 绝不猜） | READ_ONLY | CP5 已落地（108） |
+| `contestpin:agentSubmit` | `{ materialIds: number[], provider: string（业务键或数字 id）, instruction? }`（多份材料合成一个托管任务一行；材料无可提取本地文字 → `BAD_PAYLOAD`——图片材料不参与自动路径） | `{ job: ContestAgentJobView }`（任务文本=材料本地文字提取+结构化指令+同一 JSON 契约，≤4000 字符超限截断记 params.taskTruncated；spawn 一律经 L3 `startProviderManagedSession` 能力门不绕过不自建——observed/未授予 → `COMMAND_NOT_EXECUTABLE`、能力未验证/陈旧(>300s) → `AGENT_CAPABILITY_MISSING`，拒绝回填 failed 后结构化上抛**不静默降级**；成功落 result_json.agent 联动 + watcher 轮询托管会话，assistant 回流经同一 parseDraftJson+程序化校验 → draft；零新 spawn 点） | 变更 | CP5 已落地（108） |
+| `contestpin:exportPack` | `{ materialIds: number[], destDir: string（用户选择的已存在绝对路径目录）, instruction? }` | `{ exportPath, bytes, materialCount, textChars }`（任务包 JSON `contestpin-task-pack-<ts>.json`：{kind,version,exportedAt,instruction,contract(同一 JSON 契约),materials:[{materialId,name,sha256,kind,pageCount,pages[].text,links[],note}]}——**结构性零凭据零 key**（不含 configs/base_url/apiKey 任何字段，manifest 同款红线）；image 材料仅元数据+显式 note 不含内容不编造） | READ_ONLY | CP5 已落地（108） |
+| `contestpin:importPack` | `{ materialIds: number[], resultPath? \| resultText? }`（二选一，文件路径经 renderer 文件对话框+preload 先例；结果文件 ≤10MB） | `{ job: ContestAgentJobView }`（形状/材料存在性校验后建 mode='manual_pack' 任务行 → 同一 parseDraftJson+程序化校验 → draft 核对面；provenance 引用材料集外 materialId → flag 待人工核对不静默信任；**绝不直写生产行不静默覆盖**——确认走既有 draftConfirm 两段式/合并） | 变更 | CP5 已落地（108） |
 
 CP3 识别管线（原估 +12）已全部落地：config 4 条（CP3a）+ 材料/导入/草稿 9 条
 （CP3b；draftUpdate 未设通道——逐字段编辑随 draftConfirm 的 draft 载荷提交）。
 CP4 提醒（任务书预注 "reminder 两条"）实落 3 条（upsert/delete/logList——logList
 为小铃铛聚合与账本展示的同一 READ_ONLY 面，不另设推送通道）。
-后续批次通道组（落地时逐批补表）：CP5
-agentStatus/Submit/importPack/exportPack；CP6 backupExport/backupImport。
+CP5 Agent（docs/22 §3 预告 "+3~4"）实落 4 条（agentStatus/agentSubmit/exportPack/
+importPack——取消复用 importCancel：agent 任务 = watcher 取消令牌 + L3 pause 只
+中断本任务托管会话，作用域=本任务及其托管会话，不终止用户其他任务）。
+后续批次通道组（落地时逐批补表）：CP6 backupExport/backupImport。

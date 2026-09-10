@@ -63,6 +63,15 @@ export const IPC_GATEWAY = 'devhub:invoke' as const
  * archive:reviewPre / archive:reviewPost / skills:reviewMeta——全 READ_ONLY，
  * service 经 reviewClient 传输注入面，smoke fake transport 零联网；
  * advisory-only 永不阻塞归档主流程）。
+ * CP5 批次 note（ContestPin Agent 模式，docs/22 §8 + docs/04「ContestPin 追加」节
+ * 授权的同一模式就地更新）：contestpin 4 条并入，104 → 108（agentStatus READ_ONLY
+ * 任务态投影（托管会话状态联查）/ agentSubmit 变更（能力门消费：codex managed 且
+ * 能力验证新鲜才受理，observed/陈旧 → 结构化拒绝不静默降级，spawn 一律经 L3
+ * startProviderManagedSession 不绕过不自建）/ exportPack READ_ONLY 材料面（任务包
+ * JSON 落用户选择目录，零凭据零 key）/ importPack 变更（结果导入走同一 draft 核对
+ * 管线，绝不直写生产行不静默覆盖）；取消不设新通道——复用 importCancel（agent 任务
+ * 挂 L3 pause 只中断本任务托管会话，取消令牌作用域=本任务及其托管会话；
+ * smoke 全 fake provider 注入零真实推理零配额）。
  */
 export const IPC_CHANNELS = [
   // scan
@@ -215,6 +224,15 @@ export const IPC_CHANNELS = [
   'archive:reviewPre',
   'archive:reviewPost',
   'skills:reviewMeta',
+  // contestpin（CP5 批次，docs/22 §8 Agent 模式：agentStatus READ_ONLY 任务态
+  // 投影（agent/manual_pack 任务 + 托管会话状态联查）；agentSubmit 自动路径一律
+  // 经 L3 startProviderManagedSession 能力门——observed/陈旧 → 结构化拒绝不静默
+  // 降级；exportPack 任务包 JSON 零凭据零 key；importPack 结果导入走同一 draft
+  // 核对管线。取消复用 importCancel：agent 任务 = L3 pause 只中断本任务托管会话）
+  'contestpin:agentStatus',
+  'contestpin:agentSubmit',
+  'contestpin:exportPack',
+  'contestpin:importPack',
 ] as const
 
 /** Compile-time whitelist: a handler map must be keyed by IpcChannel. */

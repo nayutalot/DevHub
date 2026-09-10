@@ -106,7 +106,8 @@ function parseJsonObject(raw: string | null): Record<string, unknown> | null {
   }
 }
 
-function parseResultView(row: { result_json: string | null }): ImportJobResultView | null {
+/** CP5 contestAgentService 同源复用：result_json 投影读取（管线内私有形状不外泄）。 */
+export function parseResultView(row: { result_json: string | null }): ImportJobResultView | null {
   const parsed = parseJsonObject(row.result_json)
   return parsed === null ? null : (parsed as unknown as ImportJobResultView)
 }
@@ -208,8 +209,10 @@ interface JobPatch {
  * **取消守卫**：除 cancelImport 自身置 'cancelled' 外，一切写入都带
  * `stage <> 'cancelled'` 守卫——取消竞态下在途阶段的回写绝不覆盖 cancelled
  * 终态（晚到结果丢弃语义的落库侧兜底，配合 throwIfCancelled 出站侧检查）。
+ * CP5 起导出：agent 任务回流（contestAgentService）写库走同一函数同一守卫，
+ * 绝不复制第二份 UPDATE 语义。
  */
-function patchJob(jobId: number, patch: JobPatch): void {
+export function patchJob(jobId: number, patch: JobPatch): void {
   const sets: string[] = []
   const params: (string | number | null)[] = []
   if (patch.stage !== undefined) {
@@ -432,8 +435,16 @@ export function parseTimeText(text: string): ParsedTimeText | 'tbd' | null {
 // 草稿程序化校验（任务书 §2.3 #9：规则与 contestService 同源，模糊打 flags 不丢弃）
 // ---------------------------------------------------------------------------
 
-function validateDraftContests(draft: ImportDraftView): ImportDraftView {
-  const flags: ImportFlag[] = []
+/**
+ * 草稿程序化校验（任务书 §2.3 #9：规则与 contestService 同源，模糊打 flags 不丢弃）。
+ * CP5 起导出：agent/manual_pack 结果导入必须过同一条校验（同一 draft 核对管线，
+ * docs/22 §8）——单一权威实现，绝不复制第二份。
+ */
+export function validateDraftContests(draft: ImportDraftView): ImportDraftView {
+  // 输入侧既有 flags 一并保留（CP5 修正：此前重开会丢弃——违反「模糊/冲突打
+  // flags 展示待核对，绝不自动丢弃」docs/22 §5；CP3b 流程 parseDraftJson 恒传
+  // 空数组，本修正对其零行为变化）。
+  const flags: ImportFlag[] = [...(draft.flags ?? [])]
   const contests: ImportContestDraft[] = []
   for (const contest of draft.contests) {
     if (contest.name.trim().length === 0) {
@@ -557,7 +568,12 @@ function validateDraftNode(node: ImportNodeDraft, flags: ImportFlag[], contestNa
 
 const VISION_OCR_SYSTEM = '你是严谨的 OCR 转录助手。只转录图片中实际可见的文字、表格、日期与网址，保持原文措辞，不推断不存在的内容，不添加任何评论或解释。'
 
-const JSON_CONTRACT_PROMPT = [
+/**
+ * JSON 输出契约（识别结果单一权威文本）。CP5 起导出：agent 任务文本与手动任务包
+ * （docs/22 §8）内嵌同一契约——Agent 输出与两阶段/多模态走同一 parseDraftJson+
+ * 程序化校验，绝不维护第二份契约副本。
+ */
+export const JSON_CONTRACT_PROMPT = [
   '你是比赛赛程信息整理助手。输入为比赛通知材料的逐页文字（OCR 或本地提取）。请输出严格的 JSON（禁止 markdown 代码块、禁止任何解释文字），形状：',
   '{"contests":[{"name":string,"year":number|null,"edition"?:string,"organizer"?:string,',
   '"officialSite"?:{"url":string,"provenance":{"materialId":number,"page":number,"excerpt":string}},',
@@ -656,7 +672,7 @@ export async function createImportJobs(payload: ContestImportCreatePayload): Pro
     mode = stored === 'multimodal' ? 'multimodal' : 'two_stage'
   }
   if (mode !== 'two_stage' && mode !== 'multimodal') {
-    throw badCreate("mode must be 'two_stage' | 'multimodal'（agent/manual_pack 归 CP5）")
+    throw badCreate("mode must be 'two_stage' | 'multimodal'（agent 请走 contestpin:agentSubmit，manual_pack 请走 contestpin:importPack）")
   }
   if (payload.params?.visionConfigId !== undefined && configExists(payload.params.visionConfigId) === false) {
     throw new ServiceError('NOT_FOUND', `vision config ${payload.params.visionConfigId} not found`)
@@ -1099,8 +1115,9 @@ async function ensureMultimodal(jobId: number, signal: AbortSignal): Promise<voi
   })
 }
 
-/** 校验+草稿落位：validated → draft（程序化规则，零 LLM）。 */
-async function ensureValidatedDraft(jobId: number): Promise<void> {
+/** 校验+草稿落位：validated → draft（程序化规则，零 LLM）。
+ * CP5 起导出：agent/manual_pack 任务回流走同一 validated→draft 落位（docs/22 §8）。 */
+export async function ensureValidatedDraft(jobId: number): Promise<void> {
   const row = getJobRow(jobId)
   if (stageRank(row.stage as ContestImportStage) >= stageRank('validated')) return
   const result = parseResultView(row) ?? {}
@@ -1159,6 +1176,10 @@ export function cancelImport(jobId: number): ContestImportCancelResult {
  */
 export function retryImport(payload: { jobId: number; fromStage: ContestImportRetryFromStage }): ContestImportRetryResult {
   const row = getJobRow(payload.jobId)
+  if (row.mode === 'agent' || row.mode === 'manual_pack') {
+    // CP5：agent/manual_pack 无视觉/文本阶段语义（结构化拒绝，重新提交/重新导入即重试）
+    throw badCreate(`导入任务 ${row.id} mode='${row.mode}' 不支持阶段重试（agent 任务请重新提交，manual_pack 请重新导入结果）`)
+  }
   if (isJobRunning(row.id)) {
     throw new ServiceError('BAD_PAYLOAD', `导入任务 ${row.id} 正在运行，不能重试`)
   }

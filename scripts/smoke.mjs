@@ -131,8 +131,14 @@ if (isEntrypoint()) {
   // （分支基线 88 → 92；并入 main 后 100 → 104）（review:testEndpoint /
   // archive:reviewPre / archive:reviewPost / skills:reviewMeta，全 READ_ONLY；
   // service 经 reviewClient 传输注入面，smoke fake transport 零联网）。
+  // CP5 批次 note（ContestPin Agent 模式，docs/22 §8 授权的同一模式就地更新）：
+  // contestpin 4 条并入，104 → 108（agentStatus READ_ONLY 任务态投影（托管会话
+  // 状态联查）/ agentSubmit（自动路径经 L3 startProviderManagedSession 能力门，
+  // observed/陈旧 → 结构化拒绝不静默降级）/ exportPack（任务包 JSON 零凭据零
+  // key）/ importPack（结果导入走同一 draft 核对管线）；取消复用 importCancel
+  // 不设第五条通道；smoke 全 fake provider 注入零真实推理零配额）。
   // ------------------------------------------------------------------
-  registerCase('step1: channels whitelist has exactly 104 entries (LR1 并入 main 100→104) and IPC_GATEWAY', async () => {
+  registerCase('step1: channels whitelist has exactly 108 entries (CP5 就地更新 104→108) and IPC_GATEWAY', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     assert.equal(channels.IPC_GATEWAY, 'devhub:invoke', 'gateway channel')
     const expected = [
@@ -255,10 +261,15 @@ if (isEntrypoint()) {
       'archive:reviewPre',
       'archive:reviewPost',
       'skills:reviewMeta',
+      // CP5 contestpin Agent group (docs/22 §8 + docs/04「ContestPin 追加」节)
+      'contestpin:agentStatus',
+      'contestpin:agentSubmit',
+      'contestpin:exportPack',
+      'contestpin:importPack',
     ]
-    assert.equal(channels.IPC_CHANNELS.length, 104, `expected 104 channels, got ${channels.IPC_CHANNELS.length}`)
-    assert.deepEqual([...channels.IPC_CHANNELS], expected, 'whitelist must match docs/04 + docs/09 §9 + docs/10 §11 + docs/14 §A.1 + docs/04 ContestPin 追加节 + docs/22 §4/§5/§6/§7 + docs/04 LR1 追加节 exactly')
-    assert.equal(new Set(channels.IPC_CHANNELS).size, 104, 'no duplicate channels')
+    assert.equal(channels.IPC_CHANNELS.length, 108, `expected 108 channels, got ${channels.IPC_CHANNELS.length}`)
+    assert.deepEqual([...channels.IPC_CHANNELS], expected, 'whitelist must match docs/04 + docs/09 §9 + docs/10 §11 + docs/14 §A.1 + docs/04 ContestPin 追加节 + docs/22 §4/§5/§6/§7/§8 + docs/04 LR1 追加节 exactly')
+    assert.equal(new Set(channels.IPC_CHANNELS).size, 108, 'no duplicate channels')
   }, 'fast')
 
   // ------------------------------------------------------------------
@@ -1030,14 +1041,14 @@ if (isEntrypoint()) {
   // CHANNEL_NOT_ALLOWED（文档权威原则，约束 #6）。
   // ------------------------------------------------------------------
   registerCase(
-    'step6: handler registry keys equal the 104-channel whitelist (LR1 并入 main 100→104); app:version returns injected value; unknown channel folds to CHANNEL_NOT_ALLOWED envelope',
+    'step6: handler registry keys equal the 108-channel whitelist (CP5 就地更新 104→108); app:version returns injected value; unknown channel folds to CHANNEL_NOT_ALLOWED envelope',
     async () => {
       const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
       const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
       const registry = handlers.createHandlerRegistry({ appVersion: '0.1.0-smoke' })
       const keys = Object.keys(registry).sort()
-      assert.equal(keys.length, 104, `registry must hold exactly 104 handlers, got ${keys.length}`)
+      assert.equal(keys.length, 108, `registry must hold exactly 108 handlers, got ${keys.length}`)
       assert.deepEqual(keys, [...channels.IPC_CHANNELS].sort(), 'registry keys must equal IPC_CHANNELS (no more, no less)')
 
       const version = await registry['app:version']({})
@@ -3536,12 +3547,12 @@ if (isEntrypoint()) {
   //  识别配置 4 条；CP3b 就地更新 88→97，CP4 就地更新 97→100；LR1 并入 main
   //  100→104，docs/04「LR1 追加」节 LLM 复核层 4 条）：
   //  registry 键集 = 白名单 = 契约覆盖
-  registerCase('s4-68: whitelist 45→50 (S5 就地更新为 55，AC2 就地更新 55→68，夜间#1 就地更新 68→70，CP1 就地更新 70→79，CP2 就地更新 79→84，CP3a 就地更新 84→88，CP3b 就地更新 88→97，CP4 就地更新 97→100，LR1 并入 main 100→104) — registry keys equal the whitelist and the compile-time contract assertion holds', async () => {
+  registerCase('s4-68: whitelist 45→50 (S5 就地更新为 55，AC2 就地更新 55→68，夜间#1 就地更新 68→70，CP1 就地更新 70→79，CP2 就地更新 79→84，CP3a 就地更新 84→88，CP3b 就地更新 88→97，CP4 就地更新 97→100，LR1 并入 main 100→104，CP5 就地更新 104→108) — registry keys equal the whitelist and the compile-time contract assertion holds', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
-    assert.equal(channels.IPC_CHANNELS.length, 104, 'whitelist extended 45 → 50 (S4), 50 → 55 (S5 archive), 55 → 68 (AC2 agents), 68 → 70 (夜间#1), 70 → 79 (CP1 contestpin 9 条), 79 → 84 (CP2 contestpin 悬浮窗 5 条), 84 → 88 (CP3a contestpin 识别配置 4 条), 88 → 97 (CP3b contestpin 材料导入/识别管线/核对界面 9 条), 97 → 100 (CP4 contestpin 提醒 3 条), 100 → 104 (LR1 LLM 复核层 4 条)')
-    assert.equal(new Set(channels.IPC_CHANNELS).size, 104, 'no duplicates after extension')
+    assert.equal(channels.IPC_CHANNELS.length, 108, 'whitelist extended 45 → 50 (S4), 50 → 55 (S5 archive), 55 → 68 (AC2 agents), 68 → 70 (夜间#1), 70 → 79 (CP1 contestpin 9 条), 79 → 84 (CP2 contestpin 悬浮窗 5 条), 84 → 88 (CP3a contestpin 识别配置 4 条), 88 → 97 (CP3b contestpin 材料导入/识别管线/核对界面 9 条), 97 → 100 (CP4 contestpin 提醒 3 条), 100 → 104 (LR1 LLM 复核层 4 条), 104 → 108 (CP5 contestpin Agent 模式 4 条)')
+    assert.equal(new Set(channels.IPC_CHANNELS).size, 108, 'no duplicates after extension')
     // 编译期断言 AssertContractCoversWhitelist 的解析产物（ChannelContract 恰好覆盖白名单）
     assert.equal(handlers.contractCoversWhitelist, true, 'ChannelContract covers exactly the whitelist (compile-time, observed at runtime)')
 
@@ -4682,7 +4693,7 @@ if (isEntrypoint()) {
   }, 'fast')
 
   // 84. agents 13 条 channel：白名单尾部按 docs/14 §A.1 顺序逐字存在 + 注册表覆盖
-  registerCase('ac2-84: agents channels (14, 夜间#1 就地更新 13→14) — whitelist tail in docs/14 §A.1 order, registry handlers, compile-time contract assertion holds（CP4 就地更新 97→100：contestpin 尾窗再前移；LR1 并入 main 100→104：LLM 复核层 4 条尾窗）', async () => {
+  registerCase('ac2-84: agents channels (14, 夜间#1 就地更新 13→14) — whitelist tail in docs/14 §A.1 order, registry handlers, compile-time contract assertion holds（LR1 并入 main 100→104：LLM 复核层尾窗；CP5 就地更新 104→108：Agent 模式 4 条尾窗，其余尾窗再前移）', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
@@ -4702,11 +4713,11 @@ if (isEntrypoint()) {
       'agents:diagnostics',
       'agents:probeProvider',
     ]
-    assert.equal(channels.IPC_CHANNELS.length, 104, 'whitelist 55 → 70 (docs/14 §A.2; 夜间#1 就地更新 68→70), 70 → 79 (CP1 就地更新，docs/04 ContestPin 追加节), 79 → 84 (CP2 就地更新，docs/22 §4 悬浮窗 5 条), 84 → 88 (CP3a 就地更新，docs/22 §6 识别配置 4 条), 88 → 97 (CP3b 就地更新，docs/22 §5 材料导入/识别管线 9 条), 97 → 100 (CP4 就地更新，docs/22 §7 提醒 3 条), 100 → 104 (LR1 并入 main，docs/04 LR1 追加节 LLM 复核层 4 条)')
-    // CP3b/CP4 就地更新后再并入 LR1 4 条（review）——agents 尾窗前移为 slice(-48, -34)
-    assert.deepEqual([...channels.IPC_CHANNELS.slice(-48, -34)], expectedAgents, '14 agents channels appended verbatim in docs/14 §A.1 order (夜间#1 就地更新 13→14)')
+    assert.equal(channels.IPC_CHANNELS.length, 108, 'whitelist 55 → 70 (docs/14 §A.2; 夜间#1 就地更新 68→70), 70 → 79 (CP1 就地更新，docs/04 ContestPin 追加节), 79 → 84 (CP2 就地更新，docs/22 §4 悬浮窗 5 条), 84 → 88 (CP3a 就地更新，docs/22 §6 识别配置 4 条), 88 → 97 (CP3b 就地更新，docs/22 §5 材料导入/识别管线 9 条), 97 → 100 (CP4 就地更新，docs/22 §7 提醒 3 条), 100 → 104 (LR1 并入 main，docs/04 LR1 追加节 LLM 复核层 4 条), 104 → 108 (CP5 就地更新，docs/22 §8 Agent 模式 4 条)')
+    // CP5 就地更新 4 条（agent）并入后——agents 尾窗前移为 slice(-52, -38)
+    assert.deepEqual([...channels.IPC_CHANNELS.slice(-52, -38)], expectedAgents, '14 agents channels appended verbatim in docs/14 §A.1 order (夜间#1 就地更新 13→14)')
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-34, -25)],
+      [...channels.IPC_CHANNELS.slice(-38, -29)],
       [
         'contestpin:list',
         'contestpin:get',
@@ -4721,7 +4732,7 @@ if (isEntrypoint()) {
       '9 contestpin channels appended verbatim in docs/04 ContestPin 追加节 order (CP1 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-25, -20)],
+      [...channels.IPC_CHANNELS.slice(-29, -24)],
       [
         'contestpin:overlayState',
         'contestpin:overlaySetEnabled',
@@ -4732,7 +4743,7 @@ if (isEntrypoint()) {
       '5 contestpin overlay channels appended verbatim in docs/22 §4 order (CP2 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-20, -16)],
+      [...channels.IPC_CHANNELS.slice(-24, -20)],
       [
         'contestpin:configList',
         'contestpin:configSave',
@@ -4742,7 +4753,7 @@ if (isEntrypoint()) {
       '4 contestpin recognition-config channels appended verbatim in docs/22 §6 order (CP3a 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-16, -7)],
+      [...channels.IPC_CHANNELS.slice(-20, -11)],
       [
         'contestpin:materialsList',
         'contestpin:importMaterials',
@@ -4757,7 +4768,7 @@ if (isEntrypoint()) {
       '9 contestpin materials/import/draft channels appended verbatim in docs/22 §5 order (CP3b 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-7, -4)],
+      [...channels.IPC_CHANNELS.slice(-11, -8)],
       [
         'contestpin:reminderUpsert',
         'contestpin:reminderDelete',
@@ -4766,7 +4777,7 @@ if (isEntrypoint()) {
       '3 contestpin reminder channels appended verbatim in docs/22 §7 order (CP4 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-4)],
+      [...channels.IPC_CHANNELS.slice(-8, -4)],
       [
         'review:testEndpoint',
         'archive:reviewPre',
@@ -4774,6 +4785,16 @@ if (isEntrypoint()) {
         'skills:reviewMeta',
       ],
       '4 LLM review channels appended verbatim in docs/04 LR1 追加节 order (LR1 批次；全 READ_ONLY advisory)',
+    )
+    assert.deepEqual(
+      [...channels.IPC_CHANNELS.slice(-4)],
+      [
+        'contestpin:agentStatus',
+        'contestpin:agentSubmit',
+        'contestpin:exportPack',
+        'contestpin:importPack',
+      ],
+      '4 contestpin Agent channels appended verbatim in docs/22 §8 order (CP5 批次)',
     )
 
     const registry = handlers.createHandlerRegistry({ appVersion: 'ac2-smoke' })
@@ -13315,6 +13336,323 @@ if (isEntrypoint()) {
     insert.run('beta-very-long-description-skill', 'skills/beta-very-long-description-skill', 'a'.repeat(40))
     insert.run('alpha-web-clone', 'skills/alpha-web-clone', 'web project helper (duplicate)')
   }
+
+  // ====================================================================
+  // CP5 批次（ContestPin Agent 模式，docs/22 §8 + docs/04「ContestPin 追加」节
+  // CP5 四行）。两个 fast 用例：
+  //   - cp5-agent-submit：能力门拒绝（observed → COMMAND_NOT_EXECUTABLE / 陈旧 →
+  //     AGENT_CAPABILITY_MISSING，结构化拒绝不静默降级）+ fake codex managed
+  //     provider 注入式 happy path（startManagedSession 经 L3 门+审计 → 监控
+  //     sink 落库 → watcher 轮询 → assistant 回流 → 同一 draft 管线 → draftConfirm
+  //     真实落库）+ 取消只杀本任务（watcher 令牌 + L3 pause 仅本会话，晚到回流
+  //     不落库）；
+  //   - cp5-pack：exportPack 形状（kind/version/materials 文字往返 + 零凭据断言）
+  //     / 目标目录校验 + importPack 校验（形状 BAD_RESPONSE / 材料存在性 NOT_FOUND
+  //     / 双来源互斥）/ provenance 越界 flag / 导入走同一 draft 核对管线（confirm/
+  //     合并不静默覆盖）。
+  // 零真实推理零配额：provider 全部 setProviderOverride 注入夹具（真机路径零触碰）；
+  // 真实 codex 实测留主控窗毕复验步（任务书 §3）。
+  // ====================================================================
+
+  /** CP5 夹具：codex managed fake provider（异步回流模拟真实 turn 时序：
+   *  L3 先落 running → 回流事件随后置 waiting_input；sink 落库面全走 L3）。 */
+  function fakeCodexManaged(state) {
+    return {
+      id: 'codex',
+      probeHealth: async () => ({ installed: true, health: 'ok', healthDetail: 'fixture codex managed (cp5)' }),
+      listSessions: async () => [],
+      readMessages: async () => ({ messages: [], cursor: '0', hasMore: false }),
+      getCapabilities: async () => ({ mode: 'managed', granted: ['reply', 'pause', 'resume'], verifiedAt: Math.floor(Date.now() / 1000), evidence: 'fixture managed (smoke cp5)' }),
+      sendReply: async () => ({ ok: false, status: 'unsupported', errorCode: 'AGENT_CAPABILITY_MISSING', detail: 'fixture provider' }),
+      pause: async (ref) => {
+        state.pauses.push(ref.nativeId)
+        return { ok: true, status: 'executed', detail: 'fixture turn/interrupt ok' }
+      },
+      resume: async () => ({ ok: false, status: 'unsupported', errorCode: 'COMMAND_NOT_EXECUTABLE', detail: 'fixture provider' }),
+      startManagedSession: async (task, sink) => {
+        state.tasks.push(task)
+        const nativeId = `fixture-thread-cp5-${state.tasks.length}`
+        const ref = { providerId: 'codex', nativeId }
+        // 同步快照（真实 thread/start 即建行，L3 靠它在返回前解析 sessionId）；
+        // 消息/状态异步回流（真实时序 = turn 在途 → 监控管线随后观察到）。
+        sink.onSessionDiscovered?.('codex', { nativeId, mode: 'managed', lastActivityAt: Math.floor(Date.now() / 1000), workdir: 'C:\\fixture\\cp5' })
+        setTimeout(() => {
+          sink.onMessageAppended?.(ref, { role: 'user', contentRedacted: task.slice(0, 400), nativeMsgId: `${nativeId}-user`, sourceRef: `${nativeId}#offset=0` })
+          sink.onMessageAppended?.(ref, { role: 'assistant', contentRedacted: state.reply, nativeMsgId: `${nativeId}-asst`, sourceRef: `${nativeId}#offset=1` })
+          sink.onStatusChanged?.(ref, 'running', 'waiting_input', 'fixture task_complete (managed)')
+        }, state.emitDelayMs)
+        return { ok: true, nativeId, detail: 'fixture managed turn in flight' }
+      },
+      startMonitor: () => ({ providerId: 'codex', stop: async () => {} }),
+      dispose: async () => {},
+      describeDiagnostics: () => ({ dataSource: { kind: 'fixture-source', readable: false }, control: { note: 'fixture provider (smoke cp5)' } }),
+    }
+  }
+
+  /** CP5 夹具：直接落 agent_providers.capabilities_json（绕过探测节流，确定性）。 */
+  function setCaps(db, provider, caps) {
+    db.prepare('UPDATE agent_providers SET capabilities_json = ? WHERE provider = ?').run(JSON.stringify(caps), provider)
+  }
+
+  /** CP5 夹具：Agent 契约 JSON 回复（与两阶段/多模态同一契约形状）。 */
+  function agentReplyJson(materialId, withEscalation = false) {
+    return JSON.stringify({
+      contests: [{
+        name: 'AI Cup',
+        year: 2026,
+        organizer: 'Example Org',
+        officialSite: { url: 'https://aicup.example/signup', provenance: { materialId, page: 1, excerpt: 'aicup.example' } },
+        nodes: [{
+          kind: 'signup_deadline',
+          label: '报名截止',
+          precision: withEscalation ? 'exact' : 'date',
+          startAtText: '2026-10-01',
+          rawText: 'Signup deadline 2026-10-01',
+          provenance: { materialId, page: 1, excerpt: 'Signup deadline 2026-10-01' },
+        }],
+      }],
+      flags: [],
+    })
+  }
+
+  registerCase(
+    'cp5-agent-submit: 能力门拒绝（observed → COMMAND_NOT_EXECUTABLE / 陈旧 → AGENT_CAPABILITY_MISSING，job 落 failed 结构化）+ fake managed happy path（L3 startProviderManagedSession → watcher → assistant 回流 → draft（date 降级 flag 同源校验）→ draftConfirm 真实落库）+ 取消只杀本任务（晚到回流不落库，L3 pause 仅本会话）+ 图片材料无文字拒绝',
+    async () => {
+      const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+      const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
+      const svc = await import(new URL('../src/main/services/agentControl/agentControlService.ts', import.meta.url).href)
+      const mat = await import(new URL('../src/main/services/contestpin/materialService.ts', import.meta.url).href)
+      const agent = await import(new URL('../src/main/services/contestpin/contestAgentService.ts', import.meta.url).href)
+      const pipe = await import(new URL('../src/main/services/contestpin/importPipeline.ts', import.meta.url).href)
+      const contest = await import(new URL('../src/main/services/contestpin/contestService.ts', import.meta.url).href)
+      const { mkdtempSync, writeFileSync } = await import('node:fs')
+      const { tmpdir } = await import('node:os')
+      const { join } = await import('node:path')
+
+      await makeTempHome('devhub-cp5-agent-')
+      const db = dbModule.getDatabase()
+      const dir = mkdtempSync(join(tmpdir(), 'devhub-cp5-files-'))
+      const pdfPath = join(dir, 'notice.pdf')
+      const pngPath = join(dir, 'shot.png')
+      writeFileSync(pdfPath, cp3bPdfFixture())
+      writeFileSync(pngPath, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC', 'base64'))
+
+      svc.ensureAgentProviderRows()
+      const state = { tasks: [], pauses: [], reply: '', emitDelayMs: 150 }
+      svc.setProviderOverride('codex', fakeCodexManaged(state))
+      svc.setProviderOverride('claude-code', { ...fakeCodexManaged(state), id: 'claude-code' })
+      svc.setProviderOverride('kimi', { ...fakeCodexManaged(state), id: 'kimi' })
+      svc.setProviderOverride('zcode', { ...fakeCodexManaged(state), id: 'zcode' })
+      svc.setProviderOverride('deepseek', { ...fakeCodexManaged(state), id: 'deepseek' })
+      const registry = handlers.createHandlerRegistry({ appVersion: 'cp5-smoke' })
+      const dispatch = (channel, payload) => handlers.dispatchGatewayRequest(registry, { channel, payload })
+      const nowSec0 = Math.floor(Date.now() / 1000)
+
+      try {
+        const pdfMat = (await mat.importMaterials([pdfPath]))[0]
+        const pngMat = (await mat.importMaterials([pngPath]))[0]
+
+        // ---- 场景 1：能力门拒绝（observed → COMMAND_NOT_EXECUTABLE；结构化拒绝，
+        //      job 落 failed，绝不静默降级不模拟成功）----
+        setCaps(db, 'claude-code', { mode: 'observed', granted: [], verifiedAt: nowSec0, evidence: 'fixture observed' })
+        const obsReject = await dispatch('contestpin:agentSubmit', { materialIds: [pdfMat.id], provider: 'claude-code' })
+        assert.equal(obsReject.ok, false, 'observed provider rejected at the gate')
+        assert.equal(obsReject.error.code, 'COMMAND_NOT_EXECUTABLE', 'structured rejection (not a silent fallback)')
+        const obsJob = db.prepare("SELECT id, mode, stage, error_json FROM contest_import_jobs ORDER BY id DESC LIMIT 1").get()
+        assert.equal(obsJob.mode, 'agent')
+        assert.equal(obsJob.stage, 'failed', 'rejected submit leaves a failed job row (audit trail)')
+        assert.equal(JSON.parse(obsJob.error_json).kind, 'COMMAND_NOT_EXECUTABLE')
+
+        // ---- 场景 2：能力陈旧 → AGENT_CAPABILITY_MISSING ----
+        setCaps(db, 'codex', { mode: 'managed', granted: ['reply', 'pause', 'resume'], verifiedAt: nowSec0 - 1000, evidence: 'fixture stale' })
+        const staleReject = await dispatch('contestpin:agentSubmit', { materialIds: [pdfMat.id], provider: 'codex' })
+        assert.equal(staleReject.ok, false)
+        assert.equal(staleReject.error.code, 'AGENT_CAPABILITY_MISSING', 'stale capabilities rejected (re-probe required)')
+
+        // ---- 场景 3：fake managed happy path（回流 → 同一 draft 管线）----
+        setCaps(db, 'codex', { mode: 'managed', granted: ['reply', 'pause', 'resume'], verifiedAt: Math.floor(Date.now() / 1000), evidence: 'fixture fresh' })
+        state.reply = agentReplyJson(pdfMat.id, true) // 谎标 exact → 同源校验必须降级 date + flag
+        const submitted = await dispatch('contestpin:agentSubmit', { materialIds: [pdfMat.id], provider: 'codex', instruction: '只整理报名与提交截止' })
+        assert.equal(submitted.ok, true, 'managed fresh provider accepted')
+        const job1 = submitted.data.job
+        assert.equal(job1.stage, 'preprocessed', 'agent job linkage stage')
+        assert.equal(job1.agent.provider, 'codex')
+        assert.ok(job1.agent.nativeId.startsWith('fixture-thread-cp5-'), 'managed nativeId linked')
+        assert.ok(job1.agent.sessionId !== null && job1.agent.sessionId > 0, 'session row resolved by L3')
+        assert.equal(job1.params.materialIds[0], pdfMat.id, 'task material scope in params')
+        // 任务文本断言：材料文字+契约+指令，≤4000（L3 面上限），零凭据
+        const task = state.tasks[0]
+        assert.ok(task.includes('比赛赛程信息整理助手'), 'task carries the shared JSON contract')
+        assert.ok(task.includes('Signup deadline 2026-10-01'), 'task carries local material text (材料文字本身)')
+        assert.ok(task.includes('只整理报名与提交截止'), 'task carries user instruction')
+        assert.ok(task.length <= 4000, 'task within MANAGED_SESSION_TASK_MAX_CHARS')
+        assert.ok(!task.includes('sk-'), 'task is credential-free')
+
+        // watcher 轮询 → 回流 → draft（30s 上限防挂死）
+        let done = null
+        for (let i = 0; i < 100 && done === null; i++) {
+          await new Promise((r) => setTimeout(r, 150))
+          const status = await dispatch('contestpin:agentStatus', { jobId: job1.id })
+          if (status.data.jobs[0].stage === 'draft' || status.data.jobs[0].stage === 'failed') done = status.data.jobs[0]
+        }
+        assert.ok(done !== null, 'agent job settles (draft|failed) within timeout')
+        assert.equal(done.stage, 'draft', 'agent result lands in the same draft pipeline')
+        assert.equal(done.agent.sessionStatus, 'waiting_input', 'managed session status projection (task_complete)')
+        assert.equal(done.result.draft.contests[0].name, 'AI Cup', 'agent draft parsed')
+        assert.equal(done.result.draft.contests[0].nodes[0].precision, 'date', 'escalation rejected by the shared validation (agent path)')
+        assert.ok(done.result.draft.flags.some((f) => f.reason.includes('精度提升被拒绝')), 'shared precision flag recorded')
+
+        // draftConfirm（同一两段式核对管线）：真实落库 source='imported'
+        const confirmed = await dispatch('contestpin:draftConfirm', { jobId: job1.id, confirmed: true })
+        assert.equal(confirmed.ok, true)
+        assert.equal(confirmed.data.merged, false)
+        const nodes = contest.getContest(confirmed.data.contestId).nodes
+        assert.equal(nodes.length, 1, 'agent draft confirm inserts nodes')
+        assert.equal(nodes[0].source, 'imported', 'agent-sourced node rows (never direct production writes)')
+
+        // agentStatus 全量面：agent/manual_pack 任务在册
+        const listed = await dispatch('contestpin:agentStatus', {})
+        assert.ok(listed.data.jobs.some((j) => j.id === job1.id), 'agentStatus lists the job')
+
+        // ---- 场景 4：取消只杀本任务（watcher 令牌 + L3 pause 仅本会话；
+        //      取消后晚到回流绝不落库；已确认任务不受影响）----
+        state.reply = agentReplyJson(pdfMat.id, false)
+        state.emitDelayMs = 900
+        const second = await dispatch('contestpin:agentSubmit', { materialIds: [pdfMat.id], provider: 'codex' })
+        assert.equal(second.ok, true)
+        const job2 = second.data.job
+        const cancel = await dispatch('contestpin:importCancel', { jobId: job2.id })
+        assert.equal(cancel.data.cancelled, true, 'agent cancel via importCancel face')
+        await agent.waitForAgentJobsIdle(30000)
+        await new Promise((r) => setTimeout(r, 1200)) // 等晚到回流事件（若被错误落库会在此暴露）
+        const afterCancel = (await dispatch('contestpin:agentStatus', { jobId: job2.id })).data.jobs[0]
+        assert.equal(afterCancel.stage, 'cancelled', 'cancelled stage is final')
+        assert.equal(afterCancel.result.draft, undefined, 'late agent回流 NEVER persisted after cancel')
+        assert.ok(state.pauses.includes(job2.agent.nativeId), 'L3 pause issued for this task session only')
+        assert.equal(state.pauses.length, 1, 'no other session touched by the cancel')
+        const stillConfirmed = db.prepare('SELECT stage FROM contest_import_jobs WHERE id = ?').get(job1.id)
+        assert.equal(stillConfirmed.stage, 'confirmed', 'cancel only affects its own task (job1 untouched)')
+
+        // ---- 场景 5：图片材料（无本地文字）→ BAD_PAYLOAD（不模拟任务）----
+        await assert.rejects(
+          () => agent.submitAgentJob({ materialIds: [pngMat.id], provider: 'codex' }),
+          (err) => err.code === 'BAD_PAYLOAD' && err.message.includes('无可提取的本地文字'),
+          'image-only submit rejected structurally (no fabricated task)',
+        )
+        // 非 agent 任务的取消回落 cancelImport（agent 面返回 null）
+        assert.equal(agent.cancelAgentJob(999999), null, 'non-agent/missing job → null (handler falls back)')
+      } finally {
+        svc.clearProviderOverrides()
+        dbModule.closeDatabase()
+      }
+    },
+    'fast',
+  )
+
+  registerCase(
+    'cp5-pack: exportPack 形状（kind/version/材料文字往返/零凭据零 key 断言）+ destDir 校验（不存在/相对路径）+ importPack（BAD_RESPONSE 形状/NOT_FOUND 材料/双来源互斥/回填形态解析/provenance 越界 flag/同一 draft 管线 confirm 与合并不静默覆盖）',
+    async () => {
+      const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+      const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
+      const mat = await import(new URL('../src/main/services/contestpin/materialService.ts', import.meta.url).href)
+      const contest = await import(new URL('../src/main/services/contestpin/contestService.ts', import.meta.url).href)
+      const { mkdtempSync, writeFileSync, readFileSync } = await import('node:fs')
+      const { tmpdir } = await import('node:os')
+      const { join } = await import('node:path')
+
+      await makeTempHome('devhub-cp5-pack-')
+      const db = dbModule.getDatabase()
+      const dir = mkdtempSync(join(tmpdir(), 'devhub-cp5-packfiles-'))
+      const pdfPath = join(dir, 'notice.pdf')
+      writeFileSync(pdfPath, cp3bPdfFixture())
+
+      const registry = handlers.createHandlerRegistry({ appVersion: 'cp5-pack-smoke' })
+      const dispatch = (channel, payload) => handlers.dispatchGatewayRequest(registry, { channel, payload })
+
+      try {
+        const pdfMat = (await mat.importMaterials([pdfPath]))[0]
+
+        // ---- 导出：形状 + 材料文字往返 + 零凭据 ----
+        const exported = await dispatch('contestpin:exportPack', { materialIds: [pdfMat.id], destDir: dir, instruction: '整理出报名与提交截止' })
+        assert.equal(exported.ok, true)
+        assert.equal(exported.data.materialCount, 1)
+        assert.ok(exported.data.exportPath.startsWith(dir), 'pack written into the user-chosen dir')
+        assert.equal(exported.data.textChars > 0, true, 'pack carries local text')
+        const packRaw = readFileSync(exported.data.exportPath, 'utf8')
+        const pack = JSON.parse(packRaw)
+        assert.equal(pack.kind, 'contestpin-task-pack')
+        assert.equal(pack.version, 1)
+        assert.ok(pack.contract.includes('比赛赛程信息整理助手'), 'pack embeds the shared JSON contract')
+        assert.equal(pack.materials.length, 1)
+        assert.equal(pack.materials[0].materialId, pdfMat.id)
+        assert.ok(pack.materials[0].pages[0].text.includes('AI Cup 2026 notice'), 'material text round-trips into the pack')
+        assert.deepEqual(pack.materials[0].links.map((l) => l.uri), ['https://aicup.example/signup'], 'local PDF links carried')
+        // 零凭据红线（manifest 同款）：无 key/无 sealed/无 base_url/无鉴权字段
+        // （sk- 后跟长随机串才可能是真实 key 形态；'task-pack' 一类的子串不算）
+        assert.ok(!/sk-[A-Za-z0-9]{16,}/.test(packRaw), 'no api key material in pack')
+        assert.ok(!packRaw.includes('key_sealed') && !packRaw.includes('apiKey') && !packRaw.includes('baseUrl'), 'pack structurally excludes config/credential fields')
+
+        // 导出校验拒绝：目录不存在 / 相对路径 / 未知材料
+        const badDir = await dispatch('contestpin:exportPack', { materialIds: [pdfMat.id], destDir: join(dir, 'no-such-dir') })
+        assert.equal(badDir.ok, false)
+        assert.equal(badDir.error.code, 'BAD_PAYLOAD', 'missing destDir rejected')
+        const relDir = await dispatch('contestpin:exportPack', { materialIds: [pdfMat.id], destDir: 'relative/dir' })
+        assert.equal(relDir.error.code, 'BAD_PAYLOAD', 'relative destDir rejected')
+        const unknownMat = await dispatch('contestpin:exportPack', { materialIds: [99999], destDir: dir })
+        assert.equal(unknownMat.error.code, 'NOT_FOUND', 'unknown material rejected')
+
+        // ---- 导入：校验 + 同一 draft 管线 ----
+        const dualSource = await dispatch('contestpin:importPack', { materialIds: [pdfMat.id], resultText: '{"contests":[]}', resultPath: pdfPath })
+        assert.equal(dualSource.error.code, 'BAD_PAYLOAD', 'resultPath and resultText are mutually exclusive')
+        const noSource = await dispatch('contestpin:importPack', { materialIds: [pdfMat.id] })
+        assert.equal(noSource.error.code, 'BAD_PAYLOAD', 'one source is required')
+        const unknownImport = await dispatch('contestpin:importPack', { materialIds: [424242], resultText: '{"contests":[]}' })
+        assert.equal(unknownImport.error.code, 'NOT_FOUND', 'import material existence check')
+        const garbage = await dispatch('contestpin:importPack', { materialIds: [pdfMat.id], resultText: '这不是 JSON' })
+        assert.equal(garbage.error.code, 'BAD_RESPONSE', 'bad result shape rejected structurally')
+
+        // happy path：裸契约 JSON → manual_pack 任务 → draft（同一核对管线）
+        const resultJson = agentReplyJson(pdfMat.id, false)
+        const imported = await dispatch('contestpin:importPack', { materialIds: [pdfMat.id], resultText: resultJson })
+        assert.equal(imported.ok, true)
+        const job = imported.data.job
+        assert.equal(job.mode, 'manual_pack')
+        assert.equal(job.stage, 'draft', 'pack import lands directly in the review draft stage')
+        assert.equal(job.result.draft.contests[0].name, 'AI Cup')
+        assert.equal(job.result.draft.contests[0].nodes[0].precision, 'date')
+
+        // 回填形态：任务包 JSON 内嵌 result（用户把结果粘回包文件）
+        const backfilled = await dispatch('contestpin:importPack', {
+          materialIds: [pdfMat.id],
+          resultText: JSON.stringify({ kind: 'contestpin-task-pack', version: 1, result: JSON.parse(resultJson) }),
+        })
+        assert.equal(backfilled.data.job.stage, 'draft', 'backfilled pack form parses (result wrapper)')
+
+        // provenance 越界：引用不在材料集内的 materialId → flag（不丢弃，人工核对）
+        const foreign = JSON.parse(resultJson)
+        foreign.contests[0].nodes[0].provenance.materialId = 987654
+        const flagged = await dispatch('contestpin:importPack', { materialIds: [pdfMat.id], resultText: JSON.stringify(foreign) })
+        assert.equal(flagged.data.job.stage, 'draft')
+        assert.ok(
+          flagged.data.job.result.draft.flags.some((f) => f.reason.includes('不在导入材料集内')),
+          'out-of-scope provenance flagged for human review (never silently trusted)',
+        )
+
+        // 不静默覆盖：confirm 合并只追加节点，既有字段不动
+        const existing = contest.createContest({ name: 'AICup', year: 2026 })
+        const merged = await dispatch('contestpin:draftConfirm', { jobId: job.id, confirmed: true, mergeIntoContestId: existing.id })
+        assert.equal(merged.ok, true)
+        assert.equal(merged.data.merged, true)
+        const beforeAfter = contest.getContest(existing.id)
+        assert.equal(beforeAfter.name, 'AICup', 'merge never overwrites existing fields')
+        assert.ok(beforeAfter.nodes.length >= 1, 'merge only appends imported nodes')
+        assert.ok(beforeAfter.nodes.every((n) => n.source === 'imported'), 'append-only merge nodes')
+      } finally {
+        dbModule.closeDatabase()
+      }
+    },
+    'fast',
+  )
 
   await run(parseTierArg())
 }
