@@ -1,4 +1,6 @@
-# DevHub 会话交接文档（2026-09-10 13:3x 第二波收口——凌晨五项+日间 D/F/G/H 四批全闭环）
+# DevHub 会话交接文档（2026-09-10 17:3x 终版——ContestPin CP0-CP6 全齐+Release v0.1.0 已发布）
+
+> **✅ 末批 CP6 已合 main（02be999，已推）：ContestPin 八节全收官**——backupExport/backupImport 白名单 108→**110**，manifest 零凭据红线+sha256 材料包+待核对式导入；合并树四门禁全绿 tsc 0/fast **104**/full **194**/mcp 27；dist-cp6 独立备料（110 通道下一版候选）在 **worktrees/cp6/dist-cp6/**（该 worktree 因此暂留勿清；在役常驻=Release 版 108 通道，属设计内滞后）。
 
 > **✅ 日间第二波（09-10 11:0x-13:3x，用户令"真关机不能进行，其他可以继续"）**：
 > 1. **CP5 Agent 模式已合 main（9dfe1ed，已推）**：codex managed 自动路径（L3 只消费）+任务包手动路径，4 通道白名单 104→**108**，零新 migration；合并树四门禁全绿 tsc 0/fast 102/full 192/mcp 27。
