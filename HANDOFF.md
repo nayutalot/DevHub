@@ -2,10 +2,10 @@
 
 > **✅ 日间第二波（09-10 11:0x-13:3x，用户令"真关机不能进行，其他可以继续"）**：
 > 1. **CP5 Agent 模式已合 main（9dfe1ed，已推）**：codex managed 自动路径（L3 只消费）+任务包手动路径，4 通道白名单 104→**108**，零新 migration；合并树四门禁全绿 tsc 0/fast 102/full 192/mcp 27。
-> 2. **D 批 R-B5/R-B8 活体复验完成（证据 56e1141 入册）**：R-B8 四断言全过+R-B5 腿1 过+RW1 already_on 真实链路过；**R-B5 腿2「真实推理回流」未达**——spawn/command/事件链路全绿，codex CLI 写完 rollout 输入即静默退出（非网络），**疑 codex 凭据失效=用户侧修复项**；修复后单点补验（1 次 spawn 配额+复用证据基线）即闭环 Release 条件链 ②→④（③ 已满足）。
+> 2. **D 批 R-B5/R-B8 活体复验完成（证据 56e1141 入册）**：R-B8 四断言全过+R-B5 腿1 过+RW1 already_on 真实链路过；**R-B5 腿2「真实推理回流」未达**——链路全绿，根因经下午五批诊断终判=**系统代理 7897 吞流式 POST（用户侧修复项，见 §7 台账）**；修复后单点补验（1 次 spawn 配额+复用 standin 驱动）即闭环 Release 条件链 ②→④（③ 已满足）。
 > 3. **App hotfix 已合**（c53df25→合并已推）：parseSessionDetail 对 capabilities=null/缺失宽容缺省空能力（D 批两处 FATAL 根治；:app 63 绿）。
 > 4. 卫生收尾：package-lock 坏条目修复（3db2b7a，CP3b 引入 fresh clone 必炸）、worktree/分支保洁（保留 rw1/cp5→cp5 毕后可清）、设备账面三次清理（#70/#72/#73 生产函数撤销+审计；**active 现役= #46/#53**）。
-> 5. **Release（docs/21 §8 ④）待用户**：链 ①③已满足；②差 R-B5 腿2（=codex 凭据）；用户修复凭据→单点补验→即可统一发布。
+> 5. **Release（docs/21 §8 ④）待用户**：链 ①③已满足；②差 R-B5 腿2（=用户系统代理修复，见 §7 codex 终判条）；修复→单点补验→等 CP6 合并→**用最新全量构建统一发布**。
 > ⚠️ **mcp-A13 与常驻互斥已实证（新铁律）**：单实例锁在 bootstrap 前执行且 **DEVHUB_HOME 不重定向 userData**（paths.ts 只读不 setPath）→常驻在线时任何第二实例（dev/packaged）静默秒退，mcp A13 全绿必须**先停常驻跑完再拉回**（smoke 因卫生批已常驻在线安全；mcp 没有）。
 
 > **✅ 2026-09-10 凌晨会话已把 02:5x 中途态五项全部收口**（详见 §2 台账"凌晨收口会话"行）：
@@ -100,6 +100,6 @@
 - **【full 档 flake 1 例（09-10 门禁）】**：M3-E1 树首跑 187/188（用例名未捕获，复跑自愈）——后续会话若复现，带完整留档定位
 - **【GitHub 墙期推送配方（09-10 凌晨实证）】**：直连 TLS 被 reset+7897 代理上游坏时——`ssh -i ~/.ssh/devhub_ecs -D 127.0.0.1:1081 -fN root@59.110.149.11` 建 SOCKS（出口=阿里云干净线路）→ `git -c http.proxy=socks5h://127.0.0.1:1081 push ...`；用毕杀 sshd 转发进程。同思路可救 electron-builder 联网（socks 代理）
 - **【mcp-A13 与常驻互斥（09-10 日间实证）】**：`requestSingleInstanceLock()` 在 bootstrap 前执行（index.ts ~L394），**DEVHUB_HOME 不重定向 userData**（paths.ts 只读它不 setPath）→常驻在线时 dev/packaged 第二实例均静默秒退（exit 0 零输出）；**mcp 27/27 铁律=先停常驻跑完再拉回**（smoke 已被卫生批根治常驻在线可跑，mcp 没有——A13 起 dev app 必撞锁；偶发过的"常驻在线 mcp 绿"是轮询撞上秒退进程的竞态假绿）
-- **【codex 静默退出（09-10 D 批实证，待用户）】**：spawn 链路全绿但 codex CLI 写完 rollout 输入即退出（无 error/无模型输出，endpoint 可达）→疑凭据失效；**Release ② 与 CP5 真实 codex 实测同源阻塞**，用户修复后单点补验（1 次 spawn）
+- **【codex 静默挂死·终判（09-10 下午五批诊断闭环，证据 acceptance/agents-mobile/{rb5-preprobe,rb5-rootcause,rb5-leg2-final,codex-appserver-diag,codex-noproxy-var}-20260910-1*/）】**：**系统代理 127.0.0.1:7897（注册表 ProxyEnable=1）静默吞 codex 发往 micuapi.ai 的认证流式 POST**——凭据无辜（同凭据直连 API 真实推理 5.35s 通）、二进制版本仅影响失败形态（binRoot 0.153.4=SSE 断流 84s+willRetry 无后续滞留；PATH npm 0.154.0=userMessage 回显后纯静默 90s）、notify 钩子证伪、**NO_PROXY='*' env 即通**（exec 与 app-server 双路径实证）；常驻托管路径外观"零错误消失"=codex 滞留被 DevHub idle 兜底杀树。**用户侧修复=代理客户端给 micuapi.ai 配直连规则或关系统代理**（用户本人 codex CLI 使用同受益）；修复后单点补验 R-B5 腿2（1 次 spawn+复用 standin 驱动 acceptance/agents-mobile/rb5-leg2-final-20260910-150707/leg2-final-driver.mjs）→Release 链②闭环。备选未实施待裁：DevHub spawn 注入 NO_PROXY 的 settings 开关
 - **【真库操作工具】**：本仓 DB 层=Node v24 内置 `node:sqlite`（DatabaseSync），**非 better-sqlite3**（node_modules 无此包）；进程外脚本走 DEVHUB_HOME/paths.ts 四级策略落 %APPDATA%\DevHub（纯 Node 回落取 name 小写 devhub——大小写不敏感同一文件，非缺陷勿"修"）
 - **【ECS systemd 硬化（RW0）】**：devhub-relay 服务 ProtectHome=yes/ProtectSystem=strict/ReadWritePaths=/var/lib/devhub-relay 且无 HOME——服务内 ssh 不读 ~/.ssh（别名/密钥/known_hosts 全失效，exit 255 毫秒级）；**解法=/etc/devhub-relay/ 下放 ssh_config+wake_key+wake_known_hosts（0600 devhub-relay）+ `ssh -F` 绝对路径**；root 手测通过≠服务内通过，必须以服务用户+同等沙箱验证
