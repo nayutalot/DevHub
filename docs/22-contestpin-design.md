@@ -307,6 +307,45 @@ loadRenderer hash `contest:<id>`（ViewTarget 扩展）；主窗口隐藏时照�
 - 导入：manifest 解析 → 按 sha256/name+year 去重 → 待核对式导入（复用草稿核对
   界面），不静默覆盖。
 
+### 9.1 CP6 落地注记（2026-09-10，白名单 108→110，CP 系收官）
+
+- **通道实拆 2 条**（§3 预告 "+2" 逐字）：`contestpin:backupExport`（READ_ONLY
+  库面——产物落用户选择目录，exportPack 同款先例；destDir 必须已存在绝对路径
+  目录）+ `contestpin:backupImport`（变更面）。service = `contestBackupService.ts`
+  （electron-free 纯 Node；materialService 增 `restoreMaterialFromBackup` 导入
+  专用入口，走 importBuffer 同一 sha 去重核心；`LIMIT_CEILINGS` 导出复用）。
+- **manifest 形状**（版本化 JSON v1，kind='contestpin-backup'）：{kind, version,
+  exportedAt, source(名义标识零本机路径零凭据), counts, contests[](含
+  nodes[]全量元数据+reminders[](按 nodeKind+nodeLabel 定位——节点 id 库内自增
+  跨库不可移植)+materialShas[]), materials[](sha256/fileName/originalName/kind/
+  sizeBytes，**不含内容**——内容在 materials/ 夹按 sha256 命名复制)}。导出只读
+  contests/contest_nodes/contest_reminders/contest_materials 四表，识别配置表
+  结构性不在导出面；零凭据 smoke grep 断言锚定（key_sealed/apiKey/baseUrl/
+  api_key/sk- 形态）。库内材料文件缺失/哈希不符 → 如实跳过不进 manifest
+  （manifest 只收自洽条目，绝不编造）。
+- **导出幂等/原子**：materials/ 同 sha EEXIST 跳过（断点续传，中断重跑幂等）；
+  已存在 manifest → `BACKUP_EXISTS` 结构化拒绝不覆盖（用户重选目录，诚实面，
+  任何复制动作前先查）；manifest 最后写（临时名+rename 原子落位，中断不留
+  半成品 manifest）。
+- **导入=一份 manual_pack 草稿**：形状校验（kind/version/未知字段容忍并 flag）→
+  材料 sha256 对账（库已有同 sha 复用不重建；备份夹读文件重算哈希核对；缺文件/
+  哈希不符/超限 → flag **降级不带病导入**）→ 全部赛事一份草稿——时刻按精度
+  重建文本（date=本地 YYYY-MM-DD / month=YYYY-MM / exact=含秒则带 :ss）过
+  **同一 validateDraftContests** 单一权威校验（ensureValidatedDraft 落位），
+  provenance M#0=备份 manifest 本身（值=导出库原值非材料重提取，flag 声明）→
+  既有核对界面（name+year 相似检测既有逻辑）用户逐项确认/合并/另建；**绝不
+  直写 contests/contest_nodes 生产行，绝不静默覆盖**（与 importPack 同纪律）。
+- **元数据如实告知不静默重建**：提醒规则/参赛状态/归档/备注/节点完成态草稿
+  形状不含 → 逐条 flag 告知（提醒挂节点 id 跨库不可移植，确认建赛后经既有
+  节点提醒编辑器按需恢复）；date/month 精度带时刻成分、非 local 时区、endAt
+  早于 startAt 等保真风险逐条 flag，绝不静默取整/丢弃。
+- **UI**：ContestView「备份与恢复」面板两入口（destDir 手填=CP5 exportPack
+  destDir 先例；manifest.json 经 `<input type=file>`+preload `pathForFile` 落
+  路径=CP3b/CP5 先例）；导入成功即入下方 DraftReviewPanel 核对流（零新界面）；
+  空闲/执行中/结构化错误/结果摘要显式渲染（约束 #24）。ecs-relay/android/
+  docs/18 零触碰；**migration 零新增**（任务行复用 contest_import_jobs，
+  mode='manual_pack'+params.source='backupImport'，零 009）。
+
 ## 10. 实施批次与验收
 
 | 批 | 内容 | 验证（窗内=纯 Node） |

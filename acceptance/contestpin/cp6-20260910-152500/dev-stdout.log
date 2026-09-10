@@ -1,0 +1,191 @@
+
+> devhub@0.1.0 dev
+> electron-vite dev --remote-debugging-port=9222
+
+[36mvite v7.3.6 [32mbuilding ssr environment for development...[36m[39m
+transforming...
+[32m✓[39m 107 modules transformed.
+rendering chunks...
+[33m[plugin vite:reporter] 
+(!) F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/agentControlService.ts is dynamically imported by F:/Active_Project/DevHub-worktrees/cp6/src/main/ipc/handlers.ts but also statically imported by F:/Active_Project/DevHub-worktrees/cp6/src/main/autostartWire.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/index.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/ipc/handlers.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/gateway/httpServer.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/gateway/pairing.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/gateway/ws.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/relayClient/commandDownlink.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/relayClient/hostLegRequests.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/relayClient/index.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/relayClient/rotationBridge.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/sessionLifecycle.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/contestpin/contestAgentService.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/trayWire.ts, dynamic import will not move module into another chunk.
+[39m
+[2mout/main/[22m[36mpairing-CcoS8bN3.js     [39m[1m[2m  5.89 kB[22m[1m[22m
+[2mout/main/[22m[36mhttpServer-BZMlmt_X.js  [39m[1m[2m 44.50 kB[22m[1m[22m
+[2mout/main/[22m[36mindex-cUI-yZx-.js       [39m[1m[2m 44.59 kB[22m[1m[22m
+[2mout/main/[22m[36mindex.js                [39m[1m[33m786.14 kB[39m[22m
+[32m✓ built in 766ms[39m
+[32m
+electron main process built successfully[39m
+[90m
+-----
+[39m
+[36mvite v7.3.6 [32mbuilding ssr environment for development...[36m[39m
+transforming...
+[32m✓[39m 2 modules transformed.
+rendering chunks...
+[2mout/preload/[22m[36mindex.js  [39m[1m[2m0.93 kB[22m[1m[22m
+[32m✓ built in 15ms[39m
+[32m
+electron preload scripts built successfully[39m
+[90m
+-----
+[39m
+[32mdev server running for the electron renderer process at:
+[39m
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m5173[22m/[39m
+[2m  [32m➜[39m  [1mNetwork[22m[2m: use [22m[1m--host[22m[2m to expose[22m
+[32m
+starting electron app...
+[39m
+
+
+DevTools listening on ws://127.0.0.1:9222/devtools/browser/f688b983-0776-4c6d-8e39-385136162756
+
+> devhub@0.1.0 dev
+> electron-vite dev --remote-debugging-port=9222
+
+[36mvite v7.3.6 [32mbuilding ssr environment for development...[36m[39m
+transforming...
+[32m✓[39m 107 modules transformed.
+rendering chunks...
+[33m[plugin vite:reporter] 
+(!) F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/agentControlService.ts is dynamically imported by F:/Active_Project/DevHub-worktrees/cp6/src/main/ipc/handlers.ts but also statically imported by F:/Active_Project/DevHub-worktrees/cp6/src/main/autostartWire.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/index.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/ipc/handlers.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/gateway/httpServer.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/gateway/pairing.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/gateway/ws.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/relayClient/commandDownlink.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/relayClient/hostLegRequests.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/relayClient/index.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/relayClient/rotationBridge.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/sessionLifecycle.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/contestpin/contestAgentService.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/trayWire.ts, dynamic import will not move module into another chunk.
+[39m
+[2mout/main/[22m[36mpairing-CcoS8bN3.js     [39m[1m[2m  5.89 kB[22m[1m[22m
+[2mout/main/[22m[36mhttpServer-BZMlmt_X.js  [39m[1m[2m 44.50 kB[22m[1m[22m
+[2mout/main/[22m[36mindex-cUI-yZx-.js       [39m[1m[2m 44.59 kB[22m[1m[22m
+[2mout/main/[22m[36mindex.js                [39m[1m[33m786.14 kB[39m[22m
+[32m✓ built in 749ms[39m
+[32m
+electron main process built successfully[39m
+[90m
+-----
+[39m
+[36mvite v7.3.6 [32mbuilding ssr environment for development...[36m[39m
+transforming...
+[32m✓[39m 2 modules transformed.
+rendering chunks...
+[2mout/preload/[22m[36mindex.js  [39m[1m[2m0.93 kB[22m[1m[22m
+[32m✓ built in 9ms[39m
+[32m
+electron preload scripts built successfully[39m
+[90m
+-----
+[39m
+[32mdev server running for the electron renderer process at:
+[39m
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m5173[22m/[39m
+[2m  [32m➜[39m  [1mNetwork[22m[2m: use [22m[1m--host[22m[2m to expose[22m
+[32m
+starting electron app...
+[39m
+
+
+DevTools listening on ws://127.0.0.1:9222/devtools/browser/a721944e-eb5e-4b5e-99c8-74b49db8477b
+
+> devhub@0.1.0 dev
+> electron-vite dev --remote-debugging-port=9222
+
+[36mvite v7.3.6 [32mbuilding ssr environment for development...[36m[39m
+transforming...
+[32m✓[39m 107 modules transformed.
+rendering chunks...
+[33m[plugin vite:reporter] 
+(!) F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/agentControlService.ts is dynamically imported by F:/Active_Project/DevHub-worktrees/cp6/src/main/ipc/handlers.ts but also statically imported by F:/Active_Project/DevHub-worktrees/cp6/src/main/autostartWire.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/index.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/ipc/handlers.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/gateway/httpServer.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/gateway/pairing.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/gateway/ws.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/relayClient/commandDownlink.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/relayClient/hostLegRequests.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/relayClient/index.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/relayClient/rotationBridge.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/sessionLifecycle.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/contestpin/contestAgentService.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/trayWire.ts, dynamic import will not move module into another chunk.
+[39m
+[2mout/main/[22m[36mpairing-CcoS8bN3.js     [39m[1m[2m  5.89 kB[22m[1m[22m
+[2mout/main/[22m[36mhttpServer-BZMlmt_X.js  [39m[1m[2m 44.50 kB[22m[1m[22m
+[2mout/main/[22m[36mindex-cUI-yZx-.js       [39m[1m[2m 44.59 kB[22m[1m[22m
+[2mout/main/[22m[36mindex.js                [39m[1m[33m786.14 kB[39m[22m
+[32m✓ built in 777ms[39m
+[32m
+electron main process built successfully[39m
+[90m
+-----
+[39m
+[36mvite v7.3.6 [32mbuilding ssr environment for development...[36m[39m
+transforming...
+[32m✓[39m 2 modules transformed.
+rendering chunks...
+[2mout/preload/[22m[36mindex.js  [39m[1m[2m0.93 kB[22m[1m[22m
+[32m✓ built in 10ms[39m
+[32m
+electron preload scripts built successfully[39m
+[90m
+-----
+[39m
+[32mdev server running for the electron renderer process at:
+[39m
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m5173[22m/[39m
+[2m  [32m➜[39m  [1mNetwork[22m[2m: use [22m[1m--host[22m[2m to expose[22m
+[32m
+starting electron app...
+[39m
+
+
+DevTools listening on ws://127.0.0.1:9222/devtools/browser/50fd5fda-3dbc-4386-865c-eab274d1067e
+
+> devhub@0.1.0 dev
+> electron-vite dev --remote-debugging-port=9222
+
+[36mvite v7.3.6 [32mbuilding ssr environment for development...[36m[39m
+transforming...
+[32m✓[39m 107 modules transformed.
+rendering chunks...
+[33m[plugin vite:reporter] 
+(!) F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/agentControlService.ts is dynamically imported by F:/Active_Project/DevHub-worktrees/cp6/src/main/ipc/handlers.ts but also statically imported by F:/Active_Project/DevHub-worktrees/cp6/src/main/autostartWire.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/index.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/ipc/handlers.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/gateway/httpServer.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/gateway/pairing.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/gateway/ws.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/relayClient/commandDownlink.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/relayClient/hostLegRequests.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/relayClient/index.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/relayClient/rotationBridge.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/agentControl/sessionLifecycle.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/services/contestpin/contestAgentService.ts, F:/Active_Project/DevHub-worktrees/cp6/src/main/trayWire.ts, dynamic import will not move module into another chunk.
+[39m
+[2mout/main/[22m[36mpairing-CcoS8bN3.js     [39m[1m[2m  5.89 kB[22m[1m[22m
+[2mout/main/[22m[36mhttpServer-BZMlmt_X.js  [39m[1m[2m 44.50 kB[22m[1m[22m
+[2mout/main/[22m[36mindex-cUI-yZx-.js       [39m[1m[2m 44.59 kB[22m[1m[22m
+[2mout/main/[22m[36mindex.js                [39m[1m[33m786.14 kB[39m[22m
+[32m✓ built in 777ms[39m
+[32m
+electron main process built successfully[39m
+[90m
+-----
+[39m
+[36mvite v7.3.6 [32mbuilding ssr environment for development...[36m[39m
+transforming...
+[32m✓[39m 2 modules transformed.
+rendering chunks...
+[2mout/preload/[22m[36mindex.js  [39m[1m[2m0.93 kB[22m[1m[22m
+[32m✓ built in 11ms[39m
+[32m
+electron preload scripts built successfully[39m
+[90m
+-----
+[39m
+[32mdev server running for the electron renderer process at:
+[39m
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m5173[22m/[39m
+[2m  [32m➜[39m  [1mNetwork[22m[2m: use [22m[1m--host[22m[2m to expose[22m
+[32m
+starting electron app...
+[39m
+
+
+DevTools listening on ws://127.0.0.1:9222/devtools/browser/5f3ef215-55e9-4940-a2dd-5b3ea8e4883a
+2026-09-10T07:39:42.331Z [INFO ] apihub key crypto: electron safeStorage injected
+2026-09-10T07:39:42.334Z [INFO ] notify wire initialized (60s scan tick + powerMonitor resume/clock watch, applier registered)
+2026-09-10T07:39:42.346Z [INFO ] autostart applied from settings login_autostart=1
+2026-09-10T07:39:42.347Z [INFO ] gateway registered on "devhub:invoke" with 110 channels
+2026-09-10T07:39:42.425Z [INFO ] tray icon loaded: F:\Active_Project\DevHub-worktrees\cp6\resources\tray.png
+2026-09-10T07:39:42.438Z [INFO ] tray created (resident mode: closing the window hides it, docs/12 §10)
+2026-09-10T07:39:42.451Z [INFO ] overlay window created (collapsed=1, bounds restored from settings)
+2026-09-10T07:39:42.479Z [INFO ] gateway: listening on 127.0.0.1:8746 (settings gateway_port=8746)
+2026-09-10T07:43:07.856Z [INFO ] gateway: GET /v1/health from 127.0.0.1 -> 200
+2026-09-10T07:51:08.097Z [INFO ] contestpin backup exported: C:\Users\sakuya\AppData\Local\Temp\devhub-cp6-acceptance-out\manifest.json contests=1 nodes=3 reminders=0 materials=0
+2026-09-10T07:53:31.320Z [WARN ] gateway contestpin:backupExport: BACKUP_EXISTS: 目标目录已存在 manifest.json，拒绝覆盖（请改用其他目录或先清理）：C:/Users/sakuya/AppData/Local/Temp/devhub-cp6-acceptance-out
+2026-09-10T08:16:25.445Z [INFO ] contestpin backup imported: job 1 contests=1 restoredMaterials=0 reusedMaterials=0 → draft
+2026-09-10T08:31:29.266Z [INFO ] contestpin import job 1 draft discarded
+[2m16:34:29[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/DraftReviewPanel.tsx[22m
+2026-09-10T08:35:27.783Z [INFO ] notify wire shut down (scan timer cleared, power watch detached, applier removed)
+2026-09-10T08:35:27.787Z [INFO ] overlay window destroyed (quit teardown)
+2026-09-10T08:35:27.788Z [INFO ] tray destroyed
+2026-09-10T08:35:27.789Z [INFO ] quit teardown: notify wire cleared + overlay destroyed + tray destroyed + 2s refresh interval cleared (AC9 exit fix)
+2026-09-10T08:35:27.791Z [INFO ] gateway: listener closed (app quit teardown (docs/12 §10 order: WS close -> listener close))
+2026-09-10T08:35:27.792Z [INFO ] quit teardown: agent control runtime shut down (monitors cancelled, providers disposed)
+2026-09-10T08:35:27.798Z [INFO ] quit teardown: database closed (WAL checkpointed)
+2026-09-10T08:35:27.807Z [INFO ] window-all-closed: staying resident in tray (docs/12 §10)
+2026-09-10T08:35:30.803Z [WARN ] quit exit guarantee: process still alive after quit — forcing app.exit(0) (AC9 lingering-process fix, watchdog=3000ms)

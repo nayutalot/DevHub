@@ -2686,6 +2686,39 @@ export interface ContestPackImportResult {
   job: ContestAgentJobView
 }
 
+// --- contestpin:backupExport / backupImport（CP6 收官批，docs/22 §9 备份恢复；
+//     导出 READ_ONLY 库面（产物落用户选择目录，exportPack 同款先例）：目标目录
+//     manifest.json 结构性零凭据（不含 contestpin_configs.key_sealed 与任何 key）
+//     + materials/ 附件夹 sha256 命名复制（同 sha 跳过幂等）；已存在 manifest →
+//     BACKUP_EXISTS 拒绝不覆盖。导入变更面：形状校验/材料 sha256 对账（缺文件
+//     如实 flag 降级不带病导入）→ 全部赛事一份 manual_pack 草稿走既有核对界面
+//     （name+year 相似检测既有逻辑），绝不直写生产行绝不静默覆盖） ---
+
+export interface ContestBackupExportPayload {
+  /** 用户选择的目标目录（绝对路径；必须已存在）。 */
+  destDir: string
+}
+
+export interface ContestBackupExportResult {
+  /** manifest.json 绝对路径（`<destDir>/manifest.json`）。 */
+  manifestPath: string
+  bytes: number
+  contestCount: number
+  nodeCount: number
+  reminderCount: number
+  materialCount: number
+}
+
+export interface ContestBackupImportPayload {
+  /** 用户选择的备份 manifest.json 绝对路径（materials/ 夹取其同级目录）。 */
+  manifestPath: string
+}
+
+export interface ContestBackupImportResult {
+  /** 草稿任务（mode='manual_pack'，与任务包导入同视图）→ 既有核对界面确认。 */
+  job: ContestAgentJobView
+}
+
 // --- contestpin 提醒系统（CP4 批次，docs/22 §7 + docs/briefs/contestpin-m4 §1；
 //     reminderUpsert / reminderDelete / reminderLogList 三条。reminderDelete 为
 //     CONFIRM_REQUIRED 两段式；去重根 = contest_reminder_log UNIQUE(reminder_id, fire_key)） ---
@@ -2999,6 +3032,12 @@ export interface ChannelContract {
   'contestpin:agentSubmit': [ContestAgentSubmitPayload, ContestAgentSubmitResult]
   'contestpin:exportPack': [ContestPackExportPayload, ContestPackExportResult]
   'contestpin:importPack': [ContestPackImportPayload, ContestPackImportResult]
+  // --- contestpin (CP6 batch, 备份恢复 docs/22 §9 + docs/04「ContestPin 追加」节；
+  //     backupExport 为 READ_ONLY 库面（产物落用户选择目录，结构性零凭据）；
+  //     backupImport 变更面：校验/材料对账 → 一份 manual_pack 草稿走既有核对
+  //     界面，绝不直写生产行绝不静默覆盖) ---
+  'contestpin:backupExport': [ContestBackupExportPayload, ContestBackupExportResult]
+  'contestpin:backupImport': [ContestBackupImportPayload, ContestBackupImportResult]
 }
 
 /** Compile-time assertion that ChannelContract covers exactly the whitelist. */

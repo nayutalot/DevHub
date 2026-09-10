@@ -137,8 +137,13 @@ if (isEntrypoint()) {
   // observed/陈旧 → 结构化拒绝不静默降级）/ exportPack（任务包 JSON 零凭据零
   // key）/ importPack（结果导入走同一 draft 核对管线）；取消复用 importCancel
   // 不设第五条通道；smoke 全 fake provider 注入零真实推理零配额）。
+  // CP6 批次 note（ContestPin 备份恢复·收官批，docs/22 §9 授权的同一模式就地更新）：
+  // contestpin 2 条并入，108 → 110（backupExport READ_ONLY 库面：manifest.json
+  // 结构性零凭据 + materials/ sha256 复制幂等 + BACKUP_EXISTS 拒绝覆盖；
+  // backupImport 变更面：形状/材料 sha256 对账 → 一份 manual_pack 草稿走既有
+  // 核对界面，绝不直写生产行绝不静默覆盖）。
   // ------------------------------------------------------------------
-  registerCase('step1: channels whitelist has exactly 108 entries (CP5 就地更新 104→108) and IPC_GATEWAY', async () => {
+  registerCase('step1: channels whitelist has exactly 110 entries (CP6 就地更新 108→110) and IPC_GATEWAY', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     assert.equal(channels.IPC_GATEWAY, 'devhub:invoke', 'gateway channel')
     const expected = [
@@ -266,10 +271,13 @@ if (isEntrypoint()) {
       'contestpin:agentSubmit',
       'contestpin:exportPack',
       'contestpin:importPack',
+      // CP6 contestpin backup group (docs/22 §9 + docs/04「ContestPin 追加」节)
+      'contestpin:backupExport',
+      'contestpin:backupImport',
     ]
-    assert.equal(channels.IPC_CHANNELS.length, 108, `expected 108 channels, got ${channels.IPC_CHANNELS.length}`)
-    assert.deepEqual([...channels.IPC_CHANNELS], expected, 'whitelist must match docs/04 + docs/09 §9 + docs/10 §11 + docs/14 §A.1 + docs/04 ContestPin 追加节 + docs/22 §4/§5/§6/§7/§8 + docs/04 LR1 追加节 exactly')
-    assert.equal(new Set(channels.IPC_CHANNELS).size, 108, 'no duplicate channels')
+    assert.equal(channels.IPC_CHANNELS.length, 110, `expected 110 channels, got ${channels.IPC_CHANNELS.length}`)
+    assert.deepEqual([...channels.IPC_CHANNELS], expected, 'whitelist must match docs/04 + docs/09 §9 + docs/10 §11 + docs/14 §A.1 + docs/04 ContestPin 追加节 + docs/22 §4/§5/§6/§7/§8/§9 + docs/04 LR1 追加节 exactly')
+    assert.equal(new Set(channels.IPC_CHANNELS).size, 110, 'no duplicate channels')
   }, 'fast')
 
   // ------------------------------------------------------------------
@@ -1041,14 +1049,14 @@ if (isEntrypoint()) {
   // CHANNEL_NOT_ALLOWED（文档权威原则，约束 #6）。
   // ------------------------------------------------------------------
   registerCase(
-    'step6: handler registry keys equal the 108-channel whitelist (CP5 就地更新 104→108); app:version returns injected value; unknown channel folds to CHANNEL_NOT_ALLOWED envelope',
+    'step6: handler registry keys equal the 110-channel whitelist (CP6 就地更新 108→110); app:version returns injected value; unknown channel folds to CHANNEL_NOT_ALLOWED envelope',
     async () => {
       const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
       const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
       const registry = handlers.createHandlerRegistry({ appVersion: '0.1.0-smoke' })
       const keys = Object.keys(registry).sort()
-      assert.equal(keys.length, 108, `registry must hold exactly 108 handlers, got ${keys.length}`)
+      assert.equal(keys.length, 110, `registry must hold exactly 110 handlers, got ${keys.length}`)
       assert.deepEqual(keys, [...channels.IPC_CHANNELS].sort(), 'registry keys must equal IPC_CHANNELS (no more, no less)')
 
       const version = await registry['app:version']({})
@@ -3547,12 +3555,12 @@ if (isEntrypoint()) {
   //  识别配置 4 条；CP3b 就地更新 88→97，CP4 就地更新 97→100；LR1 并入 main
   //  100→104，docs/04「LR1 追加」节 LLM 复核层 4 条）：
   //  registry 键集 = 白名单 = 契约覆盖
-  registerCase('s4-68: whitelist 45→50 (S5 就地更新为 55，AC2 就地更新 55→68，夜间#1 就地更新 68→70，CP1 就地更新 70→79，CP2 就地更新 79→84，CP3a 就地更新 84→88，CP3b 就地更新 88→97，CP4 就地更新 97→100，LR1 并入 main 100→104，CP5 就地更新 104→108) — registry keys equal the whitelist and the compile-time contract assertion holds', async () => {
+  registerCase('s4-68: whitelist 45→50 (S5 就地更新为 55，AC2 就地更新 55→68，夜间#1 就地更新 68→70，CP1 就地更新 70→79，CP2 就地更新 79→84，CP3a 就地更新 84→88，CP3b 就地更新 88→97，CP4 就地更新 97→100，LR1 并入 main 100→104，CP5 就地更新 104→108，CP6 就地更新 108→110) — registry keys equal the whitelist and the compile-time contract assertion holds', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
-    assert.equal(channels.IPC_CHANNELS.length, 108, 'whitelist extended 45 → 50 (S4), 50 → 55 (S5 archive), 55 → 68 (AC2 agents), 68 → 70 (夜间#1), 70 → 79 (CP1 contestpin 9 条), 79 → 84 (CP2 contestpin 悬浮窗 5 条), 84 → 88 (CP3a contestpin 识别配置 4 条), 88 → 97 (CP3b contestpin 材料导入/识别管线/核对界面 9 条), 97 → 100 (CP4 contestpin 提醒 3 条), 100 → 104 (LR1 LLM 复核层 4 条), 104 → 108 (CP5 contestpin Agent 模式 4 条)')
-    assert.equal(new Set(channels.IPC_CHANNELS).size, 108, 'no duplicates after extension')
+    assert.equal(channels.IPC_CHANNELS.length, 110, 'whitelist extended 45 → 50 (S4), 50 → 55 (S5 archive), 55 → 68 (AC2 agents), 68 → 70 (夜间#1), 70 → 79 (CP1 contestpin 9 条), 79 → 84 (CP2 contestpin 悬浮窗 5 条), 84 → 88 (CP3a contestpin 识别配置 4 条), 88 → 97 (CP3b contestpin 材料导入/识别管线/核对界面 9 条), 97 → 100 (CP4 contestpin 提醒 3 条), 100 → 104 (LR1 LLM 复核层 4 条), 104 → 108 (CP5 contestpin Agent 模式 4 条), 108 → 110 (CP6 contestpin 备份恢复 2 条)')
+    assert.equal(new Set(channels.IPC_CHANNELS).size, 110, 'no duplicates after extension')
     // 编译期断言 AssertContractCoversWhitelist 的解析产物（ChannelContract 恰好覆盖白名单）
     assert.equal(handlers.contractCoversWhitelist, true, 'ChannelContract covers exactly the whitelist (compile-time, observed at runtime)')
 
@@ -4693,7 +4701,7 @@ if (isEntrypoint()) {
   }, 'fast')
 
   // 84. agents 13 条 channel：白名单尾部按 docs/14 §A.1 顺序逐字存在 + 注册表覆盖
-  registerCase('ac2-84: agents channels (14, 夜间#1 就地更新 13→14) — whitelist tail in docs/14 §A.1 order, registry handlers, compile-time contract assertion holds（LR1 并入 main 100→104：LLM 复核层尾窗；CP5 就地更新 104→108：Agent 模式 4 条尾窗，其余尾窗再前移）', async () => {
+  registerCase('ac2-84: agents channels (14, 夜间#1 就地更新 13→14) — whitelist tail in docs/14 §A.1 order, registry handlers, compile-time contract assertion holds（LR1 并入 main 100→104：LLM 复核层尾窗；CP5 就地更新 104→108：Agent 模式尾窗；CP6 就地更新 108→110：备份恢复 2 条尾窗，其余尾窗再前移）', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
@@ -4713,11 +4721,11 @@ if (isEntrypoint()) {
       'agents:diagnostics',
       'agents:probeProvider',
     ]
-    assert.equal(channels.IPC_CHANNELS.length, 108, 'whitelist 55 → 70 (docs/14 §A.2; 夜间#1 就地更新 68→70), 70 → 79 (CP1 就地更新，docs/04 ContestPin 追加节), 79 → 84 (CP2 就地更新，docs/22 §4 悬浮窗 5 条), 84 → 88 (CP3a 就地更新，docs/22 §6 识别配置 4 条), 88 → 97 (CP3b 就地更新，docs/22 §5 材料导入/识别管线 9 条), 97 → 100 (CP4 就地更新，docs/22 §7 提醒 3 条), 100 → 104 (LR1 并入 main，docs/04 LR1 追加节 LLM 复核层 4 条), 104 → 108 (CP5 就地更新，docs/22 §8 Agent 模式 4 条)')
-    // CP5 就地更新 4 条（agent）并入后——agents 尾窗前移为 slice(-52, -38)
-    assert.deepEqual([...channels.IPC_CHANNELS.slice(-52, -38)], expectedAgents, '14 agents channels appended verbatim in docs/14 §A.1 order (夜间#1 就地更新 13→14)')
+    assert.equal(channels.IPC_CHANNELS.length, 110, 'whitelist 55 → 70 (docs/14 §A.2; 夜间#1 就地更新 68→70), 70 → 79 (CP1 就地更新，docs/04 ContestPin 追加节), 79 → 84 (CP2 就地更新，docs/22 §4 悬浮窗 5 条), 84 → 88 (CP3a 就地更新，docs/22 §6 识别配置 4 条), 88 → 97 (CP3b 就地更新，docs/22 §5 材料导入/识别管线 9 条), 97 → 100 (CP4 就地更新，docs/22 §7 提醒 3 条), 100 → 104 (LR1 并入 main，docs/04 LR1 追加节 LLM 复核层 4 条), 104 → 108 (CP5 就地更新，docs/22 §8 Agent 模式 4 条), 108 → 110 (CP6 就地更新，docs/22 §9 备份恢复 2 条)')
+    // CP6 就地更新 2 条（备份恢复）并入后——agents 尾窗再前移为 slice(-54, -40)
+    assert.deepEqual([...channels.IPC_CHANNELS.slice(-54, -40)], expectedAgents, '14 agents channels appended verbatim in docs/14 §A.1 order (夜间#1 就地更新 13→14)')
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-38, -29)],
+      [...channels.IPC_CHANNELS.slice(-40, -31)],
       [
         'contestpin:list',
         'contestpin:get',
@@ -4732,7 +4740,7 @@ if (isEntrypoint()) {
       '9 contestpin channels appended verbatim in docs/04 ContestPin 追加节 order (CP1 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-29, -24)],
+      [...channels.IPC_CHANNELS.slice(-31, -26)],
       [
         'contestpin:overlayState',
         'contestpin:overlaySetEnabled',
@@ -4743,7 +4751,7 @@ if (isEntrypoint()) {
       '5 contestpin overlay channels appended verbatim in docs/22 §4 order (CP2 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-24, -20)],
+      [...channels.IPC_CHANNELS.slice(-26, -22)],
       [
         'contestpin:configList',
         'contestpin:configSave',
@@ -4753,7 +4761,7 @@ if (isEntrypoint()) {
       '4 contestpin recognition-config channels appended verbatim in docs/22 §6 order (CP3a 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-20, -11)],
+      [...channels.IPC_CHANNELS.slice(-22, -13)],
       [
         'contestpin:materialsList',
         'contestpin:importMaterials',
@@ -4768,7 +4776,7 @@ if (isEntrypoint()) {
       '9 contestpin materials/import/draft channels appended verbatim in docs/22 §5 order (CP3b 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-11, -8)],
+      [...channels.IPC_CHANNELS.slice(-13, -10)],
       [
         'contestpin:reminderUpsert',
         'contestpin:reminderDelete',
@@ -4777,7 +4785,7 @@ if (isEntrypoint()) {
       '3 contestpin reminder channels appended verbatim in docs/22 §7 order (CP4 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-8, -4)],
+      [...channels.IPC_CHANNELS.slice(-10, -6)],
       [
         'review:testEndpoint',
         'archive:reviewPre',
@@ -4787,7 +4795,7 @@ if (isEntrypoint()) {
       '4 LLM review channels appended verbatim in docs/04 LR1 追加节 order (LR1 批次；全 READ_ONLY advisory)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-4)],
+      [...channels.IPC_CHANNELS.slice(-6, -2)],
       [
         'contestpin:agentStatus',
         'contestpin:agentSubmit',
@@ -4795,6 +4803,14 @@ if (isEntrypoint()) {
         'contestpin:importPack',
       ],
       '4 contestpin Agent channels appended verbatim in docs/22 §8 order (CP5 批次)',
+    )
+    assert.deepEqual(
+      [...channels.IPC_CHANNELS.slice(-2)],
+      [
+        'contestpin:backupExport',
+        'contestpin:backupImport',
+      ],
+      '2 contestpin backup channels appended verbatim in docs/22 §9 order (CP6 批次)',
     )
 
     const registry = handlers.createHandlerRegistry({ appVersion: 'ac2-smoke' })
@@ -13654,5 +13670,234 @@ if (isEntrypoint()) {
     'fast',
   )
 
-  await run(parseTierArg())
+
+  // ------------------------------------------------------------------
+  // CP6 批次（ContestPin 备份恢复·收官批，docs/22 §9 + docs/briefs/contestpin-m6）：
+  //   - cp6-backup-export：manifest 形状/零凭据断言（key_sealed/apiKey/baseUrl/
+  //     sk- 形态 grep 不到）/sha256 复制幂等（删 manifest 重跑材料不重复复制）/
+  //     已存在 manifest → BACKUP_EXISTS 结构化拒绝/destDir 校验（不存在/相对路径）
+  //   - cp6-backup-import：真实导出→清库→导入回环（形状校验 BAD_RESPONSE/NOT_FOUND/
+  //     相对路径拒绝/缺材料 flag 降级不带病导入/材料 sha256 对账还原/name+year
+  //     相似去重挂 draft/draftConfirm 合并不静默覆盖只追加 source='imported' 节点/
+  //     确认落库另建 source='imported'）
+  // ------------------------------------------------------------------
+  registerCase(
+    'cp6-backup-export: manifest 形状（kind/version/counts/contests 全量元数据含 nodes+reminders+materialShas）+ 零凭据断言（key_sealed/apiKey/baseUrl/sk- 形态结构性不存在）+ materials/ sha256 命名复制与内容一致 + 幂等重跑（删 manifest 后重导材料不重复）+ BACKUP_EXISTS 拒绝覆盖 + destDir 校验',
+    async () => {
+      const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+      const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
+      const mat = await import(new URL('../src/main/services/contestpin/materialService.ts', import.meta.url).href)
+      const contest = await import(new URL('../src/main/services/contestpin/contestService.ts', import.meta.url).href)
+      const backup = await import(new URL('../src/main/services/contestpin/contestBackupService.ts', import.meta.url).href)
+      const { mkdtempSync, writeFileSync, readFileSync, readdirSync, rmSync } = await import('node:fs')
+      const { tmpdir } = await import('node:os')
+      const { join } = await import('node:path')
+
+      await makeTempHome('devhub-cp6-export-')
+      const dir = mkdtempSync(join(tmpdir(), 'devhub-cp6-out-'))
+      const pdfPath = join(dir, 'notice.pdf')
+      writeFileSync(pdfPath, cp3bPdfFixture())
+
+      const registry = handlers.createHandlerRegistry({ appVersion: 'cp6-export-smoke' })
+      const dispatch = (channel, payload) => handlers.dispatchGatewayRequest(registry, { channel, payload })
+
+      try {
+        const pdfMat = (await mat.importMaterials([pdfPath]))[0]
+        const created = contest.createContest({ name: 'AI Cup', year: 2026, organizer: 'Example Org', officialSite: 'https://aicup.example' })
+        contest.upsertNode({ contestId: created.id, node: { kind: 'signup_deadline', label: '报名截止', precision: 'date', startAt: 1792876800 } }) // 2026-10-01 本地零点
+        contest.upsertNode({ contestId: created.id, node: { kind: 'submit_deadline', label: '提交截止', precision: 'exact', startAt: 1799999999, rawText: '2026-10-24 23:59:59' } })
+        // 材料↔比赛关联面（导出按 contest_import_jobs JOIN 收集材料）：真实链路 =
+        // importCreate 建任务 + draftConfirm 回填 contest_id；此处直插一行
+        // confirmed 任务模拟该自然终态（ac2-85 直插 DB 先例）
+        const db = dbModule.getDatabase()
+        const now0 = Math.floor(Date.now() / 1000)
+        db.prepare(
+          "INSERT INTO contest_import_jobs (contest_id, material_id, mode, stage, progress, created_at, updated_at) VALUES (?, ?, 'two_stage', 'confirmed', 100, ?, ?)",
+        ).run(created.id, pdfMat.id, now0, now0)
+        const reminder = await import(new URL('../src/main/services/contestpin/reminderEngine.ts', import.meta.url).href)
+        const nodes = contest.getContest(created.id).nodes
+        reminder.upsertReminderRule({ nodeId: nodes[0].id, rule: { offsetKind: 'before_days', offsetValue: 7, channel: 'windows' } })
+
+        const exported = await dispatch('contestpin:backupExport', { destDir: dir })
+        assert.equal(exported.ok, true)
+        assert.equal(exported.data.contestCount, 1)
+        assert.equal(exported.data.nodeCount, 2)
+        assert.equal(exported.data.reminderCount, 1)
+        assert.equal(exported.data.materialCount, 1)
+        const manifestRaw = readFileSync(join(dir, 'manifest.json'), 'utf8')
+        const manifest = JSON.parse(manifestRaw)
+        assert.equal(manifest.kind, 'contestpin-backup')
+        assert.equal(manifest.version, 1)
+        assert.equal(manifest.counts.materials, 1)
+        assert.equal(manifest.contests.length, 1)
+        assert.equal(manifest.contests[0].nodes.length, 2)
+        assert.equal(manifest.contests[0].reminders.length, 1)
+        assert.deepEqual(manifest.contests[0].materialShas, [pdfMat.sha256])
+        assert.equal(manifest.materials[0].sha256, pdfMat.sha256)
+        assert.equal(manifest.materials[0].originalName, 'notice.pdf')
+        // 导出时刻/低精度结构：date 节点带 startAt 原值
+        assert.equal(manifest.contests[0].nodes[0].precision, 'date')
+        assert.equal(typeof manifest.contests[0].nodes[0].startAt, 'number')
+        // 零凭据红线（结构性 + grep 双证）：识别配置/密钥任何形态不入 manifest
+        assert.ok(!manifestRaw.includes('key_sealed') && !manifestRaw.includes('apiKey') && !manifestRaw.includes('baseUrl') && !manifestRaw.includes('api_key'), 'manifest structurally excludes config/credential fields')
+        assert.ok(!/sk-[A-Za-z0-9]{16,}/.test(manifestRaw), 'no api key material in manifest')
+        // materials/ 夹：sha256 命名 + 内容与库一致
+        const backupMatDir = join(dir, 'materials')
+        const files = readdirSync(backupMatDir)
+        assert.equal(files.length, 1, 'materials dir holds exactly one sha-named file')
+        assert.ok(files[0].startsWith(pdfMat.sha256), 'material file named by sha256')
+        assert.ok(readFileSync(join(backupMatDir, files[0])).equals(cp3bPdfFixture()), 'material content round-trips byte-identical')
+        // 幂等重跑：删 manifest（模拟中断）后重导 → 材料同 sha 跳过不重复，manifest 重建
+        rmSync(join(dir, 'manifest.json'))
+        const rerun = await backup.exportBackup({ destDir: dir })
+        assert.equal(rerun.materialCount, 1)
+        assert.equal(readdirSync(backupMatDir).length, 1, 'sha256 copy is idempotent across reruns')
+        // 已存在 manifest → BACKUP_EXISTS 结构化拒绝不覆盖
+        const exists = await dispatch('contestpin:backupExport', { destDir: dir })
+        assert.equal(exists.ok, false)
+        assert.equal(exists.error.code, 'BACKUP_EXISTS', 'existing manifest rejected (never silently overwritten)')
+        // destDir 校验：不存在 / 相对路径
+        const badDir = await dispatch('contestpin:backupExport', { destDir: join(dir, 'no-such-dir') })
+        assert.equal(badDir.error.code, 'BAD_PAYLOAD', 'missing destDir rejected')
+        const relDir = await dispatch('contestpin:backupExport', { destDir: 'relative/dir' })
+        assert.equal(relDir.error.code, 'BAD_PAYLOAD', 'relative destDir rejected')
+      } finally {
+        dbModule.closeDatabase()
+      }
+    },
+    'fast',
+  )
+
+  registerCase(
+    'cp6-backup-import: 真实导出→清库→导入回环（形状校验 BAD_RESPONSE/NOT_FOUND/相对路径拒绝 + 材料 sha256 对账还原 + name+year 相似去重挂 draft + draftConfirm 合并不静默覆盖只追加 source=imported 节点 + 确认另建 source=imported + 缺材料 flag 降级不带病导入 + 未知字段容忍并 flag）',
+    async () => {
+      const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+      const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
+      const mat = await import(new URL('../src/main/services/contestpin/materialService.ts', import.meta.url).href)
+      const contest = await import(new URL('../src/main/services/contestpin/contestService.ts', import.meta.url).href)
+      const { mkdtempSync, writeFileSync, readFileSync, rmSync } = await import('node:fs')
+      const { tmpdir } = await import('node:os')
+      const { join } = await import('node:path')
+
+      // ---- 库 A：真实种子（材料+比赛+date/exact 节点）并导出 ----
+      // date 节点取本地零点（库内 date 语义），exact 节点带秒——回环后逐一核对
+      await makeTempHome('devhub-cp6-imp-a-')
+      const outDir = mkdtempSync(join(tmpdir(), 'devhub-cp6-bk-'))
+      const pdfPath = join(outDir, 'notice.pdf')
+      writeFileSync(pdfPath, cp3bPdfFixture())
+      const dateAt = Math.floor(new Date(2026, 9, 1).getTime() / 1000) // 2026-10-01 本地零点
+      const exactAt = 1799999999 // 秒位非零：exact 文本含 :ss 才能无损回环
+      const registryA = handlers.createHandlerRegistry({ appVersion: 'cp6-import-smoke-a' })
+      const dispatchA = (channel, payload) => handlers.dispatchGatewayRequest(registryA, { channel, payload })
+      const pdfMat = (await mat.importMaterials([pdfPath]))[0]
+      const createdA = contest.createContest({ name: 'AI Cup', year: 2026, officialSite: 'https://aicup.example' })
+      contest.upsertNode({ contestId: createdA.id, node: { kind: 'signup_deadline', label: '报名截止', precision: 'date', startAt: dateAt } })
+      contest.upsertNode({ contestId: createdA.id, node: { kind: 'submit_deadline', label: '提交截止', precision: 'exact', startAt: exactAt, rawText: 'Submission due' } })
+      // 材料↔比赛关联面（同导出用例：confirmed 任务行模拟 draftConfirm 回填终态）
+      const dbA = dbModule.getDatabase()
+      const nowA = Math.floor(Date.now() / 1000)
+      dbA.prepare(
+        "INSERT INTO contest_import_jobs (contest_id, material_id, mode, stage, progress, created_at, updated_at) VALUES (?, ?, 'two_stage', 'confirmed', 100, ?, ?)",
+      ).run(createdA.id, pdfMat.id, nowA, nowA)
+      const exported = await dispatchA('contestpin:backupExport', { destDir: outDir })
+      assert.equal(exported.ok, true)
+      dbModule.closeDatabase()
+
+      // ---- 库 B（全新空库）：导入回环 ----
+      await makeTempHome('devhub-cp6-imp-b-')
+      const registry = handlers.createHandlerRegistry({ appVersion: 'cp6-import-smoke' })
+      const dispatch = (channel, payload) => handlers.dispatchGatewayRequest(registry, { channel, payload })
+      const manifestPath = join(outDir, 'manifest.json')
+
+      try {
+        // 校验面：相对路径 / 文件不存在 / 形状非法 / JSON 病态
+        const rel = await dispatch('contestpin:backupImport', { manifestPath: 'relative/manifest.json' })
+        assert.equal(rel.error.code, 'BAD_PAYLOAD', 'relative manifestPath rejected')
+        const missing = await dispatch('contestpin:backupImport', { manifestPath: join(outDir, 'no-such-manifest.json') })
+        assert.equal(missing.error.code, 'NOT_FOUND', 'missing manifest rejected')
+        const wrongKind = await dispatch('contestpin:backupImport', { manifestPath: pdfPath })
+        assert.equal(wrongKind.error.code, 'BAD_RESPONSE', 'non-manifest JSON/shape rejected')
+        writeFileSync(join(outDir, 'broken.json'), '{ this is not json')
+        const broken = await dispatch('contestpin:backupImport', { manifestPath: join(outDir, 'broken.json') })
+        assert.equal(broken.error.code, 'BAD_RESPONSE', 'malformed JSON rejected structurally')
+
+        // 未知字段容忍并 flag：追加 futureField 后仍成功解析
+        const manifestRaw = readFileSync(manifestPath, 'utf8')
+        const manifestObj = JSON.parse(manifestRaw)
+        manifestObj.futureField = { anything: true }
+        writeFileSync(manifestPath, JSON.stringify(manifestObj))
+
+        // ---- 导入：材料还原 + 一份草稿 ----
+        const imported = await dispatch('contestpin:backupImport', { manifestPath })
+        assert.equal(imported.ok, true)
+        const job = imported.data.job
+        assert.equal(job.mode, 'manual_pack')
+        assert.equal(job.stage, 'draft', 'backup import lands in the review draft stage')
+        assert.equal(job.params.source, 'backupImport')
+        assert.equal(job.result.draft.contests.length, 1)
+        assert.equal(job.result.draft.contests[0].name, 'AI Cup')
+        assert.equal(job.result.draft.contests[0].nodes.length, 2)
+        assert.equal(job.result.draft.contests[0].nodes[0].precision, 'date')
+        assert.equal(job.result.draft.contests[0].nodes[0].startAt, dateAt, 'date node restores exact local midnight')
+        assert.equal(job.result.draft.contests[0].nodes[1].precision, 'exact')
+        assert.equal(job.result.draft.contests[0].nodes[1].startAt, exactAt, 'exact node restores the instant (seconds preserved)')
+        assert.ok(job.result.draft.flags.some((f) => f.reason.includes('未知字段')), 'unknown manifest field flagged (forward compatible)')
+        assert.ok(job.result.draft.flags.some((f) => f.reason.includes('M#0')), 'manifest provenance convention flagged')
+        // 材料 sha256 对账还原（新库无同 sha → 从备份夹还原，原文件名保真）
+        const restored = (await mat.listMaterials()).materials
+        assert.equal(restored.length, 1)
+        assert.equal(restored[0].sha256, pdfMat.sha256)
+        assert.equal(restored[0].originalName, 'notice.pdf')
+
+        // ---- 确认落库（另建）：nodes source='imported' ----
+        const confirmStart = await dispatch('contestpin:draftConfirm', { jobId: job.id })
+        assert.equal(confirmStart.data.confirmRequired, true)
+        const confirmed = await dispatch('contestpin:draftConfirm', { jobId: job.id, confirmed: true })
+        assert.equal(confirmed.ok, true)
+        assert.equal(confirmed.data.merged, false)
+        const restoredContest = contest.getContest(confirmed.data.contestId)
+        assert.equal(restoredContest.name, 'AI Cup')
+        assert.equal(restoredContest.officialSite, 'https://aicup.example', 'URL restored from manifest')
+        assert.ok(restoredContest.nodes.length >= 1)
+        assert.ok(restoredContest.nodes.every((n) => n.source === 'imported'), 'imported nodes are source=imported')
+        assert.equal(restoredContest.nodes[0].startAt, dateAt, 'date node timestamp survives the restore round-trip')
+        assert.equal(restoredContest.nodes[1].startAt, exactAt, 'exact node timestamp survives the restore round-trip')
+
+        // ---- name+year 去重挂 draft：再次导入 → 相似检测命中既有比赛，合并只追加 ----
+        const again = await dispatch('contestpin:backupImport', { manifestPath })
+        assert.equal(again.ok, true)
+        const job2 = again.data.job
+        const start2 = await dispatch('contestpin:draftConfirm', { jobId: job2.id })
+        assert.ok(start2.data.similar.some((s) => s.id === confirmed.data.contestId), 'name+year similar detection hits the restored contest')
+        const before = contest.getContest(confirmed.data.contestId)
+        const merged = await dispatch('contestpin:draftConfirm', { jobId: job2.id, confirmed: true, mergeIntoContestId: confirmed.data.contestId })
+        assert.equal(merged.ok, true)
+        assert.equal(merged.data.merged, true)
+        const after = contest.getContest(confirmed.data.contestId)
+        assert.equal(after.name, before.name, 'merge never overwrites existing fields')
+        // 草稿含 2 个节点（date+exact）→ 合并只追加 2 条，既有字段/节点零改动
+        assert.equal(after.nodes.length, before.nodes.length + 2, 'merge only appends the imported nodes')
+        assert.ok(after.nodes.slice(before.nodes.length).every((n) => n.source === 'imported'), 'appended nodes are source=imported')
+        // 材料幂等：重复导入不再还原第二份（sha UNIQUE 复用）
+        assert.equal((await mat.listMaterials()).materials.length, 1, 'material restore is idempotent by sha256')
+
+        // ---- 缺材料：全新空库 C + 删 materials/ 文件 → flag 降级不带病导入 ----
+        const manifestNow = JSON.parse(readFileSync(manifestPath, 'utf8'))
+        rmSync(join(outDir, 'materials', manifestNow.materials[0].fileName))
+        await makeTempHome('devhub-cp6-imp-c-')
+        const degraded = await dispatch('contestpin:backupImport', { manifestPath })
+        assert.equal(degraded.ok, true)
+        assert.ok(
+          degraded.data.job.result.draft.flags.some((f) => f.reason.includes('材料缺失') && f.reason.includes('降级')),
+          'missing material flagged as degraded import (never imported sick)',
+        )
+        assert.equal((await mat.listMaterials()).materials.length, 0, 'no material row created for missing file')
+      } finally {
+        dbModule.closeDatabase()
+      }
+    },
+    'fast',
+  )
+
+    await run(parseTierArg())
 }

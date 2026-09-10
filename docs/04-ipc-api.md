@@ -142,8 +142,8 @@ LLM 前/后复核 + Skills 元数据体检 4 条，**全 READ_ONLY**，**状态 
 
 ### ContestPin 追加（赛程钉比赛模块；设计权威 docs/22-contestpin-design.md）
 
-CP 系列分批落地，**状态 = CP5 已落地（白名单 104→108，2026-09-10 CP5 批次）**；
-CP6 待落地。CP1 首批 9 条（变更类 7 + READ_ONLY 2）+ CP2 悬浮窗 5 条
+CP 系列分批落地，**状态 = CP6 已落地/全系列收官（白名单 108→110，2026-09-10
+CP6 批次）**。CP1 首批 9 条（变更类 7 + READ_ONLY 2）+ CP2 悬浮窗 5 条
 （READ_ONLY 1 + 变更类 4）+ CP3a 识别配置 4 条（READ_ONLY 1 + 变更类 3）+
 CP3b 材料导入/识别管线/核对界面 9 条（READ_ONLY 3 + 变更类 4 + 两段式 2；
 任务书 §2.3 计 +6 与列名 7 条不一致，按其「以实际为准」条款实拆 9 条落地）+
@@ -189,6 +189,8 @@ CONFIRM_REQUIRED 两段式（先回 impacts）。
 | `contestpin:agentSubmit` | `{ materialIds: number[], provider: string（业务键或数字 id）, instruction? }`（多份材料合成一个托管任务一行；材料无可提取本地文字 → `BAD_PAYLOAD`——图片材料不参与自动路径） | `{ job: ContestAgentJobView }`（任务文本=材料本地文字提取+结构化指令+同一 JSON 契约，≤4000 字符超限截断记 params.taskTruncated；spawn 一律经 L3 `startProviderManagedSession` 能力门不绕过不自建——observed/未授予 → `COMMAND_NOT_EXECUTABLE`、能力未验证/陈旧(>300s) → `AGENT_CAPABILITY_MISSING`，拒绝回填 failed 后结构化上抛**不静默降级**；成功落 result_json.agent 联动 + watcher 轮询托管会话，assistant 回流经同一 parseDraftJson+程序化校验 → draft；零新 spawn 点） | 变更 | CP5 已落地（108） |
 | `contestpin:exportPack` | `{ materialIds: number[], destDir: string（用户选择的已存在绝对路径目录）, instruction? }` | `{ exportPath, bytes, materialCount, textChars }`（任务包 JSON `contestpin-task-pack-<ts>.json`：{kind,version,exportedAt,instruction,contract(同一 JSON 契约),materials:[{materialId,name,sha256,kind,pageCount,pages[].text,links[],note}]}——**结构性零凭据零 key**（不含 configs/base_url/apiKey 任何字段，manifest 同款红线）；image 材料仅元数据+显式 note 不含内容不编造） | READ_ONLY | CP5 已落地（108） |
 | `contestpin:importPack` | `{ materialIds: number[], resultPath? \| resultText? }`（二选一，文件路径经 renderer 文件对话框+preload 先例；结果文件 ≤10MB） | `{ job: ContestAgentJobView }`（形状/材料存在性校验后建 mode='manual_pack' 任务行 → 同一 parseDraftJson+程序化校验 → draft 核对面；provenance 引用材料集外 materialId → flag 待人工核对不静默信任；**绝不直写生产行不静默覆盖**——确认走既有 draftConfirm 两段式/合并） | 变更 | CP5 已落地（108） |
+| `contestpin:backupExport` | `{ destDir: string（用户选择的已存在绝对路径目录） }` | `{ manifestPath, bytes, contestCount, nodeCount, reminderCount, materialCount }`（备份 manifest.json `<destDir>/manifest.json`：{kind:'contestpin-backup',version,exportedAt,source(名义标识零本机路径零凭据),counts,contests[](含 nodes/reminders/materialShas 全量元数据),materials[](sha256/fileName/originalName/kind/sizeBytes 不含内容)}——**结构性零凭据零 key**（只读 contests/contest_nodes/contest_reminders/contest_materials 四表，contestpin_configs.key_sealed 结构性不在导出面，smoke grep 断言锚定）+ `materials/` 附件夹按 sha256 命名复制（同 sha EEXIST 跳过=天然去重/断点续传幂等）；已存在 manifest → `BACKUP_EXISTS` 结构化拒绝不覆盖（用户重选目录）；manifest 最后临时名+rename 原子落位，中断不留半成品；库内材料缺失/哈希不符如实跳过不进 manifest） | READ_ONLY | CP6 已落地（110） |
+| `contestpin:backupImport` | `{ manifestPath: string（用户选择的备份 manifest.json 绝对路径，materials/ 夹取同级目录） }` | `{ job: ContestAgentJobView }`（manifest 形状校验（kind/version/未知字段容忍并 flag）→ 材料 sha256 对账（库已有同 sha 复用；备份夹读文件重算哈希核对；缺文件/哈希不符/超限如实 flag **降级不带病导入**）→ 全部赛事作为**一份 manual_pack 草稿**（时刻按精度重建文本过同一 validateDraftContests；提醒规则/状态/归档/备注/完成态为元数据 flag 如实告知不静默重建）→ 既有草稿核对界面（name+year 相似检测既有逻辑），用户逐项确认/合并/另建；**绝不直写生产行绝不静默覆盖**） | 变更 | CP6 已落地（110） |
 
 CP3 识别管线（原估 +12）已全部落地：config 4 条（CP3a）+ 材料/导入/草稿 9 条
 （CP3b；draftUpdate 未设通道——逐字段编辑随 draftConfirm 的 draft 载荷提交）。
@@ -197,4 +199,6 @@ CP4 提醒（任务书预注 "reminder 两条"）实落 3 条（upsert/delete/lo
 CP5 Agent（docs/22 §3 预告 "+3~4"）实落 4 条（agentStatus/agentSubmit/exportPack/
 importPack——取消复用 importCancel：agent 任务 = watcher 取消令牌 + L3 pause 只
 中断本任务托管会话，作用域=本任务及其托管会话，不终止用户其他任务）。
-后续批次通道组（落地时逐批补表）：CP6 backupExport/backupImport。
+
+CP6 备份恢复（docs/22 §3 预告 "+2 通道"）实落 2 条（backupExport/backupImport），
+白名单就地更新 108 → **110**。

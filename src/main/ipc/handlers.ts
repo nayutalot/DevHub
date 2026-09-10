@@ -153,6 +153,10 @@ import {
   importPack,
   submitAgentJob,
 } from '../services/contestpin/contestAgentService.ts'
+import {
+  exportBackup,
+  importBackup,
+} from '../services/contestpin/contestBackupService.ts'
 import type {
   ContestImportCreatePayload,
   ContestImportDraftConfirmPayload,
@@ -384,7 +388,8 @@ export const contractCoversWhitelist: AssertContractCoversWhitelist = true
   * + CP3b contestpin 材料导入/识别管线/核对界面 9 条 = 97
   * + CP4 contestpin 提醒 3 条 = 100
   * + LR1 LLM 复核层 4 条 = 104
-  * + CP5 contestpin Agent 模式 4 条 = 108）。
+  * + CP5 contestpin Agent 模式 4 条 = 108
+  * + CP6 contestpin 备份恢复 2 条 = 110）。
  */
 export type HandlerRegistry = Record<IpcChannel, ChannelHandler>
 
@@ -1252,6 +1257,26 @@ export function createHandlerRegistry(deps: HandlerDeps): HandlerRegistry {
         ...(p.resultPath !== undefined ? { resultPath: p.resultPath as string } : {}),
         ...(p.resultText !== undefined ? { resultText: p.resultText as string } : {}),
       })
+    },
+
+    // --- contestpin 备份恢复（CP6 收官批，docs/22 §9 + docs/04「ContestPin 追加」
+    // 节；backupExport READ_ONLY 库面（产物落用户选择目录，manifest 结构性零
+    // 凭据 + materials/ sha256 复制幂等，已存在 → BACKUP_EXISTS 拒绝不覆盖）；
+    // backupImport 变更面（形状/材料 sha256 对账校验 → 一份 manual_pack 草稿走
+    // 既有核对界面，绝不直写生产行绝不静默覆盖）） ---
+    'contestpin:backupExport': async (payload) => {
+      const p = asPayloadObject('contestpin:backupExport', payload)
+      if (typeof p.destDir !== 'string' || (p.destDir as string).trim().length === 0) {
+        throw badPayload('contestpin:backupExport', 'destDir must be a non-empty string')
+      }
+      return exportBackup({ destDir: p.destDir as string })
+    },
+    'contestpin:backupImport': async (payload) => {
+      const p = asPayloadObject('contestpin:backupImport', payload)
+      if (typeof p.manifestPath !== 'string' || (p.manifestPath as string).trim().length === 0) {
+        throw badPayload('contestpin:backupImport', 'manifestPath must be a non-empty string')
+      }
+      return importBackup({ manifestPath: p.manifestPath as string })
     },
 
     // --- LLM 复核层（LR1 批次，docs/04「LR1 追加」节；4 条全 READ_ONLY。
