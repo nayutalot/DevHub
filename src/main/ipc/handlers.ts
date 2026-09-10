@@ -146,6 +146,13 @@ import {
   listReminderLog,
   upsertReminderRule,
 } from '../services/contestpin/reminderEngine.ts'
+import {
+  cancelAgentJob,
+  exportPack,
+  getAgentStatus,
+  importPack,
+  submitAgentJob,
+} from '../services/contestpin/contestAgentService.ts'
 import type {
   ContestImportCreatePayload,
   ContestImportDraftConfirmPayload,
@@ -376,7 +383,8 @@ export const contractCoversWhitelist: AssertContractCoversWhitelist = true
  * + CP2 contestpin 悬浮窗 5 条 = 84 + CP3a contestpin 识别配置 4 条 = 88
   * + CP3b contestpin 材料导入/识别管线/核对界面 9 条 = 97
   * + CP4 contestpin 提醒 3 条 = 100
-  * + LR1 LLM 复核层 4 条 = 104）。
+  * + LR1 LLM 复核层 4 条 = 104
+  * + CP5 contestpin Agent 模式 4 条 = 108）。
  */
 export type HandlerRegistry = Record<IpcChannel, ChannelHandler>
 
@@ -1137,7 +1145,12 @@ export function createHandlerRegistry(deps: HandlerDeps): HandlerRegistry {
     },
     'contestpin:importCancel': async (payload) => {
       const p = asPayloadObject('contestpin:importCancel', payload)
-      return cancelImport(requireId('contestpin:importCancel', p, 'jobId'))
+      const jobId = requireId('contestpin:importCancel', p, 'jobId')
+      // CP5：agent 任务取消先走 contestAgentService（watcher 令牌 + L3 pause 只中断
+      // 本任务托管会话）；非 agent 任务返回 null 回落既有 cancelImport。
+      const agentResult = cancelAgentJob(jobId)
+      if (agentResult !== null) return agentResult
+      return cancelImport(jobId)
     },
     'contestpin:importRetry': async (payload) => {
       const p = asPayloadObject('contestpin:importRetry', payload)
@@ -1187,6 +1200,58 @@ export function createHandlerRegistry(deps: HandlerDeps): HandlerRegistry {
     'contestpin:reminderLogList': async (payload) => {
       const p = asPayloadObject('contestpin:reminderLogList', payload)
       return listReminderLog({ limit: optionalPositiveInt('contestpin:reminderLogList', p, 'limit') })
+    },
+
+    // --- contestpin Agent 模式（CP5 批次，docs/22 §8 + docs/04「ContestPin 追加」节；
+    // agentStatus 为 READ_ONLY 任务态投影；agentSubmit 自动路径经 L3
+    // startProviderManagedSession 能力门（observed/陈旧 → 结构化拒绝，本 handler
+    // 原样透传不吞）；exportPack 任务包零凭据；importPack 结果导入走同一 draft
+    // 核对管线；取消复用 importCancel（见上），不设第五条通道） ---
+    'contestpin:agentStatus': async (payload) => {
+      const p = asPayloadObject('contestpin:agentStatus', payload)
+      return getAgentStatus({ jobId: optionalPositiveInt('contestpin:agentStatus', p, 'jobId') })
+    },
+    'contestpin:agentSubmit': async (payload) => {
+      const p = asPayloadObject('contestpin:agentSubmit', payload)
+      if (!Array.isArray(p.materialIds)) {
+        throw badPayload('contestpin:agentSubmit', 'materialIds must be an array')
+      }
+      if (typeof p.provider !== 'string' || (p.provider as string).trim().length === 0) {
+        throw badPayload('contestpin:agentSubmit', 'provider must be a non-empty string')
+      }
+      return submitAgentJob({
+        materialIds: p.materialIds as number[],
+        provider: p.provider as string,
+        ...(p.instruction !== undefined ? { instruction: p.instruction as string } : {}),
+      })
+    },
+    'contestpin:exportPack': async (payload) => {
+      const p = asPayloadObject('contestpin:exportPack', payload)
+      if (!Array.isArray(p.materialIds)) {
+        throw badPayload('contestpin:exportPack', 'materialIds must be an array')
+      }
+      if (typeof p.destDir !== 'string' || (p.destDir as string).trim().length === 0) {
+        throw badPayload('contestpin:exportPack', 'destDir must be a non-empty string')
+      }
+      return exportPack({
+        materialIds: p.materialIds as number[],
+        destDir: p.destDir as string,
+        ...(p.instruction !== undefined ? { instruction: p.instruction as string } : {}),
+      })
+    },
+    'contestpin:importPack': async (payload) => {
+      const p = asPayloadObject('contestpin:importPack', payload)
+      if (!Array.isArray(p.materialIds)) {
+        throw badPayload('contestpin:importPack', 'materialIds must be an array')
+      }
+      if (p.resultPath === undefined && typeof p.resultText !== 'string') {
+        throw badPayload('contestpin:importPack', 'resultPath (string) or resultText (string) is required')
+      }
+      return importPack({
+        materialIds: p.materialIds as number[],
+        ...(p.resultPath !== undefined ? { resultPath: p.resultPath as string } : {}),
+        ...(p.resultText !== undefined ? { resultText: p.resultText as string } : {}),
+      })
     },
 
     // --- LLM 复核层（LR1 批次，docs/04「LR1 追加」节；4 条全 READ_ONLY。

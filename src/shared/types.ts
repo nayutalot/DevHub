@@ -2356,8 +2356,11 @@ export interface ContestImportMaterialsResult {
   clipboardUnavailable?: boolean
 }
 
-/** 识别导入模式（CP3b 落地 two_stage/multimodal；agent/manual_pack 归 CP5，创建期拒绝）。 */
-export type ContestImportMode = 'two_stage' | 'multimodal'
+/**
+ * 识别导入模式（docs/22 §2.1 mode 四值全集）：CP3b 落地 two_stage/multimodal；
+ * CP5 落地 agent（codex managed 自动路径）/manual_pack（任务包手动导出导入）。
+ */
+export type ContestImportMode = 'two_stage' | 'multimodal' | 'agent' | 'manual_pack'
 
 /** 008 contest_import_jobs.stage 九值全集（docs/22 §2.1）。 */
 export type ContestImportStage =
@@ -2455,6 +2458,14 @@ export interface ImportJobResultView {
   }
   /** 校验+核对用结构化草稿（validated/draft 阶段落位）。 */
   draft?: ImportDraftView
+  /** CP5 agent 任务托管会话联动（submit 成功后落位；params.materialIds 为任务材料集）。 */
+  agent?: {
+    provider: string
+    commandId: string
+    nativeId: string
+    sessionId: number | null
+    submittedAt: number
+  }
 }
 
 /** contest_import_jobs 行投影（importStatus/draftList/importCreate 返回）。 */
@@ -2493,8 +2504,8 @@ export interface ContestImportCreateParams {
 
 export interface ContestImportCreatePayload {
   materialIds: number[]
-  /** 缺省读 settings contestpin_default_mode。 */
-  mode?: ContestImportMode
+  /** 缺省读 settings contestpin_default_mode（仅 two_stage|multimodal；agent 走 agentSubmit，manual_pack 走 importPack）。 */
+  mode?: 'two_stage' | 'multimodal'
   params?: ContestImportCreateParams
 }
 
@@ -2596,6 +2607,83 @@ export interface ContestImportDraftDiscardStart {
 export interface ContestImportDraftDiscardResult {
   confirmRequired?: undefined
   removed: true
+}
+
+// --- contestpin Agent 模式（CP5 批次，docs/22 §8：自动=codex managed 经 L3
+//     startProviderManagedSession 只消费不绕过；手动=任务包 export/import 走同一
+//     draft 核对管线；agentStatus 为 READ_ONLY 任务态投影（含托管会话状态联查）。
+//     取消不设新通道：复用 contestpin:importCancel（agent 任务挂 L3 pause 中断本
+//     任务托管会话，monitorRegistry 同款取消令牌作用域=本任务及其托管会话）） ---
+
+/** Agent 任务行投影 = 导入任务行 + 托管会话联查态（仅 mode='agent' 携带 agent）。 */
+export type ContestAgentJobView = ContestImportJobView & {
+  agent?: ContestAgentLinkView
+}
+
+/** 托管会话联查投影（会话行已不存在 → sessionStatus='unknown'，绝不猜）。 */
+export interface ContestAgentLinkView {
+  provider: string
+  sessionId: number | null
+  nativeId: string | null
+  /** agent_sessions.status 投影（docs/12 §4 九值；'unknown'=行缺失/不可判定）。 */
+  sessionStatus: string
+}
+
+/** contestpin:agentSubmit 载荷：多份材料合成一个托管任务（一行 agent 任务）。 */
+export interface ContestAgentSubmitPayload {
+  materialIds: number[]
+  /** provider 业务键或数字 id（L3 startProviderManagedSession 同款双形态）。 */
+  provider: string
+  /** 用户附加结构化指令（可选；任务文本=材料本地文字提取+结构化指令，零文件内容外发超出材料文字本身）。 */
+  instruction?: string
+}
+
+export interface ContestAgentSubmitResult {
+  job: ContestAgentJobView
+}
+
+// --- contestpin:agentStatus（READ_ONLY 轮询；jobId 缺省 = agent/manual_pack 全量最新 50） ---
+
+export interface ContestAgentStatusPayload {
+  jobId?: number
+}
+
+export interface ContestAgentStatusResult {
+  jobs: ContestAgentJobView[]
+}
+
+// --- contestpin:exportPack（READ_ONLY 材料面：生成任务包 JSON 落用户选择目录；
+//     零凭据零 key——manifest 同款红线） ---
+
+export interface ContestPackExportPayload {
+  materialIds: number[]
+  /** 用户选择的目标目录（绝对路径；必须已存在）。 */
+  destDir: string
+  /** 用户附加任务说明（可选）。 */
+  instruction?: string
+}
+
+export interface ContestPackExportResult {
+  /** 任务包 JSON 绝对路径（`contestpin-task-pack-<ts>.json`）。 */
+  exportPath: string
+  bytes: number
+  materialCount: number
+  /** 材料文字总字符数（审计用，零凭据）。 */
+  textChars: number
+}
+
+// --- contestpin:importPack（变更：任务包结果导入 → 同一 draft 核对管线，绝不直写生产行） ---
+
+export interface ContestPackImportPayload {
+  /** 结果来源材料（材料存在性校验 + provenance 越界 flag）。 */
+  materialIds: number[]
+  /** 结果 JSON 文件路径（renderer 文件对话框+preload 先例）与内联文本二选一。 */
+  resultPath?: string
+  resultText?: string
+}
+
+export interface ContestPackImportResult {
+  job: ContestAgentJobView
 }
 
 // --- contestpin 提醒系统（CP4 批次，docs/22 §7 + docs/briefs/contestpin-m4 §1；
@@ -2903,6 +2991,14 @@ export interface ChannelContract {
   'archive:reviewPre': [ArchiveReviewPrePayload, ReviewEnvelope]
   'archive:reviewPost': [ArchiveReviewPostPayload, ReviewEnvelope]
   'skills:reviewMeta': [Record<string, never>, SkillsReviewMetaResult]
+  // --- contestpin (CP5 batch, Agent 模式 docs/22 §8 + docs/04「ContestPin 追加」节；
+  //     agentStatus 为 READ_ONLY 任务态投影；agentSubmit/exportPack/importPack 中
+  //     自动路径一律经 L3 startProviderManagedSession 能力门（observed/陈旧 → 结构化
+  //     拒绝不静默降级），手动路径任务包零凭据；结果全走同一 draft 核对管线) ---
+  'contestpin:agentStatus': [ContestAgentStatusPayload, ContestAgentStatusResult]
+  'contestpin:agentSubmit': [ContestAgentSubmitPayload, ContestAgentSubmitResult]
+  'contestpin:exportPack': [ContestPackExportPayload, ContestPackExportResult]
+  'contestpin:importPack': [ContestPackImportPayload, ContestPackImportResult]
 }
 
 /** Compile-time assertion that ChannelContract covers exactly the whitelist. */

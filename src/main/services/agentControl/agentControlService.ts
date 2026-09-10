@@ -1524,14 +1524,21 @@ async function executeRemoteCommand(input: {
 export const MANAGED_SESSION_TASK_MAX_CHARS = 4_000
 
 export interface ManagedSessionStartInput {
-  /** 发起设备（remote_devices.id；审计与 remote_commands.device_id 归因）。 */
-  deviceId: number
+  /**
+   * 发起设备（remote_devices.id；审计与 remote_commands.device_id 归因）。
+   * CP5 起可缺省：桌面内部分（ContestPin agentSubmit）无配对设备语义，
+   * device_id 落 NULL（004 列可空，ON DELETE SET NULL 同款）——能力门/幂等/
+   * 审计语义零变化（docs/22 §8 落地注记）。
+   */
+  deviceId?: number
   /** provider 业务键（'codex'）或 agent_providers 行数字 id（两者都受理）。 */
   provider: string
   /** 托管任务文本（非空 ≤4000 字符；BAD_PAYLOAD）。 */
   task: string
   /** 客户端幂等键（docs/14 §B.5 语义同 reply/actions）。 */
   idempotencyKey?: string
+  /** 审计 source 标签（缺省 'rest' 维持既有投影；CP5 桌面内部传入 'contestpin'）。 */
+  source?: string
 }
 
 export interface ManagedSessionStartResult {
@@ -1643,9 +1650,9 @@ export async function startProviderManagedSession(input: ManagedSessionStartInpu
   insertSecurityAudit(
     'command',
     'command_accepted',
-    input.deviceId,
+    dbVal(input.deviceId),
     'success',
-    JSON.stringify({ commandId, provider: providerKey, action: 'spawn', source: 'rest' }),
+    JSON.stringify({ commandId, provider: providerKey, action: 'spawn', source: input.source ?? 'rest' }),
   )
 
   inFlightRemoteCommands.add(commandId)
@@ -1660,7 +1667,7 @@ export async function startProviderManagedSession(input: ManagedSessionStartInpu
         nowSec(),
         commandId,
       )
-      insertSecurityAudit('command', 'command_rejected', input.deviceId, 'error', JSON.stringify({ commandId, action: 'spawn', errorCode: 'COMMAND_NOT_EXECUTABLE' }))
+      insertSecurityAudit('command', 'command_rejected', dbVal(input.deviceId), 'error', JSON.stringify({ commandId, action: 'spawn', errorCode: 'COMMAND_NOT_EXECUTABLE' }))
       recordCommandResult({ providerKey, commandId, action: 'spawn', status: 'failed', errorCode: 'COMMAND_NOT_EXECUTABLE' })
       throw new ServiceError('COMMAND_NOT_EXECUTABLE', `managed session: ${detail.slice(0, 200)}`)
     }
@@ -1674,7 +1681,7 @@ export async function startProviderManagedSession(input: ManagedSessionStartInpu
       nowSec(),
       commandId,
     )
-    insertSecurityAudit('command', 'command_executed', input.deviceId, 'success', JSON.stringify({ commandId, action: 'spawn', provider: providerKey }))
+    insertSecurityAudit('command', 'command_executed', dbVal(input.deviceId), 'success', JSON.stringify({ commandId, action: 'spawn', provider: providerKey }))
     // 托管 turn 已真实发起 → running（随后由监控管线按 rollout 观察收敛）
     applySessionStatus(providerKey, nativeId, 'running', 'managed session started (DevHub-initiated)')
     recordCommandResult({ providerKey, ...(sessionId !== undefined ? { sessionId } : {}), nativeId, commandId, action: 'spawn', status: 'executed' })
