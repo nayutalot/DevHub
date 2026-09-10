@@ -5,7 +5,7 @@
 > 2. **D 批 R-B5/R-B8 活体复验完成（证据 56e1141 入册）**：R-B8 四断言全过+R-B5 腿1 过+RW1 already_on 真实链路过；**R-B5 腿2「真实推理回流」=用户裁决挂起（2026-09-10 傍晚「codex 不用管了，官方限流 429」）**——链路全绿，诊断史见 §7 codex 条（挂起不追）；腿2 补验等 codex 可用后 1 次 spawn 即闭环，或用户明示豁免后直接发 Release。
 > 3. **App hotfix 已合**（c53df25→合并已推）：parseSessionDetail 对 capabilities=null/缺失宽容缺省空能力（D 批两处 FATAL 根治；:app 63 绿）。
 > 4. 卫生收尾：package-lock 坏条目修复（3db2b7a，CP3b 引入 fresh clone 必炸）、worktree/分支保洁（保留 rw1/cp5→cp5 毕后可清）、设备账面三次清理（#70/#72/#73 生产函数撤销+审计；**active 现役= #46/#53**）。
-> 5. **Release（docs/21 §8 ④）待用户**：链 ①③已满足；②差 R-B5 腿2——**用户裁决 codex 限流 429 不追（09-10 傍晚）**，腿2 挂起等 codex 可用（届时 1 次 spawn 单点补验）或用户明示豁免直发；CP6 合并后用最新全量构建统一发布。
+> 5. **✅ Release 已发布（2026-09-10 16:5x，用户令「直接release」豁免链②）**：https://github.com/nayutalot/DevHub/releases/tag/v0.1.0（tag→37beb5c，新构建 108 通道版 asar 快验过；资产三件 Setup exe 129.8MB+blockmap+latest.yml 上传核验 sha256 一致 PE 头 ✓；常驻同步换装新版 health 200；仓库 private；latest.yml path 字段连字符形态差异=electron-builder 固有，启用 electron-updater 前需核对）。R-B5 腿2/CP5 真实 codex 实测仍挂起（codex 可用后 1 次 spawn 补验，属发布后补验性质）。
 > ⚠️ **mcp-A13 与常驻互斥已实证（新铁律）**：单实例锁在 bootstrap 前执行且 **DEVHUB_HOME 不重定向 userData**（paths.ts 只读不 setPath）→常驻在线时任何第二实例（dev/packaged）静默秒退，mcp A13 全绿必须**先停常驻跑完再拉回**（smoke 因卫生批已常驻在线安全；mcp 没有）。
 
 > **✅ 2026-09-10 凌晨会话已把 02:5x 中途态五项全部收口**（详见 §2 台账"凌晨收口会话"行）：
