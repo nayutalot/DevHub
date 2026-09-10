@@ -1,0 +1,4 @@
+C:/Users/sakuya/.zcode/v2/setting.json|4286|1789069416
+C:/Users/sakuya/.zcode/v2/telemetry-state.json|96|1789057969
+C:/Users/sakuya/.zcode/v2/credentials.json|2088|1788490571
+C:/Users/sakuya/.zcode/v2/logs/2026-09-11.log|2606613|1789070703

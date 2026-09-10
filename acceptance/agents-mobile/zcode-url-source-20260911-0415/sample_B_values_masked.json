@@ -1,0 +1,17 @@
+{
+ "t": "2026-09-10T20:08:34.351Z",
+ "deviceSid": {
+  "len": 24,
+  "prefix": "d_",
+  "sha8": "8c0160f8"
+ },
+ "deviceMid": {
+  "len": 36,
+  "prefix": "5b",
+  "sha8": "481874ce"
+ },
+ "passHash": {
+  "envelope_len": 106,
+  "scheme": "enc:v1:"
+ }
+}

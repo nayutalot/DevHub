@@ -1,0 +1,31 @@
+# URL 重建所需的三个磁盘来源（全部只读采集；值脱敏为长度+前缀+sha256前8位）
+
+[A] C:/Users/sakuya/.zcode/v2/setting.json
+    路径: $.webRemoteControlExternalRelayDevice.deviceSid
+    值:   <SID:24:prefix=d_:sha8=8c0160f8>        (明文存储，静态)
+    另有: $.webRemoteControlLastEnabledContext = { workspacePath:<M>, initialTaskId:<M> }
+    mtime: 2026-09-11 (应用会周期性重写该文件，但 deviceSid 值 60s 双采样不变)
+
+[B] C:/Users/sakuya/.zcode/v2/credentials.json   (JSON, 顶层键→加密值)
+    相关键: "web-remote-control:external-relay:pass_hash"
+    值:     <ENC:v1:len=106:sha8=8c034bc4>  信封 enc:v1:iv_b64url.tag_b64url.ct_b64url
+    解密验证(仅本地内存, 无明文输出): DECRYPT_OK plaintext_len=44 sha256_8=3a22666c
+    key = sha256("zcode-credential-fallback:win32:C:\Users\sakuya:sakuya")  (或 env ZCODE_CREDENTIAL_SECRET)
+    其余键(值均脱敏): oauth:active_provider / oauth:bigmodel:access_token / oauth:bigmodel:user_info /
+    bot:bot-<uuid>:credential / zcodejwttoken / enc:v1:<C> x5
+    mtime: 2026-09-04 (稳定)
+
+[C] C:/Users/sakuya/.zcode/v2/telemetry-state.json
+    路径: $.deviceMid
+    值:   <MID:36:prefix=5b:sha8=481874ce>        (UUID 格式, 明文, 静态)
+    交叉验证: ZCode renderer 进程命令行 --device-id=5b1dd729-****(同前缀) 与此同源
+    另有: $.lastDailyActiveDate = <M>
+    mtime: 2026-09-11 (稳定)
+
+# 动态项(不落盘)
+t = Date.now() 毫秒 —— 仅存在于渲染中的二维码/复制链接，"刷新二维码"会重新生成。
+全盘验证: Roaming/ZCode/session(全部 Web 存储) 与 ~/.zcode/v2 内 grep "remote/v4"、"sid=d_" 均零命中
+        → 完整 URL 从未持久化，必须由上述 [A][B][C] + t 重建。
+
+# appVersion: 3.11.2 (asar 元数据 Qu="3.11.2", build 89817f5b, 2026-09-04) → remoteUrl 用 /remote/v4 (阈值 3.4.0)
+# origin 默认: https://zcode.chatglm.site (endpoint 对话框 placeholder + resolveWebRemoteControlRelayWsUrl 生产映射 wss://zcode.chatglm.site/ws)；env ZCODE_ENDPOINT_ORIGIN 可覆盖

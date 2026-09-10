@@ -1,0 +1,25 @@
+# 进程/端口面侦察结论 (2026-09-11 04:0x local)
+
+## ZCode.exe 进程 (Get-CimInstance Win32_Process)
+10200  main        (parent 13188)  — 无 --remote/--port 类参数
+18372  crashpad    22500 gpu  10592 network.utility  13652 node.utility  25072 renderer  5788 node.utility
+renderer 命令行: --app-path=...resources/app.asar ; --device-id=5b1dd729-****(=telemetry-state.deviceMid)
+app 版本 3.11.2, Electron 41.0.3, user-data-dir=C:\Users\sakuya\AppData\Roaming\ZCode
+
+## 端口面 (netstat -ano)
+- ZCode 全部 PID: **0 个 LISTEN 端口**
+- 出站连接: 10200→220.181.165.80:443 ; 10592→122.156.133.216:443 ; 5788→182.50.15.252:443
+  10592↔127.0.0.1:7897 CLOSE_WAIT (本机系统代理, Clash 类)
+  5788→192.168.137.50:22 ESTABLISHED (LAN SSH, NodeService 实用进程持有)
+- 结论: 不存在可查询 remote URL 的本地 HTTP 接口, 端口路线排除。
+
+## 127.0.0.1:8090 说明
+- Roaming/ZCode/session/Partitions/zcode-embedded-browser 的 Cache/SessionStorage 中出现过
+  http://127.0.0.1:8090/ 与 /api/v1/health
+- 当前 netstat 无任何 8090 监听者; app.asar 与 zcode.cjs 中均无 "8090" 与 "/api/v1/" 字符串
+  → 判定为用户曾用内嵌浏览器访问过的第三方本地服务缓存, 与 WebRemoteControl 无关, 排除。
+
+## 云端端点 (来自 asar 常量/逻辑)
+- 生产 origin: https://zcode.chatglm.site  (relay: wss://zcode.chatglm.site/ws)
+- 测试 origin: https://zai-test.chatglm.site
+- 相关域: api.chatglm.site / api.z.ai / chat.z.ai / zcode.z.ai(订阅控制台, coding-plan 支付 API)

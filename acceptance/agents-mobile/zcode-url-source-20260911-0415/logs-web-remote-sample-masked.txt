@@ -1,0 +1,11 @@
+# 桌面主进程日志落盘位置: C:/Users/sakuya/.zcode/v2/logs/YYYY-MM-DD.log (含 [pid:10200][main] 行)
+# 日志含 [web-remote-control] 活动与 deviceSid, 但不含二维码 URL (grep "remote/v4" / "sid=" 全部日志零命中)
+
+采样 (值脱敏: session=<SID:24:sha8=8c0160f8>, 与 setting.json deviceSid 同一性已用 sha8 校验为 true):
+[2026-09-11 00:03:18.947] [warn] [pid:10200] [main] [web-remote-control] dropped buffered outbound payloads {"windowId":1,"session":"<SID:24:sha8=8c0160f8>","droppedCount":1}
+[2026-09-11 00:05:49.250] [warn] [pid:10200] [main] [web-remote-control] dropped buffered outbound payloads {"windowId":1,"session":"<SID:24:sha8=8c0160f8>","droppedCount":2}
+[2026-09-10 01:01:56.666] [warn] [pid:33268] [main] [web-remote-control] dropped buffered outbound payloads {"windowId":1,"session":"<SID:24:sha8=8c0160f8>","droppedCount":1}
+
+60s 双采样计数: sample_A=62 行  sample_B=62 行 (期间 log 文件持续增长, 2,611,507→2,639,038 bytes)
+
+用途: 可作为"远程控制会话存活/活动"的弱信号; 不能提供 URL 本身。

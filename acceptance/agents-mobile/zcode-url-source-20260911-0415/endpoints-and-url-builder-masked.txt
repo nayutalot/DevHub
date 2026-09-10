@@ -1,0 +1,69 @@
+# ZCode desktop 3.11.2 (asar: C:/Users/sakuya/AppData/Local/Programs/ZCode/resources/app.asar)
+# 以下为反混淆后的关键代码摘录（参数值一律未采集，函数名为符号名保留）
+
+## 1. buildZCodeEndpointUrls(endpointOrigin) —— 出现于多个 chunk，逻辑一致
+origin                = <endpointOrigin>                     // 生产默认 https://zcode.chatglm.site，env ZCODE_ENDPOINT_ORIGIN 可覆盖
+apiBaseUrl            = <origin>/api/v1
+remoteUrl             = <origin>/remote/v4                   // v4 条件: appVersion >= 3.4.0 (isWebRemoteControlV4AppVersion, 阈值常量 "3.4.0")；<3.4.0 为 v3
+webRemoteCallbackUrl  = <origin>/web-remote/callback
+relayWsUrl            = (https:?wss:ws:)//<host>/ws
+zcodePlanOpenAiBaseUrl      = <origin>/api/v1/zcode-plan
+zcodePlanAnthropicBaseUrl   = <origin>/api/v1/zcode-plan/anthropic
+zcodePlanBillingCurrentUrl  = <origin>/api/v1/zcode-plan/billing/current
+zcodePlanBillingBalanceUrl  = <origin>/api/v1/zcode-plan/billing/balance
+
+## 2. buildWebRemoteControlExternalQrUrl({baseUrl,deviceSid,passHash,timestamp,deviceMid,deviceName,appVersion,theme})
+p = new URL(baseUrl)
+p.searchParams.set("sid",   deviceSid)
+p.searchParams.set("hash",  passHash)
+p.searchParams.set("t",     String(timestamp))
+if(deviceSid) ... // 见原码: mid/name/app_version 为可选 trim 后设置
+p.searchParams.set("mid",   deviceMid)          // 可选
+p.searchParams.set("name",  deviceName)         // 可选
+p.searchParams.set("app_version", appVersion)   // 可选
+return p.toString()
+// theme 参数被解构但未写入 URL
+
+## 3. createQrUrl（管理器内调用方）
+createQrUrl(v,b,T) = buildWebRemoteControlExternalQrUrl({
+  baseUrl: b,                    // = remoteUrl = <origin>/remote/v4
+  deviceSid: v.deviceSid,        // persisted 模式取自 authStorage(credentialService)
+  passHash: v.passHash,          // 同上
+  timestamp: Date.now(),         // 毫秒；二维码渲染/“刷新二维码”时现生成 → URL 动态项
+  deviceMid: e.deviceMid,
+  deviceName: e.deviceName,
+  appVersion: e.appVersion,
+  theme: T
+})
+
+## 4. 中继 WS 连接（external relay device）
+new URL(relayWsUrl); searchParams.set("mid", deviceMid)
+new WebSocket(url, { perMessageDeflate:true, headers:{ "X-Device-ID": deviceMid } })
+注册/认证消息类型:
+  → device_register_init { device_mid, pass_hash, meta, client_ts }   // 首次
+  ← device_register_ack  { device_sid }                                // 服务端分配 deviceSid
+  → sendAuthInit(device_sid)                                           // persisted 模式
+  ← auth_challenge                                                     // 挑战
+IPC 通道:
+  zcode:start-web-remote-control / zcode:stop-web-remote-control
+  zcode:reset-web-remote-control-pairing / zcode:get-web-remote-control-status
+  zcode:web-remote-control-status-changed / zcode:bind-remote-workspace-session-context
+  zcode:cancel-pending-remote-connection / zcode:dispose-remote-session
+
+## 5. 凭据加密（credentials.json 值的 enc:v1 信封）
+scheme  = "enc:v1:" + b64url(iv12) + "." + b64url(authTag16) + "." + b64url(ciphertext)   // 注意顺序: IV.TAG.CT
+algo    = aes-256-gcm
+key     = sha256(credentialSecret)
+secret  = env.ZCODE_CREDENTIAL_SECRET
+        || "zcode-credential-fallback:" + os.platform() + ":" + os.homedir() + ":" + os.userInfo().username
+        // 本机即 "zcode-credential-fallback:win32:C:\Users\sakuya:sakuya"
+
+## 6. i18n（en-US 摘录，佐证 UI 行为）
+webRemoteControl.mobileQr.title = Scan from phone
+webRemoteControl.mobileQr.description = Use your phone camera to open this workspace remotely.
+webRemoteControl.linkLabel = Remote control link
+webRemoteControl.linkPending = The remote control link will appear here once ready.
+webRemoteControl.copyLink.description = Can't scan? Open the link on your phone.
+webRemoteControl.singlePageNote = This relay pairing supports one phone page at a time. ...
+webRemoteControl.failure.sessionNotFound = This Web remote control link is no longer valid. Start it again from desktop.
+(中文: webRemoteControl.title = 移动端远程控制; mobileQr.title = 手机扫码连接; refreshQr.confirmTitle = 刷新二维码？)
