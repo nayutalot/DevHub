@@ -122,7 +122,9 @@ export type HostToEcsFrame =
       status: 'accepted' | 'rejected'
       errorCode?: string
     }
-  /** docs/18 §3.10：终态回执（与 command.result 事件双通道，Android 按 commandId 去重）。 */
+  /** docs/18 §3.10：终态回执（与 command.result 事件双通道，Android 按 commandId 去重）。
+   *  S 批：workspace_link 携带可选 result{provider,url,deviceName}（内存过境回流；
+   *  ECS 持久化边界只存 {provider}——forwarder S 批注记，任务书审计红线）。 */
   | {
       type: 'command_result'
       commandId: string
@@ -132,6 +134,7 @@ export type HostToEcsFrame =
       status: 'executed' | 'rejected' | 'expired' | 'failed'
       errorCode: string | null
       timestamp: UnixSec
+      result?: { provider: string; url: string; deviceName: string }
     }
   /** docs/18 §3.13：host 上行进度（lastSentSeq = 已交 ECS 的最高 sequence）。 */
   | { type: 'heartbeat'; ts: UnixSec; lastSentSeq: number }

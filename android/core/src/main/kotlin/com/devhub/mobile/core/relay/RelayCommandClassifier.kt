@@ -51,8 +51,8 @@ object RelayCommandClassifier {
 }
 
 /**
- * command 帧的 action 值域（docs/18 §5.1 五值 + §5.3 设备自管理两值锁死；
- * reply ≡ send_message 改名映射；M3-E 两值即唯一追加面，N-R3：action 全集终点）。
+ * command 帧的 action 值域（docs/18 §5.1 五值 + §5.3 设备自管理两值 + S 批查询一值
+ * 锁死；reply ≡ send_message 改名映射；N-R3 纪律：白名单封闭枚举，未知值绝不猜）。
  */
 object RelayActions {
     const val SEND_MESSAGE = "send_message"
@@ -65,7 +65,10 @@ object RelayActions {
     const val SPAWN_SESSION = "spawn_session"
     const val REVOKE_DEVICE = "revoke_device"
 
-    val ALL = setOf(SEND_MESSAGE, APPROVE, PAUSE, RESUME, INTERRUPT, SPAWN_SESSION, REVOKE_DEVICE)
+    /** docs/18 §5.3 注记（S 批）：ZCode 工作区链接查询（payload {}；拉取模型）。 */
+    const val WORKSPACE_LINK = "workspace_link"
+
+    val ALL = setOf(SEND_MESSAGE, APPROVE, PAUSE, RESUME, INTERRUPT, SPAWN_SESSION, REVOKE_DEVICE, WORKSPACE_LINK)
 
     /** 队列 kind（docs/14 命名域）→ relay action（docs/18 命名域）。 */
     fun fromKind(kind: String): String? = when (kind) {
@@ -76,6 +79,7 @@ object RelayActions {
         "interrupt" -> INTERRUPT
         "spawn_session" -> SPAWN_SESSION
         "revoke_device" -> REVOKE_DEVICE
+        "workspace_link" -> WORKSPACE_LINK
         else -> null
     }
 }

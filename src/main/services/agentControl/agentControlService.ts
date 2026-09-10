@@ -1171,6 +1171,120 @@ export async function executeDeviceSelfRevoke(input: { commandId: string; device
   }
 }
 
+// ---------------------------------------------------------------------------
+// S 批 — workspace_link 查询命令面（docs/18 §5.3 注记；任务书 §1 #1/#2）。
+// 语义：设备经 relay 查询当前有效 ZCode 移动遥控链接（**纯拉取查询**——URL 凭据
+// 成分静态、t=时间戳 nonce，桌面磁盘三文件实时重建，永远新鲜且有效）。
+// 授权矩阵：READ 类能力门——任何已配对设备可查询（auth 校验在 commandDownlink）。
+// **零持久化红线**：URL 仅内存构造即发；remote_commands.result_json 与审计
+// detail 一律只记 {provider} 形态（URL 与其任何子串零落库，任务书 §1 #1）。
+// remote_commands.action 值域为注释级枚举（无 CHECK，004 建表），写
+// 'workspace_link' 零迁移（M3-E1 revoke_device 同款先例）。
+// ---------------------------------------------------------------------------
+
+export interface WorkspaceLinkBegin {
+  commandId: string
+  /** true = 幂等重试命中既有行（受理段零新写；查询语义由执行段重新拉取）。 */
+  replayed: boolean
+}
+
+/**
+ * 受理段（commandDownlink workspace_link 分支第一步）：幂等键查重 → 落 accepted 行 +
+ * 审计（detail 只记 commandId/action/source，零 URL）。同 key 异 action →
+ * COMMAND_KEY_CONFLICT（docs/14 §B.5 语义，revoke_device 同款）。
+ */
+export function beginWorkspaceLink(input: { deviceId: number; idempotencyKey: string }): WorkspaceLinkBegin {
+  const db = getDatabase()
+  const now = nowSec()
+  const existing = db.prepare('SELECT * FROM remote_commands WHERE idempotency_key = ?').get(input.idempotencyKey) as
+    | RemoteCommandRow
+    | undefined
+  if (existing !== undefined) {
+    if (existing.action !== 'workspace_link') {
+      throw new ServiceError('COMMAND_KEY_CONFLICT', 'workspace_link: idempotency key already used with a different action (docs/14 B.5)')
+    }
+    // 查询语义的同 key 重试：命中原命令行（零新写）；执行段重建当前链接作为结果
+    // ——拉取模型下「原结果」= 最新链接（旧 URL 从不持久化，无从重放，任务书零持久化红线）。
+    return { commandId: existing.command_id, replayed: true }
+  }
+  const commandId = `cmd-${randomUUID()}`
+  db.prepare(
+    "INSERT INTO remote_commands (command_id, idempotency_key, device_id, session_id, action, payload_json, status, expires_at, created_at) VALUES (?, ?, ?, NULL, 'workspace_link', NULL, 'accepted', ?, ?)",
+  ).run(commandId, input.idempotencyKey, dbVal(input.deviceId), now + REMOTE_COMMAND_TTL_SEC, now)
+  insertSecurityAudit(
+    'command',
+    'command_accepted',
+    input.deviceId,
+    'success',
+    JSON.stringify({ commandId, action: 'workspace_link', source: 'relay-command' }),
+  )
+  return { commandId, replayed: false }
+}
+
+/**
+ * 执行段收口（链接重建成功/失败后调用）：行终态 + 审计 + command.result 事件。
+ * **result_json 与事件 payload 只记 {provider}**——URL 只经 commandDownlink 的
+ * command_result 帧内存过境回流（ECS 侧持久化边界另有脱敏，forwarder S 批注记）。
+ * reason 仅静态字面量（provider 内部保证），落 result_json 供诊断，零敏感成分。
+ */
+export function completeWorkspaceLink(input: {
+  commandId: string
+  deviceId: number
+  idempotencyKey: string
+  ok: boolean
+  /** ok=false 时的静态原因（如 'pass_hash_decrypt_failed'；零 URL/零凭据成分）。 */
+  reason?: string
+}): void {
+  const db = getDatabase()
+  const now = nowSec()
+  if (input.ok) {
+    db.prepare("UPDATE remote_commands SET status = 'executed', result_json = ?, executed_at = ? WHERE command_id = ?").run(
+      JSON.stringify({ status: 'executed', provider: 'zcode' }),
+      now,
+      input.commandId,
+    )
+    insertSecurityAudit('command', 'command_executed', input.deviceId, 'success', JSON.stringify({ commandId: input.commandId, action: 'workspace_link', provider: 'zcode' }))
+    recordCommandResult({
+      providerKey: 'zcode',
+      commandId: input.commandId,
+      action: 'workspace_link',
+      status: 'executed',
+    })
+    notifyRemoteCommandTerminal({
+      commandId: input.commandId,
+      idempotencyKey: input.idempotencyKey,
+      sessionId: 0,
+      action: 'workspace_link',
+      status: 'executed',
+      errorCode: null,
+    })
+  } else {
+    const errorCode = 'ZCODE_LINK_UNAVAILABLE'
+    db.prepare("UPDATE remote_commands SET status = 'failed', error_code = ?, result_json = ?, executed_at = ? WHERE command_id = ?").run(
+      errorCode,
+      JSON.stringify({ status: 'failed', provider: 'zcode', reason: input.reason ?? 'unavailable' }),
+      now,
+      input.commandId,
+    )
+    insertSecurityAudit('command', 'command_rejected', input.deviceId, 'error', JSON.stringify({ commandId: input.commandId, action: 'workspace_link', provider: 'zcode', errorCode, reason: input.reason ?? 'unavailable' }))
+    recordCommandResult({
+      providerKey: 'zcode',
+      commandId: input.commandId,
+      action: 'workspace_link',
+      status: 'failed',
+      errorCode,
+    })
+    notifyRemoteCommandTerminal({
+      commandId: input.commandId,
+      idempotencyKey: input.idempotencyKey,
+      sessionId: 0,
+      action: 'workspace_link',
+      status: 'failed',
+      errorCode,
+    })
+  }
+}
+
 /**
  * provider 能力模式只读投影（M3-E1 commandDownlink spawn_session 拒绝码分类专用）：
  * 业务键或数字 id → caps.mode（managed|attached|observed）；provider 未知 → null

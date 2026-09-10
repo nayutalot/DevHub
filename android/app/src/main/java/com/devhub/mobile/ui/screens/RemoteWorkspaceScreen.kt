@@ -54,6 +54,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.devhub.mobile.connect.WorkspaceLinkCard
+import com.devhub.mobile.connect.WorkspaceLinkController
 import com.devhub.mobile.data.RemoteWorkspaceUrl
 import com.devhub.mobile.data.db.DevHubDb
 import com.devhub.mobile.data.db.RemoteWorkspaceEntryEntity
@@ -72,6 +74,11 @@ import kotlinx.coroutines.withContext
  *   白名单 http/https（file/content 等一律拒载）；证书错误**绝不 proceed**（cancel——
  *   与 App pin-TL 红线同向）；返回键先 WebView.canGoBack() 再屏退；
  * - URL 可能含动态会话令牌：按敏感对待——零入日志、零外发；展示一律中段省略。
+ *
+ * S 批追加：顶部固定「ZCode 工作区」智能条目（docs/18 §5.3 注记）——tab 打开时
+ * **自动请求**桌面重建的当前有效链接（WorkspaceLinkController → relay
+ * workspace_link 查询），结果自动建/更新置顶条目，点击即开 WebView；离线桌面 =
+ * 排队提示照 relay 语义；手动粘贴路径原样保留（零粘贴路径不动，任务书 §1 #4）。
  */
 @Composable
 fun RemoteWorkspaceScreen(onOpenEntry: (Long) -> Unit) {
@@ -80,11 +87,19 @@ fun RemoteWorkspaceScreen(onOpenEntry: (Long) -> Unit) {
     val scope = rememberCoroutineScope()
     // Flow initial=null = 加载态；空列表 → 空态引导；非空 → 内容（约束 #24 三态）
     val entriesFlow by db.remoteWorkspaceEntryDao().observeAll().collectAsState(initial = null)
+    // S 批智能条目状态（tab 打开自动请求；状态机在 WorkspaceLinkCard，:app 单测锁）
+    val linkState by WorkspaceLinkController.state.collectAsState()
 
     var title by remember { mutableStateOf("") }
     var url by remember { mutableStateOf("") }
     var clipboardUrl by remember { mutableStateOf<String?>(null) }
     var formError by remember { mutableStateOf<String?>(null) }
+
+    // S 批：tab 打开即自动请求（拉取模型——App 需要时取，永远新鲜且有效）；
+    // LaunchedEffect(Unit) = 每次进入本屏恰一次，重试由卡片按钮/下次进入承载。
+    LaunchedEffect(Unit) {
+        WorkspaceLinkController.request()
+    }
 
     // 剪贴板轮询检出（1.5s；Android 10+ 仅前台可读，本屏在前台时检出，离开即失明属平台预期）
     LaunchedEffect(Unit) {
@@ -93,6 +108,11 @@ fun RemoteWorkspaceScreen(onOpenEntry: (Long) -> Unit) {
             delay(1500)
         }
     }
+
+    // 智能条目行（固定保留标题）从手动列表中分离——唯一展示面 = 顶部智能卡片
+    val allEntries = entriesFlow
+    val smartEntry = allEntries?.firstOrNull { it.title == WorkspaceLinkCard.ENTRY_TITLE }
+    val manualEntries = allEntries?.filter { it.title != WorkspaceLinkCard.ENTRY_TITLE }
 
     Column(
         modifier = Modifier
@@ -108,7 +128,16 @@ fun RemoteWorkspaceScreen(onOpenEntry: (Long) -> Unit) {
             fontSize = 13.sp,
         )
 
-        when (val state = entriesFlow?.let { RemoteWorkspaceUi.from(it) }) {
+        // —— S 批：ZCode 工作区智能条目（顶部固定；点击即开）——
+        WorkspaceLinkCardView(
+            state = linkState,
+            staleEntryId = smartEntry?.id,
+            onOpen = { id -> onOpenEntry(id) },
+            onRetry = { WorkspaceLinkController.request() },
+        )
+        HorizontalDivider()
+
+        when (val state = manualEntries?.let { RemoteWorkspaceUi.from(it) }) {
             null -> {
                 // —— 加载态 ——
                 CircularProgressIndicator()
@@ -259,6 +288,75 @@ internal fun readClipboardHttpUrl(context: Context): String? = try {
     RemoteWorkspaceUrl.extractFromClipboard(text)
 } catch (_: Exception) {
     null
+}
+
+// ---------------------------------------------------------------------------
+// S 批：ZCode 工作区智能条目卡片（顶部固定；状态机 = WorkspaceLinkCard，:app 单测锁）
+// ---------------------------------------------------------------------------
+
+/**
+ * 智能条目卡片：状态分五个面（Idle/Requesting/Ready/Queued/Unavailable）。
+ * - Ready → 整卡可点，直达全屏 WebView（onOpen(entryId)）；
+ * - 非 Ready 但存在既往会话留下的智能条目行（staleEntryId）→ 同样可点打开
+ *   （链接成分静态、t 为 nonce——旧条目仍有效；自动请求照常刷新）；
+ * - Queued = 离线桌面排队提示（relay 语义，绝不伪造成功）；
+ * - Unavailable = 结构化不可用（ZCODE_LINK_UNAVAILABLE 等）+ 重试按钮。
+ * 卡片零 URL 展示（点击才进 WebView；WebView 标题栏本就中段省略）。
+ */
+@Composable
+private fun WorkspaceLinkCardView(
+    state: WorkspaceLinkCard.State,
+    staleEntryId: Long?,
+    onOpen: (Long) -> Unit,
+    onRetry: () -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(enabled = state is WorkspaceLinkCard.State.Ready || staleEntryId != null) {
+                    when (state) {
+                        is WorkspaceLinkCard.State.Ready -> onOpen(state.entryId)
+                        else -> staleEntryId?.let(onOpen)
+                    }
+                }
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("ZCode 工作区", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                when (val s = state) {
+                    WorkspaceLinkCard.State.Idle ->
+                        Text("进入本页时自动获取桌面链接…", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                    WorkspaceLinkCard.State.Requesting ->
+                        Text("正在从桌面获取当前链接…", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                    is WorkspaceLinkCard.State.Ready ->
+                        Text(
+                            "已获取（${s.deviceName ?: "桌面"}）· 点击全屏打开",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+
+                    WorkspaceLinkCard.State.Queued ->
+                        Text("电脑离线：请求已排队，桌面恢复连接后自动送达", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                    is WorkspaceLinkCard.State.Unavailable -> {
+                        Text(s.message, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                        TextButton(onClick = onRetry) { Text("重试", fontSize = 12.sp) }
+                    }
+                }
+            }
+            if (state is WorkspaceLinkCard.State.Ready || staleEntryId != null) {
+                Icon(Icons.Filled.ExitToApp, contentDescription = "打开 ZCode 工作区")
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -1170,6 +1170,58 @@ object ConnectionManager {
         }
 
     /**
+     * S 批 relay 模式 ZCode 工作区链接查询（docs/18 §5.3 注记）：WS command
+     * `workspace_link`（payload {}，sessionId 缺省）→ ack(accepted) → 等 command_result
+     * (executed) 取 result{provider,url,deviceName}（帧面内存过境）；queued:true/离线/
+     * 超时 → 行入队同 key 补发（Queued——UI 排队提示照 relay 语义）；failed →
+     * ZCODE_LINK_UNAVAILABLE 结构化上抛。URL 零日志（LogRedactor 面外零打印）。
+     */
+    suspend fun submitWorkspaceLink(): WorkspaceLinkSubmit = withContext(Dispatchers.IO) {
+        val ws = webSocket
+        if (ws == null || _state.value !is ConnState.Connected) {
+            enqueuePending(0L, QueueReplayPlanner.KIND_WORKSPACE_LINK, null, IdempotencyKeys.newKey())
+            return@withContext WorkspaceLinkSubmit.Queued
+        }
+        val idempotencyKey = IdempotencyKeys.newKey()
+        val resultDeferred = CompletableDeferred<RelayFrame.CommandResult>()
+        pendingResults[idempotencyKey] = resultDeferred
+        when (val outcome = sendRelayCommandFrame(ws, null, QueueReplayPlanner.KIND_WORKSPACE_LINK, null, idempotencyKey)) {
+            is CommandSendOutcome.Ack -> when (WorkspaceLinkOutcome.phaseFromAck(outcome.ack.status, outcome.ack.queued)) {
+                WorkspaceLinkOutcome.Phase.AWAIT_RESULT -> {
+                    val result: RelayFrame.CommandResult? = try {
+                        withTimeout(COMMAND_ACK_TIMEOUT_MS) { resultDeferred.await() }
+                    } catch (err: TimeoutCancellationException) {
+                        null
+                    }
+                    if (result == null) {
+                        // 终态未回（投递竞态/连接中断）：入队同 key 补发，Windows 幂等兜底
+                        enqueuePending(0L, QueueReplayPlanner.KIND_WORKSPACE_LINK, null, idempotencyKey)
+                        WorkspaceLinkOutcome.timeout()
+                    } else {
+                        WorkspaceLinkOutcome.fromResult(result.status, result.result, result.errorCode)
+                    }
+                }
+
+                WorkspaceLinkOutcome.Phase.QUEUED -> {
+                    enqueuePending(0L, QueueReplayPlanner.KIND_WORKSPACE_LINK, null, idempotencyKey)
+                    WorkspaceLinkSubmit.Queued
+                }
+
+                WorkspaceLinkOutcome.Phase.FAILED -> WorkspaceLinkSubmit.Failed(
+                    outcome.ack.errorCode ?: "COMMAND_REJECTED",
+                    outcome.ack.errorCode?.let { "命令被拒绝 [$it]" } ?: "命令被拒绝",
+                )
+            }
+
+            is CommandSendOutcome.Enqueued -> WorkspaceLinkSubmit.Queued
+            is CommandSendOutcome.UnknownKind -> WorkspaceLinkSubmit.Failed("BAD_PAYLOAD", "unknown kind workspace_link")
+        }.also {
+            // 终态已结算（成功/拒绝）→ 清挂起；Queued 路径的挂起在终态帧到达时结算
+            if (it !is WorkspaceLinkSubmit.Queued) pendingResults.remove(idempotencyKey)
+        }
+    }
+
+    /**
      * relay 模式设备自撤销（docs/18 §5.3 revoke_device）：WS command（自指无目标字段）；
      * **成功收口 = disconnect(reason=revoked) 到达**（onAuthFatal 清凭据 + 停重连 §3.15），
      * 非 command_result——§5.3 终态语义。queued:true → 行挂起（主机上线后自动完成）；
@@ -1254,6 +1306,10 @@ object ConnectionManager {
 
                 QueueReplayPlanner.KIND_REVOKE_DEVICE -> {
                     // payload {}：目标 = auth Token 对应设备自身（帧无目标字段天然自指）
+                }
+
+                QueueReplayPlanner.KIND_WORKSPACE_LINK -> {
+                    // payload {}：链接查询无参数（docs/18 §5.3 注记；桌面磁盘重建）
                 }
             }
         }
@@ -1344,8 +1400,8 @@ object ConnectionManager {
                             continue
                         }
 
-                        QueueReplayPlanner.KIND_SPAWN_SESSION, QueueReplayPlanner.KIND_REVOKE_DEVICE -> {
-                            // M3-E1：设备自管理两值仅 relay 命令面存在（docs/18 §5.3/§7.2）；
+                        QueueReplayPlanner.KIND_SPAWN_SESSION, QueueReplayPlanner.KIND_REVOKE_DEVICE, QueueReplayPlanner.KIND_WORKSPACE_LINK -> {
+                            // M3-E1/S 批：三值仅 relay 命令面存在（docs/18 §5.3/§7.2）；
                             // relay 源队列行漏入 local 面（模式切换残留）→ 结构化落败，绝不伪装
                             db!!.pendingCommandDao().update(
                                 row.copy(status = "failed", lastError = "COMMAND_NOT_EXECUTABLE (local face)"),
@@ -1408,8 +1464,9 @@ object ConnectionManager {
             for (queued in batch) {
                 val row = db!!.pendingCommandDao().listPending().firstOrNull { it.id == queued.id } ?: continue
                 // M3-E1（docs/18 §5.3）：spawn_session/revoke_device 的 sessionId 缺省合法 → 帧面不带；
+                // S 批 workspace_link 查询同样无会话语义 → 帧面不带；
                 // spawn 补发的 providerId 从队列行 providerId 列还原（Room v4）
-                val sessionRef: Long? = if (queued.kind == QueueReplayPlanner.KIND_SPAWN_SESSION || queued.kind == QueueReplayPlanner.KIND_REVOKE_DEVICE) null else queued.sessionId
+                val sessionRef: Long? = if (queued.kind == QueueReplayPlanner.KIND_SPAWN_SESSION || queued.kind == QueueReplayPlanner.KIND_REVOKE_DEVICE || queued.kind == QueueReplayPlanner.KIND_WORKSPACE_LINK) null else queued.sessionId
                 when (val outcome = sendRelayCommandFrame(ws, sessionRef, queued.kind, row.text, queued.idempotencyKey, row.providerId)) {
                     is CommandSendOutcome.Ack -> when (
                         RelayCommandClassifier.classifyAck(outcome.ack.status, outcome.ack.queued)

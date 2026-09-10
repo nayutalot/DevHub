@@ -21,6 +21,9 @@
  *        （L3 revoke → §3.15 撤销链自动接管）；无能力门且豁免 gateway 前提
  *        （安全自助操作）；终态收口 = disconnect(revoked) 而非 command_result。
  *      两值即 §5.1 五值之外唯一追加面（N-R3：action 全集终点）。
+ *      S 批（docs/18 §5.3 注记）追加查询 action workspace_link：ZCode 移动遥控链接
+ *      磁盘重建（zcodeLinkProvider）→ command_result.result{provider,url,deviceName}
+ *      内存过境回流（result_json/审计只记 {provider}，URL 零落库——任务书红线）。
  *   3) 执行：submitRemoteCommand（能力门二次校验 resolveCommandGate + 幂等 +
  *      TTL 300s + 审计全部在 L3，绝不复刻）；本地 Gateway 未启用 → GATEWAY_DISABLED
  *      （docs/19 §4.8 relay 模式前提）。
@@ -58,10 +61,13 @@ import {
   MANAGED_SESSION_TASK_MAX_CHARS,
   beginDeviceSelfRevoke,
   executeDeviceSelfRevoke,
+  beginWorkspaceLink,
+  completeWorkspaceLink,
   readProviderCapabilityMode,
   type RemoteCommandTerminalEvent,
 } from '../agentControlService.ts'
 import { authenticateBearerToken, checkReplayHeaders } from '../gateway/auth.ts'
+import { buildZcodeWorkspaceLinkDefault, ZCODE_LINK_UNAVAILABLE } from '../zcodeLinkProvider.ts'
 import type { HostToEcsFrame } from './wsClient.ts'
 
 // ---------------------------------------------------------------------------
@@ -111,6 +117,14 @@ const SELF_MANAGED_ACTIONS: readonly string[] = ['spawn_session', 'revoke_device
 
 /** reply 文本上限（docs/14 §A.1 #6 同源 ≤4000；commandDownlink 复刻同一校验值）。 */
 export const RELAY_REPLY_TEXT_MAX_CHARS = 4000
+
+/**
+ * S 批查询 action（docs/18 §5.3 注记）：workspace_link——ZCode 移动遥控链接查询。
+ * sessionId 缺省合法（无会话语义）；READ 类能力门（任何已配对设备可查询，auth 在
+ * 本文件统一校验）；执行 = 桌面磁盘三文件重建 URL（zcodeLinkProvider），URL 仅经
+ * command_result 帧内存过境（result_json/审计只记 {provider}，零落库——任务书红线）。
+ */
+const QUERY_ACTIONS: readonly string[] = ['workspace_link']
 
 // ---------------------------------------------------------------------------
 // 下行处理（帧路由入口；单帧异常绝不杀伤连接——调用方逐帧隔离）
@@ -228,9 +242,10 @@ export function handleCommandFrame(frame: unknown, host: CommandDownlinkHost): v
     rejectWithDeviceReturn(host, requestId, idempotencyKey, 'BAD_PAYLOAD', 'command.action must be a non-empty string (docs/18 §3.8)')
     return
   }
-  // M3-E（docs/18 §5.3）：spawn_session（尚无会话）/ revoke_device（自指无目标）两 action
-  // 的 sessionId 缺省为合法帧形——仅当携带时要求正整数；§5.1 五值维持必带（原语义零变化）。
-  if ((SELF_MANAGED_ACTIONS as readonly string[]).includes(action)) {
+  // M3-E（docs/18 §5.3）：spawn_session（尚无会话）/ revoke_device（自指无目标）与
+  // S 批 workspace_link（查询无会话语义）三 action 的 sessionId 缺省为合法帧形——
+  // 仅当携带时要求正整数；§5.1 五值维持必带（原语义零变化）。
+  if ((SELF_MANAGED_ACTIONS as readonly string[]).includes(action) || (QUERY_ACTIONS as readonly string[]).includes(action)) {
     if (sessionId !== undefined && sessionId !== null && (typeof sessionId !== 'number' || !Number.isSafeInteger(sessionId) || sessionId <= 0)) {
       rejectWithDeviceReturn(host, requestId, idempotencyKey, 'BAD_PAYLOAD', 'command.sessionId must be a positive integer when present (docs/18 §5.3)')
       return
@@ -389,6 +404,61 @@ export function handleCommandFrame(frame: unknown, host: CommandDownlinkHost): v
         // COMMAND_EXPIRED/AGENT_CAPABILITY_MISSING/AGENT_PROVIDER_UNAVAILABLE）同码透传。
         reject(code === 'COMMAND_NOT_EXECUTABLE' ? 'SPAWN_REJECTED' : code)
       })
+    return
+  }
+
+  // 4.6) S 批 workspace_link（docs/18 §5.3 注记；任务书 §1 #1/#2）：ZCode 移动遥控
+  //      链接查询——payload {} 不解释；磁盘三文件重建（zcodeLinkProvider 注入缝，
+  //      smoke 绝不触真实 ~/.zcode）→ URL 仅 command_result 帧 result 内存过境。
+  //      **审计/落库红线**：remote_commands.result_json 与桌面审计只记 {provider}
+  //      （completeWorkspaceLink 内保证）；本文件绝不把 URL 写进任何日志/error 帧。
+  if ((QUERY_ACTIONS as readonly string[]).includes(action)) {
+    let begun: ReturnType<typeof beginWorkspaceLink>
+    try {
+      begun = beginWorkspaceLink({ deviceId: authedDeviceId, idempotencyKey })
+    } catch (err) {
+      // 幂等键被他用（跨 action 冲突等）→ 结构化拒绝，绝不执行查询
+      const code = err instanceof Error && 'code' in err ? String((err as { code: unknown }).code) : 'INTERNAL'
+      reject(code)
+      return
+    }
+    // 受理回执先行（§5.2 时序：command → command_ack → command_result）；查询为
+    // 本地磁盘同步面，结果帧随后同连接回程。同 key 重试（replayed）= 拉取模型下
+    // 重新取最新链接（旧 URL 零持久化、无从重放——重建即最忠实的「原结果」）。
+    host.sendAck({
+      type: 'command_ack',
+      ...(typeof requestId === 'string' && requestId.length > 0 ? { requestId } : {}),
+      idempotencyKey,
+      commandId: begun.commandId,
+      status: 'accepted',
+    })
+    const link = buildZcodeWorkspaceLinkDefault()
+    if (link.ok) {
+      completeWorkspaceLink({ commandId: begun.commandId, deviceId: authedDeviceId, idempotencyKey, ok: true })
+      host.sendResult({
+        type: 'command_result',
+        commandId: begun.commandId,
+        idempotencyKey,
+        action: 'workspace_link',
+        status: 'executed',
+        errorCode: null,
+        result: { provider: 'zcode', url: link.url, deviceName: link.deviceName },
+        timestamp: Math.floor(Date.now() / 1000),
+      })
+    } else {
+      // 三文件缺失/解密失败 → 结构化 ZCODE_LINK_UNAVAILABLE（reason 只进桌面
+      // result_json/审计静态字面量；帧面 errorCode 承载——绝不 partial URL）
+      completeWorkspaceLink({ commandId: begun.commandId, deviceId: authedDeviceId, idempotencyKey, ok: false, reason: link.reason })
+      host.sendResult({
+        type: 'command_result',
+        commandId: begun.commandId,
+        idempotencyKey,
+        action: 'workspace_link',
+        status: 'failed',
+        errorCode: ZCODE_LINK_UNAVAILABLE,
+        timestamp: Math.floor(Date.now() / 1000),
+      })
+    }
     return
   }
 
