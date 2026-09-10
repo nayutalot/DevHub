@@ -26,9 +26,11 @@ import { claimPairing, registerPairing, findPendingDevice } from './pairing.ts'
 import type { WakeExecutor } from './wake.ts'
 
 // M3-E（docs/18 §5.3，用户裁决 2026-09-07 #9=B）：值域追加 spawn_session/revoke_device
-// 两值——设备自管理通道。仅值域扩展：ECS 仍不解释语义（命令纯透传给 host 腿，
-// §5.3「Windows 执行通道」列），帧形零扩展、零新逻辑分支（N-R3：两值即 action 全集终点）。
-export const RELAY_ACTIONS = ['send_message', 'approve', 'pause', 'resume', 'interrupt', 'spawn_session', 'revoke_device'] as const
+// 两值——设备自管理通道。S 批（docs/18 §5.3 注记）追加 workspace_link 查询值——
+// ZCode 移动遥控链接拉取。仅值域扩展：ECS 仍不解释语义（命令/result 纯透传给对腿），
+// 帧形零扩展、零新逻辑分支（唯一例外 = 持久化边界脱敏，见 handleHostCommandResult
+// S 批注记——workspace_link result 内嵌 URL 绝不落库，令牌红线）。
+export const RELAY_ACTIONS = ['send_message', 'approve', 'pause', 'resume', 'interrupt', 'spawn_session', 'revoke_device', 'workspace_link'] as const
 
 type Frame = { type: string; [key: string]: unknown }
 
@@ -963,6 +965,20 @@ export class Forwarder {
     }
   }
 
+  /**
+   * S 批（docs/18 §5.3 注记；任务书 §1 #1 审计红线）：command_result 的持久化投影。
+   * workspace_link 的 result 内嵌桌面工作区 URL（含 sid/hash/mid 凭据成分）——转发面
+   * 纯透传（设备收全量帧），**仅 relay_commands.result_json 落库面**把 result 脱敏为
+   * {provider}（URL 与其任何子串零落库）。其余 action 原样（与升级前行为逐字节一致）。
+   */
+  private static resultJsonForStorage(frame: Frame): string {
+    if (frame.action === 'workspace_link' && typeof frame.result === 'object' && frame.result !== null && !Array.isArray(frame.result)) {
+      const result = frame.result as Record<string, unknown>
+      return JSON.stringify({ ...frame, result: { provider: result.provider } })
+    }
+    return JSON.stringify(frame)
+  }
+
   /** command_result（docs/18 §3.10）：终态落行 + 回流设备（Android 按 commandId 去重）。 */
   private handleHostCommandResult(frame: Frame): void {
     const idempotencyKey = asString(frame.idempotencyKey, 'idempotencyKey')
@@ -975,7 +991,7 @@ export class Forwarder {
         ['executed', 'rejected', 'expired', 'failed'].includes(status) ? status : 'failed',
         typeof frame.commandId === 'string' ? frame.commandId : null,
         nowSec,
-        JSON.stringify(frame),
+        Forwarder.resultJsonForStorage(frame),
         row.id,
       )
       this.queuedMemory.delete(row.id)

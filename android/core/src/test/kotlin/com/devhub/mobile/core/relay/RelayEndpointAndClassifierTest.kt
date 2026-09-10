@@ -76,11 +76,11 @@ class RelayEndpointAndClassifierTest {
         assertEquals(RelayAckVerdict.REJECTED_DROP, RelayCommandClassifier.classifyError("COMMAND_KEY_CONFLICT", retryable = false))
     }
 
-    // ---- RelayActions（docs/18 §5.1 五值 + §5.3 设备自管理两值锁死，M3-E #9=B 就地更新） ----
+    // ---- RelayActions（docs/18 §5.1 五值 + §5.3 设备自管理两值 + S 批查询一值锁死，就地更新） ----
 
     @Test
-    fun `action set is locked to seven values with reply renaming (M3-E self-mgmt two values)`() {
-        assertEquals(setOf("send_message", "approve", "pause", "resume", "interrupt", "spawn_session", "revoke_device"), RelayActions.ALL)
+    fun `action set is locked to eight values with reply renaming (M3-E self-mgmt two values + S batch query one value)`() {
+        assertEquals(setOf("send_message", "approve", "pause", "resume", "interrupt", "spawn_session", "revoke_device", "workspace_link"), RelayActions.ALL)
         assertEquals("send_message", RelayActions.fromKind("reply"))
         assertEquals("pause", RelayActions.fromKind("pause"))
         assertEquals("resume", RelayActions.fromKind("resume"))
@@ -88,6 +88,7 @@ class RelayEndpointAndClassifierTest {
         assertEquals("interrupt", RelayActions.fromKind("interrupt"))
         assertEquals("spawn_session", RelayActions.fromKind("spawn_session"))
         assertEquals("revoke_device", RelayActions.fromKind("revoke_device"))
+        assertEquals("workspace_link", RelayActions.fromKind("workspace_link"))
         assertNull(RelayActions.fromKind("exec"))
         assertNull(RelayActions.fromKind("shell"))
     }

@@ -4,6 +4,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { Store } from '../src/store.ts'
 import { bootRelay, TestWsClient, sleep, waitFor, randomHex32, setupWorld, pairDevice, rid, sha256hex } from './helpers.mjs'
 
 // ---- 配对 --------------------------------------------------------------------
@@ -285,6 +286,83 @@ test('M3-E：未知 action 仍 BAD_PAYLOAD（值域扩展不放松白名单，�
   device.send({ type: 'command', requestId: 'm3e-bad-2', idempotencyKey: 'm3e-bad-key-2', sessionId: 1, action: 'pause', auth: { token: 't', ts: 1, nonce: 'n2' }, createdAt: 1 })
   const relayed = await world.host.recvFrame()
   assert.equal(relayed.action, 'pause', 'BAD_PAYLOAD 后连接保持，后续命令继续中继')
+})
+
+// ---- S 批 workspace_link 查询 action（docs/18 §5.3 注记；任务书 §1 #1/#3） ----
+
+test('S 批：workspace_link 原样中继（八值；sessionId 缺省帧形；command_result.result 帧面透传到设备）', async (t) => {
+  const world = await setupWorld(t)
+  const { device } = await pairDevice(world)
+
+  // 设备发起查询（payload {} 无参数；sessionId 缺省 = §5.3 同形）
+  device.send({
+    type: 'command', requestId: 'wl-1', idempotencyKey: 'wl-key-1',
+    action: 'workspace_link', payload: {},
+    auth: { token: 't', ts: 1, nonce: randomHex32() }, createdAt: Math.floor(Date.now() / 1000),
+  })
+  const relayed = await world.host.recvFrame()
+  assert.equal(relayed.type, 'command', 'workspace_link 中继到 host 腿（八值白名单放行）')
+  assert.equal(relayed.action, 'workspace_link', 'action 原样透传（ECS 零语义解释）')
+  assert.equal(relayed.sessionId, undefined, 'sessionId 缺省帧形原样（零字段注入）')
+  assert.deepEqual(relayed.payload, {})
+  // host 受理回执回流
+  world.host.send({ type: 'command_ack', requestId: 'wl-1', idempotencyKey: 'wl-key-1', commandId: 'cmd-wl-1', status: 'accepted' })
+  const ack = await device.recvFrame()
+  assert.equal(ack.status, 'accepted')
+
+  // 终态：result 内嵌链接（测试用假值形态；断言只对透传行为，不对值）——ECS 转发面
+  // 纯透传：设备收到与 host 所发逐字段一致的 result 帧
+  const hostResult = { provider: 'zcode', url: 'https://relay-test.invalid/remote/v4?sid=fake&hash=fake&t=1&mid=fake', deviceName: 'fixture-host' }
+  world.host.send({ type: 'command_result', commandId: 'cmd-wl-1', idempotencyKey: 'wl-key-1', action: 'workspace_link', status: 'executed', errorCode: null, result: hostResult, timestamp: 100 })
+  const result = await device.recvFrame()
+  assert.equal(result.type, 'command_result')
+  assert.equal(result.status, 'executed')
+  assert.deepEqual(result.result, hostResult, 'result 帧面纯透传（设备收全量，ECS 转发面零解释零改写）')
+})
+
+test('S 批：workspace_link result 落库脱敏——result_json 只记 {provider}，URL 零子串（令牌红线）', async (t) => {
+  const world = await setupWorld(t)
+  const { device } = await pairDevice(world)
+  device.send({
+    type: 'command', requestId: 'wl-2', idempotencyKey: 'wl-key-2',
+    action: 'workspace_link', payload: {},
+    auth: { token: 't', ts: 1, nonce: randomHex32() }, createdAt: Math.floor(Date.now() / 1000),
+  })
+  await world.host.recvFrame()
+  const hostResult = { provider: 'zcode', url: 'https://relay-test.invalid/remote/v4?sid=fake&hash=fake&t=1&mid=fake', deviceName: 'fixture-host' }
+  world.host.send({ type: 'command_result', commandId: 'cmd-wl-2', idempotencyKey: 'wl-key-2', action: 'workspace_link', status: 'executed', errorCode: null, result: hostResult, timestamp: 100 })
+  const result = await device.recvFrame()
+  assert.equal(result.status, 'executed')
+
+  // 持久化面：独立只读连接抽 relay_commands 行——result_json 绝不含 URL 及其任何子串
+  const auditStore = new Store({ path: world.config.dbPath })
+  try {
+    const row = auditStore.get("SELECT action, status, result_json FROM relay_commands WHERE idempotency_key = 'wl-key-2'")
+    assert.notEqual(row, undefined, 'workspace_link 命令行落库')
+    assert.equal(row.action, 'workspace_link')
+    assert.equal(row.status, 'executed')
+    const stored = JSON.parse(row.result_json)
+    assert.equal(stored.result.provider, 'zcode', '落库投影保留 {provider}')
+    assert.equal(stored.result.url, undefined, '落库投影零 url 字段')
+    assert.equal(stored.result.deviceName, undefined, '落库投影零 deviceName 字段')
+    assert.ok(!row.result_json.includes('http'), 'result_json 零 http 子串')
+    assert.ok(!row.result_json.includes('sid='), 'result_json 零 sid= 子串')
+    assert.ok(!row.result_json.includes('remote/v4'), 'result_json 零路径子串')
+  } finally {
+    auditStore.close()
+  }
+
+  // 终态后同 key 重试：从脱敏投影重放（无 url——拉取模型下取新链接用新 key）
+  device.send({
+    type: 'command', requestId: 'wl-2-retry', idempotencyKey: 'wl-key-2',
+    action: 'workspace_link', payload: {},
+    auth: { token: 't', ts: 1, nonce: randomHex32() }, createdAt: Math.floor(Date.now() / 1000),
+  })
+  const replay = await device.recvFrame()
+  assert.equal(replay.type, 'command_result')
+  assert.equal(replay.commandId, 'cmd-wl-2', '同 key 重试返回原命令终态')
+  assert.equal(replay.result?.url, undefined, '重放自脱敏投影：零 URL 回放（新查询走新幂等键）')
+  assert.equal(replay.result?.provider, 'zcode', '重放仅携带 {provider} 脱敏投影')
 })
 
 

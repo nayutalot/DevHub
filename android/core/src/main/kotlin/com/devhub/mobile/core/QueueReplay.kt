@@ -40,6 +40,9 @@ object QueueReplayPlanner {
     // 仅 relay 命令面下发；local 面出队 → 结构化落败（与 approve/interrupt 同款）。
     const val KIND_SPAWN_SESSION = "spawn_session"
     const val KIND_REVOKE_DEVICE = "revoke_device"
+    // S 批（docs/18 §5.3 注记）：workspace_link 查询入队面（离线桌面 = 排队提示照
+    // relay 语义）。仅 relay 命令面下发；local 面出队 → 结构化落败（同上款）。
+    const val KIND_WORKSPACE_LINK = "workspace_link"
 
     /**
      * 取下一批待补发指令：合法 kind 过滤 → 按时间序 → 截取 batch 上限。
@@ -49,7 +52,8 @@ object QueueReplayPlanner {
             .filter {
                 it.kind == KIND_REPLY || it.kind == KIND_PAUSE || it.kind == KIND_RESUME ||
                     it.kind == KIND_APPROVE || it.kind == KIND_INTERRUPT ||
-                    it.kind == KIND_SPAWN_SESSION || it.kind == KIND_REVOKE_DEVICE
+                    it.kind == KIND_SPAWN_SESSION || it.kind == KIND_REVOKE_DEVICE ||
+                    it.kind == KIND_WORKSPACE_LINK
             }
             .sortedWith(compareBy({ it.createdAtMs }, { it.id }))
             .take(maxBatchSize.coerceAtLeast(1))

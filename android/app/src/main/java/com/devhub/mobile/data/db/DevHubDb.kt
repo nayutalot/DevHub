@@ -252,8 +252,16 @@ interface RemoteWorkspaceEntryDao {
     @Query("SELECT * FROM remote_workspace_entries WHERE id = :id")
     fun get(id: Long): RemoteWorkspaceEntryEntity?
 
+    /** S 批智能条目定位（固定保留标题「ZCode 工作区」；零 schema 变更——纯查询面）。 */
+    @Query("SELECT * FROM remote_workspace_entries WHERE title = :title LIMIT 1")
+    fun getByTitle(title: String): RemoteWorkspaceEntryEntity?
+
     @Insert
     fun insert(entry: RemoteWorkspaceEntryEntity): Long
+
+    /** S 批智能条目更新（拉取模型：每次查询刷新 URL 与时间戳，绝不堆积重复行）。 */
+    @Query("UPDATE remote_workspace_entries SET url = :url, createdAtMs = :updatedAtMs WHERE id = :id")
+    fun updateUrl(id: Long, url: String, updatedAtMs: Long)
 
     /** 打开条目即触（最近使用排序依据）。 */
     @Query("UPDATE remote_workspace_entries SET lastOpenedAtMs = :openedAtMs WHERE id = :id")

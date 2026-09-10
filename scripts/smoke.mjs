@@ -11764,6 +11764,235 @@ if (isEntrypoint()) {
   }, 'fast')
 
   // ====================================================================
+  // S 批次（workspace_link——ZCode 移动遥控链接零手工获取，docs/18 §5.3 注记 +
+  // 任务书）：slink-provider / slink-downlink 两条追加。令牌三零铁律：sid/hash/
+  // mid/URL 全程 fake 值（运行时随机生成，源码零常量令牌）；断言只对形状/长度/
+  // 前缀；审计面与 result_json 断言零 URL 子串。fast 档。
+  // ====================================================================
+
+  // 173. zcodeLinkProvider 纯函数面（fake fs 注入，绝不触真实 ~/.zcode）：三文件齐 →
+  //      enc:v1（AES-256-GCM，tag 在中间）解密成功 → URL 形状断言（scheme/host/路径/
+  //      六参数序/app_version 常量/t=13 位毫秒；值只断长度，零值断言零输出）；密钥派生
+  //      env ZCODE_CREDENTIAL_SECRET 优先 + 回退三元组派生；缺文件/缺字段/坏信封/
+  //      篡改密文 → ZCODE_LINK_UNAVAILABLE 静态 reason，绝不 partial URL。
+  registerCase('slink-provider: zcodeLinkProvider with fake fs — three sources present decrypts enc:v1 envelope (AES-256-GCM middle-tag) into a shape-valid URL (six params in wire order, app_version constant, 13-digit ms nonce; value assertions are length-only, zero token output), env secret preferred over fallback triple derivation, missing file/field/bad envelope/tampered ciphertext all fold to ZCODE_LINK_UNAVAILABLE with static reasons and never a partial URL', async () => {
+    const { createCipheriv, createHash, randomBytes } = await import('node:crypto')
+    const zl = await import(new URL('../src/main/services/agentControl/zcodeLinkProvider.ts', import.meta.url).href)
+    const { mkdtempSync, writeFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+
+    // 全程 fake 值：sid/mid/明文 hash 均运行时随机生成（shape 对齐 R 批证据：
+    // sid 前缀 d_、mid UUID 形态、hash 明文 44 字符——仅形态，零真实成分）
+    const fakeSid = `d_${randomBytes(10).toString('base64url')}`
+    const fakeMid = [randomBytes(4), randomBytes(2), randomBytes(2), randomBytes(2), randomBytes(6)].map((b) => b.toString('hex')).join('-')
+    const fakePassHashPlain = randomBytes(33).toString('base64url') // 44 chars
+    const envSecret = `smoke-env-secret-${randomBytes(8).toString('hex')}`
+
+    const encryptEnvelope = (plaintext, secret) => {
+      const iv = randomBytes(12)
+      const cipher = createCipheriv('aes-256-gcm', createHash('sha256').update(secret, 'utf8').digest(), iv)
+      const ct = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()])
+      return `enc:v1:${iv.toString('base64url')}.${cipher.getAuthTag().toString('base64url')}.${ct.toString('base64url')}`
+    }
+
+    const dir = mkdtempSync(join(tmpdir(), 'devhub-slink-provider-'))
+    const buildFiles = (overrides = {}) => {
+      const files = {
+        'setting.json': JSON.stringify({ webRemoteControlExternalRelayDevice: { deviceSid: fakeSid } }),
+        'credentials.json': JSON.stringify({ [zl.ZCODE_PASS_HASH_CREDENTIAL_KEY]: encryptEnvelope(fakePassHashPlain, envSecret) }),
+        'telemetry-state.json': JSON.stringify({ deviceMid: fakeMid }),
+        ...overrides,
+      }
+      for (const [name, content] of Object.entries(files)) {
+        if (content === null) continue
+        writeFileSync(join(dir, name), content)
+      }
+      return (path) => {
+        const name = path.split(/[\\/]/).pop()
+        if (!(name in files) || files[name] === null) throw new Error(`ENOENT: ${name}`)
+        return files[name]
+      }
+    }
+
+    const deps = (readFile, extra = {}) => ({ readFile, env: { ZCODE_CREDENTIAL_SECRET: envSecret }, nowMs: () => 1757568000000, deviceName: () => 'smoke-host', zcodeRoot: () => dir, ...extra })
+
+    // 正路：三文件齐 → ok + URL 形状断言（值只断长度/形态，绝不输出值）
+    const okRes = zl.buildZcodeWorkspaceLink(deps(buildFiles()))
+    assert.equal(okRes.ok, true, 'three sources present -> ok')
+    assert.ok(okRes.url.startsWith('https://zcode.chatglm.site/remote/v4?'), 'URL prefix: production origin + /remote/v4')
+    assert.ok(okRes.url.length < 400, 'URL length sane')
+    const parsed = new URL(okRes.url)
+    assert.deepEqual(
+      [...parsed.searchParams.keys()],
+      ['sid', 'hash', 't', 'mid', 'name', 'app_version'],
+      'six params in ZCode wire order (buildWebRemoteControlExternalQrUrl 同序)',
+    )
+    assert.equal(parsed.searchParams.get('app_version'), zl.ZCODE_LINK_APP_VERSION, 'app_version constant (v4 threshold)')
+    assert.equal(parsed.pathname, '/remote/v4', 'v4 path')
+    assert.match(parsed.searchParams.get('t'), /^\d{13}$/, 't is a 13-digit ms nonce')
+    assert.equal(parsed.searchParams.get('sid').length, fakeSid.length, 'sid length preserved (shape, not value)')
+    assert.equal(parsed.searchParams.get('hash').length, fakePassHashPlain.length, 'hash decrypts to the original plaintext length (shape, not value)')
+    assert.equal(parsed.searchParams.get('mid').length, fakeMid.length, 'mid length preserved (shape, not value)')
+    assert.equal(parsed.searchParams.get('name'), 'smoke-host', 'name is the device hostname')
+    assert.equal(okRes.deviceName, 'smoke-host')
+
+    // 密钥派生：env 优先；无 env → 回退三元组（platform:homedir:username）可解密
+    const fallbackSecret = 'zcode-credential-fallback:win32:C:\\Users\\smoke-fixture:smoke-fixture'
+    const fallbackRes = zl.buildZcodeWorkspaceLink(deps(buildFiles({ 'credentials.json': JSON.stringify({ [zl.ZCODE_PASS_HASH_CREDENTIAL_KEY]: encryptEnvelope(fakePassHashPlain, fallbackSecret) }) }), { env: {}, platform: () => 'win32', homedir: () => 'C:\\Users\\smoke-fixture', username: () => 'smoke-fixture' }))
+    assert.equal(fallbackRes.ok, true, 'fallback triple derivation decrypts when env absent')
+    // 错误 env 密钥 → 解密失败（GCM auth 拒绝），绝不产出半成品
+    const wrongKeyRes = zl.buildZcodeWorkspaceLink(deps(buildFiles(), { env: { ZCODE_CREDENTIAL_SECRET: 'wrong-secret' } }))
+    assert.deepEqual(wrongKeyRes, { ok: false, code: 'ZCODE_LINK_UNAVAILABLE', reason: 'pass_hash_decrypt_failed' }, 'wrong env secret folds to structured unavailable')
+
+    // 失败面：缺文件 / 缺字段 / 坏信封 / 篡改密文 / 缺 deviceMid
+    const missingFile = zl.buildZcodeWorkspaceLink(deps((path) => { throw new Error(`ENOENT: ${path}`) }))
+    assert.equal(missingFile.code, 'ZCODE_LINK_UNAVAILABLE', 'all files missing -> structured unavailable')
+    assert.equal(missingFile.url, undefined, 'never a partial URL')
+
+    const noFieldFiles = buildFiles()
+    const noField = zl.buildZcodeWorkspaceLink(deps((path) => {
+      const name = path.split(/[\\/]/).pop()
+      if (name === 'credentials.json') return '{}'
+      return noFieldFiles(path)
+    }))
+    assert.deepEqual(noField, { ok: false, code: 'ZCODE_LINK_UNAVAILABLE', reason: 'pass_hash_missing' }, 'missing credential key -> static reason')
+
+    const badEnvelope = zl.buildZcodeWorkspaceLink(deps(buildFiles({ 'credentials.json': JSON.stringify({ [zl.ZCODE_PASS_HASH_CREDENTIAL_KEY]: 'not-an-envelope' }) })))
+    assert.deepEqual(badEnvelope, { ok: false, code: 'ZCODE_LINK_UNAVAILABLE', reason: 'pass_hash_decrypt_failed' }, 'malformed envelope -> static reason')
+
+    const tamperedEnvelope = (() => {
+      const envStr = encryptEnvelope(fakePassHashPlain, envSecret)
+      const body = envStr.slice('enc:v1:'.length).split('.')
+      const ctBuf = Buffer.from(body[2], 'base64url')
+      ctBuf[0] ^= 0xff
+      const tampered = `enc:v1:${body[0]}.${body[1]}.${ctBuf.toString('base64url')}`
+      return zl.buildZcodeWorkspaceLink(deps(buildFiles({ 'credentials.json': JSON.stringify({ [zl.ZCODE_PASS_HASH_CREDENTIAL_KEY]: tampered }) })))
+    })()
+    assert.equal(tamperedEnvelope.ok, false, 'tampered ciphertext fails GCM auth')
+    assert.equal(tamperedEnvelope.reason, 'pass_hash_decrypt_failed')
+
+    const noMid = zl.buildZcodeWorkspaceLink(deps((path) => {
+      const name = path.split(/[\\/]/).pop()
+      if (name === 'telemetry-state.json') return JSON.stringify({})
+      return buildFiles()(path)
+    }))
+    assert.deepEqual(noMid, { ok: false, code: 'ZCODE_LINK_UNAVAILABLE', reason: 'device_mid_missing' }, 'missing deviceMid -> static reason')
+  }, 'fast')
+
+  // 174. workspace_link 下行全链（夹具 Relay 桩 + fake provider 注入，绝不触真实
+  //      ~/.zcode）：payload {} → ack(accepted) → command_result(executed,
+  //      result{provider,url,deviceName} 帧面回流)；remote_commands.result_json 与
+  //      security_audit_logs 与 command.result 事件 payload 三面断言零 URL 子串
+  //      （只记 {provider}——任务书审计红线）；缺文件 → ZCODE_LINK_UNAVAILABLE
+  //      failed 终态（绝不 partial URL）；同 key 重试 → 原命令新查询（拉取模型）。
+  registerCase('slink-downlink: workspace_link downlink with injected fake source — payload {} acks accepted then command_result executed carries result{provider,url,deviceName} in-frame, remote_commands.result_json + security_audit_logs + command.result event payload all stay {provider}-only with zero URL substrings, missing sources fold to failed ZCODE_LINK_UNAVAILABLE without partial URL, same-key retry re-pulls as a fresh query on the original command row', async () => {
+    const { createCipheriv, createHash, randomBytes } = await import('node:crypto')
+    const zl = await import(new URL('../src/main/services/agentControl/zcodeLinkProvider.ts', import.meta.url).href)
+    const m = await r1CaseSetup('devhub-slink-downlink-')
+    const db = m.dbModule.getDatabase()
+    const stub = await r1StartRelayStub()
+    // 全程 fake 链接成分（运行时随机；断言零值输出）；信封用同源 fake 密钥真实加密
+    // （解密面必须可走通——provider 的 GCM 校验是真实执行面）
+    const fakeSid = `d_${randomBytes(10).toString('base64url')}`
+    const fakeMid = randomBytes(16).toString('hex')
+    const fakeHash = randomBytes(24).toString('base64url')
+    const envSecret = `smoke-env-secret-${randomBytes(8).toString('hex')}`
+    const iv = randomBytes(12)
+    const cipher = createCipheriv('aes-256-gcm', createHash('sha256').update(envSecret, 'utf8').digest(), iv)
+    const ct = Buffer.concat([cipher.update(fakeHash, 'utf8'), cipher.final()])
+    const fakeEnvelope = `enc:v1:${iv.toString('base64url')}.${cipher.getAuthTag().toString('base64url')}.${ct.toString('base64url')}`
+    let fakeFiles = {
+      'setting.json': JSON.stringify({ webRemoteControlExternalRelayDevice: { deviceSid: fakeSid } }),
+      'credentials.json': JSON.stringify({ [zl.ZCODE_PASS_HASH_CREDENTIAL_KEY]: fakeEnvelope }),
+      'telemetry-state.json': JSON.stringify({ deviceMid: fakeMid }),
+    }
+    zl.setZcodeLinkDepsForSmoke({
+      readFile: (p) => {
+        const name = p.split(/[\\/]/).pop()
+        if (!(name in fakeFiles)) throw new Error(`ENOENT: ${name}`)
+        return fakeFiles[name]
+      },
+      env: { ZCODE_CREDENTIAL_SECRET: envSecret },
+      deviceName: () => 'smoke-downlink-host',
+    })
+    try {
+      r1EnableRelay(m, stub, 'slink-relay-cred')
+      const deviceToken = `slink-dev-token-${randomBytes(8).toString('hex')}`
+      r1FixtureDevice(m, db, 'slink-phone', deviceToken)
+      m.relay.configureRelayClientRuntime({ helloTimeoutMs: 3000, baseDelayMs: 50, maxDelayMs: 200 })
+      m.relay.startRelayClient()
+      await r1HelloNewConnection(stub)
+      await pollUntil(() => m.relay.getRelayClientDiagnostics().status === 'ready', 5000, 30, 'relay ready')
+
+      const linkFrame = (reqKey, key) => {
+        const f = r1FixtureFrame(8, 'device-to-ecs')
+        f.requestId = reqKey
+        f.idempotencyKey = key
+        f.action = 'workspace_link'
+        delete f.sessionId // 查询无会话语义 → sessionId 缺省帧形
+        f.payload = {}
+        f.auth = { token: deviceToken, ts: Math.floor(Date.now() / 1000), nonce: randomBytes(16).toString('hex') }
+        f.createdAt = Math.floor(Date.now() / 1000)
+        return f
+      }
+
+      // 正路：ack accepted + command_result executed(result{provider,url,deviceName})
+      r1StubSend(stub, linkFrame('slink-req-1', 'slink-key-1'))
+      const ack = await r1StubWait(stub, (f) => f.json?.type === 'command_ack' && f.json.idempotencyKey === 'slink-key-1', 4000, 'link ack')
+      assert.equal(ack.json.status, 'accepted')
+      assert.match(ack.json.commandId, /^cmd-/, 'ack carries the L3 commandId')
+      const result = await r1StubWait(stub, (f) => f.json?.type === 'command_result' && f.json.idempotencyKey === 'slink-key-1', 4000, 'link result')
+      assert.equal(result.json.action, 'workspace_link', 'command_result uses the relay action name')
+      assert.equal(result.json.status, 'executed')
+      assert.equal(result.json.result?.provider, 'zcode', 'result carries provider zcode')
+      assert.equal(typeof result.json.result?.url, 'string', 'result carries an in-frame url')
+      assert.ok(result.json.result.url.startsWith('https://zcode.chatglm.site/remote/v4?'), 'url has the v4 prefix (shape)')
+      assert.equal(result.json.result.deviceName, 'smoke-downlink-host', 'result carries deviceName')
+
+      // 审计红线三面：result_json / security_audit_logs / command.result 事件零 URL 子串
+      const cmdRow = db.prepare('SELECT action, status, result_json, error_code FROM remote_commands WHERE command_id = ?').get(ack.json.commandId)
+      assert.equal(cmdRow.action, 'workspace_link', 'remote_commands row uses the relay action name (comment-level enum, zero migration)')
+      assert.equal(cmdRow.status, 'executed')
+      assert.ok(!cmdRow.result_json.includes('http') && !cmdRow.result_json.includes('sid=') && !cmdRow.result_json.includes('remote/v4'), 'result_json has zero URL substrings')
+      assert.ok(cmdRow.result_json.includes('"provider":"zcode"'), 'result_json records {provider} only')
+      const audits = db.prepare("SELECT action, detail_json FROM security_audit_logs WHERE category = 'command' AND detail_json LIKE '%workspace_link%'").all()
+      assert.ok(audits.length >= 2, 'accept + execute audits recorded')
+      for (const a of audits) {
+        assert.ok(!a.detail_json.includes('http') && !a.detail_json.includes('sid=') && !a.detail_json.includes('url'), `audit ${a.action} stays URL-free`)
+      }
+      const ev = db.prepare("SELECT payload_json FROM agent_events WHERE event_type = 'command.result' ORDER BY id DESC LIMIT 1").get()
+      assert.ok(ev !== undefined, 'command.result event recorded')
+      assert.ok(!ev.payload_json.includes('http') && !ev.payload_json.includes('sid='), 'event payload stays URL-free ({provider}-shaped, redaction by construction)')
+
+      // 同 key 重试：原 commandId 原行 + 重新拉取（拉取模型：t=now 恒新鲜）
+      r1StubSend(stub, linkFrame('slink-req-1r', 'slink-key-1'))
+      const replayAck = await r1StubWait(stub, (f) => f.json?.type === 'command_ack' && f.json.idempotencyKey === 'slink-key-1' && f.json.requestId === 'slink-req-1r', 4000, 'replay ack')
+      assert.equal(replayAck.json.commandId, ack.json.commandId, 'retry replays the original commandId')
+      const replayResult = await r1StubWait(stub, (f) => f.json?.type === 'command_result' && f.json.idempotencyKey === 'slink-key-1' && f.json.commandId === ack.json.commandId, 4000, 'replayed result')
+      assert.equal(replayResult.json.status, 'executed', 'retry re-pulls and re-executes the query')
+      assert.equal(db.prepare('SELECT COUNT(*) c FROM remote_commands WHERE idempotency_key = ?').get('slink-key-1').c, 1, 'still exactly one command row')
+
+      // 失败面：三文件缺失 → failed ZCODE_LINK_UNAVAILABLE（绝不 partial URL）
+      fakeFiles = {}
+      r1StubSend(stub, linkFrame('slink-req-2', 'slink-key-2'))
+      const failResult = await r1StubWait(stub, (f) => f.json?.type === 'command_result' && f.json.idempotencyKey === 'slink-key-2', 4000, 'failed result')
+      assert.equal(failResult.json.status, 'failed')
+      assert.equal(failResult.json.errorCode, 'ZCODE_LINK_UNAVAILABLE')
+      assert.equal(failResult.json.result, undefined, 'failure carries no result object (never a partial URL)')
+      const failRow = db.prepare('SELECT status, error_code, result_json FROM remote_commands WHERE idempotency_key = ?').get('slink-key-2')
+      assert.equal(failRow.status, 'failed')
+      assert.equal(failRow.error_code, 'ZCODE_LINK_UNAVAILABLE')
+      assert.ok(!failRow.result_json.includes('http'), 'failed row result_json stays URL-free')
+    } finally {
+      zl.setZcodeLinkDepsForSmoke(null)
+      m.relay.resetRelayClientForSmoke()
+      await r1StubClose(stub)
+      await r1CaseTeardown(m)
+    }
+  }, 'fast')
+
+  // ====================================================================
   // CP1 批次（ContestPin，docs/22 §2/§3 + docs/04「ContestPin 追加」节）：
   // contestService CRUD / 节点精度 / 资源边。全部 makeTempHome 临时库隔离
   // （零进程零端口，fast 档）；迁移断言与 7 表存在性已并入 step3/step5 既有用例

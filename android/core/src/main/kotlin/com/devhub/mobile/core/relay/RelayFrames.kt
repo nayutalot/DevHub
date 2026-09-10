@@ -141,7 +141,11 @@ sealed class RelayFrame {
         val queued: Boolean,
     ) : RelayFrame()
 
-    /** #10 command_result（E→D 终态；与 command.result 事件双通道按 commandId 去重，§3.10）。 */
+    /**
+     * #10 command_result（E→D 终态；与 command.result 事件双通道按 commandId 去重，§3.10）。
+     * S 批（docs/18 §5.3 注记）：workspace_link 携带可选 result{provider,url,deviceName}
+     * （内存过境回流；ECS 持久化边界只存 {provider}——URL 零落库，任务书审计红线）。
+     */
     data class CommandResult(
         val commandId: String,
         val idempotencyKey: String?,
@@ -150,6 +154,7 @@ sealed class RelayFrame {
         val status: String,
         val errorCode: String?,
         val timestampSec: Long?,
+        val result: JSONObject? = null,
     ) : RelayFrame()
 
     /** #11 sync_request（D→E；after = 本机已持久处理的最高 contiguous sequence；E→H 变体带 deviceId）。 */
@@ -400,6 +405,7 @@ object RelayCodec {
                 status = obj.getString("status"),
                 errorCode = optString(obj, "errorCode"),
                 timestampSec = optLong(obj, "timestamp"),
+                result = obj.optJSONObject("result"),
             )
 
             TYPE_SYNC_REQUEST -> RelayFrame.SyncRequest(
@@ -618,6 +624,7 @@ object RelayCodec {
             .put("status", frame.status)
             .putOpt("errorCode", frame.errorCode)
             .putOpt("timestamp", frame.timestampSec)
+            .putOpt("result", frame.result)
             .toString()
 
         is RelayFrame.SyncRequest -> JSONObject()

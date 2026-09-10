@@ -479,7 +479,7 @@ try {
     }
 
     // ===========================================================================
-    step('M3-E 设备自管理两 action（docs/18 §5.3：spawn_session/revoke_device 正常中继 + 未知 action 仍 BAD_PAYLOAD）')
+    step('M3-E + S 批 设备自管理/查询 action（docs/18 §5.3：spawn_session/revoke_device/workspace_link 正常中继 + 未知 action 仍 BAD_PAYLOAD）')
     {
       // ① 新 action 正常中继（host 在线 → 原样中继 → host 回执回流；sessionId 缺省帧形）
       globalThis.selfcheckDevice.send({
@@ -507,6 +507,26 @@ try {
       const revokeAck = await globalThis.selfcheckDevice.recvFrame(5000)
       assert(revokeAck.type === 'command_ack' && revokeAck.status === 'accepted', 'revoke_device host 回执回流设备')
 
+      // S 批（docs/18 §5.3 注记）：workspace_link 中继 + command_result.result 帧面透传
+      globalThis.selfcheckDevice.send({
+        type: 'command', requestId: 'sc-wl-1', idempotencyKey: 'sc-wl-key-1',
+        action: 'workspace_link', payload: {},
+        auth: { token: deviceToken, ts: Math.floor(Date.now() / 1000), nonce: crypto.randomBytes(16).toString('hex') },
+        createdAt: Math.floor(Date.now() / 1000),
+      })
+      const relayedLink = await globalThis.selfcheckHost.recvFrame(5000)
+      assert(relayedLink.type === 'command' && relayedLink.action === 'workspace_link' && relayedLink.sessionId === undefined, 'workspace_link 原样中继到 host 腿（八值；sessionId 缺省帧形）')
+      // host 终态携带 result（自检用假值形态；断言只对透传行为）——设备收全量帧
+      globalThis.selfcheckHost.send({ type: 'command_result', commandId: 'cmd-sc-wl-1', idempotencyKey: 'sc-wl-key-1', action: 'workspace_link', status: 'executed', errorCode: null, result: { provider: 'zcode', url: 'https://selfcheck.invalid/remote/v4?sid=fake&hash=fake&t=1&mid=fake', deviceName: 'selfcheck-host' }, timestamp: Math.floor(Date.now() / 1000) })
+      const linkResult = await globalThis.selfcheckDevice.recvFrame(5000)
+      assert(linkResult.type === 'command_result' && linkResult.status === 'executed' && linkResult.result?.provider === 'zcode', 'workspace_link command_result.result 帧面透传到设备')
+      // 落库面红线：result_json 只记 {provider}，URL 零子串
+      const wlStore = new Store({ path: dbPath })
+      const wlRow = wlStore.get("SELECT result_json FROM relay_commands WHERE idempotency_key = 'sc-wl-key-1'")
+      wlStore.close()
+      assert(wlRow !== undefined && wlRow.result_json !== null, 'workspace_link 命令行落库')
+      assert(wlRow.result_json.includes('"provider":"zcode"') && !wlRow.result_json.includes('http') && !wlRow.result_json.includes('sid='), 'relay_commands.result_json 脱敏为 {provider}，URL 零子串（令牌红线）')
+
       // ② 未知 action 仍 BAD_PAYLOAD（值域扩展不放松白名单；业务级错误不断连）
       globalThis.selfcheckDevice.send({
         type: 'command', requestId: 'sc-m3e-bad', idempotencyKey: 'sc-m3e-bad-key', sessionId: 7,
@@ -515,7 +535,7 @@ try {
       })
       const badAction = await globalThis.selfcheckDevice.recvFrame(5000)
       assert(badAction.type === 'error' && badAction.code === 'BAD_PAYLOAD', '未知 action → error BAD_PAYLOAD（docs/18 §3.16 业务级不断连）')
-      assert(String(badAction.message).includes('spawn_session') && String(badAction.message).includes('revoke_device'), 'BAD_PAYLOAD 消息反映七值白名单')
+      assert(String(badAction.message).includes('spawn_session') && String(badAction.message).includes('revoke_device') && String(badAction.message).includes('workspace_link'), 'BAD_PAYLOAD 消息反映八值白名单')
     }
 
     // ===========================================================================

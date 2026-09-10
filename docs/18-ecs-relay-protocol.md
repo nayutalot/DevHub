@@ -539,6 +539,7 @@ e2e 属部署后主控手工验证）、`ecs-relay/src/forwarder.ts`（handleWak
 | `resume` | `resume` | 同上 | `resume ∈ granted` |
 | `approve` | **不存在**（新增） | 协议/ECS 透传支持；Windows 通道按 G6 门控实现 | **默认不授予**：仅对「判定源真实验证存在」的 provider 开放（当前仅 kimi `interaction.request` 语料证实），docs/19 §6 |
 | `interrupt` | **不存在**（新增；codex `turn/interrupt` 通道已实证在 158 方法清单内） | 同上（executeCommand 持久连接） | 同 approve 门控流程；活跃 turn 打断真实效果未验证（ac8 未执行），授予前必须补验 |
+| `workspace_link` | **不存在**（S 批新增，2026-09-11；唯一查询型 action，语义与审计红线见 §5.3 注记） | L3 `beginWorkspaceLink` → zcodeLinkProvider 磁盘三文件重建 URL → `completeWorkspaceLink` | READ 类能力门：任何已配对设备可查询（auth 即门；无能力矩阵依赖） |
 
 - `payload.decision`（仅 approve）：`'allow' | 'deny'`。deny（拒绝批准）为 approve 的伴生语义；
   协议面保留，Windows 授予门前 deny/allow 一起门控（reject 语义的用户裁决项见 docs/21 §5.1）。
@@ -599,6 +600,43 @@ e2e 属部署后主控手工验证）、`ecs-relay/src/forwarder.ts`（handleWak
 `revoke_device` 目标 = self 无需设备列表读；诊断查询不在本裁决授权面（维持 §7.2 v1 不开放）。
 ECS 侧 `command.action` 白名单同步追加两值属实现批次范围（值域扩展非新增 channel，docs/20 §2 R1
 同款纪律）。
+
+#### 5.3.1 S 批追加注记：`workspace_link` 查询 action（2026-09-11）
+
+> 裁决（主控，S 批任务书 §1）：App 零手工获取 ZCode 移动遥控链接——**纯拉取模型**。
+> URL 凭据成分（sid/hash/mid）静态、`t` 为时间戳 nonce，App 需要时取，桌面磁盘实时重建，
+> 永远新鲜且有效。帧形零扩展（复用 §3.8/§3.9/§3.10 原形），仅 action 值域七值→八值
+> （N-R3 白名单封闭枚举纪律延续，未知值依旧 BAD_PAYLOAD）。
+
+| 项 | 值 |
+| --- | --- |
+| 帧形 | `command { action:'workspace_link', payload:{} }`（sessionId 缺省合法，§5.3 同形）；受理 `command_ack`；终态 `command_result` |
+| Windows 执行 | L3 `beginWorkspaceLink`（幂等行 + 审计）→ `zcodeLinkProvider` 磁盘三文件重建（`~/.zcode/v2/setting.json` deviceSid + `credentials.json` `enc:v1` AES-256-GCM 信封解密 + `telemetry-state.json` deviceMid；密钥 `sha256(env ZCODE_CREDENTIAL_SECRET ‖ fallback 三元组)`）→ `completeWorkspaceLink` |
+| 终态（成功） | `command_result { status:'executed', result:{ provider:'zcode', url, deviceName } }`——**result 为帧面可选字段**，仅 workspace_link 携带，内存过境回流设备（App 点击即开 WebView） |
+| 终态（不可用） | `command_result { status:'failed', errorCode:'ZCODE_LINK_UNAVAILABLE' }`（新码，§8.2 同一命名域，WS 专属）：ZCode 未配对/文件缺失/解密失败，**绝不 partial URL** |
+| 幂等语义 | 同 key 重试 = **重新拉取**（查询语义：旧 URL 从不持久化、无从重放；重建当前链接即最忠实「原结果」），原 commandId 复用；跨 action 撞键 → COMMAND_KEY_CONFLICT（docs/14 §B.5 同款） |
+| 门控 | READ 类：任何已配对设备可查询（auth 即门）；gateway_enabled 前提与 §5.1 五值一致 |
+
+**审计红线（最高优先）**：URL 含 sid/hash/mid 凭据成分——**URL 及其任何子串零落库零审计**。
+- 桌面：`remote_commands.result_json` 与 `security_audit_logs` detail 只记 `{provider}`；
+  URL 仅在 command_result 帧内存过境；零日志零持久化（不写 settings/DB）。
+- ECS：转发面纯透传（设备收全量 result 帧）；**持久化边界脱敏**——`relay_commands.result_json`
+  对 workspace_link 只存 `result:{provider}`（sql 0004 表重建 + forwarder S 批注记）；
+  `relay_audit` 本就不含 payload。
+- App：URL 仅存本机 Room 条目（置顶智能条目，固定标题定位）与 WebView 内存面；零日志零外发；
+  展示一律中段省略（Q 批纪律延续）。
+
+```json
+// workspace_link（D→E → E→H；§3.8 原形，payload {} 无参数）
+{ "type": "command", "requestId": "uuid-…", "idempotencyKey": "uuid-…",
+  "action": "workspace_link", "payload": {},
+  "auth": { "token": "<端到端 Token>", "ts": 1757000000, "nonce": "<128-bit>" } }
+// 终态（H→E → E→D；§3.10 原形 + 可选 result）
+{ "type": "command_result", "commandId": "cmd-<uuid>", "idempotencyKey": "uuid-…",
+  "action": "workspace_link", "status": "executed", "errorCode": null,
+  "result": { "provider": "zcode", "url": "https://…/remote/v4?sid=…", "deviceName": "…" },
+  "timestamp": 1757000100 }
+```
 
 ---
 
@@ -828,6 +866,6 @@ class 仅 additive 扩展。
 | --- | --- |
 | N-R1 | 不做端到端内容加密（payload 加密/密钥协商）——ECS 威胁面以「不落盘+脱敏前置+最小缓存」约束（docs/19 §3），端到端加密列 backlog |
 | N-R2 | 不做多用户/多桌面租户模型——单 host（每部署一份 Relay 凭据），多桌面为 backlog（reference-map MeshCentral 设备组方向记录） |
-| N-R3 | 不做任意远程命令通道——action 全集锁死 §5.1 五值（＋§5.3 设备自管理两值，M3-E 唯一追加，用户裁决 2026-09-07 #9=B），shell/exec/文件通道不存在（docs/15 §5 禁止动作 1/2 延续） |
+| N-R3 | 不做任意远程命令通道——action 全集锁死 §5.1 五值（＋§5.3 设备自管理两值，M3-E 唯一追加，用户裁决 2026-09-07 #9=B；＋§5.3.1 `workspace_link` 查询一值，S 批唯一非自管理追加，只读查询零执行面），shell/exec/文件通道不存在（docs/15 §5 禁止动作 1/2 延续） |
 | N-R4 | 不在 WS 面复刻完整 REST（诊断/设备管理/归档等）——v1 REST 范围 §7.1/§7.2 |
 | N-R5 | 不做协议版本协商（v1 单版本；`relayVersion` 仅观测字段；不兼容 = error + close） |
