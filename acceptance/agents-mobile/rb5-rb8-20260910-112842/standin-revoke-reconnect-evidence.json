@@ -1,0 +1,67 @@
+{
+  "cmd": "revoke-reconnect",
+  "startedAt": "2026-09-10T04:32:04.128Z",
+  "steps": [
+    {
+      "step": "v1_hello",
+      "ok": true,
+      "ts": 1789014724234,
+      "sequence": 24483,
+      "upstream": "connected"
+    },
+    {
+      "step": "disconnect_revoked",
+      "ok": true,
+      "ts": 1789014724310,
+      "reason": "revoked",
+      "ms": 76
+    },
+    {
+      "step": "reconnect_401",
+      "ok": true,
+      "ts": 1789014724415,
+      "status": "HTTP/1.1 401 Unauthorized",
+      "code": "DEVICE_REVOKED",
+      "ms": 104
+    }
+  ],
+  "frames": [
+    {
+      "sent": "command",
+      "idempotencyKey": "7a6b6774-33d9-45fe-9872-e032069898c7",
+      "action": "revoke_device"
+    }
+  ],
+  "disconnect": {
+    "reason": "revoked",
+    "ms": 76
+  },
+  "reconnect": {
+    "status": "HTTP/1.1 401 Unauthorized",
+    "code": "DEVICE_REVOKED",
+    "ms": 104,
+    "revokedFace": true
+  },
+  "framesSeen": [
+    {
+      "type": "hello",
+      "sequence": 24483,
+      "deviceId": 14,
+      "heartbeatSec": 30,
+      "relayVersion": "1.0.0",
+      "upstream": "connected"
+    },
+    {
+      "type": "command_ack",
+      "requestId": "496d4bf2-3202-45f1-add0-e4137a712d52",
+      "idempotencyKey": "7a6b6774-33d9-45fe-9872-e032069898c7",
+      "commandId": "cmd-f5e05d09-bc62-45ed-990f-c21e3c19cb7e",
+      "status": "accepted"
+    },
+    {
+      "type": "disconnect",
+      "reason": "revoked"
+    }
+  ],
+  "finishedAt": "2026-09-10T04:32:04.415Z"
+}

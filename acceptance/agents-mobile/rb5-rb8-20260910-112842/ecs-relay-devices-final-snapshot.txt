@@ -1,0 +1,18 @@
+id  device_name          win_device_id  status   revoked_at  last_seen_at
+--  -------------------  -------------  -------  ----------  ------------
+1   m3c2-standin-client  34             revoked  1788685785              
+2   sdk_gphone64_x86_64  38             revoked  1788728619  1788714519  
+3   sdk_gphone64_x86_64  39             revoked  1788728619  1788715312  
+4   sdk_gphone64_x86_64  40             revoked  1788728619  1788715957  
+5   sdk_gphone64_x86_64  41             revoked  1788728619  1788723625  
+6   m3c2d-standin        42             revoked  1788728619  1788726297  
+7   sdk_gphone64_x86_64  43             revoked  1788728619  1788726873  
+8   sdk_gphone64_x86_64  46             active               1788735426  
+9   m3c2e-standin        47             revoked  1788735223  1788733645  
+10  sdk_gphone64_x86_64  52             revoked  1789014305  1789014305  
+11  rw0-verify           990            revoked              1788968877  
+12  rb5-rb8-standin      72             revoked  1789014738              
+13  rb5-rb8-standin      73             revoked  1789014738              
+14  rb5-rb8-standin      74             revoked  1789014724  1789014724  
+15  rb5-rb8-standin      75             revoked  1789014437  1789014437  
+16  sdk_gphone64_x86_64  76             revoked  1789014695  1789014695  

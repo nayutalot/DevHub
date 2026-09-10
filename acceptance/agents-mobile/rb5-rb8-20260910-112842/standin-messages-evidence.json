@@ -1,0 +1,57 @@
+{
+  "cmd": "messages",
+  "startedAt": "2026-09-10T04:11:10.894Z",
+  "steps": [
+    {
+      "step": "messages_685",
+      "ok": true,
+      "ts": 1789013471318,
+      "status": 200,
+      "count": 0
+    },
+    {
+      "step": "messages_686",
+      "ok": true,
+      "ts": 1789013471457,
+      "status": 200,
+      "count": 5
+    }
+  ],
+  "frames": [],
+  "messages": {
+    "685": [],
+    "686": [
+      {
+        "role": "system",
+        "kind": null,
+        "head": "",
+        "at": null
+      },
+      {
+        "role": "system",
+        "kind": null,
+        "head": "",
+        "at": null
+      },
+      {
+        "role": "system",
+        "kind": null,
+        "head": "",
+        "at": null
+      },
+      {
+        "role": "user",
+        "kind": null,
+        "head": "",
+        "at": null
+      },
+      {
+        "role": "user",
+        "kind": null,
+        "head": "",
+        "at": null
+      }
+    ]
+  },
+  "finishedAt": "2026-09-10T04:11:11.457Z"
+}

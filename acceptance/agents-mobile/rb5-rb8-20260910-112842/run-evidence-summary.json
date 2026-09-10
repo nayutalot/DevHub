@@ -1,0 +1,81 @@
+{
+  "batch": "m3e1-rb5-rb8-liveness (D 批)",
+  "executor": "omni-agent",
+  "date": "2026-09-10",
+  "apk": "F:/Active_Project/DevHub-worktrees/rw1/android/app/build/outputs/apk/debug/app-debug.apk (03:09 build, main 9eba8ac: M3-E1 App 面 + RW1 唤醒卡)",
+  "emulator": "DevHub_API_35 (emulator-5554), fresh boot -no-snapshot-load",
+  "relayEndpoint": "wss://59.110.149.11 (SPKI sha256/a07f7ab77bc2f21ba8d5e868cad30156d721aa11a8b85843973575a672aa50d0, live-derived, notAfter 2026-12-04)",
+  "precheck": {
+    "resident": "health 200, PID 8148, 127.0.0.1:8746, uptimeSec 26592 (只读，未重启)",
+    "ecs": "devhub-relay systemd active"
+  },
+  "deviceContext": {
+    "note": "AVD 应用数据残留 m3c8a 批有效配对（SecureStore token，Room device_info 行缺失）→ App 以既有测试设备 ECS#10/win#52 在线。本批直接沿用该测试设备作 R-B5/R-B8 主语（撤销即清理）；全新配对流程（桌面签发码→App 裸连 claim→pair_accepted→rotation→连接）在 RW1 步以新设备 ECS#16/win#76 完整活体验证。",
+    "fixtureRepair": "DeviceScreen 撤销按钮因 Room device_info 行缺失不渲染（早退）；经 run-as 向本测试设备本地 Room DB 插入 device_info 单行（deviceId=52, tokenVersion=2, gateway=devhub-gateway, pairedAt=1788740125，与 SecureStore 既有身份一致）以恢复 UI 入口。仅测试设备本地库，零生产数据触碰。"
+  },
+  "rb5_leg1_observedGate": {
+    "verdict": "PASS",
+    "method": "C2e standin 先例（App UI 对 observed 会话零控件=InteractionHonesty 红线，无法经 UI 发 command）；协议对等设备腿 rb5rb8-standin.mjs",
+    "frame": "WS command {action:'pause', sessionId:664(kimi, observed, waiting_input)} → command_ack",
+    "result": {"status": "rejected", "errorCode": "COMMAND_NOT_EXECUTABLE", "ms": 68},
+    "criterion": "docs/20 §3 R-B5：observed 会话 command → command_ack rejected COMMAND_NOT_EXECUTABLE ✓",
+    "evidence": "standin-gate-evidence.json"
+  },
+  "rb5_leg2_managedSpawn": {
+    "verdict": "FAIL（部分面）",
+    "attempt1": {
+      "task": "reply with exactly: OK",
+      "spawn": "relay_commands#5 device10 spawn_session status=executed acked 1789012046 result 1789012046（sub-second）；command_result sessionId=685",
+      "flowback": "relay_events 24461-24470：session.started codex:685 / running / command.result / codex rollout 686 started + 5 条 message.appended（系统上下文+任务文本）真实回流至 App",
+      "modelOutput": "无——codex CLI 写入 rollout 后静默退出（rollout-2026-09-10T11-47-26-*.jsonl 终于 task_started/UserMessage，无 response_item 无 error）；桌面目力所及无 codex 进程"
+    },
+    "attempt2_retry1_of_2": {
+      "task": "reply with exactly: OK (retry 1)",
+      "spawn": "relay_commands#8 spawn_session executed（同秒 ack/result）；会话 687 + rollout codex:687；回流事件 24472-24479 同型",
+      "modelOutput": "无（与 attempt1 同一失败面）"
+    },
+    "rootCauseHypothesis": "codex CLI→模型 API 调用静默失败。endpoint https://www.micuapi.ai/v1 本机可达（无凭据 GET 401, 0.7s）→ 非网络墙；疑 codex 存储凭据失效或 CLI 0.153.4 在 resident spawn 包装下 stderr 丢失。按凭据零触碰纪律不再深入。",
+    "quotaLedger": "真实推理 spawn 共 2 次（首次 + 重试 1/2；重试 2 未动用——失败面已证明确定性）",
+    "criterionMapping": "docs/20 §3 R-B5 后半『managed 会话经 WS command spawn_session → accepted』= PASS（双次 executed）；『真实推理回流（codex）』= FAIL（回流通道真实工作，模型零输出）",
+    "defect_found": "App parseSessionDetail(Dtos.kt:203) 对 capabilities=null 抛 JSONException → spawn 成功自动跳入详情页即崩（两次：03:47:26 PID2999 / 04:15:19 PID4498，FATAL EXCEPTION 栈留 logcat 切片）。前台服务自愈重连。",
+    "minor_defect": "relay 模式 DeviceScreen 拉服务端状态打 GET /v1/devices → ECS 面 NOT_FOUND『no such REST endpoint』（App 结构化显示，不崩溃；relay 读面缺口）",
+    "evidence": "standin-messages-evidence.json, rb5-leg2-00/01/05 截图, logcat 切片"
+  },
+  "rb8_selfRevokeLoop": {
+    "verdict": "PASS",
+    "app_face": {
+      "trigger": "DeviceScreen 撤销本设备 → 确认撤销（relay 模式 submitSelfRevokeRelay → WS command revoke_device）",
+      "disconnect": "logcat 04:25:06.430 auth fatal (DEVICE_REVOKED): Relay 通知设备已被撤销（disconnect reason=revoked）",
+      "stopReconnect": "撤销后 ≥96s ConnManager 零重连零 hello（04:25:06→04:26:42 切片空）；UI 回网关配置页（凭据清除→Unpaired 导航）",
+      "ecs": "relay_devices#10 status=revoked revoked_at=1789014305；audit 586-590：revoke_device relayed→accepted→executed→device_revoked(host_disconnect)→connection_closed(disconnect (revoked))"
+    },
+    "reconnect401_face": {
+      "method": "standin 设备（自身 token）revoke-reconnect 子命令",
+      "result": "device15: disconnect(reason=revoked) 72ms → 旧 token 重连 HTTP/1.1 401 Unauthorized code=DEVICE_REVOKED (418ms)；device14 复验 76ms/104ms",
+      "evidence": "standin-revoke-reconnect-evidence.json"
+    },
+    "criterion": "docs/20 §3 R-B8 四断言全 PASS"
+  },
+  "rw1_wake": {
+    "verdict": "PASS",
+    "freshPairing": "桌面 REST POST /v1/pairing/create（=IPC agents:pairingCreate 同 L3 createPairing，回环+防重放头）→ App PairingScreen（relay 裸连 pair 帧）→ pair_accepted(ECS#16/win#76) → token_rotation v2 → 正式连接心跳 30s",
+    "wake": "Agents 页唤醒卡 → 唤醒 Windows → wake_result already_on；App 文案『Windows 已在线（already_on），无需唤醒』；ECS audit#605 wake_attempt device16 success {status:already_on}（host 腿在线快路径零执行）",
+    "evidence": "rw1-01-wake-already-on.png"
+  },
+  "cleanup": {
+    "ecs": "本批全部设备行终态 revoked：#10(App)/#14/#15(standin)/#16(RW1) 经真实自撤销链；#12/#13（pair 失败孤行，token 未及落地）按任务书『本批测试设备行终态 revoked』授权窄条件 UPDATE（WHERE id IN(12,13) AND status='active' AND device_name='rb5-rb8-standin'）",
+    "desktopResidue": "win#72/#73（=ECS#12/#13 配对时桌面所建行）与 win#74/75/76 应同被桌面链撤销；win#72/73 因 token 丢失未经链撤销——留待主控以 m3c8a-orphan-revoke 同法（常驻停止态）清理。桌面行读写本批未触碰。",
+    "ecs_preexisting": "#8/win46 active（2026-09-07 残留，本批之前已存在，未触碰）",
+    "pairingCodes": "本批签发 7 码全部 used/voided/expired，无活跃码残留",
+    "emulator": "关闭（本批末）",
+    "resident": "全程只读未重启（PID 8148 不变）；ECS 配置/env/服务零改动"
+  },
+  "evidenceFiles": [
+    "standin-pair-evidence.json", "standin-gate-evidence.json", "standin-messages-evidence.json",
+    "standin-revoke-reconnect-evidence.json", "rb5rb8-standin-driver.mjs",
+    "rb5-leg2-00-agents-codex-managed.png", "rb5-leg2-01-spawn-task-typed.png", "rb5-leg2-05-second-crash-after-retry1.png",
+    "rb8-01-device-tab-revoke-button.png", "rb8-02-after-revoke-unpaired-gateway.png",
+    "rw1-01-wake-already-on.png", "logcat-connmanager-crashes.slice.log", "ecs-relay-devices-final-snapshot.txt"
+  ],
+  "redlines": "凭据零入证据（driver redactFrame：deviceToken/newToken/auth.token 一律 <redacted>；token 仅内存+mode600 temp 文件）；配对码截图已排除；常驻只读；ECS 仅授权的终态 UPDATE；真实推理 spawn 2 次（1+1 重试）"
+}

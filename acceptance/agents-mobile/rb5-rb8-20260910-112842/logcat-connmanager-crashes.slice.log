@@ -1,0 +1,276 @@
+09-10 03:30:03.884 D/AndroidRuntime( 3064): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+09-10 03:30:03.896 I/AndroidRuntime( 3064): Using default boot image
+09-10 03:30:03.896 I/AndroidRuntime( 3064): Leaving lock profiling enabled
+09-10 03:30:04.055 D/AndroidRuntime( 3064): Calling main entry com.android.commands.uiautomator.Launcher
+09-10 03:30:05.192 D/AndroidRuntime( 3064): Shutting down VM
+09-10 03:31:38.639 D/AndroidRuntime( 3191): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+09-10 03:31:38.643 I/AndroidRuntime( 3191): Using default boot image
+09-10 03:31:38.643 I/AndroidRuntime( 3191): Leaving lock profiling enabled
+09-10 03:31:38.731 D/AndroidRuntime( 3191): Calling main entry com.android.commands.uiautomator.Launcher
+09-10 03:31:39.774 D/AndroidRuntime( 3191): Shutting down VM
+09-10 03:31:53.749 D/AndroidRuntime( 3229): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+09-10 03:31:53.753 I/AndroidRuntime( 3229): Using default boot image
+09-10 03:31:53.753 I/AndroidRuntime( 3229): Leaving lock profiling enabled
+09-10 03:31:53.830 D/AndroidRuntime( 3229): Calling main entry com.android.commands.uiautomator.Launcher
+09-10 03:31:54.861 D/AndroidRuntime( 3229): Shutting down VM
+09-10 03:33:41.243 D/AndroidRuntime( 3359): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+09-10 03:33:41.246 I/AndroidRuntime( 3359): Using default boot image
+09-10 03:33:41.246 I/AndroidRuntime( 3359): Leaving lock profiling enabled
+09-10 03:33:41.323 D/AndroidRuntime( 3359): Calling main entry com.android.commands.uiautomator.Launcher
+09-10 03:33:42.352 D/AndroidRuntime( 3359): Shutting down VM
+09-10 03:33:59.377 D/AndroidRuntime( 3406): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+09-10 03:33:59.381 I/AndroidRuntime( 3406): Using default boot image
+09-10 03:33:59.381 I/AndroidRuntime( 3406): Leaving lock profiling enabled
+09-10 03:33:59.454 D/AndroidRuntime( 3406): Calling main entry com.android.commands.uiautomator.Launcher
+09-10 03:34:00.487 D/AndroidRuntime( 3406): Shutting down VM
+09-10 03:34:59.051 D/AndroidRuntime( 3485): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+09-10 03:34:59.054 I/AndroidRuntime( 3485): Using default boot image
+09-10 03:34:59.054 I/AndroidRuntime( 3485): Leaving lock profiling enabled
+09-10 03:34:59.128 D/AndroidRuntime( 3485): Calling main entry com.android.commands.uiautomator.Launcher
+09-10 03:35:00.161 D/AndroidRuntime( 3485): Shutting down VM
+09-10 03:35:07.392 I/ConnManager( 2999): relay hello seq=24458, upstream=connected, sync after=0
+09-10 03:35:07.493 D/ConnManager( 2999): relay seq=15073 not contiguous (cursor=0, held=1)
+09-10 03:35:07.496 D/ConnManager( 2999): relay seq=15099 not contiguous (cursor=0, held=2)
+09-10 03:35:07.497 D/ConnManager( 2999): relay seq=15100 not contiguous (cursor=0, held=3)
+09-10 03:35:07.497 D/ConnManager( 2999): relay seq=15101 not contiguous (cursor=0, held=4)
+09-10 03:35:07.498 D/ConnManager( 2999): relay seq=15102 not contiguous (cursor=0, held=5)
+09-10 03:35:07.499 D/ConnManager( 2999): relay seq=15103 not contiguous (cursor=0, held=6)
+09-10 03:35:07.499 D/ConnManager( 2999): relay seq=15104 not contiguous (cursor=0, held=7)
+09-10 03:35:07.501 D/ConnManager( 2999): relay seq=15105 not contiguous (cursor=0, held=8)
+09-10 03:35:07.502 D/ConnManager( 2999): relay seq=15106 not contiguous (cursor=0, held=9)
+09-10 03:35:07.503 D/ConnManager( 2999): relay seq=15107 not contiguous (cursor=0, held=10)
+09-10 03:35:07.504 D/ConnManager( 2999): relay seq=15108 not contiguous (cursor=0, held=11)
+09-10 03:35:07.504 D/ConnManager( 2999): relay seq=15109 not contiguous (cursor=0, held=12)
+09-10 03:35:07.505 D/ConnManager( 2999): relay seq=15110 not contiguous (cursor=0, held=13)
+09-10 03:35:07.505 D/ConnManager( 2999): relay seq=15111 not contiguous (cursor=0, held=14)
+09-10 03:35:07.506 D/ConnManager( 2999): relay seq=15112 not contiguous (cursor=0, held=15)
+09-10 03:35:07.506 D/ConnManager( 2999): relay seq=15113 not contiguous (cursor=0, held=16)
+09-10 03:35:07.506 D/ConnManager( 2999): relay seq=15114 not contiguous (cursor=0, held=17)
+09-10 03:35:07.506 D/ConnManager( 2999): relay seq=15116 not contiguous (cursor=0, held=18)
+09-10 03:35:07.507 D/ConnManager( 2999): relay seq=15117 not contiguous (cursor=0, held=19)
+09-10 03:35:07.511 D/ConnManager( 2999): relay seq=15118 not contiguous (cursor=0, held=20)
+09-10 03:35:07.511 D/ConnManager( 2999): relay seq=15131 not contiguous (cursor=0, held=21)
+09-10 03:35:07.512 D/ConnManager( 2999): relay seq=15132 not contiguous (cursor=0, held=22)
+09-10 03:35:07.512 D/ConnManager( 2999): relay seq=15133 not contiguous (cursor=0, held=23)
+09-10 03:35:07.513 D/ConnManager( 2999): relay seq=15134 not contiguous (cursor=0, held=24)
+09-10 03:35:07.513 D/ConnManager( 2999): relay seq=15135 not contiguous (cursor=0, held=25)
+09-10 03:35:07.514 D/ConnManager( 2999): relay seq=15136 not contiguous (cursor=0, held=26)
+09-10 03:35:07.517 D/ConnManager( 2999): relay seq=15137 not contiguous (cursor=0, held=27)
+09-10 03:35:07.517 D/ConnManager( 2999): relay seq=15138 not contiguous (cursor=0, held=28)
+09-10 03:35:07.517 D/ConnManager( 2999): relay seq=15141 not contiguous (cursor=0, held=29)
+09-10 03:35:07.517 D/ConnManager( 2999): relay seq=15142 not contiguous (cursor=0, held=30)
+09-10 03:35:07.518 D/ConnManager( 2999): relay seq=15144 not contiguous (cursor=0, held=31)
+09-10 03:35:07.518 D/ConnManager( 2999): relay seq=15145 not contiguous (cursor=0, held=32)
+09-10 03:35:07.519 D/ConnManager( 2999): relay seq=15146 not contiguous (cursor=0, held=33)
+09-10 03:35:07.520 D/ConnManager( 2999): relay seq=15147 not contiguous (cursor=0, held=34)
+09-10 03:35:07.520 D/ConnManager( 2999): relay seq=15148 not contiguous (cursor=0, held=35)
+09-10 03:35:07.520 D/ConnManager( 2999): relay seq=15149 not contiguous (cursor=0, held=36)
+09-10 03:35:07.521 D/ConnManager( 2999): relay seq=15163 not contiguous (cursor=0, held=37)
+09-10 03:35:07.521 D/ConnManager( 2999): relay seq=15164 not contiguous (cursor=0, held=38)
+09-10 03:35:07.522 D/ConnManager( 2999): relay seq=15202 not contiguous (cursor=0, held=39)
+09-10 03:35:07.523 D/ConnManager( 2999): relay seq=15203 not contiguous (cursor=0, held=40)
+09-10 03:35:07.523 D/ConnManager( 2999): relay seq=15204 not contiguous (cursor=0, held=41)
+09-10 03:35:07.524 D/ConnManager( 2999): relay seq=15205 not contiguous (cursor=0, held=42)
+09-10 03:35:07.524 D/ConnManager( 2999): relay seq=15206 not contiguous (cursor=0, held=43)
+09-10 03:35:07.524 D/ConnManager( 2999): relay seq=15207 not contiguous (cursor=0, held=44)
+09-10 03:35:07.525 D/ConnManager( 2999): relay seq=15208 not contiguous (cursor=0, held=45)
+09-10 03:35:07.525 D/ConnManager( 2999): relay seq=15209 not contiguous (cursor=0, held=46)
+09-10 03:35:07.526 D/ConnManager( 2999): relay seq=15239 not contiguous (cursor=0, held=47)
+09-10 03:35:07.527 D/ConnManager( 2999): relay seq=15240 not contiguous (cursor=0, held=48)
+09-10 03:35:07.528 D/ConnManager( 2999): relay seq=15241 not contiguous (cursor=0, held=49)
+09-10 03:35:07.528 D/ConnManager( 2999): relay seq=15242 not contiguous (cursor=0, held=50)
+09-10 03:35:07.529 D/ConnManager( 2999): relay seq=15243 not contiguous (cursor=0, held=51)
+09-10 03:35:07.530 D/ConnManager( 2999): relay seq=15244 not contiguous (cursor=0, held=52)
+09-10 03:35:07.531 D/ConnManager( 2999): relay seq=15245 not contiguous (cursor=0, held=53)
+09-10 03:35:07.531 D/ConnManager( 2999): relay seq=15246 not contiguous (cursor=0, held=54)
+09-10 03:35:07.532 D/ConnManager( 2999): relay seq=15247 not contiguous (cursor=0, held=55)
+09-10 03:35:07.533 D/ConnManager( 2999): relay seq=15248 not contiguous (cursor=0, held=56)
+09-10 03:35:07.535 D/ConnManager( 2999): relay seq=15249 not contiguous (cursor=0, held=57)
+09-10 03:35:07.536 D/ConnManager( 2999): relay seq=15823 not contiguous (cursor=0, held=58)
+09-10 03:35:07.540 D/ConnManager( 2999): relay seq=15824 not contiguous (cursor=0, held=59)
+09-10 03:35:07.543 D/ConnManager( 2999): relay seq=15825 not contiguous (cursor=0, held=60)
+09-10 03:35:07.544 D/ConnManager( 2999): relay seq=15826 not contiguous (cursor=0, held=61)
+09-10 03:35:07.545 D/ConnManager( 2999): relay seq=15827 not contiguous (cursor=0, held=62)
+09-10 03:35:07.545 D/ConnManager( 2999): relay seq=15828 not contiguous (cursor=0, held=63)
+09-10 03:35:07.547 D/ConnManager( 2999): relay seq=15829 not contiguous (cursor=0, held=64)
+09-10 03:35:07.548 D/ConnManager( 2999): relay seq=15830 not contiguous (cursor=0, held=65)
+09-10 03:35:07.548 D/ConnManager( 2999): relay seq=15831 not contiguous (cursor=0, held=66)
+09-10 03:35:07.549 D/ConnManager( 2999): relay seq=15832 not contiguous (cursor=0, held=67)
+09-10 03:35:07.549 D/ConnManager( 2999): relay seq=15833 not contiguous (cursor=0, held=68)
+09-10 03:35:07.549 D/ConnManager( 2999): relay seq=15834 not contiguous (cursor=0, held=69)
+09-10 03:35:07.550 D/ConnManager( 2999): relay seq=15835 not contiguous (cursor=0, held=70)
+09-10 03:35:07.550 D/ConnManager( 2999): relay seq=15836 not contiguous (cursor=0, held=71)
+09-10 03:35:07.550 D/ConnManager( 2999): relay seq=15837 not contiguous (cursor=0, held=72)
+09-10 03:35:07.551 D/ConnManager( 2999): relay seq=15838 not contiguous (cursor=0, held=73)
+09-10 03:35:07.552 D/ConnManager( 2999): relay seq=15839 not contiguous (cursor=0, held=74)
+09-10 03:35:07.553 D/ConnManager( 2999): relay seq=15840 not contiguous (cursor=0, held=75)
+09-10 03:35:07.553 D/ConnManager( 2999): relay seq=15841 not contiguous (cursor=0, held=76)
+09-10 03:35:07.553 D/ConnManager( 2999): relay seq=15842 not contiguous (cursor=0, held=77)
+09-10 03:35:07.553 D/ConnManager( 2999): relay seq=15843 not contiguous (cursor=0, held=78)
+09-10 03:35:07.554 D/ConnManager( 2999): relay seq=15844 not contiguous (cursor=0, held=79)
+09-10 03:35:07.554 D/ConnManager( 2999): relay seq=15845 not contiguous (cursor=0, held=80)
+09-10 03:35:07.554 D/ConnManager( 2999): relay seq=15846 not contiguous (cursor=0, held=81)
+09-10 03:35:07.555 D/ConnManager( 2999): relay seq=15847 not contiguous (cursor=0, held=82)
+09-10 03:35:07.556 D/ConnManager( 2999): relay seq=15848 not contiguous (cursor=0, held=83)
+09-10 03:35:07.556 D/ConnManager( 2999): relay seq=15849 not contiguous (cursor=0, held=84)
+09-10 03:35:07.556 D/ConnManager( 2999): relay seq=15850 not contiguous (cursor=0, held=85)
+09-10 03:35:07.557 D/ConnManager( 2999): relay seq=15851 not contiguous (cursor=0, held=86)
+09-10 03:35:07.557 D/ConnManager( 2999): relay seq=15852 not contiguous (cursor=0, held=87)
+09-10 03:35:07.558 D/ConnManager( 2999): relay seq=15853 not contiguous (cursor=0, held=88)
+09-10 03:35:07.559 D/ConnManager( 2999): relay seq=15854 not contiguous (cursor=0, held=89)
+09-10 03:35:07.559 D/ConnManager( 2999): relay seq=15855 not contiguous (cursor=0, held=90)
+09-10 03:35:07.560 D/ConnManager( 2999): relay seq=15856 not contiguous (cursor=0, held=91)
+09-10 03:35:07.561 D/ConnManager( 2999): relay seq=15857 not contiguous (cursor=0, held=92)
+09-10 03:35:07.561 D/ConnManager( 2999): relay seq=15858 not contiguous (cursor=0, held=93)
+09-10 03:35:07.562 D/ConnManager( 2999): relay seq=15859 not contiguous (cursor=0, held=94)
+09-10 03:35:07.563 D/ConnManager( 2999): relay seq=15860 not contiguous (cursor=0, held=95)
+09-10 03:35:07.563 D/ConnManager( 2999): relay seq=15861 not contiguous (cursor=0, held=96)
+09-10 03:35:07.564 D/ConnManager( 2999): relay seq=15862 not contiguous (cursor=0, held=97)
+09-10 03:35:07.564 D/ConnManager( 2999): relay seq=15863 not contiguous (cursor=0, held=98)
+09-10 03:35:07.565 D/ConnManager( 2999): relay seq=15864 not contiguous (cursor=0, held=99)
+09-10 03:35:07.566 D/ConnManager( 2999): relay seq=15865 not contiguous (cursor=0, held=100)
+09-10 03:35:07.566 W/ConnManager( 2999): relay sync_response hasGaps upTo=15865 → explicit gapFill
+09-10 03:35:57.549 D/AndroidRuntime( 3717): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+09-10 03:35:57.552 I/AndroidRuntime( 3717): Using default boot image
+09-10 03:35:57.553 I/AndroidRuntime( 3717): Leaving lock profiling enabled
+09-10 03:35:57.628 D/AndroidRuntime( 3717): Calling main entry com.android.commands.uiautomator.Launcher
+09-10 03:35:58.667 D/AndroidRuntime( 3717): Shutting down VM
+09-10 03:46:20.144 D/AndroidRuntime( 3987): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+09-10 03:46:20.147 I/AndroidRuntime( 3987): Using default boot image
+09-10 03:46:20.147 I/AndroidRuntime( 3987): Leaving lock profiling enabled
+09-10 03:46:20.216 D/AndroidRuntime( 3987): Calling main entry com.android.commands.uiautomator.Launcher
+09-10 03:46:21.250 D/AndroidRuntime( 3987): Shutting down VM
+09-10 03:47:26.990 E/AndroidRuntime( 2999): FATAL EXCEPTION: main
+09-10 03:47:26.990 E/AndroidRuntime( 2999): Process: com.devhub.mobile, PID: 2999
+09-10 03:47:26.990 E/AndroidRuntime( 2999): org.json.JSONException: Value null at capabilities of type org.json.JSONObject$1 cannot be converted to JSONObject
+09-10 03:47:26.990 E/AndroidRuntime( 2999): 	at org.json.JSON.typeMismatch(JSON.java:101)
+09-10 03:47:26.990 E/AndroidRuntime( 2999): 	at org.json.JSONObject.getJSONObject(JSONObject.java:622)
+09-10 03:47:26.990 E/AndroidRuntime( 2999): 	at com.devhub.mobile.data.remote.Dtos.parseSessionDetail(Dtos.kt:203)
+09-10 03:47:26.990 E/AndroidRuntime( 2999): 	at com.devhub.mobile.data.remote.GatewayApi.sessionDetail(GatewayApi.kt:196)
+09-10 03:47:26.990 E/AndroidRuntime( 2999): 	at com.devhub.mobile.ui.screens.SessionDetailScreenKt$SessionDetailScreen$3$1$1.invokeSuspend(SessionDetailScreen.kt:167)
+09-10 03:47:26.990 E/AndroidRuntime( 2999): 	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+09-10 03:47:26.990 E/AndroidRuntime( 2999): 	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+09-10 03:47:26.990 E/AndroidRuntime( 2999): 	at kotlinx.coroutines.internal.LimitedDispatcher$Worker.run(LimitedDispatcher.kt:124)
+09-10 03:47:26.990 E/AndroidRuntime( 2999): 	at kotlinx.coroutines.scheduling.TaskImpl.run(Tasks.kt:89)
+09-10 03:47:26.990 E/AndroidRuntime( 2999): 	at kotlinx.coroutines.scheduling.CoroutineScheduler.runSafely(CoroutineScheduler.kt:586)
+09-10 03:47:26.990 E/AndroidRuntime( 2999): 	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.executeTask(CoroutineScheduler.kt:820)
+09-10 03:47:26.990 E/AndroidRuntime( 2999): 	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.runWorker(CoroutineScheduler.kt:717)
+09-10 03:47:26.990 E/AndroidRuntime( 2999): 	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.run(CoroutineScheduler.kt:704)
+09-10 03:47:26.990 E/AndroidRuntime( 2999): 	Suppressed: kotlinx.coroutines.internal.DiagnosticCoroutineContextException: [androidx.compose.ui.platform.MotionDurationScaleImpl@674dba, androidx.compose.runtime.BroadcastFrameClock@d86f46b, StandaloneCoroutine{Cancelling}@6b0dbc8, AndroidUiDispatcher@f4b461]
+09-10 03:47:28.841 I/ConnManager( 4079): relay hello seq=24464, upstream=connected, sync after=24460
+09-10 04:13:29.877 D/AndroidRuntime( 4351): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+09-10 04:13:29.881 I/AndroidRuntime( 4351): Using default boot image
+09-10 04:13:29.881 I/AndroidRuntime( 4351): Leaving lock profiling enabled
+09-10 04:13:29.965 D/AndroidRuntime( 4351): Calling main entry com.android.commands.uiautomator.Launcher
+09-10 04:13:31.084 D/AndroidRuntime( 4351): Shutting down VM
+09-10 04:13:41.326 D/AndroidRuntime( 4375): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+09-10 04:13:41.329 I/AndroidRuntime( 4375): Using default boot image
+09-10 04:13:41.329 I/AndroidRuntime( 4375): Leaving lock profiling enabled
+09-10 04:13:41.405 D/AndroidRuntime( 4375): Calling main entry com.android.commands.uiautomator.Launcher
+09-10 04:13:42.466 D/AndroidRuntime( 4375): Shutting down VM
+09-10 04:13:58.383 D/AndroidRuntime( 4413): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+09-10 04:13:58.387 I/AndroidRuntime( 4413): Using default boot image
+09-10 04:13:58.387 I/AndroidRuntime( 4413): Leaving lock profiling enabled
+09-10 04:13:58.471 D/AndroidRuntime( 4413): Calling main entry com.android.commands.uiautomator.Launcher
+09-10 04:13:59.518 D/AndroidRuntime( 4413): Shutting down VM
+09-10 04:14:22.128 I/ConnManager( 4498): relay hello seq=24471, upstream=connected, sync after=24471
+09-10 04:14:32.408 D/AndroidRuntime( 4549): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+09-10 04:14:32.413 I/AndroidRuntime( 4549): Using default boot image
+09-10 04:14:32.413 I/AndroidRuntime( 4549): Leaving lock profiling enabled
+09-10 04:14:32.492 D/AndroidRuntime( 4549): Calling main entry com.android.commands.uiautomator.Launcher
+09-10 04:14:33.659 D/AndroidRuntime( 4549): Shutting down VM
+09-10 04:14:49.004 D/AndroidRuntime( 4576): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+09-10 04:14:49.008 I/AndroidRuntime( 4576): Using default boot image
+09-10 04:14:49.008 I/AndroidRuntime( 4576): Leaving lock profiling enabled
+09-10 04:14:49.083 D/AndroidRuntime( 4576): Calling main entry com.android.commands.uiautomator.Launcher
+09-10 04:14:50.127 D/AndroidRuntime( 4576): Shutting down VM
+09-10 04:15:19.542 E/AndroidRuntime( 4498): FATAL EXCEPTION: main
+09-10 04:15:19.542 E/AndroidRuntime( 4498): Process: com.devhub.mobile, PID: 4498
+09-10 04:15:19.542 E/AndroidRuntime( 4498): org.json.JSONException: Value null at capabilities of type org.json.JSONObject$1 cannot be converted to JSONObject
+09-10 04:15:19.542 E/AndroidRuntime( 4498): 	at org.json.JSON.typeMismatch(JSON.java:101)
+09-10 04:15:19.542 E/AndroidRuntime( 4498): 	at org.json.JSONObject.getJSONObject(JSONObject.java:622)
+09-10 04:15:19.542 E/AndroidRuntime( 4498): 	at com.devhub.mobile.data.remote.Dtos.parseSessionDetail(Dtos.kt:203)
+09-10 04:15:19.542 E/AndroidRuntime( 4498): 	at com.devhub.mobile.data.remote.GatewayApi.sessionDetail(GatewayApi.kt:196)
+09-10 04:15:19.542 E/AndroidRuntime( 4498): 	at com.devhub.mobile.ui.screens.SessionDetailScreenKt$SessionDetailScreen$3$1$1.invokeSuspend(SessionDetailScreen.kt:167)
+09-10 04:15:19.542 E/AndroidRuntime( 4498): 	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+09-10 04:15:19.542 E/AndroidRuntime( 4498): 	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+09-10 04:15:19.542 E/AndroidRuntime( 4498): 	at kotlinx.coroutines.internal.LimitedDispatcher$Worker.run(LimitedDispatcher.kt:124)
+09-10 04:15:19.542 E/AndroidRuntime( 4498): 	at kotlinx.coroutines.scheduling.TaskImpl.run(Tasks.kt:89)
+09-10 04:15:19.542 E/AndroidRuntime( 4498): 	at kotlinx.coroutines.scheduling.CoroutineScheduler.runSafely(CoroutineScheduler.kt:586)
+09-10 04:15:19.542 E/AndroidRuntime( 4498): 	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.executeTask(CoroutineScheduler.kt:820)
+09-10 04:15:19.542 E/AndroidRuntime( 4498): 	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.runWorker(CoroutineScheduler.kt:717)
+09-10 04:15:19.542 E/AndroidRuntime( 4498): 	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.run(CoroutineScheduler.kt:704)
+09-10 04:15:19.542 E/AndroidRuntime( 4498): 	Suppressed: kotlinx.coroutines.internal.DiagnosticCoroutineContextException: [androidx.compose.ui.platform.MotionDurationScaleImpl@d717cb5, androidx.compose.runtime.BroadcastFrameClock@64f6f4a, StandaloneCoroutine{Cancelling}@f71ebb, AndroidUiDispatcher@4373fd8]
+09-10 04:15:21.297 I/ConnManager( 4641): relay hello seq=24475, upstream=connected, sync after=24471
+09-10 04:15:21.304 D/ConnManager( 4641): relay seq=24476 not contiguous (cursor=24471, held=1)
+09-10 04:15:21.314 D/ConnManager( 4641): relay seq=24477 not contiguous (cursor=24471, held=2)
+09-10 04:15:21.315 D/ConnManager( 4641): relay seq=24478 not contiguous (cursor=24471, held=3)
+09-10 04:15:21.316 D/ConnManager( 4641): relay seq=24479 not contiguous (cursor=24471, held=4)
+09-10 04:15:21.350 D/ConnManager( 4641): relay seq=24476 not contiguous (cursor=24479, held=0)
+09-10 04:15:21.352 D/ConnManager( 4641): relay seq=24477 not contiguous (cursor=24479, held=0)
+09-10 04:15:21.352 D/ConnManager( 4641): relay seq=24478 not contiguous (cursor=24479, held=0)
+09-10 04:15:21.353 D/ConnManager( 4641): relay seq=24479 not contiguous (cursor=24479, held=0)
+09-10 04:20:51.980 D/AndroidRuntime( 4712): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+09-10 04:20:51.983 I/AndroidRuntime( 4712): Using default boot image
+09-10 04:20:51.984 I/AndroidRuntime( 4712): Leaving lock profiling enabled
+09-10 04:20:52.054 D/AndroidRuntime( 4712): Calling main entry com.android.commands.uiautomator.Launcher
+09-10 04:20:53.136 D/AndroidRuntime( 4712): Shutting down VM
+09-10 04:21:10.518 D/AndroidRuntime( 4730): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+09-10 04:21:10.522 I/AndroidRuntime( 4730): Using default boot image
+09-10 04:21:10.522 I/AndroidRuntime( 4730): Leaving lock profiling enabled
+09-10 04:21:10.595 D/AndroidRuntime( 4730): Calling main entry com.android.commands.uiautomator.Launcher
+09-10 04:21:11.624 D/AndroidRuntime( 4730): Shutting down VM
+09-10 04:23:33.634 I/ConnManager( 4803): relay hello seq=24483, upstream=connected, sync after=24483
+09-10 04:24:26.761 D/AndroidRuntime( 4876): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+09-10 04:24:26.764 I/AndroidRuntime( 4876): Using default boot image
+09-10 04:24:26.764 I/AndroidRuntime( 4876): Leaving lock profiling enabled
+09-10 04:24:26.835 D/AndroidRuntime( 4876): Calling main entry com.android.commands.uiautomator.Launcher
+09-10 04:24:27.924 D/AndroidRuntime( 4876): Shutting down VM
+09-10 04:24:34.301 D/AndroidRuntime( 4895): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+09-10 04:24:34.304 I/AndroidRuntime( 4895): Using default boot image
+09-10 04:24:34.304 I/AndroidRuntime( 4895): Leaving lock profiling enabled
+09-10 04:24:34.376 D/AndroidRuntime( 4895): Calling main entry com.android.commands.uiautomator.Launcher
+09-10 04:24:35.411 D/AndroidRuntime( 4895): Shutting down VM
+09-10 04:24:49.813 D/AndroidRuntime( 4921): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+09-10 04:24:49.817 I/AndroidRuntime( 4921): Using default boot image
+09-10 04:24:49.817 I/AndroidRuntime( 4921): Leaving lock profiling enabled
+09-10 04:24:49.886 D/AndroidRuntime( 4921): Calling main entry com.android.commands.uiautomator.Launcher
+09-10 04:24:50.923 D/AndroidRuntime( 4921): Shutting down VM
+09-10 04:25:06.430 W/ConnManager( 4803): auth fatal (DEVICE_REVOKED): Relay 通知设备已被撤销（disconnect reason=revoked）
+09-10 04:27:42.009 D/AndroidRuntime( 4955): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+09-10 04:27:42.012 I/AndroidRuntime( 4955): Using default boot image
+09-10 04:27:42.012 I/AndroidRuntime( 4955): Leaving lock profiling enabled
+09-10 04:27:42.085 D/AndroidRuntime( 4955): Calling main entry com.android.commands.uiautomator.Launcher
+09-10 04:27:43.112 D/AndroidRuntime( 4955): Shutting down VM
+09-10 04:27:54.684 D/AndroidRuntime( 4982): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+09-10 04:27:54.687 I/AndroidRuntime( 4982): Using default boot image
+09-10 04:27:54.687 I/AndroidRuntime( 4982): Leaving lock profiling enabled
+09-10 04:27:54.757 D/AndroidRuntime( 4982): Calling main entry com.android.commands.uiautomator.Launcher
+09-10 04:27:55.790 D/AndroidRuntime( 4982): Shutting down VM
+09-10 04:29:03.178 I/ConnManager( 4803): relay hello seq=24483, upstream=connected, sync after=24483
+09-10 04:29:09.953 D/AndroidRuntime( 5050): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+09-10 04:29:09.956 I/AndroidRuntime( 5050): Using default boot image
+09-10 04:29:09.957 I/AndroidRuntime( 5050): Leaving lock profiling enabled
+09-10 04:29:10.027 D/AndroidRuntime( 5050): Calling main entry com.android.commands.uiautomator.Launcher
+09-10 04:29:11.083 D/AndroidRuntime( 5050): Shutting down VM
+09-10 04:29:17.732 D/AndroidRuntime( 5068): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+09-10 04:29:17.736 I/AndroidRuntime( 5068): Using default boot image
+09-10 04:29:17.736 I/AndroidRuntime( 5068): Leaving lock profiling enabled
+09-10 04:29:17.810 D/AndroidRuntime( 5068): Calling main entry com.android.commands.uiautomator.Launcher
+09-10 04:29:18.856 D/AndroidRuntime( 5068): Shutting down VM
+09-10 04:29:52.297 D/AndroidRuntime( 5101): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+09-10 04:29:52.300 I/AndroidRuntime( 5101): Using default boot image
+09-10 04:29:52.300 I/AndroidRuntime( 5101): Leaving lock profiling enabled
+09-10 04:29:52.369 D/AndroidRuntime( 5101): Calling main entry com.android.commands.uiautomator.Launcher
+09-10 04:29:53.416 D/AndroidRuntime( 5101): Shutting down VM
+09-10 04:31:08.035 D/AndroidRuntime( 5140): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+09-10 04:31:08.039 I/AndroidRuntime( 5140): Using default boot image
+09-10 04:31:08.039 I/AndroidRuntime( 5140): Leaving lock profiling enabled
+09-10 04:31:08.109 D/AndroidRuntime( 5140): Calling main entry com.android.commands.uiautomator.Launcher
+09-10 04:31:09.139 D/AndroidRuntime( 5140): Shutting down VM
+09-10 04:31:26.093 D/AndroidRuntime( 5165): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+09-10 04:31:26.098 I/AndroidRuntime( 5165): Using default boot image
+09-10 04:31:26.098 I/AndroidRuntime( 5165): Leaving lock profiling enabled
+09-10 04:31:26.171 D/AndroidRuntime( 5165): Calling main entry com.android.commands.uiautomator.Launcher
+09-10 04:31:27.198 D/AndroidRuntime( 5165): Shutting down VM
+09-10 04:31:35.838 W/ConnManager( 4803): auth fatal (DEVICE_REVOKED): Relay 通知设备已被撤销（disconnect reason=revoked）

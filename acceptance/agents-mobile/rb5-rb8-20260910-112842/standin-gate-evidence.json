@@ -1,0 +1,76 @@
+{
+  "cmd": "gate",
+  "startedAt": "2026-09-10T04:10:57.765Z",
+  "steps": [
+    {
+      "step": "rest_sessions",
+      "ok": true,
+      "ts": 1789013457921,
+      "status": 200,
+      "count": 100
+    },
+    {
+      "step": "target_selected",
+      "ok": true,
+      "ts": 1789013457921,
+      "id": 664,
+      "providerKey": "kimi",
+      "sessionMode": "observed",
+      "status": "waiting_input"
+    },
+    {
+      "step": "v1_hello",
+      "ok": true,
+      "ts": 1789013458030,
+      "sequence": 24471,
+      "upstream": "connected"
+    },
+    {
+      "step": "command_ack",
+      "ok": true,
+      "ts": 1789013458098,
+      "status": "rejected",
+      "errorCode": "COMMAND_NOT_EXECUTABLE",
+      "ms": 68,
+      "rejectedGate": true
+    }
+  ],
+  "frames": [
+    {
+      "sent": "command",
+      "idempotencyKey": "c1ac4efe-f1fe-4eb6-a4eb-c5092b68e219",
+      "sessionId": 664,
+      "action": "pause"
+    }
+  ],
+  "target": {
+    "id": 664,
+    "providerKey": "kimi",
+    "sessionMode": "observed"
+  },
+  "idempotencyKey": "c1ac4efe-f1fe-4eb6-a4eb-c5092b68e219",
+  "ack": {
+    "status": "rejected",
+    "errorCode": "COMMAND_NOT_EXECUTABLE",
+    "ms": 68,
+    "rejectedGate": true
+  },
+  "framesSeen": [
+    {
+      "type": "hello",
+      "sequence": 24471,
+      "deviceId": 15,
+      "heartbeatSec": 30,
+      "relayVersion": "1.0.0",
+      "upstream": "connected"
+    },
+    {
+      "type": "command_ack",
+      "requestId": "f94b6620-3b6f-4631-aeaf-8fc76271c2c2",
+      "idempotencyKey": "c1ac4efe-f1fe-4eb6-a4eb-c5092b68e219",
+      "status": "rejected",
+      "errorCode": "COMMAND_NOT_EXECUTABLE"
+    }
+  ],
+  "finishedAt": "2026-09-10T04:10:58.099Z"
+}

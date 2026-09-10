@@ -1,0 +1,58 @@
+{
+  "cmd": "pair",
+  "startedAt": "2026-09-10T04:08:48.680Z",
+  "steps": [
+    {
+      "step": "bare_ws_101",
+      "ok": true,
+      "ts": 1789013328785
+    },
+    {
+      "step": "bare_hello",
+      "ok": true,
+      "ts": 1789013328785,
+      "sequence": 24471,
+      "upstream": "connected"
+    },
+    {
+      "step": "pair_accepted",
+      "ok": true,
+      "ts": 1789013328862,
+      "ecsDeviceId": null,
+      "deviceId": 75,
+      "tokenVersion": 1,
+      "ms": 76
+    },
+    {
+      "step": "token_rotation_v2",
+      "ok": true,
+      "ts": 1789013328864,
+      "tokenVersion": 2,
+      "reason": "post-pairing"
+    },
+    {
+      "step": "v1_ws_101",
+      "ok": true,
+      "ts": 1789013328964
+    },
+    {
+      "step": "v1_hello",
+      "ok": true,
+      "ts": 1789013328967,
+      "sequence": 24471,
+      "upstream": "connected",
+      "heartbeatSec": 30
+    }
+  ],
+  "frames": [],
+  "pairAccepted": {
+    "ecsDeviceId": null,
+    "deviceId": 75,
+    "tokenVersion": 1
+  },
+  "hello": {
+    "sequence": 24471,
+    "upstream": "connected"
+  },
+  "finishedAt": "2026-09-10T04:08:48.968Z"
+}
