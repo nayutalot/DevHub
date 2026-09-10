@@ -1,0 +1,18 @@
+[
+ {
+  "key": "agents_monitor_enabled",
+  "value": "1"
+ },
+ {
+  "key": "login_autostart",
+  "value": "1"
+ },
+ {
+  "key": "contestpin_overlay_enabled",
+  "value": "1"
+ },
+ {
+  "key": "contestpin_overlay_state",
+  "value": "{\"bounds\":{\"x\":1537,\"y\":354,\"width\":593,\"height\":432},\"collapsed\":true}"
+ }
+]

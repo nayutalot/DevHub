@@ -1,0 +1,14 @@
+=== health x2 (10s apart) ===
+{"ok":true,"name":"devhub","version":"0.1.0","uptimeSec":2003}
+{"ok":true,"name":"devhub","version":"0.1.0","uptimeSec":2013}
+=== DevHub windows (final) ===
+
+   Hwnd   Pid      X      Y   W  H Title 
+   ----   ---      -      -   -  - ----- 
+8130330 40416   1912    443 758 84 DevHub
+ 397804 40416 -32000 -32000 199 34 DevHub
+
+
+
+=== processes ===
+DevHub.exe process count: 5

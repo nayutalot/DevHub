@@ -1,0 +1,4 @@
+combo [wParam=id=1 (LOWORD=1,HIWORD=0)]: #32768 found=False uia-items=0
+combo [wParam=index=0,id=1(HIWORD=1)]: #32768 found=False uia-items=0
+combo [wParam=0]: #32768 found=False uia-items=0
+RESULT: NO-MENU

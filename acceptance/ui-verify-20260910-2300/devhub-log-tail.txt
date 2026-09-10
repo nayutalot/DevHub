@@ -1,0 +1,60 @@
+2026-09-10T08:59:47.769Z [INFO ] overlay window created (collapsed=1, bounds restored from settings)
+2026-09-10T08:59:47.795Z [INFO ] gateway: listening on 127.0.0.1:8746 (settings gateway_port=8746)
+2026-09-10T08:59:52.947Z [INFO ] gateway: GET /v1/health from 127.0.0.1 -> 200
+2026-09-10T09:04:07.694Z [INFO ] gateway: GET /v1/health from 127.0.0.1 -> 200
+2026-09-10T09:22:19.488Z [WARN ] gateway projects:get: BAD_PAYLOAD: projects:get: id must be a positive integer
+2026-09-10T09:27:48.727Z [WARN ] mcp tool devhub.projects.get failed: NOT_FOUND: project 999999 not found
+2026-09-10T09:27:57.627Z [WARN ] mcp tool devhub.git.status failed: BAD_PAYLOAD: path is not a project path tracked by DevHub (whitelist miss)
+2026-09-10T09:28:45.037Z [INFO ] apihub key crypto: electron safeStorage injected
+2026-09-10T09:28:45.042Z [INFO ] notify wire initialized (60s scan tick + powerMonitor resume/clock watch, applier registered)
+2026-09-10T09:28:45.585Z [INFO ] autostart applied from settings login_autostart=1
+2026-09-10T09:28:45.586Z [INFO ] gateway registered on "devhub:invoke" with 110 channels
+2026-09-10T09:28:45.622Z [INFO ] tray icon loaded: F:\Active_Project\DevHub\resources\tray.png
+2026-09-10T09:28:45.652Z [INFO ] tray created (resident mode: closing the window hides it, docs/12 §10)
+2026-09-10T09:28:45.665Z [INFO ] overlay window created (collapsed=1, bounds restored from settings)
+2026-09-10T09:28:45.695Z [INFO ] gateway: listening on 127.0.0.1:8746 (settings gateway_port=8746)
+2026-09-10T09:30:30.638Z [INFO ] apihub key crypto: electron safeStorage injected
+2026-09-10T09:30:30.641Z [INFO ] notify wire initialized (60s scan tick + powerMonitor resume/clock watch, applier registered)
+2026-09-10T09:30:30.651Z [INFO ] autostart applied from settings login_autostart=1
+2026-09-10T09:30:30.652Z [INFO ] gateway registered on "devhub:invoke" with 108 channels
+2026-09-10T09:30:30.702Z [INFO ] tray icon loaded: F:\Active_Project\DevHub\dist\win-unpacked\resources\resources\tray.png
+2026-09-10T09:30:30.729Z [INFO ] tray created (resident mode: closing the window hides it, docs/12 §10)
+2026-09-10T09:30:30.742Z [INFO ] overlay window created (collapsed=1, bounds restored from settings)
+2026-09-10T09:30:30.770Z [INFO ] gateway: listening on 127.0.0.1:8746 (settings gateway_port=8746)
+2026-09-10T09:30:40.495Z [INFO ] gateway: GET /v1/health from 127.0.0.1 -> 200
+2026-09-10T14:49:55.403Z [INFO ] gateway: GET /health from 127.0.0.1 -> 404
+2026-09-10T14:49:55.440Z [INFO ] gateway: GET /v1/health from 127.0.0.1 -> 200
+2026-09-10T14:51:52.507Z [INFO ] apihub key crypto: electron safeStorage injected
+2026-09-10T14:51:52.510Z [INFO ] notify wire initialized (60s scan tick + powerMonitor resume/clock watch, applier registered)
+2026-09-10T14:51:53.083Z [INFO ] autostart applied from settings login_autostart=1
+2026-09-10T14:51:53.084Z [INFO ] gateway registered on "devhub:invoke" with 110 channels
+2026-09-10T14:51:53.457Z [INFO ] tray icon loaded: F:\Active_Project\DevHub\dist\win-unpacked\resources\resources\tray.png
+2026-09-10T14:51:53.529Z [INFO ] tray created (resident mode: closing the window hides it, docs/12 §10)
+2026-09-10T14:51:53.761Z [INFO ] overlay window created (collapsed=1, bounds restored from settings)
+2026-09-10T14:51:53.791Z [INFO ] gateway: listening on 127.0.0.1:8746 (settings gateway_port=8746)
+2026-09-10T14:52:02.219Z [INFO ] gateway: GET /v1/health from 127.0.0.1 -> 200
+2026-09-10T14:52:41.696Z [INFO ] gateway: GET /v1/health from 127.0.0.1 -> 200
+2026-09-10T14:52:41.755Z [INFO ] gateway: GET /v1/agents from 127.0.0.1 -> 401
+2026-09-10T14:54:00.849Z [INFO ] gateway: GET /v1/health from 127.0.0.1 -> 200
+2026-09-10T15:01:01.012Z [INFO ] gateway: GET /v1/health from 127.0.0.1 -> 200
+2026-09-10T15:03:27.986Z [INFO ] gateway: GET /v1/health from 127.0.0.1 -> 200
+2026-09-10T15:04:25.309Z [INFO ] apihub key crypto: electron safeStorage injected
+2026-09-10T15:04:25.313Z [INFO ] notify wire initialized (60s scan tick + powerMonitor resume/clock watch, applier registered)
+2026-09-10T15:04:25.323Z [INFO ] autostart applied from settings login_autostart=1
+2026-09-10T15:04:25.325Z [INFO ] gateway registered on "devhub:invoke" with 110 channels
+2026-09-10T15:04:25.394Z [INFO ] tray icon loaded: F:\Active_Project\DevHub\dist\win-unpacked\resources\resources\tray.png
+2026-09-10T15:04:25.419Z [INFO ] tray created (resident mode: closing the window hides it, docs/12 §10)
+2026-09-10T15:04:25.440Z [INFO ] overlay window created (collapsed=1, bounds restored from settings)
+2026-09-10T15:04:25.468Z [INFO ] gateway: listening on 127.0.0.1:8746 (settings gateway_port=8746)
+2026-09-10T15:04:26.070Z [INFO ] gateway: GET /v1/health from 127.0.0.1 -> 200
+2026-09-10T15:27:32.625Z [INFO ] apihub key crypto: electron safeStorage injected
+2026-09-10T15:27:32.628Z [INFO ] notify wire initialized (60s scan tick + powerMonitor resume/clock watch, applier registered)
+2026-09-10T15:27:32.638Z [INFO ] autostart applied from settings login_autostart=1
+2026-09-10T15:27:32.640Z [INFO ] gateway registered on "devhub:invoke" with 110 channels
+2026-09-10T15:27:32.693Z [INFO ] tray icon loaded: F:\Active_Project\DevHub\dist\win-unpacked\resources\resources\tray.png
+2026-09-10T15:27:32.723Z [INFO ] tray created (resident mode: closing the window hides it, docs/12 §10)
+2026-09-10T15:27:32.741Z [INFO ] overlay window created (collapsed=1, bounds restored from settings)
+2026-09-10T15:27:32.770Z [INFO ] gateway: listening on 127.0.0.1:8746 (settings gateway_port=8746)
+2026-09-10T15:27:33.395Z [INFO ] gateway: GET /v1/health from 127.0.0.1 -> 200
+2026-09-10T16:00:55.975Z [INFO ] gateway: GET /v1/health from 127.0.0.1 -> 200
+2026-09-10T16:01:06.023Z [INFO ] gateway: GET /v1/health from 127.0.0.1 -> 200

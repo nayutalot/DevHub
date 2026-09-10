@@ -1,0 +1,6 @@
+chevron: UIA not found - clicking ac9 coordinate (2162,1410)
+DEBUG: flyout buttons dump (non-taskbar windows):
+  dbg host=[Chrome_WidgetWin_1] autoId=[] name=[最小化] rect=1844,230,57,59
+  dbg host=[Chrome_WidgetWin_1] autoId=[] name=[最大化] rect=1900,230,58,59
+  dbg host=[Chrome_WidgetWin_1] autoId=[] name=[关闭] rect=1958,230,58,59
+RESULT: DEVHUB-TRAY-ICON-NOT-FOUND

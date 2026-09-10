@@ -1,0 +1,13 @@
+=== health ===
+{"ok":true,"name":"devhub","version":"0.1.0","uptimeSec":695}
+=== DevHub visible windows (physical px, DPI-aware) ===
+
+  Hwnd   Pid      X      Y   W  H Class              Title 
+  ----   ---      -      -   -  - -----              ----- 
+135662 11236   1839    156 620 86 Chrome_WidgetWin_1 DevHub
+201204 11236 -32000 -32000 199 34 Chrome_WidgetWin_1 DevHub
+
+
+
+=== overlay window PrintWindow capture (pre-restart) ===
+overlay cand hwnd=0x211EE rect=(1839,156) 620x86

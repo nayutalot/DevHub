@@ -1,0 +1,6 @@
+[23:04:23] killing DevHub.exe ...
+[23:04:24] processes after kill: 0
+[23:04:24] started DevHub.exe (debugPort=9222)
+[23:04:26] health: {"ok":true,"name":"devhub","version":"0.1.0","uptimeSec":1}
+processes now: 3240
+RESULT: RESTART-OK

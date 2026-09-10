@@ -1,0 +1,4 @@
+before drag: 1839,156 631x79
+after drag:  1995,266 631x79
+delta: dx=156 dy=110 (require magnitude>=50)
+RESULT: DRAG-OK mag=191

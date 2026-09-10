@@ -22,3 +22,4 @@ android/.kotlin/
 acceptance/mcp-scenario-report.json
 # CP6 安装包备料独立输出目录（不替换在役 dist/win-unpacked）
 dist-cp6/
+acceptance/**/db-copy*

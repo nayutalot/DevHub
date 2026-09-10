@@ -1,0 +1,8 @@
+tray host: 0x2707C0
+threads: my=37524 devhub=13352 fg=43376
+foreground bridge: SetForegroundWindow=True
+menu items: 1
+menuitem[0]: name=[] enabled= rect=0,0,0,0
+region-shot saved: F:\Active_Project\DevHub\acceptance\ui-verify-20260910-2300\20-tray-menu.png (560x130 at -30,0)
+menu closed (ESC)
+RESULT: SESSION-DONE
