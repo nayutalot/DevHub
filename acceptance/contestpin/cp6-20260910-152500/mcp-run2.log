@@ -1,0 +1,74 @@
+PASS A01 — initialize 握手 serverInfo.name==="devhub" + stderr 纪律（日志镜像不在 stdout）
+PASS A01-raw — 原始 stdio 探针：stdout 全部为合法 JSON-RPC 行；非法 JSON 行→协议错误帧且进程不退出；stdin 关闭→退出码 0（M3-A01/A08/A11）
+    12 dotted tools, all READ_ONLY; arg tools: devhub.projects.get, devhub.services.list, devhub.services.inspect, devhub.git.status, devhub.skills.list, devhub.archives.list
+PASS A02 — tools/list 恰 16 个点分名，全部 READ_ONLY（annotations 或权限表声明）；有参 tool 严格 schema
+(node:19552) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///F:/Active_Project/DevHub-worktrees/cp6/src/main/mcp/permissions.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to F:\Active_Project\DevHub-worktrees\cp6\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+    environment 2975 chars / dashboard 1542 chars, both with real data markers
+PASS A03 — resources/list 恰 6 个；devhub://environment 与 devhub://dashboard 含真实数据标志
+    environments: windows(10 tools), wsl:Ubuntu(7 tools)
+PASS A04 — environment.detect：windows 工具 ≥5、python 双条目、Ubuntu 环境存在
+    checks: [warning] windows-python-path-order, [warning] version-mismatch:node:Ubuntu, [warning] version-mismatch:npm:Ubuntu, [warning] version-mismatch:cmake:Ubuntu, [warning] docker-daemon-unreachable, [info] missing-optional:clang
+PASS A05 — environment.doctor：≥2 warning，真实基线（python PATH 顺序、node 24 vs 18、docker daemon）
+    projects: SmartWatch, Skill-Manager, DevHub
+PASS A06 — projects.list：≥3 项目且字段齐全（win/wsl path、git 摘要、docker 计数、environment 边或 null）
+    project DevHub: repos=0 services=77 relationships=77
+PASS A07 — projects.get：真实项目 win/wsl path、repositories 区块、三 notAvailable 占位、relationships
+    489 rows in the last snapshot; sample: :14023 Weixin.exe → project unknown
+PASS A08 — services.list：≥1 条，project 字段恒存在；归因不到显式 "unknown"，绝不猜测
+    live port 14023 → 6 entry(s), resolvedProject=unknown
+PASS A09 — services.inspect：真实 LISTENING 端口归因链完整；无人监听端口 1 → 显式 unknown/not found 不崩
+    degraded as expected: failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine; check if the path is correct and if the daemon is running: open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified.
+PASS A10 — docker.status + docker.containers：daemon 不可用 → available:false + reason + containers:[]，isError 恒为 false
+    distros: Ubuntu(v2,Running,snapshot), docker-desktop(v2,Stopped,no-snapshot)
+PASS A11 — wsl.status + wsl.distributions：Ubuntu 与 docker-desktop 在列；探测不到的字段显式 null（D2 分层）
+FAIL A12 — git.status：真实项目 DevHub → 真实仓库结构化返回（branch=main、工作树干净），不崩（2026-09-04 用户令 git init 后就地更新：原断言 notAGitRepository:true 的前提"主仓非 git 仓库"已被推翻）
+AssertionError [ERR_ASSERTION]: clean working tree (验收跑在干净工作树上)
++ actual - expected
+
+  {
++   clean: false,
+-   clean: true,
+    modifiedCount: 0,
++   untrackedCount: 3
+-   untrackedCount: 0
+  }
+
+    at file:///F:/Active_Project/DevHub-worktrees/cp6/scripts/mcp-acceptance.mjs:521:10
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async main (file:///F:/Active_Project/DevHub-worktrees/cp6/scripts/mcp-acceptance.mjs:872:7)
+    at async file:///F:/Active_Project/DevHub-worktrees/cp6/scripts/mcp-acceptance.mjs:905:1
+    projects=3 dirty=0 docker=0/0 warnings=5
+PASS A12b — dashboard.summary：projectCount===3、warnings≥1（与 UI Dashboard 同源口径，M3-A04）
+PASS E01 — invalid projectId（999999）→ isError 结构化 NOT_FOUND，server 存活
+PASS E02 — git.status 白名单外路径（C:\Windows\System32）→ 结构化 BAD_PAYLOAD 拒绝，不探测该路径
+PASS E03 — services.inspect 未知端口 → 显式 unknown（不猜测、不崩）
+PASS E04 — tools/call 不存在的工具名 → SDK 层错误（协议错误帧被 SDK 折叠为 isError），server 存活
+    degraded twice in a row: failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine; check if the path is correct and if the daemon is running: open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified.
+PASS E05 — docker daemon 不可用（真实状态）→ 连续两次调用均结构化降级、均非 isError
+    dev server up; electron pid(s): 2676, 30724, 21264, 20048, 36032
+    shared DB during app run: projects=3, warnings=5, no lock errors
+    graceful WM_CLOSE → electron pid 2676: �ɹ�: �����̷�������ֹ�źţ����̵� PID Ϊ 2676��
+    graceful close timed out; escalating to forceful tree kill
+    app closed (exit code 1); no DevHub electron processes remain
+PASS A13 — 多进程共享 DB：后台启动 Electron App → 期间 MCP projects.list/dashboard.summary 数据一致、无 database locked → 优雅关闭并确认进程清理（M3-A10）
+    5 concurrent calls over one stdio connection: all frames complete and consistent
+PASS A14 — 并发 5 个 tools/call：响应帧无交错损坏（逐行完整 JSON，M3-A09）
+    isolated home C:\Users\sakuya\AppData\Local\Temp\devhub-mcp-acceptance-XUZrMb → 0 projects (real shared DB untouched)
+PASS A15 — DEVHUB_HOME 透传：设置后 MCP 打开隔离库（便携模式路径生效，M3-A12）
+    4 skill(s), 4 agent(s) projected without local paths
+PASS A16 — skills.list：库内镜像 + agents 链接态五态汇总；agent 投影刻意不带 vault 外本机路径字段（skillsDir/agentsDir/agentFiles 不外泄），limit 语义正确
+    targets: claude-code-npm=unknown, claude-code-winget=unknown, claude-desktop=unknown, codex-desktop=unknown, kimi-cli=unknown, grok-cli=unknown, deepseek-harness=unknown, zcode=unknown
+PASS A17 — versions.list：目录 8 目标 + version_targets 快照合并（never live-check；未检测 = unknown + lastCheckedAt null）
+    1 run(s) in the default view; limit>100 refused at the schema layer
+PASS A18 — archives.list：archive_runs 最近 N 条（默认 20 上限 100；limit>100 在 SDK/zod schema 层拒绝，语义与 IPC archive:history 的 BAD_PAYLOAD 等价）
+    degraded as expected: failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine; check if the path is correct and if the daemon is running: open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified.
+PASS A19 — docker.images：daemon down → available:false + reason + 空列表（与 docker:overview 同语义，绝不 isError、绝不起引擎）；daemon up → 结构化镜像表
+PASS A20 — 权限表外名拒绝语义不回归：4 个新 tool 已入表且 READ_ONLY；表外/原型链名 → PERMISSION_DENIED；变更动作名（toggle/update/run 类）绝不注册（docs/09 §10）
+
+scenario report written: F:\Active_Project\DevHub-worktrees\cp6\acceptance\mcp-scenario-report.json
+
+26/27 passed
+failed: A12

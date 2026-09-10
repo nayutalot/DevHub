@@ -1,0 +1,19 @@
+  • electron-builder  version=26.15.3 os=10.0.26200
+  • loaded configuration  file=package.json ("build" field)
+  • executing @electron/rebuild  electronVersion=44.1.1 arch=x64 buildFromSource=false workspaceRoot=F:\Active_Project\DevHub-worktrees\cp6 projectDir=./ appDir=./
+  • installing native dependencies  arch=x64
+  • completed installing native dependencies
+  • packaging       platform=win32 arch=x64 electron=44.1.1 appOutDir=dist-cp6\win-unpacked
+  ⨯ Proxy connection ended before receiving CONNECT response  failedTask=build stackTrace=RequestError: Proxy connection ended before receiving CONNECT response
+    at ClientRequest.<anonymous> (F:\Active_Project\DevHub-worktrees\cp6\node_modules\got\dist\source\core\index.js:970:111)
+    at Object.onceWrapper (node:events:631:26)
+    at ClientRequest.emit (node:events:521:24)
+    at ClientRequest.origin.emit (F:\Active_Project\DevHub-worktrees\cp6\node_modules\@szmarczak\http-timer\dist\source\index.js:43:20)
+    at emitErrorEvent (node:_http_client:109:11)
+    at _destroy (node:_http_client:993:9)
+    at onSocketNT (node:_http_client:1013:5)
+    at processTicksAndRejections (node:internal/process/task_queues:91:21)
+    at Socket.onend (F:\Active_Project\DevHub-worktrees\cp6\node_modules\https-proxy-agent\src\parse-proxy-response.ts:40:5)
+    at Socket.emit (node:events:521:24)
+    at endReadableNT (node:internal/streams/readable:1729:12)
+    at processTicksAndRejections (node:internal/process/task_queues:90:21)

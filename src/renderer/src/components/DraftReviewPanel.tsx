@@ -145,7 +145,7 @@ function DraftJobEditor({ job, onChanged }: { job: ContestImportJobView; onChang
       {toast !== null && <Toast toast={toast} />}
       <div className="recog-group-head">
         <span className="recog-group-title">
-          #{job.id} {job.material?.originalName ?? '(材料已删除)'}
+          #{job.id} {job.material?.originalName ?? (job.params?.source === 'backupImport' ? '备份导入（多赛事，材料见 flag）' : '(材料已删除)')}
         </span>
         <div className="recog-head-actions">
           <button type="button" className="btn btn-primary btn-small" disabled={busy || confirming} onClick={() => void runConfirmPhase1()}>

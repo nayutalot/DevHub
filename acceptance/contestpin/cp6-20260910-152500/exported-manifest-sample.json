@@ -1,0 +1,70 @@
+{
+  "kind": "contestpin-backup",
+  "version": 1,
+  "exportedAt": 1789026668,
+  "source": {
+    "app": "DevHub",
+    "module": "contestpin"
+  },
+  "counts": {
+    "contests": 1,
+    "nodes": 3,
+    "reminders": 0,
+    "materials": 0
+  },
+  "contests": [
+    {
+      "name": "蓝桥杯验证赛",
+      "year": 2026,
+      "edition": "第十七届",
+      "organizer": "工信部人才交流中心",
+      "note": null,
+      "status": "registered",
+      "archived": false,
+      "officialSite": "https://example.com/lanqiao",
+      "signupUrl": "https://example.com/signup",
+      "submitUrl": null,
+      "materialShas": [],
+      "nodes": [
+        {
+          "kind": "signup_deadline",
+          "label": "报名截止（校内）",
+          "precision": "date",
+          "startAt": 1789221105,
+          "endAt": null,
+          "tz": "local",
+          "rawText": "12月20日截止，具体时刻未注明",
+          "done": false,
+          "doneAt": null,
+          "source": "manual"
+        },
+        {
+          "kind": "submit_deadline",
+          "label": "作品提交截止",
+          "precision": "exact",
+          "startAt": 1789825905,
+          "endAt": null,
+          "tz": "local",
+          "rawText": null,
+          "done": false,
+          "doneAt": null,
+          "source": "manual"
+        },
+        {
+          "kind": "custom",
+          "label": "全国决赛时间",
+          "precision": "tbd",
+          "startAt": null,
+          "endAt": null,
+          "tz": "local",
+          "rawText": null,
+          "done": false,
+          "doneAt": null,
+          "source": "manual"
+        }
+      ],
+      "reminders": []
+    }
+  ],
+  "materials": []
+}
