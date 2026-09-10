@@ -1,0 +1,20 @@
+[0.00s] ambient-proxy-var-names (none)
+[0.00s] child-env-assert PASS child env has no NO_PROXY/HTTP_PROXY/HTTPS_PROXY/ALL_PROXY
+[0.00s] spawn C:\Users\sakuya\AppData\Roaming\npm\node_modules\@openai\codex\node_modules\@openai\codex-win32-x64\vendor\x86_64-pc-windows-msvc\bin\codex.exe app-server (cwd=work, proxy env CLEARED, registry proxy untouched)
+[0.03s] spawned pid=15796
+[0.11s] notify remoteControl/status/changed
+[0.11s] initialize OK
+[0.34s] notify thread/started
+[0.34s] thread/start OK threadId=01a08a54-6683-76c2-981b-dfba2c580f09
+[0.34s] notify mcpServer/startupStatus/updated
+[0.34s] notify mcpServer/startupStatus/updated
+[0.36s] turn/start accepted (turn in flight)
+[0.38s] notify mcpServer/startupStatus/updated
+[0.43s] notify mcpServer/startupStatus/updated
+[0.51s] notify thread/status/changed
+[0.51s] notify turn/started
+[0.55s] notify item/started
+[0.55s] notify item/completed
+[90.44s] observation-window-ended exitInfo=null
+[90.44s] teardown SIGTERM sent
+[90.45s] exit code=null signal=SIGTERM

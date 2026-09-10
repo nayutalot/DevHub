@@ -1,0 +1,29 @@
+{
+  "note": "run 1 captured via debug-runner.ps1 (ASCII control runner; original run-exp.ps1 hit PS5.1 BOM-less UTF-8 parse issue, retried with identical invocation). Env condition verified in-run by probe assertions.",
+  "exe": "C:\\Users\\sakuya\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe",
+  "pid": 34052,
+  "exitInfo": {
+    "code": null,
+    "signal": "SIGTERM",
+    "at": "90.42s"
+  },
+  "turnCompleted": false,
+  "ambientProxyVarNames": [],
+  "childEnvAssert": "PASS",
+  "keyTimeline": [
+    { "t": "0.00s", "event": "ambient-proxy-var-names", "detail": "(none)" },
+    { "t": "0.00s", "event": "child-env-assert", "detail": "PASS child env has no NO_PROXY/HTTP_PROXY/HTTPS_PROXY/ALL_PROXY" },
+    { "t": "0.14s", "event": "initialize", "detail": "OK" },
+    { "t": "0.37s", "event": "thread/start", "detail": "OK threadId=01a08a50-9c17-7122-ab7a-7e5d6d15a33d" },
+    { "t": "0.40s", "event": "turn/start", "detail": "accepted (turn in flight)" },
+    { "t": "0.58s", "event": "notify", "detail": "item/started + item/completed type=userMessage (input echo)" },
+    { "t": "0.58s -> 90.41s", "event": "SILENCE", "detail": "no agentMessage, no turn/completed, no error frames; child stderr empty" },
+    { "t": "90.41s", "event": "observation-window-ended", "detail": "exitInfo=null" },
+    { "t": "90.41s", "event": "teardown", "detail": "SIGTERM sent" },
+    { "t": "90.42s", "event": "exit", "detail": "code=null signal=SIGTERM" }
+  ],
+  "rawFiles": [
+    "exp1-noproxy-0.154.0.stdout.jsonl",
+    "exp1-noproxy-0.154.0.stderr.log (0 bytes)"
+  ]
+}

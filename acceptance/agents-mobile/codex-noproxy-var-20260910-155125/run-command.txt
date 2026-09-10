@@ -1,0 +1,38 @@
+NO_PROXY 变量判别实验（单变量：去除 NO_PROXY，其余与 codex-appserver-diag-20260910-153714 一致）
+时间: 2026-09-10, 目标: PATH npm codex-cli 0.154.0 (win32-x64 vendor 二进制)
+前置断言: 系统代理注册表 HKCU\...\Internet Settings ProxyEnable=1 (ProxyServer=127.0.0.1:7897) 保持不动
+  - 实验前: ProxyEnable=1 (15:5x 复核)
+  - run 2 前: ProxyEnable=1 (再次复核, 输出=1)
+
+探针差异说明（相对 ../codex-appserver-diag-20260910-153714/appserver-probe.mjs）:
+  原 L35: env: { ...process.env, NO_PROXY: '*' }   <- 强制 NO_PROXY，无法用于本实验
+  变体 appserver-probe-noproxy-var.mjs: env 剥离 NO_PROXY/HTTP_PROXY/HTTPS_PROXY/ALL_PROXY
+  （大小写不敏感），timeline 记录 ambient-proxy-var-names（仅变量名，无值）与 child-env-assert。
+  序列（initialize -> thread/start -> turn/start "Reply with just OK"）、超时（20s/20s/90s/90s 观察窗）、
+  redact 规则逐行一致。
+
+运行命令:
+  powershell -NoProfile -File run-exp.ps1 \
+    -Exe "C:\Users\sakuya\AppData\Roaming\npm\node_modules\@openai\codex\node_modules\@openai\codex-win32-x64\vendor\x86_64-pc-windows-msvc\bin\codex.exe" \
+    -Probe .\appserver-probe-noproxy-var.mjs \
+    -Prefix .\exp<n>-noproxy-0.154.0 \
+    -Work .\work
+
+执行记录:
+  run 1 (exp1-noproxy-0.154.0.*): 经 debug-runner.ps1（ASCII 对照 runner）执行。
+    原 run-exp.ps1 含中文注释的无 BOM UTF-8 被 PowerShell 5.1 按 ANSI/GBK 误析，
+    parent-env-assert 后 node 行静默不执行；换纯 ASCII runner 后同命令正常。
+    环境条件由探针内断言核实: ambient-proxy-var-names=(none), child-env-assert=PASS。
+    结果: 挂死。turn/start accepted 0.40s -> userMessage 回显 0.58s -> 此后静默，
+    90.41s 观察窗超时, SIGTERM (code=null), turnCompleted=false, 子进程 stderr 空。
+  run 2 (exp2-noproxy-0.154.0.*): 经修复后的纯 ASCII run-exp.ps1（含显式 Remove-Item + 父/子双层断言）。
+    结果: 挂死，形态与 run 1 一致。turn/start accepted 0.36s -> userMessage 回显 0.55s ->
+    静默 90.44s, SIGTERM (code=null), turnCompleted=false, 子进程 stderr 空(0 字节)。
+  总运行次数 = 2（≤2 上限内），两轮结论一致，非瞬断。
+
+对照基准（来自 ../codex-appserver-diag-20260910-153714/）:
+  0.153.4 binRoot + NO_PROXY='*'  -> 挂死 (84s SSE 断流)
+  0.154.0 PATH  + NO_PROXY='*'    -> 6.34s 完全回流 (agentMessage "OK")
+  本实验  0.154.0 + 无代理 env     -> 挂死 x2 (90s 静默)
+
+凭据纪律: 证据仅含 threadId/安装ID/路径; REDACT 规则与原探针一致; 子进程 stderr 为空; 无任何凭据落盘。
