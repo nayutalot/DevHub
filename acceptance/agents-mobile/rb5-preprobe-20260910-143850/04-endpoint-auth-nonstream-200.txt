@@ -1,0 +1,14 @@
+POST https://www.micuapi.ai/v1/responses
+Authorization: Bearer <stored key from ~/.codex/auth.json, passed via shell variable, never echoed>
+Body: {"model":"gpt-6-astra","input":"Reply with exactly: OK","max_output_tokens":64,"stream":false}
+
+Result: HTTP_CODE:200 TIME:5.351244s
+Response tail (sanitized, sk-* masked; proves real generation via usage stats):
+  "input_tokens":21,"output_tokens":0 ... "input_tokens":2,"output_tokens":5
+  "input_tokens":4177,"input_tokens_details":{"cache_write_tokens":0,"cached_tokens":3968},
+  "output_tokens":5,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":4182
+
+Conclusion: stored credential VALID; endpoint performs real inference (output_tokens=5) in ~5.3s.
+
+Notes: full response body message-content section was truncated in capture (only tail 800 bytes kept
+to honor zero-credential hygiene); usage block above is the retained proof of generation.

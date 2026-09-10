@@ -1,0 +1,3 @@
+# ~/.codex/config.toml notify 相关行（其余键值不留存）
+5:notify = [ "C:\\Users\\sakuya\\AppData\\Local\\OpenAI\\Codex\\runtimes\\cua_node\\b474a88d5d105afa\\bin\\node_modules\\@oai\\sky\\bin\\windows\\codex-computer-use.exe", "turn-ended" ]
+# 进程检查: NO_CODEX_PROCESSES

@@ -1,0 +1,77 @@
+{
+  "batch": "rb5-leg2-final-20260910-150707",
+  "task": "J 批：用已实证 env 级 NO_PROXY 绕过补完 R-B5 腿2 真实推理回流 + CP5 真实 codex 实测（全部零持久改动）",
+  "root_cause_context": "Windows 系统代理 127.0.0.1:7897 静默吞 codex 认证流式 POST；NO_PROXY='*' 复通（证据 acceptance/agents-mobile/rb5-rootcause-20260910-144215/，实验 C 在 codex exec 路径 PASS）",
+  "step1_resident_restart_with_noproxy": {
+    "kill_all": "taskkill /F /IM DevHub.exe（5 实例全终止；无 codex 孤儿进程）",
+    "start": "PowerShell $env:NO_PROXY='*' 后 Start-Process dist/win-unpacked/DevHub.exe（env 继承）",
+    "health": "GET http://127.0.0.1:8746/v1/health -> 200（uptime 23s）",
+    "env_proof_launcher": "启动器进程内 Get-ChildItem env: proxy 匹配输出 NO_PROXY=*（resident-restart-noproxy.txt）",
+    "env_proof_peb_retry_phase": "重试阶段对常驻主进程 PID 18612 做 PEB 环境块直读：COUNT=85 PROXYVARS=NO_PROXY=*（决定性：旁路 env 确在常驻进程内）"
+  },
+  "leg2": {
+    "criterion": "docs/20 §3 R-B5 后半：managed 会话经 WS command spawn_session → accepted → 真实推理回流（120s 窗内 agent_messages assistant 非空）",
+    "pairing": {
+      "issue": "POST 127.0.0.1:8746/v1/pairing/create（回环+防重放头）-> 201，码只入 %TEMP%",
+      "result": "pair_accepted（device#77/win, tokenVersion 1）+ post-pairing token_rotation v2 + Bearer 重连 hello（upstream=connected）",
+      "driver": "leg2-pair-evidence.json"
+    },
+    "attempt1": {
+      "time_anchor": "rollout-2026-09-10T15-10-07-01a08a27（created_at 1789024207）",
+      "command": "cmd-1fa32309-7653-4723-8b3f-bf4f7295f128 spawn_session providerId=codex task='Reply with just OK'",
+      "ack": "accepted 422ms",
+      "result": "command_result executed sessionId=700 426ms",
+      "backflow": "FAIL：120s 窗 39 次 REST 轮询零 assistant 消息；agent_messages 仅 system×3+user×2；rollout 冻结于 task_started/UserMessage（ordinal 9）无 response_item 无 error；session 700 终态保持 running",
+      "verdict": "FAIL"
+    },
+    "attempt2_retry": {
+      "time_anchor": "rollout-2026-09-10T15-23-03-01a08a32（created_at 1789024983）",
+      "command": "cmd-b0a80462-bfff-4b4f-aaba-074075f13a22 spawn_session 同 payload",
+      "ack": "accepted 435ms",
+      "result": "command_result executed sessionId=701 441ms",
+      "backflow": "FAIL：同型——120s 窗 39 次轮询零 assistant；T+62s 进程快照无 codex.exe、无任何进程持有 →127.0.0.1:7897 的 ESTABLISHED（唯一 7897 连接属 clash-verge 自身 PID 12568）；app-server 子进程静默消失",
+      "verdict": "FAIL",
+      "driver": "leg2-spawn-leg2-evidence.json（重试轮；首轮同名文件被覆写，首轮数据以本摘要+db-remote-commands 记录还原）"
+    },
+    "spawn_quota": "leg2 1 + 重试 1 = 2 次（≤ 预算 3；CP5 名额未动）",
+    "verdict": "FAIL（如实不放宽）：判据前半 accepted/executed 双过；后半真实推理回流两轮均未达成"
+  },
+  "residual_root_cause_analysis": {
+    "bypass_presence": "重试轮常驻主进程 PEB 直读证实 NO_PROXY=* 存在于进程环境块；app-server 子进程默认继承父 env（spawnManaged 无 appServerEnv 覆盖时继承 process.env）",
+    "hang_signature": "两轮 rollout 均终于 task_started/UserMessage，无 response_item 无 error——与 D 批、rootcause 实验 B（走代理挂起）同签名",
+    "new_finding": "挂起期与事后均查无 codex.exe 进程（tasklist + WMI 按 ExecutablePath 'OpenAI.Codex' 双查）——app-server 子进程在 turn/start 后静默退出/被生命周期守卫回收，session 停留 running，事件面零错误帧",
+    "implication": "实验 C 证明 NO_PROXY='*' 复通的是 codex exec 路径；本批证明该 env 旁路即使确证存在于常驻进程内，app-server 托管 turn 路径仍不回流。残差根因（app-server 静默退出：stderr 未被捕获/无 RUST_LOG/生命周期双上限回收语义）超出本批零持久改动边界，需专门批处理诊断",
+    "what_this_batch_rules_out": "① notify hook（rootcause 批已驳）；② 'NO_PROXY 未到达常驻进程'（PEB 直读排除）；③ 设备/WS/命令通道问题（accepted+executed 双达，帧流与 REST 面全程健康）"
+  },
+  "cp5": {
+    "status": "SKIPPED（任务书条件门：腿2 过了才做；腿2 FAIL → 不进入）",
+    "residue": "零：未 seed 比赛/材料/任务行，未调用 submitAgentJob，contest_import_jobs 本批新增 0 行（库面核验 LAST_JOBS=[] 于批前，批中零创建）"
+  },
+  "cleanup_reconciliation": {
+    "device": "本批测试设备双端 revoked（真实自撤销链，非直改）：disconnect(reason=revoked) 76ms → 旧 token 重连 401 DEVICE_REVOKED 108ms（leg2-revoke-reconnect-evidence.json）；桌面 remote_devices id=77 status=revoked revoked_at=1789025203；ECS relay_devices id=17(win 77) status=revoked revoked_at=1789025203",
+    "pairing_codes": "本批签发 1 码已消费：ECS pairing_codes id=116 status=used；桌面侧无配对码表（ECS 权威）——零活跃码残留",
+    "temp_credentials": "%TEMP%/rb5-leg2-final/ 配对码+设备 token 文件已删除",
+    "real_db_rows": "比赛/材料/任务行零创建（CP5 跳过）；remote_commands/audit/spawn 流水为运行痕迹按先例保留；sessions 700/701（挂起的托管 turn）为验证实体工件，同 D 批 686/687 先例保留并在此记录",
+    "ecs": "全程只读 + 自撤销；零 UPDATE/INSERT 直改",
+    "system_level": "零注册表写入、零 config 写入、零持久 env 改动"
+  },
+  "step4_resident_final_state": {
+    "clean_restart": "taskkill 全部 DevHub.exe → 无 env 前缀 Start-Process → health 200（uptime 10s）",
+    "peb_final_proof": "常驻主进程 PID 20536 PEB 环境块直读：COUNT=83 PROXYVARS=(none)——终态=干净无 env",
+    "anomaly_note": "15:16:09Z 后首轮 NO_PROXY 常驻（PID 18620）曾静默消失（无 WER AppCrash 记录、devhub.log 无异常行），当轮已按同法重启续作；死因未定，建议主控关注"
+  },
+  "release_chain_2_conclusion": "NOT closed。R-B5 腿2『真实推理回流』两轮 FAIL：env 级 NO_PROXY 旁路确证在常驻进程内仍不使 app-server 托管 turn 回流。Release 链 ② 的剩余阻塞从『网络代理』收窄为『常驻 app-server 托管 turn 路径静默失败』——需下一批以 RUST_LOG + stderr 捕获（spawnManaged 管道面）定向诊断，或由用户裁决系统代理（127.0.0.1:7897）对 micuapi.ai 的例外配置",
+  "evidence_files": [
+    "leg2-final-driver.mjs（D 批同构适配驱动）",
+    "leg2-pair-evidence.json",
+    "leg2-spawn-leg2-evidence.json（重试轮）",
+    "leg2-revoke-reconnect-evidence.json",
+    "db-remote-commands-spawn-records.json",
+    "resident-restart-noproxy.txt（启动器 env 证明 + 起止时间戳）",
+    "ecs-relay-devices-final-snapshot.txt",
+    "rollout-700-tail-excerpt.jsonl",
+    "rollout-701-tail-excerpt.jsonl",
+    "run-evidence-summary.json"
+  ],
+  "credential_hygiene": "配对码/设备 token 只入 %TEMP% 且已删除；证据内 token/hash 一律 redacted；rollout 摘录仅含系统上下文头与任务文本，零凭据"
+}

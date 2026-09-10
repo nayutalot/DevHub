@@ -1,0 +1,381 @@
+{
+  "cmd": "spawn-leg2",
+  "startedAt": "2026-09-10T07:23:02.812Z",
+  "steps": [
+    {
+      "step": "rest_agents_probe",
+      "ok": true,
+      "ts": 1789024982948,
+      "status": 200,
+      "codexMode": null,
+      "providerKeys": [
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "step": "v1_hello",
+      "ok": true,
+      "ts": 1789024983051,
+      "sequence": 25057,
+      "upstream": "connected"
+    },
+    {
+      "step": "command_ack",
+      "ok": true,
+      "ts": 1789024983486,
+      "status": "accepted",
+      "errorCode": null,
+      "ms": 435
+    },
+    {
+      "step": "command_result",
+      "ok": true,
+      "ts": 1789024983492,
+      "action": "spawn_session",
+      "status": "executed",
+      "sessionId": 701,
+      "errorCode": null,
+      "ms": 441
+    },
+    {
+      "step": "assistant_backflow",
+      "ok": false,
+      "ts": 1789025105971,
+      "sessionId": 701,
+      "polls": 39,
+      "windowMs": 120000
+    },
+    {
+      "step": "LEG2_VERDICT",
+      "ok": false,
+      "ts": 1789025105972,
+      "ack": "accepted",
+      "result": "executed",
+      "assistantMs": null
+    }
+  ],
+  "frames": [
+    {
+      "sent": "command",
+      "action": "spawn_session",
+      "payload": {
+        "providerId": "codex",
+        "task": "Reply with just OK"
+      },
+      "idempotencyKey": "52b46f92-4333-4ce3-802d-5ce68abfd57d",
+      "sentAt": "2026-09-10T07:23:03.051Z"
+    }
+  ],
+  "agentsProbe": {
+    "status": 200,
+    "codexMode": null
+  },
+  "idempotencyKey": "52b46f92-4333-4ce3-802d-5ce68abfd57d",
+  "ack": {
+    "status": "accepted",
+    "errorCode": null,
+    "requestId": "99177acf-6fa7-4150-be68-76ac585980ba"
+  },
+  "result": {
+    "action": "spawn_session",
+    "status": "executed",
+    "sessionId": 701,
+    "errorCode": null,
+    "ms": 441
+  },
+  "backflow": {
+    "sessionId": 701,
+    "assistantHit": null,
+    "polls": [
+      {
+        "at": 3597,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 6737,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 9881,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 13024,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 16155,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 19293,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 22434,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 25587,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 28729,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 31870,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 35008,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 38134,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 41266,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 44418,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 47563,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 50712,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 53858,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 56990,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 60126,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 63261,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 66405,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 69536,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 72669,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 75804,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 78933,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 82068,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 85193,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 88351,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 91485,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 94630,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 97782,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 100918,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 104058,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 107233,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 110393,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 113524,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 116658,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 119789,
+        "status": 200,
+        "count": 5
+      },
+      {
+        "at": 122920,
+        "status": 200,
+        "count": 5
+      }
+    ],
+    "windowMs": 120000
+  },
+  "framesSeen": [
+    {
+      "type": "hello",
+      "sequence": 25057,
+      "deviceId": 17,
+      "heartbeatSec": 30,
+      "relayVersion": "1.0.0",
+      "upstream": "connected"
+    },
+    {
+      "type": "event",
+      "sequence": 25058,
+      "eventId": "codex:01a08a32-d88f-78e1-8564-3ab59b8e8e52:session.started:b1a96d8909be3f16",
+      "deviceId": 17,
+      "provider": "codex",
+      "sessionId": 701,
+      "eventType": "session.started",
+      "timestamp": 1789024983,
+      "summary": "01a08a32-d88f-78e1-8564-3ab59b8e8e52",
+      "payload": {
+        "sessionId": 701,
+        "providerId": "codex",
+        "workdir": "F:\\Active_Project\\DevHub"
+      },
+      "requiresUserAction": false
+    },
+    {
+      "type": "event",
+      "sequence": 25059,
+      "eventId": "codex:01a08a32-d88f-78e1-8564-3ab59b8e8e52:session.status_changed:8564bdd17b6bc2ba",
+      "deviceId": 17,
+      "provider": "codex",
+      "sessionId": 701,
+      "eventType": "session.status_changed",
+      "timestamp": 1789024983,
+      "summary": "session running",
+      "payload": {
+        "sessionId": 701,
+        "from": "unknown",
+        "to": "running",
+        "detail": "managed session started (DevHub-initiated)"
+      },
+      "requiresUserAction": false
+    },
+    {
+      "type": "event",
+      "sequence": 25060,
+      "eventId": "codex:01a08a32-d88f-78e1-8564-3ab59b8e8e52:command.result:3ed8ab3d90bdb3ea",
+      "deviceId": 17,
+      "provider": "codex",
+      "sessionId": 701,
+      "eventType": "command.result",
+      "timestamp": 1789024983,
+      "payload": {
+        "commandId": "cmd-b0a80462-bfff-4b4f-aaba-074075f13a22",
+        "action": "spawn",
+        "status": "executed",
+        "nativeId": "01a08a32-d88f-78e1-8564-3ab59b8e8e52"
+      },
+      "requiresUserAction": false
+    },
+    {
+      "type": "command_ack",
+      "requestId": "99177acf-6fa7-4150-be68-76ac585980ba",
+      "idempotencyKey": "52b46f92-4333-4ce3-802d-5ce68abfd57d",
+      "commandId": "cmd-b0a80462-bfff-4b4f-aaba-074075f13a22",
+      "status": "accepted"
+    },
+    {
+      "type": "command_result",
+      "commandId": "cmd-b0a80462-bfff-4b4f-aaba-074075f13a22",
+      "idempotencyKey": "52b46f92-4333-4ce3-802d-5ce68abfd57d",
+      "sessionId": 701,
+      "action": "spawn_session",
+      "status": "executed",
+      "errorCode": null,
+      "timestamp": 1789024983
+    }
+  ],
+  "frameTypesSeen": [
+    "hello",
+    "event",
+    "event",
+    "event",
+    "command_ack",
+    "command_result"
+  ],
+  "verdict": "FAIL",
+  "finishedAt": "2026-09-10T07:25:05.972Z"
+}

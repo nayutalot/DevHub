@@ -1,0 +1,37 @@
+{
+  "batch": "rb5-rootcause-20260910-144215",
+  "task": "codex exec hang root-cause convergence (micro-batch after batch I preprobe)",
+  "root_cause": "Windows system proxy 127.0.0.1:7897 (HKCU Internet Settings ProxyEnable=1) silently stalls codex CLI's authenticated streaming POST (Responses API) to provider www.micuapi.ai: request is sent, no SSE event, no error, no timeout -> exec hangs after user turn. Notify-hook hypothesis REFUTED.",
+  "notify_hook_hypothesis": {
+    "config_line": "notify = [\"C:\\Users\\sakuya\\AppData\\Local\\OpenAI\\Codex\\runtimes\\cua_node\\b474a88d5d105afa\\bin\\node_modules\\@oai\\sky\\bin\\windows\\codex-computer-use.exe\", \"turn-ended\"]",
+    "target_exe_exists": true,
+    "stuck_process_running": false,
+    "refuted_by": "experiment A: notify=[] override still hangs (exit 124)"
+  },
+  "experiments": [
+    {"id": "A", "cmd": "codex exec -c 'notify=[]' 'Reply with just OK'", "timeout_s": 90, "result": "HANG", "exit": 124, "cli_test_no": 1},
+    {"id": "B", "cmd": "RUST_LOG=debug codex exec -c 'notify=[]' ... </dev/null", "timeout_s": 90, "result": "HANG; model_client.stream_responses_api POST issued to www.micuapi.ai via 127.0.0.1:7897; 0 SSE events, 0 errors, 0 retries in 90s; proxy also fails chatgpt.com plugin catalog (7s error) and otlp export (unexpected EOF during handshake after ~60s)", "exit": 124, "cli_test_no": 2},
+    {"id": "C", "cmd": "NO_PROXY='*' + cleared proxy env + RUST_LOG=debug codex exec -c 'notify=[]' ... </dev/null", "timeout_s": 90, "result": "PASS; 0 connections to 127.0.0.1:7897; SSE response.created + response.completed; stdout model reply 'OK' (tokens used 20,066)", "exit": 0, "cli_test_no": 3}
+  ],
+  "transport_probe_no_credentials": [
+    {"path": "GET https://www.micuapi.ai/v1/models via proxy 127.0.0.1:7897 (no auth)", "result": "HTTP 401 in 0.462s"},
+    {"path": "POST https://www.micuapi.ai/v1/responses via proxy (no auth)", "result": "HTTP 401 in 0.470s"},
+    {"path": "GET direct --noproxy (no auth)", "result": "HTTP 401 in 0.631s"}
+  ],
+  "cli_test_budget": {"used": 3, "limit": 4},
+  "leg2_ws_spawn": {"executed": false, "reason": "branch rule: experiment A failed (notify hypothesis refuted) -> step 5 says report only, no leg2; WS spawn quota 2/2 untouched"},
+  "release_chain_2": "NOT closed by this batch (leg2 not run per branch rule); CLI-level blocker is now root-caused and removable via env NO_PROXY bypass (proven by experiment C)",
+  "remediation_options_user_decision": [
+    "zero persistent change: run codex with NO_PROXY='*' or NO_PROXY containing micuapi.ai (proven working, experiment C)",
+    "or disable/adjust Windows system proxy 127.0.0.1:7897 for micuapi.ai (registry/proxy-client change, user must decide)",
+    "~/.codex/config.toml NOT modified (read-only discipline); notify hook left intact"
+  ],
+  "credential_hygiene": "raw debug logs removed; only regex-scrubbed copies retained (0 bearer/sk- patterns residual)",
+  "evidence_files": [
+    "00-notify-config-snapshot.txt",
+    "A-notify-override.txt",
+    "B-debug-run.txt",
+    "C-noproxy-run.txt",
+    "run-evidence-summary.json"
+  ]
+}

@@ -1,0 +1,9 @@
+POST https://www.micuapi.ai/v1/responses  (stream:true, same stored key via variable, masked)
+Body: {"model":"gpt-6-astra","input":"Reply with exactly: OK","max_output_tokens":64,"stream":true}
+
+Captured stream head (first 900 bytes, display-truncated):
+event: response.created
+data: {"type":"response.created","response":{"id":"resp_0146b0562ebdd7fd016aa2502d34bc87d0b494897a31421965","object":"response","created_at":1789022253,"status":"in_progress","background":false, ... "instructions":"You are Codex, an agent based on GPT-6. ..." (truncated)
+
+Conclusion: SSE streaming path delivers events immediately; endpoint streaming works.
+codex CLI receives nothing comparable (silent hang), isolating the failure to the CLI process.

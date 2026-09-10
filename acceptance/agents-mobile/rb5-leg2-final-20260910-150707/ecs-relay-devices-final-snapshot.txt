@@ -1,0 +1,7 @@
+# ECS relay_devices 终态快照（只读查询；2026-09-10T15:2x 本批）
+# id  device_name              win_device_id  status   revoked_at  last_seen_at
+# 17  rb5-leg2-final-standin   77             revoked  1789025203  1789025203   <- 本批测试设备（真实自撤销链）
+# 16  sdk_gphone64_x86_64      76             revoked  1789014695  1789014695   (D批)
+# 15  rb5-rb8-standin          75             revoked  1789014437  1789014437   (D批)
+# 14  rb5-rb8-standin          74             revoked  1789014724  1789014724   (D批)
+# pairing_codes 近 3 条 status=used（本批签发 1 码已消费，零活跃码残留）

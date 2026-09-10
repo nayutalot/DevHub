@@ -1,0 +1,55 @@
+Codex CLI pre-probe context (I batch 2026-09-10, post-reboot). Sanitized: no credentials.
+
+[environment]
+codex-cli version: 0.153.4
+provider config (~/.codex/config.toml, key lines excluded):
+  model_provider = "custom"
+  model = "gpt-6-astra"
+  [model_providers.custom]
+  base_url = "https://www.micuapi.ai/v1"
+  wire_api = "responses"
+  notify = ["...\\OpenAI\\Codex\\runtimes\\cua_node\\...\\codex-computer-use.exe", "turn-ended"]
+  plugins/marketplaces sections present (documents, computer-use, spreadsheets, chrome)
+proxy env vars: none set
+DNS: micuapi.ai -> 104.18.5.216 / 104.18.4.216 (Cloudflare) via 192.168.31.1
+
+[test matrix]
+1. codex --version                         -> codex-cli 0.153.4                          PASS
+2. codex login status                      -> Logged in using an API key (masked)        PASS
+3. codex exec "Reply with exactly: OK"     -> attempt#1: no output, killed at ~120s;
+                                              attempt#2 (RUST_LOG=error, timeout 60):
+                                              header + session id + user turn written,
+                                              then silent hang, killed by timeout
+                                              (exit 124). No response_item, no error.
+                                                                                            FAIL
+4. no-auth POST /v1/responses              -> 401 "Invalid token" in 0.69s               (path alive)
+5. stored-key POST /v1/responses non-stream-> 200 in 5.35s, output_tokens=5 (real gen)   PASS
+6. stored-key POST /v1/responses stream    -> SSE response.created immediately           PASS
+
+[conclusion]
+D-batch hypothesis "credential invalid / login lost" is DISPROVEN: the same stored key
+produces real inference (200 + output tokens, streaming and non-streaming) from the same host.
+Failure surface is INSIDE the codex CLI process: after printing the exec header and writing
+the user turn, the CLI hangs silently with no model event and no error (RUST_LOG=error quiet).
+This reproduces the D-batch spawn_session symptom at the standalone CLI layer.
+
+[quota consumed]
+codex exec inference attempts: 2 (1 initial + 1 retry, both hung; server-side token burn unknown/likely 0)
+direct API diagnostics: 2 minimal requests (max_output_tokens=64) + 1 unauthenticated 401 probe
+WS spawn_session: 0 of 2 used (leg 2 NOT run, per gate: CLI layer failed)
+
+[process cleanup]
+no codex.exe processes remain; node.exe processes present belong to standing infra
+(127.0.0.1:8746 etc.), untouched.
+
+[next-batch suggestions, in cheapness order]
+a. Retry codex exec with runtime extras disabled, e.g.:
+   codex exec -c 'notify=[]' "Reply with exactly: OK"   (notify hook spawns
+   codex-computer-use.exe at turn events; a wedged spawn post-reboot would look identical)
+   and/or temporarily rename the [plugins.*] / marketplaces includes if they are separate files.
+b. RUST_LOG=debug (or trace) capture of codex exec, then sanitize (mask sk-*, tokens) to see
+   whether the HTTP request is even sent (reqwest connect vs SSE read stall).
+c. Test an alternate codex version (e.g. npm i -g codex@<prev>) to bisect a 0.153.4 regression.
+d. Only after standalone `codex exec` produces model output: rerun R-B5 leg 2 via the
+   D-batch standin driver (quota 2 spawns preserved; driver at
+   acceptance/agents-mobile/rb5-rb8-20260910-112842/rb5rb8-standin-driver.mjs).

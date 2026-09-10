@@ -1,0 +1,3 @@
+no-auth POST https://www.micuapi.ai/v1/responses
+HTTP_CODE:401 TIME_TOTAL:0.69s
+{"error":{"code":"","message":"Invalid token (request id: 202609100635404076804278268d9d6IiD5QF4Y)","type":"new_api_error"}}

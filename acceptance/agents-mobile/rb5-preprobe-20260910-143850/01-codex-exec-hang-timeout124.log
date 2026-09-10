@@ -1,0 +1,15 @@
+Reading additional input from stdin...
+OpenAI Codex v0.153.4
+--------
+workdir: F:\Active_Project\DevHub
+model: gpt-6-astra
+provider: custom
+approval: never
+sandbox: read-only
+reasoning effort: medium
+reasoning summaries: none
+session id: 01a08a05-2a45-7bf1-a3f6-e1459da510a3
+--------
+user
+Reply with exactly: OK
+EXIT_CODE:124

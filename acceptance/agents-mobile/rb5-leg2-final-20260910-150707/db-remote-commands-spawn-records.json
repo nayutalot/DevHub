@@ -1,0 +1,57 @@
+[
+ {
+  "command_id": "cmd-b0a80462-bfff-4b4f-aaba-074075f13a22",
+  "idempotency_key": "<52b46f92...>",
+  "device_id": 77,
+  "session_id": null,
+  "action": "spawn",
+  "status": "executed",
+  "error_code": null,
+  "payload_json": "{\"task\":\"Reply with just OK\"}",
+  "created_at": 1789024983,
+  "executed_at": 1789024983
+ },
+ {
+  "command_id": "cmd-1fa32309-7653-4723-8b3f-bf4f7295f128",
+  "idempotency_key": "<b0238d4a...>",
+  "device_id": 77,
+  "session_id": null,
+  "action": "spawn",
+  "status": "executed",
+  "error_code": null,
+  "payload_json": "{\"task\":\"Reply with just OK\"}",
+  "created_at": 1789024207,
+  "executed_at": 1789024207
+ },
+ {
+  "command_id": "cmd-b6729dca-b255-4a51-9c60-205e8375f31c",
+  "idempotency_key": "<59edc4d5...>",
+  "device_id": 52,
+  "session_id": null,
+  "action": "spawn",
+  "status": "executed",
+  "error_code": null,
+  "payload_json": "{\"task\":\"reply with exactly: OK (retry 1)\"}",
+  "created_at": 1789013718,
+  "executed_at": 1789013718
+ }
+]
+[eval]:7
+const audit = db.prepare("SELECT id, category, action, status, substr(detail_json,1,160) AS d, created_at FROM security_audit WHERE action LIKE '%spawn%' OR action LIKE '%command%' ORDER BY id DESC LIMIT 8").all();
+                 ^
+
+Error: no such table: security_audit
+    at [eval]:7:18
+    at runScriptInThisContext (node:internal/vm:219:10)
+    at node:internal/process/execution:451:12
+    at [eval]-wrapper:6:24
+    at runScriptInContext (node:internal/process/execution:449:60)
+    at evalFunction (node:internal/process/execution:283:30)
+    at evalTypeScript (node:internal/process/execution:295:3)
+    at node:internal/main/eval_string:71:3 {
+  code: 'ERR_SQLITE_ERROR',
+  errcode: 1,
+  errstr: 'SQL logic error'
+}
+
+Node.js v24.15.0
