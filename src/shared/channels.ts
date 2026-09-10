@@ -72,6 +72,14 @@ export const IPC_GATEWAY = 'devhub:invoke' as const
  * 管线，绝不直写生产行不静默覆盖）；取消不设新通道——复用 importCancel（agent 任务
  * 挂 L3 pause 只中断本任务托管会话，取消令牌作用域=本任务及其托管会话；
  * smoke 全 fake provider 注入零真实推理零配额）。
+ * CP6 批次 note（ContestPin 备份恢复·收官批，docs/22 §9 + docs/04「ContestPin
+ * 追加」节授权的同一模式就地更新）：contestpin 2 条并入，108 → 110（backupExport
+ * READ_ONLY 库面——目标目录 manifest.json 结构性零凭据（不含
+ * contestpin_configs.key_sealed 与任何 key，grep 断言 smoke 锚定）+ materials/
+ * 附件夹 sha256 命名复制幂等，已存在 manifest → BACKUP_EXISTS 结构化拒绝不覆盖；
+ * backupImport 变更面——manifest 形状/材料 sha256 对账校验（缺文件如实 flag 降级
+ * 不带病导入）→ 全部赛事一份 manual_pack 草稿走既有核对界面（name+year 相似检测
+ * 既有逻辑），绝不直写生产行绝不静默覆盖）。
  */
 export const IPC_CHANNELS = [
   // scan
@@ -233,6 +241,12 @@ export const IPC_CHANNELS = [
   'contestpin:agentSubmit',
   'contestpin:exportPack',
   'contestpin:importPack',
+  // contestpin（CP6 批次，docs/22 §9 备份恢复：backupExport READ_ONLY 库面——
+  // manifest.json 结构性零凭据 + materials/ sha256 复制幂等，已存在 manifest →
+  // BACKUP_EXISTS 拒绝不覆盖；backupImport 变更面——形状/材料 sha256 对账校验
+  // → 全部赛事一份 manual_pack 草稿走既有核对界面，绝不直写生产行绝不静默覆盖）
+  'contestpin:backupExport',
+  'contestpin:backupImport',
 ] as const
 
 /** Compile-time whitelist: a handler map must be keyed by IpcChannel. */

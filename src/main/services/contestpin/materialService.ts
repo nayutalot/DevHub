@@ -47,8 +47,8 @@ export const DEFAULT_MATERIAL_LIMITS: Readonly<MaterialLimits> = {
   maxPdfPages: 50,
 }
 
-/** 硬上限 = 默认 ×5：params 覆盖越界按上限截断，绝不放开。 */
-const LIMIT_CEILINGS: Readonly<MaterialLimits> = {
+/** 硬上限 = 默认 ×5：params 覆盖越界按上限截断，绝不放开（CP6 备份导入复用兜底）。 */
+export const LIMIT_CEILINGS: Readonly<MaterialLimits> = {
   maxFileBytes: 100 * 1024 * 1024,
   maxBatch: 100,
   maxPdfPages: 250,
@@ -264,6 +264,19 @@ export async function importImageFromBuffer(name: string, data: Buffer, limits: 
     throw new ServiceError('BAD_PAYLOAD', `截图超限：${data.length} 字节 > ${limits.maxFileBytes}`)
   }
   return importBuffer(name, data, { forceImage: true })
+}
+
+/**
+ * 备份导入专用（CP6）：把备份包 materials/ 夹内已通过 sha256 对账的材料内容
+ * 还原进库。走 importBuffer 同一核心（sha256 UNIQUE 命中回既有行 = 重复导入
+ * 幂等；kind 判定/落盘原子名语义一致），调用方（contestBackupService）负责
+ * 哈希对账与超限 flag 降级，此处只按硬上限兜底拒绝。
+ */
+export async function restoreMaterialFromBackup(originalName: string, data: Buffer): Promise<ContestMaterialView> {
+  if (data.length > LIMIT_CEILINGS.maxFileBytes) {
+    throw new ServiceError('BAD_PAYLOAD', `备份材料超限：${data.length} 字节 > ${LIMIT_CEILINGS.maxFileBytes}`)
+  }
+  return importBuffer(originalName, data)
 }
 
 // ---------------------------------------------------------------------------
