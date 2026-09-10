@@ -33,14 +33,17 @@ import com.devhub.mobile.ui.screens.ChildSessionsScreen
 import com.devhub.mobile.ui.screens.GatewayConfigScreen
 import com.devhub.mobile.ui.screens.MainTabs
 import com.devhub.mobile.ui.screens.PairingScreen
+import com.devhub.mobile.ui.screens.RemoteWorkspaceWebViewScreen
 import com.devhub.mobile.ui.screens.SessionDetailScreen
 import com.devhub.mobile.ui.theme.DevHubTheme
 
 /**
- * 入口：导航 = gateway 配置 → pairing 配对 → main（会话/Agent/诊断/设备）→ session/{id} 详情。
+ * 入口：导航 = gateway 配置 → pairing 配对 → main（会话/Agent/远程工作区/诊断/设备）→
+ * session/{id} 详情 / remote/{id} 全屏 WebView。
  * - deep link：devhub://session/{id}（事件通知点击直达会话详情；onNewIntent 热路径同样生效）；
  * - 401（撤销/失效）：ConnState.Unpaired → 清凭据已由 ConnectionManager 完成 → 回配对页；
- * - 通知权限：API 33+ 启动时请求一次（POST_NOTIFICATIONS）。
+ * - 通知权限：API 33+ 启动时请求一次（POST_NOTIFICATIONS）；
+ * - windowSoftInputMode=adjustResize（Q 批）：WebView 页软键盘局部处理，输入焦点正常落 WebView。
  */
 class MainActivity : ComponentActivity() {
 
@@ -167,6 +170,8 @@ fun DevHubRoot(startSessionId: Long?, onLinkConsumed: () -> Unit) {
                     initialTab = entry.arguments?.getString("tab") ?: "sessions",
                     onOpenSession = { id -> navController.navigate("session/$id") },
                     onGatewayConfig = { navController.navigate("gateway") },
+                    // Q 批「远程工作区」：条目 → 全屏 WebView 独立目的地（主导航底栏之外）
+                    onOpenRemoteEntry = { id -> navController.navigate("remote/$id") },
                 )
             }
             composable(
@@ -191,6 +196,16 @@ fun DevHubRoot(startSessionId: Long?, onLinkConsumed: () -> Unit) {
                     parentTitle = null,
                     onBack = { navController.popBackStack() },
                     onOpenSession = { id -> navController.navigate("session/$id") },
+                )
+            }
+            // Q 批「远程工作区」：全屏 WebView（独立目的地；返回键 WebView 先退再屏退）
+            composable(
+                "remote/{entryId}",
+                arguments = listOf(navArgument("entryId") { type = NavType.LongType }),
+            ) { entry ->
+                RemoteWorkspaceWebViewScreen(
+                    entryId = entry.arguments?.getLong("entryId") ?: 0L,
+                    onBack = { navController.popBackStack() },
                 )
             }
         }

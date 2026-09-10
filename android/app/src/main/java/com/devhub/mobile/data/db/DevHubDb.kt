@@ -11,6 +11,8 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Update
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 // ---------------------------------------------------------------------------
@@ -108,6 +110,25 @@ data class PendingCommandEntity(
 data class EventAckStateEntity(
     @PrimaryKey val id: Int = 1,
     val lastAckedSeq: Long,
+)
+
+/**
+ * 远程工作区 URL 条目（Q 批「远程工作区」屏）：条目 = 可配置 WebView 页面
+ * （ZCode 移动遥控页 / 任何网页终端或控制面板）。
+ * **URL 按敏感对待**（可能内嵌动态会话令牌，等同临时凭据）：本机私有 Room 明文存储可接受
+ * （App 本地库，非凭据通道），但绝不入日志/绝不外发；UI 展示一律走中段省略
+ * （[com.devhub.mobile.data.RemoteWorkspaceUrl.elideMiddle]）。
+ */
+@Entity(tableName = "remote_workspace_entries")
+data class RemoteWorkspaceEntryEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    /** 用户起名标题；缺省取 URL host（RemoteWorkspaceUrl.defaultTitle）。 */
+    val title: String,
+    /** 入库前经 http(s) 白名单严格校验（RemoteWorkspaceUrl.parse，BAD_PAYLOAD 风格拒绝面）。 */
+    val url: String,
+    val createdAtMs: Long,
+    /** 最近打开时间；null = 从未打开（排序垫底，按创建时间新→旧）。 */
+    val lastOpenedAtMs: Long? = null,
 )
 
 // ---------------------------------------------------------------------------
@@ -222,6 +243,26 @@ interface EventAckStateDao {
     fun upsert(state: EventAckStateEntity)
 }
 
+@Dao
+interface RemoteWorkspaceEntryDao {
+    /** 全量行（无 ORDER BY——最近使用排序统一走 RemoteWorkspaceUi.sort 纯函数，单测可锁）。 */
+    @Query("SELECT * FROM remote_workspace_entries")
+    fun observeAll(): Flow<List<RemoteWorkspaceEntryEntity>>
+
+    @Query("SELECT * FROM remote_workspace_entries WHERE id = :id")
+    fun get(id: Long): RemoteWorkspaceEntryEntity?
+
+    @Insert
+    fun insert(entry: RemoteWorkspaceEntryEntity): Long
+
+    /** 打开条目即触（最近使用排序依据）。 */
+    @Query("UPDATE remote_workspace_entries SET lastOpenedAtMs = :openedAtMs WHERE id = :id")
+    fun touchOpened(id: Long, openedAtMs: Long)
+
+    @Query("DELETE FROM remote_workspace_entries WHERE id = :id")
+    fun delete(id: Long)
+}
+
 // ---------------------------------------------------------------------------
 // Database（单例）
 // ---------------------------------------------------------------------------
@@ -234,12 +275,15 @@ interface EventAckStateDao {
         MessageCacheEntity::class,
         PendingCommandEntity::class,
         EventAckStateEntity::class,
+        RemoteWorkspaceEntryEntity::class,
     ],
     // v2（体验整改批 B）：session_cache + providerKey/providerLabel/archived/parentSessionId；
     // message_cache + segmentsJson。纯缓存库，破坏性迁移可接受（fallbackToDestructiveMigration）。
     // v3（M2-R3 双模式批，docs/19 §7.1）：gateway_config + mode/relayUrl/pinFingerprints。
     // v4（M3-E1，docs/18 §5.3）：pending_command + providerId（spawn_session 队列行补发载体）。
-    version = 4,
+    // v5（Q 批「远程工作区」）：新表 remote_workspace_entries——加表 = 安全 migrate，
+    // 走 MIGRATION_4_5 增量路径（既有数据保留，不走破坏性重建）。
+    version = 5,
     exportSchema = false,
 )
 abstract class DevHubDb : RoomDatabase() {
@@ -249,10 +293,29 @@ abstract class DevHubDb : RoomDatabase() {
     abstract fun messageCacheDao(): MessageCacheDao
     abstract fun pendingCommandDao(): PendingCommandDao
     abstract fun eventAckStateDao(): EventAckStateDao
+    abstract fun remoteWorkspaceEntryDao(): RemoteWorkspaceEntryDao
 
     companion object {
         @Volatile
         private var instance: DevHubDb? = null
+
+        /**
+         * v4→v5（Q 批）：`CREATE TABLE remote_workspace_entries`——列定义与
+         * [RemoteWorkspaceEntryEntity] 逐列一致（Room 迁移后 schema 校验严格，
+         * NOT NULL/自增主键均须精确匹配）。
+         */
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `remote_workspace_entries` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`title` TEXT NOT NULL, " +
+                        "`url` TEXT NOT NULL, " +
+                        "`createdAtMs` INTEGER NOT NULL, " +
+                        "`lastOpenedAtMs` INTEGER)",
+                )
+            }
+        }
 
         fun get(context: Context): DevHubDb =
             instance ?: synchronized(this) {
@@ -260,7 +323,13 @@ abstract class DevHubDb : RoomDatabase() {
                     context.applicationContext,
                     DevHubDb::class.java,
                     "devhub-mobile.db",
-                ).fallbackToDestructiveMigration().build().also { instance = it }
+                )
+                    .addMigrations(MIGRATION_4_5)
+                    // v5 以前的历史升级路径保持既有破坏性口径（纯缓存库，先例 v2 注释）；
+                    // 4→5 已被上方增量迁移精确接管，不落破坏路径。
+                    .fallbackToDestructiveMigration()
+                    .build()
+                    .also { instance = it }
             }
     }
 }
