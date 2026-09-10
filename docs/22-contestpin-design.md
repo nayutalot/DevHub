@@ -232,6 +232,73 @@ loadRenderer hash `contest:<id>`（ViewTarget 扩展）；主窗口隐藏时照�
 - 取消：monitorRegistry 取消令牌，只影响本任务及其托管会话，不终止其他任务。
 - 无可用自动 Provider 时两阶段模式完整可用，不用模拟成功代替闭环。
 
+### 8.1 CP5 落地注记（2026-09-10，白名单 104→108）
+
+- **通道实拆 4 条**（§3 预告 "+3~4" 上限）：`contestpin:agentStatus`（READ_ONLY
+  任务态投影：agent/manual_pack 任务 + mode='agent' 行联查 `agent_sessions`
+  状态，会话行缺失 → 'unknown' 绝不猜）/ `contestpin:agentSubmit`（变更）/
+  `contestpin:exportPack`（READ_ONLY 材料面，产物落用户选择目录）/
+  `contestpin:importPack`（变更）。**取消不设第五条通道**：复用既有
+  `contestpin:importCancel`（handler 先调 `cancelAgentJob`，非 agent 任务回落
+  `cancelImport`）。
+- **能力门语义零改动（只消费）**：agentSubmit 直调 L3 `startProviderManagedSession`
+  ——observed/未授予 managed → `COMMAND_NOT_EXECUTABLE`；能力未验证/陈旧
+  （verifiedAt >300s）→ `AGENT_CAPABILITY_MISSING`；拒绝回填任务行 failed
+  （error_json 结构化）后原样上抛，**不静默降级不模拟成功**（设计红线）。唯一
+  L3 触碰 = `ManagedSessionStartInput` 增可选 `deviceId?`（桌面内部分无配对设备
+  语义，remote_commands.device_id 004 列本就可空）与可选 `source?`（审计标签，
+  缺省 'rest' 维持既有投影；ContestPin 传 'contestpin'）——门判定/幂等/审计
+  语义逐字不变。
+- **任务文本** = 结构化指令（含与两阶段/多模态**同一份** `JSON_CONTRACT_PROMPT`
+  契约，从 importPipeline 导出零副本）+ 材料本地文字（pdfjs 本地提取，
+  `[materialId=N 第 P 页]` 标记与管线 provenance 约定一致）+ PDF 超链接清单；
+  ≤4000 字符（L3 `MANAGED_SESSION_TASK_MAX_CHARS`）超限按页顺序截断记
+  params.taskTruncated；**零文件内容外发超出材料文字本身**（无图片、无路径、
+  无凭据）。图片材料无本地文字 → agentSubmit `BAD_PAYLOAD`（两阶段/多模态/
+  手动包完整可用）。
+- **回流管线**：submit 成功 → result_json.agent 落 {provider,commandId,nativeId,
+  sessionId} 联动；watcher（1.5s 轮询，写库全经 importPipeline.patchJob 同一
+  cancelled 守卫）轮询 agent_sessions 状态——`waiting_input`/`completed` →
+  listAgentMessages 取最后一条 assistant → 同一 `parseDraftJson` +
+  `validateDraftContests`（精度提升拒绝等规则同源）→ `ensureValidatedDraft`
+  validated→draft 落位 → 既有 draftConfirm 两段式核对（相似检测/合并/另建）；
+  `paused`/`failed`/`stopped`/`connection_lost` → 结构化 failed
+  （AGENT_INTERRUPTED/AGENT_SESSION_*）；超时 1800s → AGENT_TIMEOUT。已验证
+  限制：消息投影 contentRedacted 4000 字符截断（claudeProvider
+  DEFAULT_MESSAGE_TEXT_CAP 同量级）——超长 JSON 回复解析失败 → BAD_RESPONSE
+  （重新提交要求更精简输出），不做第二个提取面。
+- **取消作用域**：置 cancelled（同一 patchJob 守卫，晚到回流绝不落库）+ watcher
+  取消令牌 abort（monitorRegistry `{cancelled}` 令牌同款语义，作用域=本任务及其
+  托管会话）+ L3 `createSessionAction(pause)` 只中断本任务托管 turn（能力门同
+  L3）；pause 不可执行（turn 已结束等）结构化折叠不影响取消。
+- **手动任务包**：exportPack 产物 `contestpin-task-pack-<ts>.json`
+  {kind,version,exportedAt,instruction,contract,materials[]}——**结构性零凭据
+  零 key**（无 configs/base_url/apiKey 任何字段，manifest 同款红线）；image 材料
+  仅元数据+显式 note 不编造内容。importPack 收 resultPath（renderer 文件对话框
+  +preload 先例）或 resultText，校验（形状 BAD_RESPONSE/材料存在性 NOT_FOUND/
+  双来源互斥/≤10MB）→ manual_pack 任务 → 同一 draft 管线；provenance 引用材料集
+  外 materialId → flag 待人工核对；**绝不直写生产行不静默覆盖**。兼容两种形态：
+  裸契约 JSON（agent 直接回复）与任务包回填 `{kind:'contestpin-task-pack',
+  result:{...}}`。
+- **同源校验修正**：`validateDraftContests` 此前重开时丢弃输入侧既有 flags——
+  违反 §5「模糊/冲突打 flags 展示待核对，绝不自动丢弃」；修正为保留（CP3b 流程
+  parseDraftJson 恒传空数组，对其零行为变化）。
+- **UI 双路径入口**（MaterialImportPanel，模式选择 +2）：agent=Provider 选择
+  （agents:providers 真实探测投影，能力态如实展示「可自动（managed·能力验证
+  新鲜）/能力未验证已过期/不支持自动（observed）」，无可用时提交禁用+降级文案）
+  + 附加指令 + 提交；manual_pack=导出目录+导出包/导入结果按钮。三态强制零 mock；
+  任务行显示托管会话态、agent/manual_pack 隐藏阶段重试（importRetry 对两模式
+  结构化拒绝，重新提交/重新导入即重试）。
+- **smoke**：cp5-agent-submit（observed/陈旧拒绝结构化 + fake managed provider
+  注入式 happy path（回流→draft→draftConfirm 真实落库 source='imported'）+ 取消
+  只杀本任务（晚到回流不落库、L3 pause 仅本会话）+ 图片材料拒绝）+ cp5-pack
+  （export 形状/零凭据断言 + import 校验/越界 flag/合并不静默覆盖）；计数断言
+  4 处就地更新 104→108。**真实 codex 实测留主控窗毕复验步**——分支门禁全 fake
+  provider 注入（零真实推理零配额）。
+- **migration 零新增**：008 contest_import_jobs.mode CHECK 已预留
+  'agent'/'manual_pack'，任务行复用既有表（material_id 可空=多材料合单一任务，
+  materialIds 在 params_json），零 009。
+
 ## 9. 备份恢复（CP6）
 
 - 导出：目标目录 = `manifest.json`（contests/nodes/reminders/materials 元数据，
