@@ -27,6 +27,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,7 +48,9 @@ fun MainTabs(
     onGatewayConfig: () -> Unit,
     onOpenRemoteEntry: (Long) -> Unit = {},
 ) {
-    var selected by remember { mutableStateOf(initialTab) }
+    // Q 批：rememberSaveable——跳「远程工作区」全屏 WebView 后返回，选中 tab 不再
+    // 丢失回默认会话（main 条目在返回栈上，状态随 SavedStateRegistry 存续）。
+    var selected by rememberSaveable { mutableStateOf(initialTab) }
 
     Scaffold(
         // 视觉打磨批 D：顶部 inset 单计——外层 DevHubRoot Scaffold 已把状态栏 inset
