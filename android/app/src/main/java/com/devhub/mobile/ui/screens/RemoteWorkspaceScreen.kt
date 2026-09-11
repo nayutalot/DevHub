@@ -299,6 +299,14 @@ internal fun readClipboardHttpUrl(context: Context): String? = try {
 internal fun stripWebViewUaMarker(ua: String): String =
     if (ua.contains("; wv)")) ua.replaceFirst("; wv)", ")") else ua
 
+/**
+ * W 批（错误页凭据加固）：主帧加载失败后用于清除默认 Chromium 错误页的空载荷识别
+ * （loadData 空文本 → data: URL）。默认错误页会把完整 URL（可含 ZCode 会话凭据
+ * sid/hash）渲染在屏上——旁观/录屏可见；清屏载荷自身会走 WebView 回调，onPageStarted
+ * 须跳过之（否则反向抹掉结构化错误横幅/把标题栏 URL 冲成 data: 文本）。纯函数便于单测。
+ */
+internal fun isErrorPageClearPayload(url: String): Boolean = url.startsWith("data:")
+
 // ---------------------------------------------------------------------------
 // S 批：ZCode 工作区智能条目卡片（顶部固定；状态机 = WorkspaceLinkCard，:app 单测锁）
 // ---------------------------------------------------------------------------
@@ -376,6 +384,8 @@ private fun WorkspaceLinkCardView(
  * 全屏 WebView：标题栏（返回/标题+当前 URL 中段省略/刷新/复制 URL）+ WebView 主体。
  * 三态：加载态（顶部线性进度）/ 错误态（结构化提示+重试）/ 正常渲染；
  * 空态=条目不存在（深链/已删兜底）。
+ * W 批：主帧加载失败立即以空文本清掉默认 Chromium 错误页（其把完整 URL——可含
+ * 会话凭据——渲染在屏上）；用户面信息全由 App 结构化错误横幅+重试承担。
  * 返回键纪律：先 WebView.canGoBack() 后退网页历史，无历史再屏退（任务书 §1.3）。
  */
 @Composable
@@ -501,6 +511,9 @@ private fun WebViewPane(entry: RemoteWorkspaceEntryEntity, onExit: () -> Unit) {
                             }
 
                             override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
+                                // W 批：清错误页的空 data: 载荷不重置状态——该载荷走回调时若照常
+                                // 重置，会把结构化错误横幅抹掉、把标题栏 URL 冲成 data: 文本
+                                if (isErrorPageClearPayload(url)) return
                                 currentUrl = url
                                 loading = true
                                 errorMsg = null
@@ -516,6 +529,10 @@ private fun WebViewPane(entry: RemoteWorkspaceEntryEntity, onExit: () -> Unit) {
                                     loading = false
                                     errorMsg = "页面加载失败（${error.description}，code=${error.errorCode}）。" +
                                         "请检查链接与网络后重试。"
+                                    // W 批：立即清掉默认 Chromium 错误页——其把完整 URL（可含
+                                    // sid/hash 会话凭据）渲染在屏上，旁观/录屏可见；错误页只需
+                                    // "不清单"，用户面信息由上方结构化错误横幅+重试承担
+                                    view.loadData("", "text/plain", "utf-8")
                                 }
                             }
 
@@ -543,7 +560,9 @@ private fun WebViewPane(entry: RemoteWorkspaceEntryEntity, onExit: () -> Unit) {
                         TextButton(onClick = {
                             errorMsg = null
                             loading = true
-                            webView?.reload()
+                            // W 批：错误清屏后 WebView 当前项已是空 data: 载荷，reload() 会
+                            // 重载空白——重试显式重载条目 URL（失败路径再入同一错误态闭环）
+                            webView?.loadUrl(entry.url)
                         }) { Text("重试") }
                     }
                 }
