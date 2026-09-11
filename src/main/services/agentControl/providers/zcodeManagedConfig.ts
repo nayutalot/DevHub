@@ -22,10 +22,9 @@
  * 降级默认，与 keyStore 契约一致）。
  */
 
-import { homedir } from 'node:os'
 import { getSetting } from '../../settingsService.ts'
 import { getKeyCrypto } from '../../apihub/keyStore.ts'
-import { readCurrent } from '../../apihub/adapters.ts'
+import { readCurrent, resolveHomeDir } from '../../apihub/adapters.ts'
 import { decryptProfileKey, getProfile, listProfileViews } from '../../apihub/profileStore.ts'
 
 /** settings 键名（主控定案 #1）。 */
@@ -85,7 +84,9 @@ export async function readZcodeManagedConfig(deps?: { homeDir?: string }): Promi
   if (model.length === 0) {
     return { ready: false, reason: `settings key ${ZCODE_MANAGED_MODEL_SETTING_KEY} is empty (managed face disabled by default)` }
   }
-  const home = deps?.homeDir ?? process.env['APIHUB_HOME'] ?? homedir()
+  // home 解析归位 ApiHub 既有边界（adapters.resolveHomeDir：explicit → APIHUB_HOME →
+  // homedir，与 apihubService depsOf 同源）；deps.homeDir 注入缝保留（smoke 夹具覆盖）。
+  const home = resolveHomeDir(deps?.homeDir)
   const crypto = getKeyCrypto()
   let profiles: Awaited<ReturnType<typeof listProfileViews>>
   try {

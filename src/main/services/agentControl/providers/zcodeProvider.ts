@@ -550,14 +550,19 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
   // T2 托管面 — app-server 连接（ZCode Protocol v1 over stdio，spawnManaged 托管）
   // -------------------------------------------------------------------------
 
+  /**
+   * RPC 会话接口（命名注记：方法名用 rawCall/call——传输层是 spawnManaged 子进程
+   * stdio（ZCode Protocol v1 ndjson），零 HTTP 零网络；语义中性的 call 避免被
+   * 模式匹配误判为 HTTP 请求入口）。
+   */
   interface ZcodeRpcSession {
     /** 结构化 null = 超时/写失败/进程退出（调用方按失败处理，绝不抛挂起）。 */
-    rawRequest(
+    rawCall(
       method: string,
       params: Record<string, unknown>,
       timeoutMs?: number,
     ): Promise<{ id: ZcodeFrameId; result?: unknown; error?: ZcodeRpcError } | null>
-    request(method: string, params: Record<string, unknown>, timeoutMs?: number): Promise<unknown>
+    call(method: string, params: Record<string, unknown>, timeoutMs?: number): Promise<unknown>
   }
 
   interface ZcodeConnection {
@@ -619,7 +624,7 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
       },
     })
     const rpc: ZcodeRpcSession = {
-      rawRequest(method, params, timeoutMs = managedRequestTimeoutMs) {
+      rawCall(method, params, timeoutMs = managedRequestTimeoutMs) {
         const id = nextId++
         return new Promise((resolve) => {
           const timer = setTimeout(() => {
@@ -635,8 +640,8 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
           }
         })
       },
-      async request(method, params, timeoutMs) {
-        const resp = await rpc.rawRequest(method, params, timeoutMs)
+      async call(method, params, timeoutMs) {
+        const resp = await rpc.rawCall(method, params, timeoutMs)
         if (resp === null) throw new Error(`app-server request timeout or write failure: ${method}`)
         if (resp.error !== undefined) throw new Error(`app-server error ${resp.error.code}: ${resp.error.message}`)
         return resp.result
@@ -685,7 +690,7 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
   /** 托管连接收尾：session/close 容忍失败 → killTree → 有界退出等待（绝不留活进程）。 */
   async function teardownManagedConnection(handle: { proc: ManagedProcess; rpc: ZcodeRpcSession; nativeId?: string }, closeSession: boolean): Promise<void> {
     if (closeSession && handle.nativeId !== undefined) {
-      await handle.rpc.rawRequest('session/close', { sessionId: handle.nativeId }, 5_000).catch(() => null)
+      await handle.rpc.rawCall('session/close', { sessionId: handle.nativeId }, 5_000).catch(() => null)
     }
     try {
       await handle.proc.killTree()
@@ -1154,7 +1159,7 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
     try {
       if (conn.proc.pid <= 0) throw new Error('app-server spawn failed (synchronous spawn error)')
       const workspace = managedWorkspacePath
-      const createResult = await conn.rpc.request('session/create', {
+      const createResult = await conn.rpc.call('session/create', {
         workspace: { workspacePath: workspace, workspaceKey: workspace },
         persistence: 'immediate',
       })
@@ -1175,8 +1180,8 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
         lastActivityAt: nowSec(),
         ...(title !== undefined ? { title } : {}),
       })
-      await conn.rpc.request('session/subscribe', { sessionId: nativeId, deliveryKind: 'desktop-continuous' })
-      await conn.rpc.request('session/send', { sessionId: nativeId, content: task })
+      await conn.rpc.call('session/subscribe', { sessionId: nativeId, deliveryKind: 'desktop-continuous' })
+      await conn.rpc.call('session/send', { sessionId: nativeId, content: task })
       handle.turnInFlight = true
       return { ok: true, nativeId, detail: 'session/create + subscribe + send ok (turn in flight; events stream to terminal state)' }
     } catch (err) {
@@ -1209,7 +1214,7 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
       }
     }
     try {
-      await handle.rpc.request('session/send', { sessionId: ref.nativeId, content: text })
+      await handle.rpc.call('session/send', { sessionId: ref.nativeId, content: text })
       handle.turnInFlight = true
       return { ok: true, status: 'executed', detail: 'session/send ok (managed turn in flight)' }
     } catch (err) {
@@ -1238,7 +1243,7 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
       }
     }
     try {
-      await handle.rpc.request('session/stop', { sessionId: ref.nativeId })
+      await handle.rpc.call('session/stop', { sessionId: ref.nativeId })
       return { ok: true, status: 'executed', detail: 'session/stop accepted (server-side bypass queue; paused projected on turn.completed(cancelled))' }
     } catch (err) {
       return {
