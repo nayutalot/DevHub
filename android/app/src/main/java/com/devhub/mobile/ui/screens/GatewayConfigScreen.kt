@@ -61,6 +61,7 @@ fun GatewayConfigScreen(
     onConfigured: () -> Unit,
     onDiagnostics: () -> Unit,
     onDemoMode: () -> Unit = {},
+    onBack: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val db = remember { DevHubDb.get(context) }
@@ -114,6 +115,11 @@ fun GatewayConfigScreen(
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        // U1-M6/P2#9（AUDIT，18 号截图）：本页属堆叠推送时补「< 返回」
+        // （与其他堆叠页 03/12/15 一致）；首装冷启动直达（返回栈空）不显示
+        if (onBack != null) {
+            TextButton(onClick = onBack) { Text("< 返回") }
+        }
         Text("Remote Gateway 配置", style = MaterialTheme.typography.titleLarge)
         Text(
             "连接模式（显式选择，同一设备 Token 两模式通用）：\n" +

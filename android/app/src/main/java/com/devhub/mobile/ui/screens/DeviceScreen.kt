@@ -13,6 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -105,19 +106,21 @@ fun DeviceScreen() {
 
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text("本设备", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-            Text("deviceId：${o.deviceId}", fontSize = 13.sp)
+            // U1-M6/P2#4（AUDIT，17/21 号截图）：原始 JSON key 不再直出，标签统一中文
+            //（deviceId/platform/gateway 为产品术语，术语词保留英文形态）
+            Text("设备 ID：${o.deviceId}", fontSize = 13.sp)
             Text("设备名：${o.deviceName}", fontSize = 13.sp)
-            Text("platform：android", fontSize = 13.sp)
+            Text("平台：Android", fontSize = 13.sp)
             Text("配对时间：" + formatSec(o.pairedAtSec), fontSize = 13.sp)
-            Text("gateway：${o.gatewayName}", fontSize = 13.sp)
+            Text("网关：${o.gatewayName}", fontSize = 13.sp)
         }
 
         serverRow?.let { row ->
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text("服务端状态", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                Text("status：${row.status}", fontSize = 13.sp)
-                Text("lastSeen：" + (row.lastSeenAtSec?.let { formatSec(it) } ?: "（从未）"), fontSize = 13.sp)
-                Text("tokenVersion：${row.tokenVersion}", fontSize = 13.sp)
+                Text("状态：${row.status}", fontSize = 13.sp)
+                Text("最近在线：" + (row.lastSeenAtSec?.let { formatSec(it) } ?: "（从未）"), fontSize = 13.sp)
+                Text("令牌版本：${row.tokenVersion}", fontSize = 13.sp)
             }
         }
         error?.let {
@@ -125,7 +128,16 @@ fun DeviceScreen() {
         }
 
         Spacer(Modifier.height(8.dp))
-        Button(onClick = { confirmingRevoke = true }, enabled = !revoking) {
+        // U1-M6/P2#5（AUDIT，17 号截图）：撤销=不可恢复的破坏性操作，
+        // 弃用绿色主按钮样式，改 error 色系（警示语义）；确认对话框既有保留
+        Button(
+            onClick = { confirmingRevoke = true },
+            enabled = !revoking,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.error,
+                contentColor = MaterialTheme.colorScheme.onError,
+            ),
+        ) {
             Text(if (revoking) "撤销中…" else "撤销本设备")
         }
         Text(

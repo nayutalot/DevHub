@@ -147,7 +147,15 @@ fun DevHubRoot(startSessionId: Long?, onLinkConsumed: () -> Unit) {
             modifier = Modifier.padding(padding),
         ) {
             composable("gateway") {
+                // U1-M6/P2#9：堆叠推送时补返回导航；首装冷启动（start destination，
+                // 返回栈空）不显示返回钮
+                val canGoBack = navController.previousBackStackEntry != null
                 GatewayConfigScreen(
+                    onBack = if (canGoBack) {
+                        { navController.popBackStack() }
+                    } else {
+                        null
+                    },
                     onConfigured = {
                         // M2-R3：已配对（从主界面进配置页切模式）→ 返回主界面（保存已断旧连新）；
                         // 未配对（首装流程）→ 配对页（docs/19 §7.1 凭据共用，两模式同流程）。
