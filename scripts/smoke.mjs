@@ -11820,7 +11820,7 @@ if (isEntrypoint()) {
     // 正路：三文件齐 → ok + URL 形状断言（值只断长度/形态，绝不输出值）
     const okRes = zl.buildZcodeWorkspaceLink(deps(buildFiles()))
     assert.equal(okRes.ok, true, 'three sources present -> ok')
-    assert.ok(okRes.url.startsWith('https://zcode.chatglm.site/remote/v4?'), 'URL prefix: production origin + /remote/v4')
+    assert.ok(okRes.url.startsWith('https://zcode.z.ai/remote/v4?'), 'URL prefix: production origin + /remote/v4')
     assert.ok(okRes.url.length < 400, 'URL length sane')
     const parsed = new URL(okRes.url)
     assert.deepEqual(
@@ -11947,7 +11947,7 @@ if (isEntrypoint()) {
       assert.equal(result.json.status, 'executed')
       assert.equal(result.json.result?.provider, 'zcode', 'result carries provider zcode')
       assert.equal(typeof result.json.result?.url, 'string', 'result carries an in-frame url')
-      assert.ok(result.json.result.url.startsWith('https://zcode.chatglm.site/remote/v4?'), 'url has the v4 prefix (shape)')
+      assert.ok(result.json.result.url.startsWith('https://zcode.z.ai/remote/v4?'), 'url has the v4 prefix (shape)')
       assert.equal(result.json.result.deviceName, 'smoke-downlink-host', 'result carries deviceName')
 
       // 审计红线三面：result_json / security_audit_logs / command.result 事件零 URL 子串

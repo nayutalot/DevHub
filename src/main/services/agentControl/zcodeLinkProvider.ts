@@ -34,8 +34,10 @@ import { readFileSync } from 'node:fs'
  *  可读版本源再改读取，常量升版即可（v4 阈值 3.4.0 远低于任何现实版本）。 */
 export const ZCODE_LINK_APP_VERSION = '3.11.2'
 
-/** 生产默认 origin（R 批证据：endpoint 对话框 placeholder + 生产映射）。 */
-export const ZCODE_LINK_ORIGIN = 'https://zcode.chatglm.site'
+/** 生产默认 origin（asar 反混淆主默认=zcode.z.ai；2026-09-11 实测：z.ai 直连
+ *  /remote/v4=HTTP 200，chatglm.site DNS→私网死址、直连/代理/ECS 四面不通；
+ *  endpoint 对话框 placeholder=chatglm.site 曾致 R 批误读）。 */
+export const ZCODE_LINK_ORIGIN = 'https://zcode.z.ai'
 
 /** credentials.json 中 pass_hash 信封的键名（R 批证据 [B]）。 */
 export const ZCODE_PASS_HASH_CREDENTIAL_KEY = 'web-remote-control:external-relay:pass_hash'
