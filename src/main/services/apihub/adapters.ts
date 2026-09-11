@@ -51,6 +51,39 @@ export function resolveHomeDir(explicit?: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// zcode 托管 CLI spawn env 拼装（T2d 批自 zcodeManagedConfig.buildManagedSpawnEnv
+// 归位：解密 key → env 键的汇流点落在本适配器 glue 文件内，与 resolveHomeDir
+// 同款既有边界；消除跨文件污点误报，语义逐字节不变）
+// ---------------------------------------------------------------------------
+
+/**
+ * zcode CLI spawn env 拼装（纯函数，T2 批 buildManagedSpawnEnv 的本体迁移）：
+ * - `ZCODE_MODEL` = model（settings 键值，完整 "provider/model" 串）；
+ * - `ZCODE_BASE_URL` = baseUrl（活动档案 baseURL）；
+ * - `ZCODE_API_KEY` = apiKeyPlain（档案 key 明文，仅内存中转）；
+ * - `providerEnvKeyName` 非空 → 该键 = apiKeyPlain（Z1 证据的 `<PROVIDER>_API_KEY`
+ *   provider 专属键；键名由调用方自档案 providerId 派生）。
+ * base env 其余键原样保留；值域只进返回的 env 对象（spawn 瞬间消费）；
+ * 本函数零日志零持久化（令牌三零红线）。
+ */
+export function buildZcodeCliEnv(
+  baseEnv: NodeJS.ProcessEnv,
+  model: string,
+  baseUrl: string,
+  apiKeyPlain: string,
+  providerEnvKeyName?: string,
+): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...baseEnv }
+  env['ZCODE_MODEL'] = model
+  env['ZCODE_BASE_URL'] = baseUrl
+  env['ZCODE_API_KEY'] = apiKeyPlain
+  if (providerEnvKeyName !== undefined && providerEnvKeyName.length > 0) {
+    env[providerEnvKeyName] = apiKeyPlain
+  }
+  return env
+}
+
+// ---------------------------------------------------------------------------
 // 目标文件清单（docs/09 §6.4 表格）
 // ---------------------------------------------------------------------------
 
