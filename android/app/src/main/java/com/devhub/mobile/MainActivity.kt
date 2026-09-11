@@ -28,6 +28,8 @@ import com.devhub.mobile.connect.ConnState
 import com.devhub.mobile.connect.GatewayConnectionService
 import com.devhub.mobile.data.FixtureMode
 import com.devhub.mobile.data.SecureStore
+import com.devhub.mobile.core.NotificationPermissionPolicy
+import com.devhub.mobile.notify.NotificationPermissionStore
 import com.devhub.mobile.ui.AppState
 import com.devhub.mobile.ui.screens.ChildSessionsScreen
 import com.devhub.mobile.ui.screens.GatewayConfigScreen
@@ -43,7 +45,8 @@ import com.devhub.mobile.ui.theme.DevHubTheme
  * session/{id} 详情 / remote/{id} 全屏 WebView / remote-manage 条目管理屏。
  * - deep link：devhub://session/{id}（事件通知点击直达会话详情；onNewIntent 热路径同样生效）；
  * - 401（撤销/失效）：ConnState.Unpaired → 清凭据已由 ConnectionManager 完成 → 回配对页；
- * - 通知权限：API 33+ 启动时请求一次（POST_NOTIFICATIONS）；
+ * - 通知权限：API 33+ 启动时请求一次（POST_NOTIFICATIONS）；U1-M5：拒绝一次即记录，
+ *   之后冷启动不再自动弹（改 GatewayConfig「通知权限」入口承载）；
  * - windowSoftInputMode=adjustResize（Q 批）：WebView 页软键盘局部处理，输入焦点正常落 WebView；
  * - T1 批：独立「远程工作区」tab 撤销——ZCode 遥控入口并入会话/Agent 流
  *   （会话页智能卡 / zcode 会话详情 / zcode Agent 卡 → remote/{entryId}，语义不动）；
@@ -51,8 +54,12 @@ import com.devhub.mobile.ui.theme.DevHubTheme
  */
 class MainActivity : ComponentActivity() {
 
+    // U1-M5（AUDIT P1#5）：拒绝过 → 冷启动不再自动弹（不再骚扰式重复请求）；
+    // 授予与否都记录（授予清标记），UI 不阻塞
     private val notificationPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* 授予与否都不阻塞 UI */ }
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            NotificationPermissionStore.record(this, granted)
+        }
 
     /** deep link 目标会话（onCreate / onNewIntent 均更新；Compose 侧消费后清零）。 */
     private var pendingSessionLink by mutableStateOf<Long?>(null)
@@ -63,7 +70,11 @@ class MainActivity : ComponentActivity() {
         // 深色背景上浅色图标对比成立（此前浅色主题下近白图标不可见）。
         androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
             .isAppearanceLightStatusBars = false
-        if (Build.VERSION.SDK_INT >= 33) {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            NotificationPermissionPolicy.autoRequestOnColdStart(
+                NotificationPermissionStore.previouslyDenied(this),
+            )
+        ) {
             notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
         pendingSessionLink = sessionIdFromIntent(intent)
@@ -136,7 +147,15 @@ fun DevHubRoot(startSessionId: Long?, onLinkConsumed: () -> Unit) {
             modifier = Modifier.padding(padding),
         ) {
             composable("gateway") {
+                // U1-M6/P2#9：堆叠推送时补返回导航；首装冷启动（start destination，
+                // 返回栈空）不显示返回钮
+                val canGoBack = navController.previousBackStackEntry != null
                 GatewayConfigScreen(
+                    onBack = if (canGoBack) {
+                        { navController.popBackStack() }
+                    } else {
+                        null
+                    },
                     onConfigured = {
                         // M2-R3：已配对（从主界面进配置页切模式）→ 返回主界面（保存已断旧连新）；
                         // 未配对（首装流程）→ 配对页（docs/19 §7.1 凭据共用，两模式同流程）。

@@ -13,6 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -60,7 +61,9 @@ fun DeviceScreen() {
     val scope = rememberCoroutineScope()
     var own by remember { mutableStateOf<DeviceEntity?>(null) }
     var serverRow by remember { mutableStateOf<DeviceDto?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
+    // U1-M3（AUDIT P1#3/P2#10）：错误统一呈现体——relay 模式 /v1/devices NOT_FOUND
+    // → 人话「当前接入点不提供设备列表」；原码收「技术细节」折叠
+    var error by remember { mutableStateOf<com.devhub.mobile.core.ErrorPresent.Presentable?>(null) }
     var confirmingRevoke by remember { mutableStateOf(false) }
     var revoking by remember { mutableStateOf(false) }
 
@@ -76,9 +79,12 @@ fun DeviceScreen() {
                 }
                 error = null
             } catch (err: ApiError) {
-                error = "[${err.code}] ${err.message}"
+                error = com.devhub.mobile.core.ErrorPresent.api(
+                    err.code, err.message,
+                    com.devhub.mobile.core.ErrorPresent.Surface.DEVICE_LIST,
+                )
             } catch (err: IOException) {
-                error = "网络不可达（显示本地身份）"
+                error = com.devhub.mobile.core.ErrorPresent.io(err)
             }
             delay(ConnectionManager.FALLBACK_POLL_MS)
         }
@@ -100,25 +106,38 @@ fun DeviceScreen() {
 
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text("本设备", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-            Text("deviceId：${o.deviceId}", fontSize = 13.sp)
+            // U1-M6/P2#4（AUDIT，17/21 号截图）：原始 JSON key 不再直出，标签统一中文
+            //（deviceId/platform/gateway 为产品术语，术语词保留英文形态）
+            Text("设备 ID：${o.deviceId}", fontSize = 13.sp)
             Text("设备名：${o.deviceName}", fontSize = 13.sp)
-            Text("platform：android", fontSize = 13.sp)
+            Text("平台：Android", fontSize = 13.sp)
             Text("配对时间：" + formatSec(o.pairedAtSec), fontSize = 13.sp)
-            Text("gateway：${o.gatewayName}", fontSize = 13.sp)
+            Text("网关：${o.gatewayName}", fontSize = 13.sp)
         }
 
         serverRow?.let { row ->
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text("服务端状态", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                Text("status：${row.status}", fontSize = 13.sp)
-                Text("lastSeen：" + (row.lastSeenAtSec?.let { formatSec(it) } ?: "（从未）"), fontSize = 13.sp)
-                Text("tokenVersion：${row.tokenVersion}", fontSize = 13.sp)
+                Text("状态：${row.status}", fontSize = 13.sp)
+                Text("最近在线：" + (row.lastSeenAtSec?.let { formatSec(it) } ?: "（从未）"), fontSize = 13.sp)
+                Text("令牌版本：${row.tokenVersion}", fontSize = 13.sp)
             }
         }
-        error?.let { Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.error) }
+        error?.let {
+            com.devhub.mobile.ui.components.ErrorPresentation(presentable = it)
+        }
 
         Spacer(Modifier.height(8.dp))
-        Button(onClick = { confirmingRevoke = true }, enabled = !revoking) {
+        // U1-M6/P2#5（AUDIT，17 号截图）：撤销=不可恢复的破坏性操作，
+        // 弃用绿色主按钮样式，改 error 色系（警示语义）；确认对话框既有保留
+        Button(
+            onClick = { confirmingRevoke = true },
+            enabled = !revoking,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.error,
+                contentColor = MaterialTheme.colorScheme.onError,
+            ),
+        ) {
             Text(if (revoking) "撤销中…" else "撤销本设备")
         }
         Text(
@@ -146,12 +165,17 @@ fun DeviceScreen() {
                                 is SelfRevokeSubmit.Revoked -> Unit // 收口完成：状态机已接管 UI 导航
 
                                 is SelfRevokeSubmit.Queued -> {
-                                    error = "撤销已排队（电脑离线）：连接恢复后自动执行"
+                                    error = com.devhub.mobile.core.ErrorPresent.Presentable(
+                                        "撤销已排队（电脑离线）：连接恢复后自动执行",
+                                    )
                                     revoking = false
                                 }
 
                                 is SelfRevokeSubmit.Rejected -> {
-                                    error = "[${r.code}] ${r.message}"
+                                    error = com.devhub.mobile.core.ErrorPresent.api(
+                                        r.code, r.message,
+                                        com.devhub.mobile.core.ErrorPresent.Surface.COMMAND,
+                                    )
                                     revoking = false
                                 }
                             }
@@ -165,12 +189,18 @@ fun DeviceScreen() {
                             // relay 模式打错面/Token 已失效等）绝不伪报成功（旧判断把 httpCode==401
                             // 一律短路成撤销成功而 ECS 侧零撤销，本机凭据被误清）。
                             if (err.code != "DEVICE_REVOKED") {
-                                error = "[${err.code}] ${err.message}"
+                                error = com.devhub.mobile.core.ErrorPresent.api(
+                                    err.code, err.message,
+                                    com.devhub.mobile.core.ErrorPresent.Surface.COMMAND,
+                                )
                                 revoking = false
                                 return@launch
                             }
                         } catch (err: IOException) {
-                            error = "网络不可达：撤销未执行"
+                            error = com.devhub.mobile.core.ErrorPresent.Presentable(
+                                "网络不可达：撤销未执行",
+                                err.toString(),
+                            )
                             revoking = false
                             return@launch
                         }

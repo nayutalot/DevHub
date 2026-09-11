@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -37,7 +38,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -45,6 +48,7 @@ import com.devhub.mobile.connect.ConnectionManager
 import com.devhub.mobile.connect.SubmitResult
 import com.devhub.mobile.core.ProviderPalette
 import com.devhub.mobile.core.ScrubberMath
+import com.devhub.mobile.core.TranscriptListMetrics
 import com.devhub.mobile.data.ApiProvider
 import com.devhub.mobile.data.FixtureMode
 import com.devhub.mobile.data.db.DevHubDb
@@ -99,11 +103,14 @@ fun SessionDetailScreen(
     val fixtureOn = remember { FixtureMode.enabled(context) }
 
     var detail by remember { mutableStateOf<SessionDetailDto?>(null) }
-    var detailError by remember { mutableStateOf<String?>(null) }
+    // U1-M3（AUDIT P1#3）：错误统一呈现体（人话 + 原码收「技术细节」折叠）
+    var detailError by remember { mutableStateOf<com.devhub.mobile.core.ErrorPresent.Presentable?>(null) }
     var prevAfter by remember { mutableStateOf<Long?>(null) } // R10 向旧翻页游标（null = 已到最早）
     var loadingOlder by remember { mutableStateOf(false) }
     var replyText by remember { mutableStateOf("") }
     var submitStatus by remember { mutableStateOf<String?>(null) }
+    // U1-M3：指令被拒 → 统一呈现体（人话 + 原码「技术细节」折叠），不再直出 [code] msg
+    var submitError by remember { mutableStateOf<com.devhub.mobile.core.ErrorPresent.Presentable?>(null) }
     var scrubFraction by remember { mutableStateOf<Float?>(null) }
 
     /** 消息分页入库（脱敏投影；segments 序列化为 JSON 供 UI 解析）。 */
@@ -153,8 +160,12 @@ fun SessionDetailScreen(
     }
 
     // —— 首屏（R10 尾部取数；仅 sessionId 变化执行一次）——
+    // U1-M1（AUDIT P1#1）：旋转（Activity 重建/配置变化）后按 sessionId 重载消息——
+    // orientation 入键：横竖屏切换后本 effect 重启，尾部取数 + prevAfter 游标重建，
+    // 气泡数据面与度量面（下方 TranscriptListMetrics 收敛 padding）双路修复。
+    val orientation = LocalConfiguration.current.orientation
     val refreshSignal by ConnectionManager.refreshSignal.collectAsState() // R5.3 事件驱动刷新信号
-    LaunchedEffect(sessionId) {
+    LaunchedEffect(sessionId, orientation) {
         runCatching {
             val page = withContext(Dispatchers.IO) {
                 ApiProvider.projection(context).messages(sessionId, last = TAIL_PAGE)
@@ -172,9 +183,12 @@ fun SessionDetailScreen(
                 detail = withContext(Dispatchers.IO) { ApiProvider.projection(context).sessionDetail(sessionId) }
                 detailError = null
             } catch (err: ApiError) {
-                detailError = "[${err.code}] ${err.message}"
+                detailError = com.devhub.mobile.core.ErrorPresent.api(
+                    err.code, err.message,
+                    com.devhub.mobile.core.ErrorPresent.Surface.SESSION_MESSAGES,
+                )
             } catch (err: IOException) {
-                detailError = "网络不可达"
+                detailError = com.devhub.mobile.core.ErrorPresent.io(err)
             }
             // 新消息增量回流（after 正向游标；消息指纹去重语义在服务端，Room upsert 幂等）。
             // 批次 C 缺陷修复：新启动的托管会话首屏常为空（消息在 spawn 后才产生），
@@ -248,13 +262,18 @@ fun SessionDetailScreen(
             return@Column
         }
         if (d == null) {
-            Text("加载失败：$detailError", color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+            com.devhub.mobile.ui.components.ErrorPresentation(
+                presentable = detailError ?: com.devhub.mobile.core.ErrorPresent.Presentable("加载失败"),
+                headlinePrefix = "加载失败：",
+            )
             return@Column
         }
 
         // —— 元数据行 ——
+        // U1-M2（AUDIT P1#2）：observed 会话 waiting_input 徽章锁定语义（详情面，
+        // sessionMode/capsMode 双门同口径——详情页零控件，原「等待输入」= 假可供性）
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            StatusBadge(d.session.status)
+            StatusBadge(d.session.status, sessionMode = d.session.sessionMode, capsMode = d.capabilities.mode)
             ModeBadge(d.session.sessionMode)
             if (d.session.stale) Text("数据过期（stale）", fontSize = 11.sp, color = Color(0xFFC7A008))
         }
@@ -314,6 +333,21 @@ fun SessionDetailScreen(
                     .background(Color(0xFFFFF8E1), RoundedCornerShape(8.dp))
                     .padding(horizontal = 8.dp, vertical = 6.dp),
             )
+            // U1-M2（AUDIT P1#2）：observed + waiting_input 同屏 → 零控件处补解释行，
+            // 直接回应徽章召唤（为何本端无输入途径；文案复用「转录只读」族，不杜撰能力）
+            if (com.devhub.mobile.core.InteractionHonesty.waitingInputBadge(
+                    status = d.session.status,
+                    sessionMode = d.session.sessionMode,
+                    capsMode = d.capabilities.mode,
+                ) != null
+            ) {
+                Text(
+                    com.devhub.mobile.core.InteractionHonesty.OBSERVED_WAITING_NOTE,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
         }
         // —— T1 批：zcode 会话「打开 ZCode 遥控」入口（observed 零控件现状不变——
         // 本入口不提交任何 DevHub 命令，只跳转 ZCode 自家认证遥控页；文案如实注明
@@ -347,6 +381,8 @@ fun SessionDetailScreen(
                         val text = replyText.trim()
                         if (text.isEmpty()) return@Button
                         scope.launch {
+                            submitStatus = null
+                            submitError = null
                             submitStatus = when (val r = ConnectionManager.submitReply(sessionId, text)) {
                                 is SubmitResult.Accepted -> {
                                     // R5.1 端侧打点：reply 提交→回流往返样本的起点标记
@@ -357,7 +393,13 @@ fun SessionDetailScreen(
                                     "已接受（commandId=${r.commandId}）"
                                 }
                                 SubmitResult.QueuedOffline -> "当前离线：已入离线队列，重连后自动补发（幂等）"
-                                is SubmitResult.Rejected -> "被拒绝：[${r.code}] ${r.message}"
+                                is SubmitResult.Rejected -> {
+                                    submitError = com.devhub.mobile.core.ErrorPresent.api(
+                                        r.code, r.message,
+                                        com.devhub.mobile.core.ErrorPresent.Surface.COMMAND,
+                                    )
+                                    null
+                                }
                             }
                             replyText = ""
                         }
@@ -370,22 +412,38 @@ fun SessionDetailScreen(
             if (controls.pause) {
                 OutlinedButton(onClick = {
                     scope.launch {
-                        submitStatus = when (val r = ConnectionManager.submitAction(sessionId, "pause")) {
-                            is SubmitResult.Accepted -> "pause 已接受（commandId=${r.commandId}）"
-                            SubmitResult.QueuedOffline -> "当前离线：pause 已入离线队列"
-                            is SubmitResult.Rejected -> "pause 被拒绝：[${r.code}] ${r.message}"
-                        }
+                            submitStatus = null
+                            submitError = null
+                            submitStatus = when (val r = ConnectionManager.submitAction(sessionId, "pause")) {
+                                is SubmitResult.Accepted -> "pause 已接受（commandId=${r.commandId}）"
+                                SubmitResult.QueuedOffline -> "当前离线：pause 已入离线队列"
+                                is SubmitResult.Rejected -> {
+                                    submitError = com.devhub.mobile.core.ErrorPresent.api(
+                                        r.code, r.message,
+                                        com.devhub.mobile.core.ErrorPresent.Surface.COMMAND,
+                                    )
+                                    null
+                                }
+                            }
                     }
                 }) { Text("暂停") }
             }
             if (controls.resume) {
                 OutlinedButton(onClick = {
                     scope.launch {
-                        submitStatus = when (val r = ConnectionManager.submitAction(sessionId, "resume")) {
-                            is SubmitResult.Accepted -> "resume 已接受（commandId=${r.commandId}）"
-                            SubmitResult.QueuedOffline -> "当前离线：resume 已入离线队列"
-                            is SubmitResult.Rejected -> "resume 被拒绝：[${r.code}] ${r.message}"
-                        }
+                            submitStatus = null
+                            submitError = null
+                            submitStatus = when (val r = ConnectionManager.submitAction(sessionId, "resume")) {
+                                is SubmitResult.Accepted -> "resume 已接受（commandId=${r.commandId}）"
+                                SubmitResult.QueuedOffline -> "当前离线：resume 已入离线队列"
+                                is SubmitResult.Rejected -> {
+                                    submitError = com.devhub.mobile.core.ErrorPresent.api(
+                                        r.code, r.message,
+                                        com.devhub.mobile.core.ErrorPresent.Surface.COMMAND,
+                                    )
+                                    null
+                                }
+                            }
                     }
                 }) { Text("恢复") }
             }
@@ -395,37 +453,70 @@ fun SessionDetailScreen(
             if (controls.approve) {
                 OutlinedButton(onClick = {
                     scope.launch {
-                        submitStatus = when (val r = ConnectionManager.submitAction(sessionId, "approve")) {
-                            is SubmitResult.Accepted -> "approve 已接受（commandId=${r.commandId}）"
-                            SubmitResult.QueuedOffline -> "当前离线：approve 已入离线队列"
-                            is SubmitResult.Rejected -> "approve 被拒绝：[${r.code}] ${r.message}"
-                        }
+                            submitStatus = null
+                            submitError = null
+                            submitStatus = when (val r = ConnectionManager.submitAction(sessionId, "approve")) {
+                                is SubmitResult.Accepted -> "approve 已接受（commandId=${r.commandId}）"
+                                SubmitResult.QueuedOffline -> "当前离线：approve 已入离线队列"
+                                is SubmitResult.Rejected -> {
+                                    submitError = com.devhub.mobile.core.ErrorPresent.api(
+                                        r.code, r.message,
+                                        com.devhub.mobile.core.ErrorPresent.Surface.COMMAND,
+                                    )
+                                    null
+                                }
+                            }
                     }
                 }) { Text("批准") }
             }
             if (controls.interrupt) {
                 OutlinedButton(onClick = {
                     scope.launch {
-                        submitStatus = when (val r = ConnectionManager.submitAction(sessionId, "interrupt")) {
-                            is SubmitResult.Accepted -> "interrupt 已接受（commandId=${r.commandId}）"
-                            SubmitResult.QueuedOffline -> "当前离线：interrupt 已入离线队列"
-                            is SubmitResult.Rejected -> "interrupt 被拒绝：[${r.code}] ${r.message}"
-                        }
+                            submitStatus = null
+                            submitError = null
+                            submitStatus = when (val r = ConnectionManager.submitAction(sessionId, "interrupt")) {
+                                is SubmitResult.Accepted -> "interrupt 已接受（commandId=${r.commandId}）"
+                                SubmitResult.QueuedOffline -> "当前离线：interrupt 已入离线队列"
+                                is SubmitResult.Rejected -> {
+                                    submitError = com.devhub.mobile.core.ErrorPresent.api(
+                                        r.code, r.message,
+                                        com.devhub.mobile.core.ErrorPresent.Surface.COMMAND,
+                                    )
+                                    null
+                                }
+                            }
                     }
                 }) { Text("中断") }
             }
         }
         submitStatus?.let { Text(it, fontSize = 12.sp) }
+        // U1-M3：指令拒绝统一呈现（人话 + 技术细节折叠，默认收起）
+        submitError?.let {
+            com.devhub.mobile.ui.components.ErrorPresentation(presentable = it)
+        }
 
         // —— 消息（R11 气泡流；R10 逆序布局：最新在底部、初始停底部）——
         // 打磨批 D：底部 contentPadding = 「跳到最新」FAB 高度 + 边距的避让区，
         // 最新一条气泡不再被 FAB 遮压（ux-b-08/12、r9-fab 三帧缺陷）。
-        Box(Modifier.weight(1f).fillMaxWidth().padding(top = 4.dp)) {
+        // U1-M1（AUDIT P1#1）：横屏小视口下固定 76dp 避让区可 ≥ 视口高——reverseLayout
+        // 最新气泡整体落视口上方 → 气泡区持续空白（26 号截图实证）。底部避让区按
+        // TranscriptListMetrics 收敛为 min(基准, 视口高×0.4)：横屏最新气泡恒可见，
+        // 竖屏（大视口）行为不变。
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(top = 4.dp)) {
+            val bottomAvoidDp = if (maxHeight != androidx.compose.ui.unit.Dp.Infinity) {
+                with(LocalDensity.current) {
+                    TranscriptListMetrics
+                        .bottomPaddingPx(viewportHeightPx = maxHeight.toPx(), basePaddingPx = 76.dp.toPx())
+                        .toDp()
+                }
+            } else {
+                76.dp
+            }
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
                 reverseLayout = true,
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 76.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = bottomAvoidDp),
             ) {
                 val count = messages.size
                 items(

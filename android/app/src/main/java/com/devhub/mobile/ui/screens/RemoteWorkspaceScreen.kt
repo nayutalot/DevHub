@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -100,6 +101,8 @@ fun RemoteWorkspaceScreen(onOpenEntry: (Long) -> Unit, onBack: () -> Unit = {}) 
     var url by remember { mutableStateOf("") }
     var clipboardUrl by remember { mutableStateOf<String?>(null) }
     var formError by remember { mutableStateOf<String?>(null) }
+    // U1-M6/P2#3（AUDIT）：垃圾桶一点即删无确认——先二次确认再删
+    var confirmDeleteEntry by remember { mutableStateOf<RemoteWorkspaceEntryEntity?>(null) }
 
     // S 批：进入本屏即自动请求（拉取模型——App 需要时取，永远新鲜且有效）；
     // LaunchedEffect(Unit) = 每次进入本屏恰一次，重试由卡片按钮/下次进入承载。
@@ -185,7 +188,8 @@ fun RemoteWorkspaceScreen(onOpenEntry: (Long) -> Unit, onBack: () -> Unit = {}) 
                             onOpenEntry(entry.id)
                         },
                         onDelete = {
-                            scope.launch { withContext(Dispatchers.IO) { db.remoteWorkspaceEntryDao().delete(entry.id) } }
+                            // U1-M6/P2#3：不再即时删——转确认对话框
+                            confirmDeleteEntry = entry
                         },
                     )
                     HorizontalDivider()
@@ -258,6 +262,24 @@ fun RemoteWorkspaceScreen(onOpenEntry: (Long) -> Unit, onBack: () -> Unit = {}) 
             Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
         }
         Spacer(Modifier.height(8.dp))
+    }
+
+    // U1-M6/P2#3（AUDIT P2-3，15-delete-confirm.png）：条目删除二次确认
+    confirmDeleteEntry?.let { target ->
+        AlertDialog(
+            onDismissRequest = { confirmDeleteEntry = null },
+            title = { Text("删除条目", fontWeight = FontWeight.SemiBold) },
+            text = { Text("「${target.title}」将从本机列表移除（仅删本机条目，不影响桌面）。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDeleteEntry = null
+                        scope.launch { withContext(Dispatchers.IO) { db.remoteWorkspaceEntryDao().delete(target.id) } }
+                    },
+                ) { Text("删除", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDeleteEntry = null }) { Text("取消") } },
+        )
     }
 }
 
