@@ -14473,6 +14473,270 @@ if (isEntrypoint()) {
     assert.equal(typeof provider.startManagedSession, 'function', 'startManagedSession implemented (spawn entry point for the generic L3 gate)')
   }, 'fast')
 
+  // 107. 托管 turn 全链（fake transport，full 档）：env 注入 spawn → create 期间
+  //      runtimePreferences 分发器应答默认四字段 + permission denied →
+  //      create/subscribe/send/close 顺序 → turn.started/turn.completed(success)
+  //      投影 running→waiting_input → managed 快照 sink；夹具日志零 key 值。
+  registerCase('t2z-107: zcode managed turn over fake transport — env-injected spawn answers runtimePreferences with defaults + permission denied, create/subscribe/send/close in order (brief decision #4), turn.started→running and turn.completed(success)→waiting_input projected, managed snapshot to sink, fixture log never contains the key value', async () => {
+    const { mkdtempSync, writeFileSync, readFileSync, existsSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+    const zcodeMod = await import(new URL('../src/main/services/agentControl/providers/zcodeProvider.ts', import.meta.url).href)
+
+    const dir = mkdtempSync(join(tmpdir(), 'devhub-t2z-107-'))
+    const logPath = join(dir, 'fixture-log.jsonl')
+    const fixtureScript = join(dir, 'zcode-fake-appserver.mjs')
+    writeFileSync(fixtureScript, T2Z_FAKE_APPSERVER_SCRIPT)
+    const fakeKey = 'smoke-fake-key-DO-NOT-LOG-9f2c'
+    process.env['ZCODE_FIXTURE_LOG'] = logPath
+    delete process.env['ZCODE_FIXTURE_MODE']
+    await makeTempHome('devhub-t2z-107-')
+    try {
+      const provider = zcodeMod.createZcodeProvider({
+        managedConfigSource: async () => ({
+          ready: true,
+          model: 'dummyhub/dummy-model',
+          baseUrl: 'https://dummyhub.test/api/anthropic',
+          kind: 'anthropic',
+          providerId: 'dummyhub',
+          apiKeyPlain: fakeKey,
+          envProviderKeyName: 'DUMMYHUB_API_KEY',
+        }),
+        managedCommand: process.execPath,
+        managedArgs: [fixtureScript],
+        managedWorkspacePath: join(dir, 'ws'),
+        managedIdleTimeoutMs: 15_000,
+        managedLifetimeTimeoutMs: 60_000,
+        managedRequestTimeoutMs: 10_000,
+      })
+      const seen = { discovered: [], statuses: [] }
+      const sink = {
+        onSessionDiscovered: (_p, snap) => seen.discovered.push(snap),
+        onStatusChanged: (ref, from, to, detail) => seen.statuses.push({ nativeId: ref.nativeId, from, to, detail }),
+      }
+      const start = await provider.startManagedSession('fixture task: reply then stop', sink)
+      assert.equal(start.ok, true, `startManagedSession ok: ${start.detail ?? ''}`)
+      assert.ok(String(start.nativeId).startsWith('sess_t2fixture'), 'native session id from the fake transport')
+      assert.equal(seen.discovered.length, 1, 'managed snapshot discovered exactly once')
+      assert.equal(seen.discovered[0].mode, 'managed', 'snapshot carries mode managed (L3 upsert basis, brief decision #7)')
+      assert.equal(seen.discovered[0].title, 'fixture-title')
+      assert.equal(seen.discovered[0].workdir, join(dir, 'ws'))
+
+      await pollUntil(() => seen.statuses.some((s) => s.to === 'running'), 5000, 20, 'turn.started projected running')
+      await pollUntil(() => seen.statuses.some((s) => s.to === 'waiting_input'), 5000, 20, 'turn.completed(success) projected waiting_input')
+      const running = seen.statuses.find((s) => s.to === 'running')
+      assert.equal(running.from === undefined || running.from === null, true, 'running is the first transition from no evidence')
+      const waiting = seen.statuses.find((s) => s.to === 'waiting_input')
+      assert.equal(waiting.from, 'running')
+      assert.ok(waiting.detail.includes('success'), 'detail carries the faithful resultType')
+
+      // turn 终止沿 → session/close + 连接收尾（夹具日志出现 close 请求）
+      await pollUntil(() => existsSync(logPath) && readFileSync(logPath, 'utf8').includes('"method":"session/close"'), 5000, 20, 'session/close issued after terminal event')
+      const entries = readFileSync(logPath, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+      assert.equal(entries[0].env.zcodeModel, 'dummyhub/dummy-model', 'env injection: ZCODE_MODEL from the settings-key snapshot')
+      assert.equal(entries[0].env.zcodeBaseUrl, 'https://dummyhub.test/api/anthropic', 'env injection: ZCODE_BASE_URL from the active profile')
+      assert.equal(entries[0].env.zcodeApiKeySet, true, 'env injection: ZCODE_API_KEY set (value never logged)')
+      assert.equal(entries[0].env.providerKeySet, true, 'env injection: <PROVIDER>_API_KEY set')
+      const methods = entries.filter((e) => e.request !== undefined).map((e) => e.request.method)
+      assert.deepEqual(methods, ['session/create', 'session/subscribe', 'session/send', 'session/close'], 'turn path order: create → subscribe → send → … → close (no initialize handshake, Z1 diff #2)')
+      const rtAnswer = entries.find((e) => e.serverAnswer !== undefined && e.serverAnswer.method === 'session/requestRuntimePreferences')
+      assert.ok(rtAnswer !== undefined, 'fixture raised runtimePreferences during create and the client answered')
+      assert.deepEqual(rtAnswer.serverAnswer.result, {
+        nativeSearchEnhancementsEnabled: false,
+        memoryEnabled: false,
+        askUserQuestionAutoResolutionEnabled: false,
+        modelContextBudgetStrategy: 'preflight-v1',
+      }, 'dispatcher answered the live server request with the default four fields')
+      const permAnswer = entries.find((e) => e.serverAnswer !== undefined && e.serverAnswer.method === 'interaction/requestPermission')
+      assert.ok(permAnswer !== undefined, 'fixture raised interaction/requestPermission and the client answered')
+      assert.deepEqual(permAnswer.serverAnswer.result, { decision: 'denied' }, 'v1 conservative policy: permission denied')
+
+      // 令牌三零：夹具日志全文零 key 值（env 只记布尔位）
+      assert.equal(readFileSync(logPath, 'utf8').includes(fakeKey), false, 'token red line: the fake key value never appears in the fixture log')
+
+      await provider.dispose()
+    } finally {
+      delete process.env['ZCODE_FIXTURE_LOG']
+      delete process.env['ZCODE_FIXTURE_MODE']
+      dbModule.closeDatabase()
+    }
+  }, 'full')
+
+  // 108. 托管面 reply/stop 控制命令（fake transport hang 模式，full 档）：活跃
+  //      连接上 session/send 二次注入 executed；session/stop 受理 →
+  //      turn.completed(cancelled) 投影 paused（codex turn_aborted 同义）。
+  registerCase('t2z-108: zcode managed control commands over a live fake transport — sendReply executes session/send, pause executes session/stop and the turn.completed(cancelled) event projects paused (bypass-queue interrupt per Z1 diff #7)', async () => {
+    const { mkdtempSync, writeFileSync, readFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+    const zcodeMod = await import(new URL('../src/main/services/agentControl/providers/zcodeProvider.ts', import.meta.url).href)
+
+    const dir = mkdtempSync(join(tmpdir(), 'devhub-t2z-108-'))
+    const logPath = join(dir, 'fixture-log.jsonl')
+    const fixtureScript = join(dir, 'zcode-fake-appserver.mjs')
+    writeFileSync(fixtureScript, T2Z_FAKE_APPSERVER_SCRIPT)
+    process.env['ZCODE_FIXTURE_LOG'] = logPath
+    process.env['ZCODE_FIXTURE_MODE'] = 'hang'
+    await makeTempHome('devhub-t2z-108-')
+    try {
+      const provider = zcodeMod.createZcodeProvider({
+        managedConfigSource: async () => ({
+          ready: true,
+          model: 'dummyhub/dummy-model',
+          baseUrl: 'https://dummyhub.test/api/anthropic',
+          kind: 'anthropic',
+          providerId: 'dummyhub',
+          apiKeyPlain: 'smoke-fake-key-t2z108',
+          envProviderKeyName: 'DUMMYHUB_API_KEY',
+        }),
+        managedCommand: process.execPath,
+        managedArgs: [fixtureScript],
+        managedWorkspacePath: join(dir, 'ws'),
+        managedIdleTimeoutMs: 15_000,
+        managedLifetimeTimeoutMs: 60_000,
+        managedRequestTimeoutMs: 10_000,
+      })
+      const statuses = []
+      const sink = {
+        onSessionDiscovered: () => {},
+        onStatusChanged: (ref, from, to) => statuses.push({ nativeId: ref.nativeId, from, to }),
+      }
+      const start = await provider.startManagedSession('hang task', sink)
+      assert.equal(start.ok, true)
+      const ref = { providerId: 'zcode', nativeId: start.nativeId }
+
+      await pollUntil(() => statuses.some((s) => s.to === 'running'), 5000, 20, 'hang-mode turn.started projected running')
+
+      const reply = await provider.sendReply(ref, 'second input while in flight')
+      assert.equal(reply.ok, true, `sendReply on the live connection executes: ${reply.detail ?? ''}`)
+      assert.equal(reply.status, 'executed')
+
+      const stopped = await provider.pause(ref)
+      assert.equal(stopped.ok, true, `session/stop accepted: ${stopped.detail ?? ''}`)
+      assert.equal(stopped.status, 'executed')
+      await pollUntil(() => statuses.some((s) => s.to === 'paused'), 5000, 20, 'turn.completed(cancelled) projected paused')
+      const paused = statuses.find((s) => s.to === 'paused')
+      assert.equal(paused.from, 'running')
+
+      // 终止沿后连接已收尾：再 reply → 结构化失败（无活跃连接）
+      await pollUntil(() => provider.pause(ref).then((r) => r.ok === false), 5000, 20, 'connection finalized after terminal event')
+      const after = await provider.sendReply(ref, 'too late')
+      assert.equal(after.status, 'failed')
+      assert.equal(after.errorCode, 'COMMAND_NOT_EXECUTABLE')
+
+      const entries = readFileSync(logPath, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+      const sendContents = entries.filter((e) => e.request !== undefined && e.request.method === 'session/send').map((e) => e.request.params.content)
+      assert.deepEqual(sendContents, ['hang task', 'second input while in flight'], 'both inputs reached session/send')
+      assert.ok(entries.some((e) => e.request !== undefined && e.request.method === 'session/stop'), 'session/stop issued (Z1 diff #7: soft interrupt before killTree)')
+      assert.equal(readFileSync(logPath, 'utf8').includes('smoke-fake-key-t2z108'), false, 'token red line holds on the control-command path')
+
+      await provider.dispose()
+    } finally {
+      delete process.env['ZCODE_FIXTURE_LOG']
+      delete process.env['ZCODE_FIXTURE_MODE']
+      dbModule.closeDatabase()
+    }
+  }, 'full')
+
+  // 109. L3 门接线（模块 3，full 档）：caps(managed) → startProviderManagedSession
+  //      通用门放行 zcode（spawn 落 managed 行 + running）→ sessionAction 对
+  //      managed zcode 放行（reply/pause executed、resume AGENT_CAPABILITY_MISSING）；
+  //      observed 外部会话照旧 COMMAND_NOT_EXECUTABLE。
+  registerCase('t2z-109: L3 gate wiring for managed zcode — generic spawn gate accepts zcode once caps are managed (managed row + running), sessionAction allows reply/pause on the managed session, resume hits AGENT_CAPABILITY_MISSING, observed external session still refused (COMMAND_NOT_EXECUTABLE)', async () => {
+    const { mkdtempSync, writeFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+    const svc = await import(new URL('../src/main/services/agentControl/agentControlService.ts', import.meta.url).href)
+    const zcodeMod = await import(new URL('../src/main/services/agentControl/providers/zcodeProvider.ts', import.meta.url).href)
+
+    const dir = mkdtempSync(join(tmpdir(), 'devhub-t2z-109-'))
+    const fixtureScript = join(dir, 'zcode-fake-appserver.mjs')
+    writeFileSync(fixtureScript, T2Z_FAKE_APPSERVER_SCRIPT)
+    process.env['ZCODE_FIXTURE_LOG'] = join(dir, 'fixture-log.jsonl')
+    process.env['ZCODE_FIXTURE_MODE'] = 'hang'
+    await makeTempHome('devhub-t2z-109-')
+    try {
+      const provider = zcodeMod.createZcodeProvider({
+        managedConfigSource: async () => ({
+          ready: true,
+          model: 'dummyhub/dummy-model',
+          baseUrl: 'https://dummyhub.test/api/anthropic',
+          kind: 'anthropic',
+          providerId: 'dummyhub',
+          apiKeyPlain: 'smoke-fake-key-t2z109',
+          envProviderKeyName: 'DUMMYHUB_API_KEY',
+        }),
+        managedCommand: process.execPath,
+        managedArgs: [fixtureScript],
+        managedWorkspacePath: join(dir, 'ws'),
+        managedIdleTimeoutMs: 15_000,
+        managedLifetimeTimeoutMs: 60_000,
+        managedRequestTimeoutMs: 10_000,
+      })
+      svc.setProviderOverride('zcode', provider)
+      svc.setProviderOverride('codex', stubAgentProvider('codex'))
+      svc.setProviderOverride('claude-code', stubAgentProvider('claude-code'))
+      svc.setProviderOverride('kimi', stubAgentProvider('kimi'))
+      svc.setProviderOverride('deepseek', stubAgentProvider('deepseek'))
+      svc.ensureAgentProviderRows()
+      const db = dbModule.getDatabase()
+      // caps 探测链产出（probeWiredProviders 会写同一形态）：managed + fresh verifiedAt
+      db.prepare("UPDATE agent_providers SET capabilities_json = ? WHERE provider = 'zcode'").run(
+        JSON.stringify({ mode: 'managed', granted: ['reply', 'pause'], verifiedAt: Math.floor(Date.now() / 1000), evidence: 'fixture managed probe' }),
+      )
+      assert.equal(svc.readProviderCapabilityMode('zcode'), 'managed', 'spawn-gate read-only projection sees managed (relay SPAWN_REJECTED classification unlocks)')
+
+      // 通用 spawn 门 → provider.startManagedSession（模块 3 接线主体；门/幂等/审计
+      // 全部复用既有 startProviderManagedSession，零改动即接 zcode）
+      const spawned = await svc.startProviderManagedSession({ provider: 'zcode', task: 'l3 managed task' })
+      assert.equal(spawned.status, 'executed', `generic spawn gate executed: ${JSON.stringify(spawned)}`)
+      assert.ok(String(spawned.nativeId).startsWith('sess_t2fixture'))
+      assert.ok(spawned.sessionId !== undefined, 'local session row resolved for App deep-link')
+      const row = db.prepare('SELECT session_mode, status FROM agent_sessions WHERE id = ?').get(spawned.sessionId)
+      assert.equal(row.session_mode, 'managed', 'spawned session lands as managed (brief decision #7)')
+      assert.equal(row.status, 'running', 'L3 marks running right after the spawn (DevHub-initiated)')
+
+      // managed zcode 会话：reply / pause 放行并真实执行；resume 被能力门拒
+      const reply = await svc.createSessionAction(spawned.sessionId, 'reply', 'steer the fixture')
+      assert.equal(reply.status, 'executed', 'sessionAction gate allows reply on managed zcode')
+      const paused = await svc.createSessionAction(spawned.sessionId, 'pause')
+      assert.equal(paused.status, 'executed', 'sessionAction gate allows pause on managed zcode')
+      await assert.rejects(
+        () => svc.createSessionAction(spawned.sessionId, 'resume'),
+        (err) => err.code === 'AGENT_CAPABILITY_MISSING',
+        'resume not granted by the T2 caps set → AGENT_CAPABILITY_MISSING at the gate',
+      )
+      await pollUntil(() => db.prepare('SELECT status FROM agent_sessions WHERE id = ?').get(spawned.sessionId).status === 'paused', 5000, 20, 'turn.completed(cancelled) projected paused through the L3 sink')
+
+      // observed 外部会话照旧拒（转录只读语义零变化）
+      const providerRow = db.prepare("SELECT id FROM agent_providers WHERE provider = 'zcode'").get()
+      db.prepare(
+        "INSERT INTO agent_sessions (provider_id, native_id, session_mode, status, created_at, updated_at) VALUES (?, 'sess_external_observed', 'observed', 'unknown', strftime('%s','now'), strftime('%s','now'))",
+      ).run(providerRow.id)
+      const observedRow = db.prepare("SELECT id FROM agent_sessions WHERE native_id = 'sess_external_observed'").get()
+      await assert.rejects(
+        () => svc.createSessionAction(observedRow.id, 'reply', 'nope'),
+        (err) => err.code === 'COMMAND_NOT_EXECUTABLE',
+        'observed external zcode session keeps the no-input-channel refusal (unchanged)',
+      )
+
+      // command 面：spawn 幂等行 executed + command.result 事件
+      const cmdRow = db.prepare("SELECT status, result_json FROM remote_commands WHERE action = 'spawn' ORDER BY id DESC LIMIT 1").get()
+      assert.equal(cmdRow.status, 'executed')
+      assert.ok(cmdRow.result_json.includes(spawned.nativeId))
+
+      await provider.dispose()
+    } finally {
+      svc.clearProviderOverrides()
+      delete process.env['ZCODE_FIXTURE_LOG']
+      delete process.env['ZCODE_FIXTURE_MODE']
+      dbModule.closeDatabase()
+    }
+  }, 'full')
+
   // 110. settings 键白名单（T2 批 18→19）：读写闭环、未注入键照旧拒绝、缺行 =
   //      停用语义；无种子行（migration 种子键清单锁值零变化，s1 先例不动）。
   registerCase('t2z-110: settings key zcode_managed_model — whitelist round-trip, non-whitelisted keys still rejected, absence reads as disabled (empty); no seed row so the migration seed-key list lock is untouched', async () => {
