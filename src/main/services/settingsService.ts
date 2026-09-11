@@ -15,7 +15,11 @@
  * contestpin_default_mode / contestpin_overlay_enabled / contestpin_overlay_state
  * （CP1：008 种子两键 + 运行期键，docs/22 §2.1）/
  * llm_review_base_url / llm_review_model（LR1：007 种子两键，默认空 = 停用，
- * 双键同设才生效；docs/briefs/lr1-llm-review.md §5，白名单 16→18）；
+ * 双键同设才生效；docs/briefs/lr1-llm-review.md §5，白名单 16→18）/
+ * zcode_managed_model（T2 批：zcode 托管面模型键，值 = 完整 "provider/model" 串，
+ * 默认缺行 = 停用——llm_review 双键同款「默认空 = 停用绝不半开」先例；docs/
+ * briefs/t2-zcode-managed.md 主控定案 #1。无种子行、零 migration：settings 键值对
+ * 表既有机制，缺行 = 空 = 托管面停用，caps 保持 observed，白名单 18→19）；
  * 一切 SQL 参数绑定（约束 #11）。
  */
 
@@ -51,6 +55,10 @@ const ALLOWED_KEYS: readonly string[] = [
   // safeStorage 封装存储，禁止明文写 settings（任务书 §5 红线）
   'llm_review_base_url',
   'llm_review_model',
+  // T2 批（zcode 真托管 provider，docs/briefs/t2-zcode-managed.md 主控定案 #1）：
+  // 模型键 = 完整 "provider/model" 串；缺行 = 空 = 托管面停用（caps 保持 observed）。
+  // 凭据绝不入 settings——apiKey 走 ApiHub zcode 活动档案（safeStorage 封装）。
+  'zcode_managed_model',
 ]
 
 function assertAllowedKey(key: string): void {
