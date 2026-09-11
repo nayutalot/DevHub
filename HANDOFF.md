@@ -1,9 +1,9 @@
-# DevHub 会话交接文档（2026-09-12 深夜——zcode 托管两轨批推进：T1 遥控合并+Z1 侦察+T2 真托管已合 main，T2b 设置卡执行中）
+# DevHub 会话交接文档（2026-09-12 00:1x——zcode 托管两轨批全收官：T1/Z1/T2/T2b/T2c/X3 六批全落地，常驻=X3 版在役，待用户验收链）
 
 > **✅ zcode 托管两轨批（09-11 夜~09-12 深夜，用户裁决「合并进会话可直接托管+agent 同理+tab 撤销」）**：
 > 1. **T1 遥控合并已合 main（96b060f 内）**：独立「远程工作区」tab 撤销（底栏四标签）；遥控直达入口三面（会话列表顶部智能卡自动取链/zcode 会话详情控制区/Agents 页 zcode 卡）→ remote/{entryId}；条目管理保留为 remote-manage 路由；诚实纪律保持（observed 转录只读不冒充）；:app **105/105**（+11 测）+:core **208/208**；**APK 57d486f7 落 dist=当前待装件**（含 W+T1）。
 > 2. **Z1 侦察已合 main**：ZCode Protocol v1=ndjson 非JSON-RPC+无握手+**服务端反向请求必答**（runtimePreferences 不答 create 挂 15s）；**桌面登录不供 CLI**（env 三键 ZCODE_MODEL/BASE_URL/API_KEY 引导实证）；**CLI 会话与桌面同库** ~/.zcode/cli/db/db.sqlite（现有转录面天然可读）；doctor<1s 探针；T2=GO+7 差异点表。证据 acceptance/agents-mobile/zcode-appserver-scout-20260912/（主控逐文件复核纯清单零凭据）。
-> 3. **T2 真托管已合 main（8f0f7b3 内）**：zcodeProtocol 帧层+分发器+zcodeManagedConfig（ApiHub zcode 活动档案+settings 键 **zcode_managed_model** 默认空=停用，apiKeyPlain 仅内存零日志）+provider 托管面（node zcode.cjs app-server：create→subscribe→send→终态，stop 兜底树杀，doctor 快探，caps managed granted[reply,pause]）；L3 通用门零改动自动开通（App 零改动即得「启动托管会话」）；门禁 tsc 0+fast **113/113**+full **206/206** 主控独立复跑过；**真实端到端留验收**；**T2b（renderer 设置卡 zcode_managed_model，仿 LlmReview）执行中**，毕后 X3 重打包换装。
+> 3. **T2 真托管已合 main（8f0f7b3 内）**：zcodeProtocol 帧层+分发器+zcodeManagedConfig（ApiHub zcode 活动档案+settings 键 **zcode_managed_model** 默认空=停用，apiKeyPlain 仅内存零日志）+provider 托管面（node zcode.cjs app-server：create→subscribe→send→终态，stop 兜底树杀，doctor 快探，caps managed granted[reply,pause]）；L3 通用门零改动自动开通（App 零改动即得「启动托管会话」）；门禁 tsc 0+fast **113/113**+full **206/206** 主控独立复跑过；**真实端到端留验收**；T2b/T2c 已合+**X3 已换装在役**（00:11 PID 33760，health×3 过；asar 四点过：zcode_managed_model×6/session/create×4/设置卡×2，pdfjs/napi 回归点在位；dist 根五件新件 Setup sha256 f4848ee3…）。
 > 4. 常驻=X2 版（X 批 origin 修正后重打包，PID 新）在线在役；**T2/T2b 功能须 X3 换装才进常驻**。用户验收路径：装 57d486f7 APK→DevHub 设置填 zcode_managed_model（T2b 卡）→ApiHub zcode 档案激活→App Agents 页 zcode 卡「启动托管会话」。
 > 5. 踩坑新增：GitHub 墙期今晚抖动频繁（SOCKS 隧道半死=LISTENING 但上游断，重建先 taskkill ssh.exe 全清）；gradle 复跑需 JAVA_HOME="D:/Apps/JetBrains/IntelliJ IDEA 2026.1/jbr"（主控 shell 无全局 JAVA_HOME）。
 
