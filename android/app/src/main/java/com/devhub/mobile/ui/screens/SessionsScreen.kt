@@ -95,7 +95,8 @@ fun SessionsScreen(
     var selectedProviderId by rememberSaveable { mutableStateOf<Long?>(null) }
     var agents by remember { mutableStateOf<List<AgentDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf<String?>(null) }
+    // U1-M3（AUDIT P1#3）：错误统一呈现体（人话+技术细节折叠），不再直出原码
+    var error by remember { mutableStateOf<com.devhub.mobile.core.ErrorPresent.Presentable?>(null) }
     var actionError by remember { mutableStateOf<String?>(null) }
     var refreshTick by remember { mutableStateOf(0) } // 归档/删除等操作后立即刷新
     var menuFor by remember { mutableStateOf<SessionCacheEntity?>(null) }
@@ -148,9 +149,12 @@ fun SessionsScreen(
                 }
                 error = null
             } catch (err: ApiError) {
-                error = "[${err.code}] ${err.message}"
+                error = com.devhub.mobile.core.ErrorPresent.api(err.code, err.message)
             } catch (err: IOException) {
-                error = "网络不可达（离线显示缓存）"
+                error = com.devhub.mobile.core.ErrorPresent.io(err).let {
+                    // 离线时列表仍显示 Room 缓存（既有语义），人话点明
+                    it.copy(headline = "网络不可达（离线显示缓存）")
+                }
             }
             loading = false
             delay(ConnectionManager.FALLBACK_POLL_MS)
@@ -262,7 +266,10 @@ fun SessionsScreen(
         when {
             loading -> Column(Modifier.padding(24.dp)) { CircularProgressIndicator() }
             error != null && visible.isEmpty() ->
-                Text("加载失败：$error", color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+                com.devhub.mobile.ui.components.ErrorPresentation(
+                    presentable = error!!,
+                    headlinePrefix = "加载失败：",
+                )
 
             visible.isEmpty() -> Text("暂无会话（监控管线未产生会话或 Gateway 未连接）", fontSize = 13.sp)
             else -> LazyColumn {

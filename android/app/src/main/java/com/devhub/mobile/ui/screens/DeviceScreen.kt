@@ -60,7 +60,9 @@ fun DeviceScreen() {
     val scope = rememberCoroutineScope()
     var own by remember { mutableStateOf<DeviceEntity?>(null) }
     var serverRow by remember { mutableStateOf<DeviceDto?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
+    // U1-M3（AUDIT P1#3/P2#10）：错误统一呈现体——relay 模式 /v1/devices NOT_FOUND
+    // → 人话「当前接入点不提供设备列表」；原码收「技术细节」折叠
+    var error by remember { mutableStateOf<com.devhub.mobile.core.ErrorPresent.Presentable?>(null) }
     var confirmingRevoke by remember { mutableStateOf(false) }
     var revoking by remember { mutableStateOf(false) }
 
@@ -76,9 +78,12 @@ fun DeviceScreen() {
                 }
                 error = null
             } catch (err: ApiError) {
-                error = "[${err.code}] ${err.message}"
+                error = com.devhub.mobile.core.ErrorPresent.api(
+                    err.code, err.message,
+                    com.devhub.mobile.core.ErrorPresent.Surface.DEVICE_LIST,
+                )
             } catch (err: IOException) {
-                error = "网络不可达（显示本地身份）"
+                error = com.devhub.mobile.core.ErrorPresent.io(err)
             }
             delay(ConnectionManager.FALLBACK_POLL_MS)
         }
@@ -115,7 +120,9 @@ fun DeviceScreen() {
                 Text("tokenVersion：${row.tokenVersion}", fontSize = 13.sp)
             }
         }
-        error?.let { Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.error) }
+        error?.let {
+            com.devhub.mobile.ui.components.ErrorPresentation(presentable = it)
+        }
 
         Spacer(Modifier.height(8.dp))
         Button(onClick = { confirmingRevoke = true }, enabled = !revoking) {
@@ -146,12 +153,17 @@ fun DeviceScreen() {
                                 is SelfRevokeSubmit.Revoked -> Unit // 收口完成：状态机已接管 UI 导航
 
                                 is SelfRevokeSubmit.Queued -> {
-                                    error = "撤销已排队（电脑离线）：连接恢复后自动执行"
+                                    error = com.devhub.mobile.core.ErrorPresent.Presentable(
+                                        "撤销已排队（电脑离线）：连接恢复后自动执行",
+                                    )
                                     revoking = false
                                 }
 
                                 is SelfRevokeSubmit.Rejected -> {
-                                    error = "[${r.code}] ${r.message}"
+                                    error = com.devhub.mobile.core.ErrorPresent.api(
+                                        r.code, r.message,
+                                        com.devhub.mobile.core.ErrorPresent.Surface.COMMAND,
+                                    )
                                     revoking = false
                                 }
                             }
@@ -165,12 +177,18 @@ fun DeviceScreen() {
                             // relay 模式打错面/Token 已失效等）绝不伪报成功（旧判断把 httpCode==401
                             // 一律短路成撤销成功而 ECS 侧零撤销，本机凭据被误清）。
                             if (err.code != "DEVICE_REVOKED") {
-                                error = "[${err.code}] ${err.message}"
+                                error = com.devhub.mobile.core.ErrorPresent.api(
+                                    err.code, err.message,
+                                    com.devhub.mobile.core.ErrorPresent.Surface.COMMAND,
+                                )
                                 revoking = false
                                 return@launch
                             }
                         } catch (err: IOException) {
-                            error = "网络不可达：撤销未执行"
+                            error = com.devhub.mobile.core.ErrorPresent.Presentable(
+                                "网络不可达：撤销未执行",
+                                err.toString(),
+                            )
                             revoking = false
                             return@launch
                         }

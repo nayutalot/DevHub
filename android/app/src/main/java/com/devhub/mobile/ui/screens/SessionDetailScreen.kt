@@ -103,11 +103,14 @@ fun SessionDetailScreen(
     val fixtureOn = remember { FixtureMode.enabled(context) }
 
     var detail by remember { mutableStateOf<SessionDetailDto?>(null) }
-    var detailError by remember { mutableStateOf<String?>(null) }
+    // U1-M3（AUDIT P1#3）：错误统一呈现体（人话 + 原码收「技术细节」折叠）
+    var detailError by remember { mutableStateOf<com.devhub.mobile.core.ErrorPresent.Presentable?>(null) }
     var prevAfter by remember { mutableStateOf<Long?>(null) } // R10 向旧翻页游标（null = 已到最早）
     var loadingOlder by remember { mutableStateOf(false) }
     var replyText by remember { mutableStateOf("") }
     var submitStatus by remember { mutableStateOf<String?>(null) }
+    // U1-M3：指令被拒 → 统一呈现体（人话 + 原码「技术细节」折叠），不再直出 [code] msg
+    var submitError by remember { mutableStateOf<com.devhub.mobile.core.ErrorPresent.Presentable?>(null) }
     var scrubFraction by remember { mutableStateOf<Float?>(null) }
 
     /** 消息分页入库（脱敏投影；segments 序列化为 JSON 供 UI 解析）。 */
@@ -180,9 +183,12 @@ fun SessionDetailScreen(
                 detail = withContext(Dispatchers.IO) { ApiProvider.projection(context).sessionDetail(sessionId) }
                 detailError = null
             } catch (err: ApiError) {
-                detailError = "[${err.code}] ${err.message}"
+                detailError = com.devhub.mobile.core.ErrorPresent.api(
+                    err.code, err.message,
+                    com.devhub.mobile.core.ErrorPresent.Surface.SESSION_MESSAGES,
+                )
             } catch (err: IOException) {
-                detailError = "网络不可达"
+                detailError = com.devhub.mobile.core.ErrorPresent.io(err)
             }
             // 新消息增量回流（after 正向游标；消息指纹去重语义在服务端，Room upsert 幂等）。
             // 批次 C 缺陷修复：新启动的托管会话首屏常为空（消息在 spawn 后才产生），
@@ -256,7 +262,10 @@ fun SessionDetailScreen(
             return@Column
         }
         if (d == null) {
-            Text("加载失败：$detailError", color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+            com.devhub.mobile.ui.components.ErrorPresentation(
+                presentable = detailError ?: com.devhub.mobile.core.ErrorPresent.Presentable("加载失败"),
+                headlinePrefix = "加载失败：",
+            )
             return@Column
         }
 
@@ -372,6 +381,8 @@ fun SessionDetailScreen(
                         val text = replyText.trim()
                         if (text.isEmpty()) return@Button
                         scope.launch {
+                            submitStatus = null
+                            submitError = null
                             submitStatus = when (val r = ConnectionManager.submitReply(sessionId, text)) {
                                 is SubmitResult.Accepted -> {
                                     // R5.1 端侧打点：reply 提交→回流往返样本的起点标记
@@ -382,7 +393,13 @@ fun SessionDetailScreen(
                                     "已接受（commandId=${r.commandId}）"
                                 }
                                 SubmitResult.QueuedOffline -> "当前离线：已入离线队列，重连后自动补发（幂等）"
-                                is SubmitResult.Rejected -> "被拒绝：[${r.code}] ${r.message}"
+                                is SubmitResult.Rejected -> {
+                                    submitError = com.devhub.mobile.core.ErrorPresent.api(
+                                        r.code, r.message,
+                                        com.devhub.mobile.core.ErrorPresent.Surface.COMMAND,
+                                    )
+                                    null
+                                }
                             }
                             replyText = ""
                         }
@@ -395,22 +412,38 @@ fun SessionDetailScreen(
             if (controls.pause) {
                 OutlinedButton(onClick = {
                     scope.launch {
-                        submitStatus = when (val r = ConnectionManager.submitAction(sessionId, "pause")) {
-                            is SubmitResult.Accepted -> "pause 已接受（commandId=${r.commandId}）"
-                            SubmitResult.QueuedOffline -> "当前离线：pause 已入离线队列"
-                            is SubmitResult.Rejected -> "pause 被拒绝：[${r.code}] ${r.message}"
-                        }
+                            submitStatus = null
+                            submitError = null
+                            submitStatus = when (val r = ConnectionManager.submitAction(sessionId, "pause")) {
+                                is SubmitResult.Accepted -> "pause 已接受（commandId=${r.commandId}）"
+                                SubmitResult.QueuedOffline -> "当前离线：pause 已入离线队列"
+                                is SubmitResult.Rejected -> {
+                                    submitError = com.devhub.mobile.core.ErrorPresent.api(
+                                        r.code, r.message,
+                                        com.devhub.mobile.core.ErrorPresent.Surface.COMMAND,
+                                    )
+                                    null
+                                }
+                            }
                     }
                 }) { Text("暂停") }
             }
             if (controls.resume) {
                 OutlinedButton(onClick = {
                     scope.launch {
-                        submitStatus = when (val r = ConnectionManager.submitAction(sessionId, "resume")) {
-                            is SubmitResult.Accepted -> "resume 已接受（commandId=${r.commandId}）"
-                            SubmitResult.QueuedOffline -> "当前离线：resume 已入离线队列"
-                            is SubmitResult.Rejected -> "resume 被拒绝：[${r.code}] ${r.message}"
-                        }
+                            submitStatus = null
+                            submitError = null
+                            submitStatus = when (val r = ConnectionManager.submitAction(sessionId, "resume")) {
+                                is SubmitResult.Accepted -> "resume 已接受（commandId=${r.commandId}）"
+                                SubmitResult.QueuedOffline -> "当前离线：resume 已入离线队列"
+                                is SubmitResult.Rejected -> {
+                                    submitError = com.devhub.mobile.core.ErrorPresent.api(
+                                        r.code, r.message,
+                                        com.devhub.mobile.core.ErrorPresent.Surface.COMMAND,
+                                    )
+                                    null
+                                }
+                            }
                     }
                 }) { Text("恢复") }
             }
@@ -420,27 +453,47 @@ fun SessionDetailScreen(
             if (controls.approve) {
                 OutlinedButton(onClick = {
                     scope.launch {
-                        submitStatus = when (val r = ConnectionManager.submitAction(sessionId, "approve")) {
-                            is SubmitResult.Accepted -> "approve 已接受（commandId=${r.commandId}）"
-                            SubmitResult.QueuedOffline -> "当前离线：approve 已入离线队列"
-                            is SubmitResult.Rejected -> "approve 被拒绝：[${r.code}] ${r.message}"
-                        }
+                            submitStatus = null
+                            submitError = null
+                            submitStatus = when (val r = ConnectionManager.submitAction(sessionId, "approve")) {
+                                is SubmitResult.Accepted -> "approve 已接受（commandId=${r.commandId}）"
+                                SubmitResult.QueuedOffline -> "当前离线：approve 已入离线队列"
+                                is SubmitResult.Rejected -> {
+                                    submitError = com.devhub.mobile.core.ErrorPresent.api(
+                                        r.code, r.message,
+                                        com.devhub.mobile.core.ErrorPresent.Surface.COMMAND,
+                                    )
+                                    null
+                                }
+                            }
                     }
                 }) { Text("批准") }
             }
             if (controls.interrupt) {
                 OutlinedButton(onClick = {
                     scope.launch {
-                        submitStatus = when (val r = ConnectionManager.submitAction(sessionId, "interrupt")) {
-                            is SubmitResult.Accepted -> "interrupt 已接受（commandId=${r.commandId}）"
-                            SubmitResult.QueuedOffline -> "当前离线：interrupt 已入离线队列"
-                            is SubmitResult.Rejected -> "interrupt 被拒绝：[${r.code}] ${r.message}"
-                        }
+                            submitStatus = null
+                            submitError = null
+                            submitStatus = when (val r = ConnectionManager.submitAction(sessionId, "interrupt")) {
+                                is SubmitResult.Accepted -> "interrupt 已接受（commandId=${r.commandId}）"
+                                SubmitResult.QueuedOffline -> "当前离线：interrupt 已入离线队列"
+                                is SubmitResult.Rejected -> {
+                                    submitError = com.devhub.mobile.core.ErrorPresent.api(
+                                        r.code, r.message,
+                                        com.devhub.mobile.core.ErrorPresent.Surface.COMMAND,
+                                    )
+                                    null
+                                }
+                            }
                     }
                 }) { Text("中断") }
             }
         }
         submitStatus?.let { Text(it, fontSize = 12.sp) }
+        // U1-M3：指令拒绝统一呈现（人话 + 技术细节折叠，默认收起）
+        submitError?.let {
+            com.devhub.mobile.ui.components.ErrorPresentation(presentable = it)
+        }
 
         // —— 消息（R11 气泡流；R10 逆序布局：最新在底部、初始停底部）——
         // 打磨批 D：底部 contentPadding = 「跳到最新」FAB 高度 + 边距的避让区，

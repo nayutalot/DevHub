@@ -73,8 +73,19 @@ fun GatewayConfigScreen(
     var pinAdvancedOpen by remember { mutableStateOf(false) }
     var loaded by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
+    // U1-M3（AUDIT P1#3）：成功面仍为纯文本；错误面统一 Presentable
+    // （人话 headline + 原始异常/错误码收「技术细节」折叠区，默认收起）
     var message by remember { mutableStateOf<String?>(null) }
-    var messageIsError by remember { mutableStateOf(false) }
+    var errorResult by remember { mutableStateOf<com.devhub.mobile.core.ErrorPresent.Presentable?>(null) }
+
+    /** 错误呈现统一入口：写 errorResult、清成功消息。 */
+    fun presentError(p: com.devhub.mobile.core.ErrorPresent.Presentable) {
+        message = null
+        errorResult = p
+    }
+
+    /** 表单校验类错误（无技术细节可折叠；文案本身即人话）。 */
+    fun presentFormError(text: String) = presentError(com.devhub.mobile.core.ErrorPresent.Presentable(text))
 
     LaunchedEffect(Unit) {
         val saved = withContext(Dispatchers.IO) { db.gatewayConfigDao().get() }
@@ -92,8 +103,7 @@ fun GatewayConfigScreen(
     fun validateRelayUrl(): RelayEndpoint? = try {
         RelayEndpoint.parse(relayUrl)
     } catch (err: IllegalArgumentException) {
-        message = err.message ?: RelayEndpoint.REJECT_REASON
-        messageIsError = true
+        presentFormError(err.message ?: RelayEndpoint.REJECT_REASON)
         null
     }
 
@@ -213,7 +223,7 @@ fun GatewayConfigScreen(
                 onClick = {
                     busy = true
                     message = null
-                    messageIsError = false
+                    errorResult = null
                     scope.launch {
                         try {
                             val savedRelayUrl: String?
@@ -230,8 +240,7 @@ fun GatewayConfigScreen(
                                 // 即拒，不再后移到 pair 时才 BAD_CONFIG。
                                 when (val verdict = PinFingerprintSaveGate.check(mode, pinFingerprints)) {
                                     is PinFingerprintSaveGate.Verdict.Invalid -> {
-                                        message = "TLS 指纹格式非法（docs/19 §10.2）：${verdict.message}"
-                                        messageIsError = true
+                                        presentFormError("TLS 指纹格式非法（docs/19 §10.2）：${verdict.message}")
                                         busy = false
                                         return@launch
                                     }
@@ -260,8 +269,7 @@ fun GatewayConfigScreen(
                             busy = false
                             onConfigured()
                         } catch (err: Exception) {
-                            message = "保存失败：${err.message}"
-                            messageIsError = true
+                            presentError(com.devhub.mobile.core.ErrorPresent.Presentable("保存失败：请重试", err.toString()))
                             busy = false
                         }
                     }
@@ -277,37 +285,56 @@ fun GatewayConfigScreen(
                 onClick = {
                     busy = true
                     message = null
-                    messageIsError = false
+                    errorResult = null
                     scope.launch {
-                        val result = withContext(Dispatchers.IO) {
+                        val outcome = withContext(Dispatchers.IO) {
                             if (mode == "relay") {
                                 // relay 探测 = https /v1/health（ECS 终结，docs/18 §7.1）；
                                 // 配了指纹 → 指纹即信任锚（RelayTlsTrust）
                                 val endpoint = try {
                                     RelayEndpoint.parse(relayUrl)
                                 } catch (err: IllegalArgumentException) {
-                                    return@withContext err.message ?: RelayEndpoint.REJECT_REASON
+                                    return@withContext ProbeOutcome.Err(
+                                        com.devhub.mobile.core.ErrorPresent.Presentable(
+                                            err.message ?: RelayEndpoint.REJECT_REASON,
+                                        ),
+                                    )
                                 }
                                 // M3-C7b 修 4（App 崩溃修）：pinning/GatewayApi 构造入 try——
                                 // TlsPinningConfig 构造期归一化对非法指纹体（输入框残留拼接）
                                 // 抛 IllegalArgumentException，此前在 try 外直接杀进程；
                                 // 现折结构化错误提示（保存门 PinFingerprintSaveGate 不受影响）
                                 val probe = when (val built = RelayHealthProbeFactory.buildRelay(endpoint, pinFingerprints)) {
-                                    is RelayProbeBuildResult.Invalid -> return@withContext built.message
+                                    is RelayProbeBuildResult.Invalid -> return@withContext ProbeOutcome.Err(
+                                        com.devhub.mobile.core.ErrorPresent.Presentable(built.message),
+                                    )
                                     is RelayProbeBuildResult.Ok -> built.api
                                 }
                                 try {
                                     val health = probe.health()
-                                    "连接成功：${health.name} v${health.version}（运行 ${health.uptimeSec}s）"
+                                    ProbeOutcome.Ok("连接成功：${health.name} v${health.version}（运行 ${health.uptimeSec}s）")
                                 } catch (err: ApiError) {
-                                    "Relay 结构化错误：[${err.code}] ${err.message}"
+                                    // U1-M3：人话映射 + 原码收「技术细节」（不再直出异常串）
+                                    ProbeOutcome.Err(
+                                        com.devhub.mobile.core.ErrorPresent.api(
+                                            err.code, err.message,
+                                            com.devhub.mobile.core.ErrorPresent.Surface.RELAY_PROBE,
+                                        ),
+                                    )
                                 } catch (err: IOException) {
-                                    "无法连接 Relay（TLS/网络层）：$err"
+                                    ProbeOutcome.Err(
+                                        com.devhub.mobile.core.ErrorPresent.io(err),
+                                    )
                                 } catch (err: Exception) {
-                                    "探测失败：${err.message}"
+                                    ProbeOutcome.Err(
+                                        com.devhub.mobile.core.ErrorPresent.Presentable("探测失败：请重试", err.toString()),
+                                    )
                                 }
                             } else {
-                                val portNum = port.toIntOrNull() ?: return@withContext "端口非法"
+                                val portNum = port.toIntOrNull()
+                                    ?: return@withContext ProbeOutcome.Err(
+                                        com.devhub.mobile.core.ErrorPresent.Presentable("端口非法：请输入 1–65535 数字"),
+                                    )
                                 // 探测使用当前输入（未保存也允许先测）
                                 val probe = GatewayApi(
                                     baseUrlProvider = { "http://${host.trim()}:$portNum" },
@@ -315,17 +342,33 @@ fun GatewayConfigScreen(
                                 )
                                 try {
                                     val health = probe.health()
-                                    "连接成功：${health.name} v${health.version}（运行 ${health.uptimeSec}s）"
+                                    ProbeOutcome.Ok("连接成功：${health.name} v${health.version}（运行 ${health.uptimeSec}s）")
                                 } catch (err: ApiError) {
-                                    "网关结构化错误：[${err.code}] ${err.message}"
+                                    ProbeOutcome.Err(
+                                        com.devhub.mobile.core.ErrorPresent.api(
+                                            err.code, err.message,
+                                            com.devhub.mobile.core.ErrorPresent.Surface.GATEWAY_PROBE,
+                                        ),
+                                    )
                                 } catch (err: IOException) {
-                                    "无法连接：确认桌面已启用 Gateway 且端口正确（$err）"
+                                    ProbeOutcome.Err(
+                                        com.devhub.mobile.core.ErrorPresent.io(err),
+                                    )
                                 } catch (err: Exception) {
-                                    "探测失败：${err.message}"
+                                    ProbeOutcome.Err(
+                                        com.devhub.mobile.core.ErrorPresent.Presentable("探测失败：请重试", err.toString()),
+                                    )
                                 }
                             }
                         }
-                        message = result
+                        when (outcome) {
+                            is ProbeOutcome.Ok -> {
+                                message = outcome.message
+                                errorResult = null
+                            }
+
+                            is ProbeOutcome.Err -> presentError(outcome.presentable)
+                        }
                         busy = false
                     }
                 },
@@ -338,9 +381,13 @@ fun GatewayConfigScreen(
         }
 
         if (busy) CircularProgressIndicator()
+        // U1-M3：错误 = 人话 +「技术细节」折叠（默认收起）；成功 = 绿面提示（既有）
+        errorResult?.let { err ->
+            com.devhub.mobile.ui.components.ErrorPresentation(presentable = err)
+        }
         message?.let {
             Surface(
-                color = if (messageIsError) Color(0xFFFFEBEE) else Color(0xFFE8F5E9),
+                color = Color(0xFFE8F5E9),
                 shape = MaterialTheme.shapes.small,
             ) {
                 Text(it, fontSize = 13.sp, modifier = Modifier.padding(8.dp))
@@ -362,4 +409,11 @@ fun GatewayConfigScreen(
             }
         }) { Text("进入演示模式（夹具数据 · 非真实 Gateway）") }
     }
+}
+
+/** 「测试连接」探测结果：成功 = 文本；失败 = U1-M3 统一呈现体（人话+技术细节折叠）。 */
+private sealed interface ProbeOutcome {
+    data class Ok(val message: String) : ProbeOutcome
+
+    data class Err(val presentable: com.devhub.mobile.core.ErrorPresent.Presentable) : ProbeOutcome
 }

@@ -44,7 +44,7 @@ import java.io.IOException
 fun DiagnosticsScreen() {
     val context = LocalContext.current
     var diag by remember { mutableStateOf<DiagnosticsDto?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
+    var error by remember { mutableStateOf<com.devhub.mobile.core.ErrorPresent.Presentable?>(null) }
 
     // R5.3：本页属「连接健康」面 → REST 探测保留 120s 低频节奏（WS 状态/最近事件/错误
     // 已由 ConnectionManager StateFlow 实时驱动，本 effect 只补桌面诊断投影）。
@@ -54,9 +54,10 @@ fun DiagnosticsScreen() {
                 diag = withContext(Dispatchers.IO) { ApiProvider.rest(context).diagnostics() }
                 error = null
             } catch (err: ApiError) {
-                error = "[${err.code}] ${err.message}"
+                // U1-M3：错误统一呈现（人话+技术细节折叠），不再直出原码
+                error = com.devhub.mobile.core.ErrorPresent.api(err.code, err.message)
             } catch (err: IOException) {
-                error = "网络不可达"
+                error = com.devhub.mobile.core.ErrorPresent.io(err)
             }
             delay(ConnectionManager.FALLBACK_POLL_MS)
         }
@@ -110,7 +111,10 @@ fun DiagnosticsScreen() {
         val d = diag
         when {
             d == null && error == null -> CircularProgressIndicator()
-            d == null -> Text("加载失败：$error", color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+            d == null -> com.devhub.mobile.ui.components.ErrorPresentation(
+                presentable = error!!,
+                headlinePrefix = "加载失败：",
+            )
             else -> {
                 for (p in d.providers) {
                     Column(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {

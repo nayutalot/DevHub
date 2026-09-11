@@ -63,7 +63,8 @@ fun ChildSessionsScreen(
     val context = LocalContext.current
     val fixtureOn = remember { FixtureMode.enabled(context) }
     var children by remember { mutableStateOf<List<SessionDto>?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
+    // U1-M3：错误统一呈现体（人话+技术细节折叠），不再直出原码
+    var error by remember { mutableStateOf<com.devhub.mobile.core.ErrorPresent.Presentable?>(null) }
 
     // R5.3：事件驱动为主 + 120s 低频兜底（原 3s 轮询退役）
     val refreshSignal by ConnectionManager.refreshSignal.collectAsState()
@@ -76,9 +77,12 @@ fun ChildSessionsScreen(
                 children = detail.childSessions
                 error = null
             } catch (err: ApiError) {
-                error = "[${err.code}] ${err.message}"
+                error = com.devhub.mobile.core.ErrorPresent.api(
+                    err.code, err.message,
+                    com.devhub.mobile.core.ErrorPresent.Surface.SESSION_MESSAGES,
+                )
             } catch (err: IOException) {
-                error = "网络不可达"
+                error = com.devhub.mobile.core.ErrorPresent.io(err)
             }
             delay(ConnectionManager.FALLBACK_POLL_MS)
         }
@@ -116,7 +120,10 @@ fun ChildSessionsScreen(
         Spacer(Modifier.height(6.dp))
         when {
             list == null && error == null -> Column(Modifier.padding(24.dp)) { CircularProgressIndicator() }
-            list == null -> Text("加载失败：$error", color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+            list == null -> com.devhub.mobile.ui.components.ErrorPresentation(
+                presentable = error ?: com.devhub.mobile.core.ErrorPresent.Presentable("加载失败"),
+                headlinePrefix = "加载失败：",
+            )
             list.isEmpty() -> Text("该会话没有子智能体会话", fontSize = 13.sp)
             else -> {
                 // R2 排序：活跃在前、已结束在后（core.SessionListOps 纯逻辑）
