@@ -1,0 +1,8 @@
+zcode doctor
+version: 0.16.5
+process: zcode-cli
+node: v24.15.0
+platform: win32/x64
+sea: no (optional)
+default artifact: node-bundle
+doctor rc=0

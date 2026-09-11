@@ -1,0 +1,6 @@
+[meta] sandbox=C:\Users\sakuya\AppData\Local\Temp\z1-appserver-lc-KD8Ov7 node=v24.15.0
+[TX +9015ms] {"id":4,"method":"session/create","params":{"workspace":{"workspacePath":"C:\\Users\\sakuya\\AppData\\Local\\Temp\\z1-appserver-lc-KD8Ov7","workspaceKey":"C:\\Users\\sakuya\\AppData\\Local\\Temp\\z1-appserver-lc-KD8Ov7"},"persistence":"immediate"}}
+[SRV-REQ +9019ms] {"id":"server-1","method":"session/requestRuntimePreferences","params":{"sessionId":"sess_dba7dca0-b1a1-4327-acf1-f12594bda697","scope":"runtime-materialization"}}
+[TX +9019ms] {"id":"server-1","result":{"nativeSearchEnhancementsEnabled":true,"memoryEnabled":false,"askUserQuestionAutoResolutionEnabled":true,"modelContextBudgetStrategy":"preflight-v1"}}
+[RX +9226ms] {"error":{"code":-32603,"data":{"name":"ModelProtocolError","stack":"ModelProtocolError: Model config is missing. Create C:\\Users\\sakuya\\.zcode\\cli\\c...<len=1223>","code":"model_config_missing"},"message":"Model config is missing. Create C:\\Users\\sakuya\\.zcode\\cli\\config.json with an e...<len=124>"},"id":4}
+[EXIT +20026ms] code=0 signal=null
