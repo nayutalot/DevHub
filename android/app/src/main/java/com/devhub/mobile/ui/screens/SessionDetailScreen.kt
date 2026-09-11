@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -37,7 +38,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -45,6 +48,7 @@ import com.devhub.mobile.connect.ConnectionManager
 import com.devhub.mobile.connect.SubmitResult
 import com.devhub.mobile.core.ProviderPalette
 import com.devhub.mobile.core.ScrubberMath
+import com.devhub.mobile.core.TranscriptListMetrics
 import com.devhub.mobile.data.ApiProvider
 import com.devhub.mobile.data.FixtureMode
 import com.devhub.mobile.data.db.DevHubDb
@@ -153,8 +157,12 @@ fun SessionDetailScreen(
     }
 
     // —— 首屏（R10 尾部取数；仅 sessionId 变化执行一次）——
+    // U1-M1（AUDIT P1#1）：旋转（Activity 重建/配置变化）后按 sessionId 重载消息——
+    // orientation 入键：横竖屏切换后本 effect 重启，尾部取数 + prevAfter 游标重建，
+    // 气泡数据面与度量面（下方 TranscriptListMetrics 收敛 padding）双路修复。
+    val orientation = LocalConfiguration.current.orientation
     val refreshSignal by ConnectionManager.refreshSignal.collectAsState() // R5.3 事件驱动刷新信号
-    LaunchedEffect(sessionId) {
+    LaunchedEffect(sessionId, orientation) {
         runCatching {
             val page = withContext(Dispatchers.IO) {
                 ApiProvider.projection(context).messages(sessionId, last = TAIL_PAGE)
@@ -420,12 +428,25 @@ fun SessionDetailScreen(
         // —— 消息（R11 气泡流；R10 逆序布局：最新在底部、初始停底部）——
         // 打磨批 D：底部 contentPadding = 「跳到最新」FAB 高度 + 边距的避让区，
         // 最新一条气泡不再被 FAB 遮压（ux-b-08/12、r9-fab 三帧缺陷）。
-        Box(Modifier.weight(1f).fillMaxWidth().padding(top = 4.dp)) {
+        // U1-M1（AUDIT P1#1）：横屏小视口下固定 76dp 避让区可 ≥ 视口高——reverseLayout
+        // 最新气泡整体落视口上方 → 气泡区持续空白（26 号截图实证）。底部避让区按
+        // TranscriptListMetrics 收敛为 min(基准, 视口高×0.4)：横屏最新气泡恒可见，
+        // 竖屏（大视口）行为不变。
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(top = 4.dp)) {
+            val bottomAvoidDp = if (maxHeight != androidx.compose.ui.unit.Dp.Infinity) {
+                with(LocalDensity.current) {
+                    TranscriptListMetrics
+                        .bottomPaddingPx(viewportHeightPx = maxHeight.toPx(), basePaddingPx = 76.dp.toPx())
+                        .toDp()
+                }
+            } else {
+                76.dp
+            }
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
                 reverseLayout = true,
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 76.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = bottomAvoidDp),
             ) {
                 val count = messages.size
                 items(
