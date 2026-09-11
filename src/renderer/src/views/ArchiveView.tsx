@@ -17,6 +17,7 @@
 import { useEffect, useState } from 'react'
 import { Badge, stateTone } from '../components/Badge.tsx'
 import { LlmReviewSettingsCard, ReviewAdvisoryBar, ReviewPostButton } from '../components/LlmReview.tsx'
+import { ZcodeManagedSettingsCard } from '../components/ZcodeManaged.tsx'
 import { EmptyState, ErrorState, Loading, Spinner, Toast, useToast } from '../components/StateViews.tsx'
 import { useApp } from '../lib/appContext.ts'
 import { call, sleep } from '../lib/ipc.ts'
@@ -209,6 +210,10 @@ export function ArchiveView() {
       {/* LLM 复核设置卡片（LR1 advisory-only：base_url/model 双键 + 端点测试入口；
           默认空 = 停用，全流程行为等价现状——任务书 §1/§5） */}
       <LlmReviewSettingsCard />
+
+      {/* ZCode 托管模型设置卡片（T2b：zcode_managed_model 单键，默认空 = 托管停用；
+          就绪性见 App Agents 页 caps 卡——docs/briefs/t2b-zcode-managed-ui.md） */}
+      <ZcodeManagedSettingsCard />
 
       {/* 项目选择器 + 预检动作 */}
       <div className="panel archive-picker">
