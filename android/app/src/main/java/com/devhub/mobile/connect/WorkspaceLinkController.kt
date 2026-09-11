@@ -24,6 +24,30 @@ object WorkspaceLinkCard {
     /** 智能条目固定标题（Room 行的保留标题；自动建/更新置顶条目的定位键）。 */
     const val ENTRY_TITLE = "ZCode 工作区"
 
+    /**
+     * T1 批：find-or-create 纯决策（WorkspaceLinkController.upsertEntry 的执行计划，
+     * :app 单测直锁「固定保留标题零重复行」契约）。
+     */
+    sealed interface EntryUpsertPlan {
+        /** 已有行 → 只刷新该行（URL + 时间戳），绝不堆积重复行。 */
+        data class UpdateExisting(val entryId: Long) : EntryUpsertPlan
+
+        /** 无行 → 按固定保留标题插入新行。 */
+        data class InsertNew(val title: String, val url: String, val createdAtMs: Long) : EntryUpsertPlan
+    }
+
+    /**
+     * find-or-create 计划（纯函数）：按既往行存在与否二分。
+     * id>0 才视为有效行（Room 自增 id 恒 ≥1；非正形态走插入兜底——与 DTO 投影
+     * `takeIf { it > 0 }` 同惯例），绝不 update 到不存在的行。
+     */
+    fun planUpsert(existingId: Long?, url: String, nowMs: Long): EntryUpsertPlan =
+        if (existingId != null && existingId > 0) {
+            EntryUpsertPlan.UpdateExisting(existingId)
+        } else {
+            EntryUpsertPlan.InsertNew(title = ENTRY_TITLE, url = url, createdAtMs = nowMs)
+        }
+
     sealed interface State {
         /** 未请求（本进程首次进入前）。 */
         data object Idle : State
@@ -108,23 +132,26 @@ object WorkspaceLinkController {
 
     /**
      * 固定标题定位的建/更新（零重复行）：无行 → 插入；有行 → 更新 URL + 时间戳。
-     * 返回条目 id（点击即开的导航键）。
+     * 返回条目 id（点击即开的导航键）。执行计划由 WorkspaceLinkCard.planUpsert
+     * 纯决策给出（:app 单测直锁），本函数只承担 DAO IO。
      */
     private suspend fun upsertEntry(url: String): Long = withContext(Dispatchers.IO) {
         val dao = db!!.remoteWorkspaceEntryDao()
         val now = System.currentTimeMillis()
-        val existing = dao.getByTitle(WorkspaceLinkCard.ENTRY_TITLE)
-        if (existing != null) {
-            dao.updateUrl(existing.id, url, now)
-            existing.id
-        } else {
-            dao.insert(
-                RemoteWorkspaceEntryEntity(
-                    title = WorkspaceLinkCard.ENTRY_TITLE,
-                    url = url,
-                    createdAtMs = now,
-                ),
-            )
+        when (val plan = WorkspaceLinkCard.planUpsert(dao.getByTitle(WorkspaceLinkCard.ENTRY_TITLE)?.id, url, now)) {
+            is WorkspaceLinkCard.EntryUpsertPlan.UpdateExisting -> {
+                dao.updateUrl(plan.entryId, url, now)
+                plan.entryId
+            }
+
+            is WorkspaceLinkCard.EntryUpsertPlan.InsertNew ->
+                dao.insert(
+                    RemoteWorkspaceEntryEntity(
+                        title = plan.title,
+                        url = plan.url,
+                        createdAtMs = plan.createdAtMs,
+                    ),
+                )
         }
     }
 }
