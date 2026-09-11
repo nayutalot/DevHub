@@ -48,6 +48,8 @@ import androidx.compose.ui.unit.sp
 import com.devhub.mobile.core.ProviderPalette
 import com.devhub.mobile.core.SessionListOps
 import com.devhub.mobile.connect.ConnectionManager
+import com.devhub.mobile.connect.WorkspaceLinkCard
+import com.devhub.mobile.connect.WorkspaceLinkController
 import com.devhub.mobile.data.ApiProvider
 import com.devhub.mobile.data.FixtureMode
 import com.devhub.mobile.data.db.DevHubDb
@@ -58,6 +60,7 @@ import com.devhub.mobile.ui.components.ModeBadge
 import com.devhub.mobile.ui.components.ProviderAvatarFor
 import com.devhub.mobile.ui.components.StatusBadge
 import com.devhub.mobile.ui.components.StatusColors
+import com.devhub.mobile.ui.components.WorkspaceLinkCardView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -71,9 +74,18 @@ import java.io.IOException
  * - R3：行**长按**菜单（归档/取消归档/删除 + 二次确认，文案写明"仅移除 DevHub 记录"）；「显示归档」开关（includeArchived=1）；
  * - 9 值状态徽章 / waiting 高亮 / stale 标注 / observed 整行标注（现状保持）；
  * - 夹具模式（显式开关）：数据驱动自本地夹具，显著标注"演示数据"。
+ *
+ * T1 批（ZCode 遥控合并进会话流）：列表顶部加「ZCode 工作区」智能卡
+ * （复用 WorkspaceLinkCardView / WorkspaceLinkController，沿用原 tab 的取链节奏——
+ * 进入本屏自动请求一次、Requesting 幂等去抖；点击 → 取/建智能条目 → remote/{entryId}；
+ * 卡上管理入口（小图标）→ 条目管理屏，手工 URL 条目功能不丢）。
  */
 @Composable
-fun SessionsScreen(onOpenSession: (Long) -> Unit) {
+fun SessionsScreen(
+    onOpenSession: (Long) -> Unit,
+    onOpenRemoteEntry: (Long) -> Unit = {},
+    onManageRemote: () -> Unit = {},
+) {
     val context = LocalContext.current
     val db = remember { DevHubDb.get(context) }
     val scope = rememberCoroutineScope()
@@ -146,6 +158,13 @@ fun SessionsScreen(onOpenSession: (Long) -> Unit) {
     }
 
     val allSessions by db.sessionCacheDao().observeAll().collectAsState(initial = emptyList())
+    // T1 批：智能条目行（固定保留标题）——卡片 stale 兜底点击的导航键
+    val wsEntries by db.remoteWorkspaceEntryDao().observeAll().collectAsState(initial = null)
+    val smartEntryId = wsEntries?.firstOrNull { it.title == WorkspaceLinkCard.ENTRY_TITLE }?.id
+    // T1 批：进入会话页自动取链一次（沿用 tab 时代节奏；Requesting 中幂等去抖在控制器）
+    LaunchedEffect(Unit) {
+        WorkspaceLinkController.request()
+    }
     val visible = allSessions
         .filter { it.parentSessionId == null } // 子会话不出现在默认列表（R2 保留 8442e9d 意图）
         .filter { SessionListOps.isVisible(it.archived, showArchived) }
@@ -189,6 +208,18 @@ fun SessionsScreen(onOpenSession: (Long) -> Unit) {
             )
         }
         Spacer(Modifier.height(4.dp))
+
+        // —— T1 批：ZCode 工作区智能卡（列表顶部；独立 tab 撤销后的遥控主入口）——
+        // 点击 → 取/建智能条目 → remote/{entryId}；管理入口（小图标）→ 条目管理屏
+        val linkState by WorkspaceLinkController.state.collectAsState()
+        WorkspaceLinkCardView(
+            state = linkState,
+            staleEntryId = smartEntryId,
+            onOpen = { id -> onOpenRemoteEntry(id) },
+            onRetry = { WorkspaceLinkController.request() },
+            onManage = onManageRemote,
+        )
+        Spacer(Modifier.height(2.dp))
 
         // —— R4 provider 过滤 chips（全部 + /v1/agents 名录）——
         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
