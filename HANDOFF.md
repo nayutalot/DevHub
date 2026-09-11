@@ -1,10 +1,17 @@
-# DevHub 会话交接文档（2026-09-11 05:3x——CP0-CP6+Release v0.1.0+远程工作区双批全上线）
+# DevHub 会话交接文档（2026-09-11 18:4x——远程工作区线全收官：Q-V-W 批全合 main+用户真机全链实证）
+
+> **✅ 晚间收口（09-11 14:0x-18:4x，W 批合并即本提交）——「ZCode 工作区」线关账**：
+> 1. **用户真机端到端实证通过（截图为证）**：证书指纹已配（sha256/oH96t3vC…=Trust anchor 解）→配对→「ZCode 工作区」智能条目**自动取链成功**（卡片带完整遥控 URL+刷新+复制 URL 按钮）——指纹/relay 配对/workspace_link 自动推送三面全通，旧段"真机待办仍挂"就此销账。
+> 2. **页面白屏/ERR_CONNECTION_ABORTED=ZCode 服务端双断（非 App 面，V 批证据 d37bc72）**：zcode.chatglm.site DNS A→私网死址 172.25.136.172+ALB vhost 503 无健康后端；桌面隔离 Chrome 同证；UA 假设 A/B 否定。**待 ZCode 服务恢复点「重试」即用，App 零改动**。
+> 3. **V 批已合 main（8ae1f63）**：WebView 纵深防御——UA 剥 "; wv)" 嵌入标记+debug 构建 FLAG_DEBUGGABLE 门控调试口（生产零变化）；:app 90。
+> 4. **W 批已合 main（本合并，分支 9246cf9 已推）**：错误页凭据加固——主帧 onReceivedError 即 loadData 空文本清默认 Chromium 错误页（V 批实证其把含 sid/hash 会话凭据的完整 URL 渲染屏上，旁观/录屏可见）；isErrorPageClearPayload 纯函数+4 单测防清屏载荷抹结构化横幅/冲标题栏；重试改 loadUrl(entry.url)（清屏后 reload 只会重载空白）。:app **94/94**+assembleDebug。**新 APK 已落 dist/DevHub-Android-0.1.0-debug.apk（09-11 18:26，sha256 28923f35619887b47d96be48c2a5ba700466517e748c2600b73416e0f7648ea5）——待用户重装**；此后错误态只显示结构化横幅「页面加载失败(code=-6)+重试」，凭据不再上屏。
+> 5. 合并树核验（主控）：android 面与分支 tip 零差异（94/94 对合并树有效）+tsc 0+fast **196/196**。
 
 > **✅ 凌晨增补（09-11 02:00-05:30，用户令「远程控制不该要人在电脑旁粘贴链接」）**：
 > 1. **Q 批「远程工作区」屏**（已合 main）：WebView 内嵌 https 页（JS/domStorage、http(s) 白名单、证书错误绝不 proceed、返回键先页内）+Room v5 条目表+剪贴板填；:app 72 绿。
 > 2. **S 批 workspace_link**（已合 main=4ec7e94，全门禁 tsc0/fast106/full196/mcp27/ecs112/:app86/:core204）：桌面 zcodeLinkProvider 磁盘三文件重建 ZCode 遥控 URL（R 批侦察：setting.json deviceSid+credentials.json enc:v1 AES-GCM 信封（密钥 sha256(env ZCODE_CREDENTIAL_SECRET 优先|fallback 串)、tag 居中）+telemetry mid）→relay 八值 action+0004+result_json 落库面脱敏 {provider}（转发帧原样）→App「ZCode 工作区」智能条目 tab 打开自动请求一点即开；审计三面零 URL 子串实测。
 > 3. **T 批部署链完成**：ECS 0004（16 行保全/relay_meta v4/selfcheck 88/88）+桌面重打包换装（asar 实证）+新 APK（dist/DevHub-Android-0.1.0-debug.apk，sha256 fb48c6b8…）。
-> 4. **真机待办仍挂**：手机配证书指纹（sha256/oH96t3vC…=Trust anchor not found 的解）→配对→「远程工作区」tab 即自动拿链接。遗留小项：ECS relay_audit 4 行 FK 孤儿（存量现象 preWLINK 快照对照无增量）；app-rws/wlink worktree 待清。
+> 4. ~~真机待办仍挂~~ ✅ **已销账（09-11 晚用户实证，见顶部晚间收口块）**：指纹已配+配对+自动取链全通。遗留小项：ECS relay_audit 4 行 FK 孤儿（存量现象 preWLINK 快照对照无增量）；app-rws/wlink worktree 待清（app-rws2=W 批用毕同待清）。
 
 > **✅ 末批 CP6 已合 main（02be999，已推）：ContestPin 八节全收官**——backupExport/backupImport 白名单 108→**110**，manifest 零凭据红线+sha256 材料包+待核对式导入；合并树四门禁全绿 tsc 0/fast **104**/full **194**/mcp 27；dist-cp6 独立备料（110 通道下一版候选）在 **worktrees/cp6/dist-cp6/**（该 worktree 因此暂留勿清；在役常驻=Release 版 108 通道，属设计内滞后）。
 
@@ -35,7 +42,7 @@
 
 ## 1. 当前状态一句话
 
-**凌晨收口会话毕其功：main=7758b35 已全量推 GitHub（M3-E1+LR1+RW1+卫生批全合，白名单 104，门禁 tsc 0/fast 100/full 190/mcp 27/ecs-relay 110）**；常驻在役=04:02 末次重打包版（**PDF 依赖修复兑现**，health 稳定）；ECS=M3-E1 版（七值 action+selfcheck 83+1SKIP+RW0 wake 面）；真库 schema v8+007 两列已补；三连幻影事故已根治（全量门禁常驻在线可跑）。RW1 按钮就绪待用户真关机 S5 实测；ContestPin 下一步=CP5 Agent 模式。
+**（09-11 18:4x）远程工作区线全收官**：Q/S/T/V/W 批全合 main（W=错误页凭据加固+V=WebView 纵深防御；main 门禁 tsc 0/fast 196/:app 94）；**用户真机全链实证过**（指纹/配对/自动取链），页面渲染唯一待项=ZCode 服务端恢复（DNS 私网死址+ALB 503 双断，App 零责）；**dist APK=28923f35 版待用户重装**。在役常驻=Release v0.1.0 版（108 通道，属设计内滞后）；ECS=M3-E1+RW0 wake 面+0004 八值；ContestPin CP0-CP6 全收官（Release 已发）。RW1 待用户真关机 S5 实测。
 
 ## 2. C2c→C2e 修复弧线台账（本会话续）
 
