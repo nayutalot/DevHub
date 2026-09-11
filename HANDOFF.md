@@ -1,4 +1,11 @@
-# DevHub 会话交接文档（2026-09-11 19:4x——X 批 origin 修正收官：「白屏=ZCode 服务端双断」改判为 DevHub 硬编码死域名，已修复+换装在役）
+# DevHub 会话交接文档（2026-09-12 深夜——zcode 托管两轨批推进：T1 遥控合并+Z1 侦察+T2 真托管已合 main，T2b 设置卡执行中）
+
+> **✅ zcode 托管两轨批（09-11 夜~09-12 深夜，用户裁决「合并进会话可直接托管+agent 同理+tab 撤销」）**：
+> 1. **T1 遥控合并已合 main（96b060f 内）**：独立「远程工作区」tab 撤销（底栏四标签）；遥控直达入口三面（会话列表顶部智能卡自动取链/zcode 会话详情控制区/Agents 页 zcode 卡）→ remote/{entryId}；条目管理保留为 remote-manage 路由；诚实纪律保持（observed 转录只读不冒充）；:app **105/105**（+11 测）+:core **208/208**；**APK 57d486f7 落 dist=当前待装件**（含 W+T1）。
+> 2. **Z1 侦察已合 main**：ZCode Protocol v1=ndjson 非JSON-RPC+无握手+**服务端反向请求必答**（runtimePreferences 不答 create 挂 15s）；**桌面登录不供 CLI**（env 三键 ZCODE_MODEL/BASE_URL/API_KEY 引导实证）；**CLI 会话与桌面同库** ~/.zcode/cli/db/db.sqlite（现有转录面天然可读）；doctor<1s 探针；T2=GO+7 差异点表。证据 acceptance/agents-mobile/zcode-appserver-scout-20260912/（主控逐文件复核纯清单零凭据）。
+> 3. **T2 真托管已合 main（8f0f7b3 内）**：zcodeProtocol 帧层+分发器+zcodeManagedConfig（ApiHub zcode 活动档案+settings 键 **zcode_managed_model** 默认空=停用，apiKeyPlain 仅内存零日志）+provider 托管面（node zcode.cjs app-server：create→subscribe→send→终态，stop 兜底树杀，doctor 快探，caps managed granted[reply,pause]）；L3 通用门零改动自动开通（App 零改动即得「启动托管会话」）；门禁 tsc 0+fast **113/113**+full **206/206** 主控独立复跑过；**真实端到端留验收**；**T2b（renderer 设置卡 zcode_managed_model，仿 LlmReview）执行中**，毕后 X3 重打包换装。
+> 4. 常驻=X2 版（X 批 origin 修正后重打包，PID 新）在线在役；**T2/T2b 功能须 X3 换装才进常驻**。用户验收路径：装 57d486f7 APK→DevHub 设置填 zcode_managed_model（T2b 卡）→ApiHub zcode 档案激活→App Agents 页 zcode 卡「启动托管会话」。
+> 5. 踩坑新增：GitHub 墙期今晚抖动频繁（SOCKS 隧道半死=LISTENING 但上游断，重建先 taskkill ssh.exe 全清）；gradle 复跑需 JAVA_HOME="D:/Apps/JetBrains/IntelliJ IDEA 2026.1/jbr"（主控 shell 无全局 JAVA_HOME）。
 
 > **✅ X 批收口（09-11 19:0x-19:4x，用户问「扫码能连上 App 连不上」触发）**：
 > 1. **真因改判（推翻 V 批旧结论「服务端双断、App 零责」）**：DevHub `zcodeLinkProvider` 硬编码 `ZCODE_LINK_ORIGIN='https://zcode.chatglm.site'`——R 批当年误读 ZCode endpoint 对话框的 **placeholder**（asar 反混淆实证生产主默认=`https://zcode.z.ai`，chatglm.site 仅次选）。主控五面实测：chatglm.site 权威 DNS→私网死址 172.25.136.172（五递归同口径+桌面直连/7897 代理 CONNECT 后死/ECS 机房直连四面全死）；**zcode.z.ai/remote/v4 直连 HTTP 200 一直活着**（用户扫码 QR 指向它，故扫码通 App 不通）。V 批隔离 Chrome A/B 测的是死域名，结论无效。
