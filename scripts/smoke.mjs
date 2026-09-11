@@ -6373,10 +6373,18 @@ if (isEntrypoint()) {
       assert.equal(after, before, 'T11: db.sqlite (+absent -wal/-shm) mtime+byte-hash unchanged across probe/list/monitor')
 
       const caps = await provider.getCapabilities({ providerId: 'zcode', nativeId: 'x' })
-      assert.equal(caps.mode, 'observed', '裁决 4：恒 observed')
-      assert.deepEqual(caps.granted, [], '恒空集')
+      // T2 批就地更新（docs/briefs/t2-zcode-managed.md 主控定案 #1/#2，同一就地更新
+      // 授权模式）：caps 从「恒 observed 裁决 4」升级为数据驱动托管判定——本夹具
+      // 库无 ApiHub zcode 活动档案且 zcode_managed_model 键缺行（默认空 = 停用）→
+      // 结构化 unconfigured → observed（配置就绪判定在前，零 doctor 子进程）。
+      assert.equal(caps.mode, 'observed', 'T2 默认态：未配置 → observed（structured unconfigured）')
+      assert.deepEqual(caps.granted, [], '未配置 → 空集')
+      assert.ok(caps.evidence.includes('unconfigured'), 'T2: evidence carries the structured unconfigured reason')
+      // T2 批就地更新：sendReply 从 observed-only unsupported 升级为 managed 面真实
+      // 实现——无活跃托管连接（fixture 场景）→ 结构化 failed + COMMAND_NOT_EXECUTABLE。
       const denied = await provider.sendReply({ providerId: 'zcode', nativeId: 'x' }, 'hi')
-      assert.equal(denied.status, 'unsupported')
+      assert.equal(denied.status, 'failed', 'T2: managed face replies only on a live connection; otherwise structured failure')
+      assert.equal(denied.errorCode, 'COMMAND_NOT_EXECUTABLE')
 
       svc.stopAllAgentControlRuntime()
       await new Promise((r) => setTimeout(r, 300))
@@ -6530,7 +6538,12 @@ if (isEntrypoint()) {
       envSkipNote('~/.zcode/cli/db/db.sqlite not found at run time')
       return
     }
-    const provider = zcodeMod.createZcodeProvider()
+    // T2 批就地更新（docs/briefs/t2-zcode-managed.md）：真机用例注入「托管面未配置」
+    // 配置源——本用例只覆盖只读 observed 面；托管面（doctor 子进程/app-server）在
+    // smoke 绝不真实拉起（红线：零联网零真实 CLI，真实端到端留验收）。
+    const provider = zcodeMod.createZcodeProvider({
+      managedConfigSource: async () => ({ ready: false, reason: 'smoke: managed face pinned off for real-machine read-only probe' }),
+    })
     const health = await provider.probeHealth()
     assert.ok(['ok', 'unavailable'].includes(health.health), `legal outcomes only (schema defended), got ${health.health}: ${health.healthDetail ?? ''}`)
     if (health.health !== 'ok') {
@@ -14127,6 +14140,360 @@ if (isEntrypoint()) {
     },
     'fast',
   )
+
+  // ==================================================================
+  // T2 批（docs/briefs/t2-zcode-managed.md §2）：zcode 真托管 provider。
+  // 协议事实全部以 Z1 侦察证据为源（acceptance/agents-mobile/
+  // zcode-appserver-scout-20260912/REPORT.md）；fast = 纯函数/夹具库，
+  // full = fake transport 子进程（零联网零真实 CLI，真实端到端留验收）。
+  // 计数连锁枚举（任务书 §2.5）：无新 IPC channel → step1/step6/s4-68/ac2-84
+  // 的 110/14 锁值零变化；settings 只扩白名单不加种子行 → migration 种子键
+  // 清单锁值零变化；ALLOWED_KEYS 18→19（无既有计数锁，settingsService 头注
+  // 同步）；smoke 计数动态计算（R1 批设计）。
+  // ==================================================================
+
+  /** ZCode Protocol v1 fake app-server（T2 smoke 夹具）：stdio 逐行 JSON、
+   *  无 jsonrpc 字段、无握手、服务端反向请求先行；行为开关 ZCODE_FIXTURE_MODE
+   *  = 'happy'（send 后事件流至 turn.completed(success)）| 'hang'（只发
+   *  turn.started，等 session/stop）。全部交互落 ZCODE_FIXTURE_LOG（**绝不记录
+   *  ZCODE_API_KEY / <PROVIDER>_API_KEY 值**——令牌三零断言面）。 */
+  const T2Z_FAKE_APPSERVER_SCRIPT = [
+    "import { appendFileSync } from 'node:fs'",
+    "const logPath = process.env.ZCODE_FIXTURE_LOG",
+    "const mode = process.env.ZCODE_FIXTURE_MODE ?? 'happy'",
+    "const log = (entry) => { try { appendFileSync(logPath, JSON.stringify(entry) + '\\n') } catch {} }",
+    "log({ env: { zcodeModel: process.env.ZCODE_MODEL ?? null, zcodeBaseUrl: process.env.ZCODE_BASE_URL ?? null, zcodeApiKeySet: Boolean(process.env.ZCODE_API_KEY), providerKeySet: Boolean(process.env.DUMMYHUB_API_KEY) } })",
+    "const send = (frame) => process.stdout.write(JSON.stringify(frame) + '\\n')",
+    "let serverReqN = 0",
+    "const serverReqMethods = new Map()",
+    "let pendingCreate = null",
+    "const emitEvent = (sessionId, seq, type, resultType) => send({ method: 'session/event', params: { seq, eventId: 'e' + seq, sessionId, turnId: 'turn_fixture_1', deliveryKind: 'desktop-continuous', payload: type === 'turn.completed' ? { type, resultType } : { type } } })",
+    "const handleLine = (line) => {",
+    "  if (!line.trim()) return",
+    "  let m = null",
+    "  try { m = JSON.parse(line) } catch { return }",
+    "  if (m.id !== undefined && m.method) {",
+    "    log({ request: { id: m.id, method: m.method, params: m.params ?? null } })",
+    "    if (m.method === 'session/create') { pendingCreate = m; serverReqN += 1; serverReqMethods.set('server-' + serverReqN, 'session/requestRuntimePreferences'); send({ id: 'server-' + serverReqN, method: 'session/requestRuntimePreferences', params: { sessionId: 'pending', scope: 'runtime-materialization' } }); return }",
+    "    if (m.method === 'session/subscribe') { send({ id: m.id, result: { deliveryKind: (m.params ?? {}).deliveryKind ?? null } }); return }",
+    "    if (m.method === 'session/send') {",
+    "      send({ id: m.id, result: { accepted: true } })",
+    "      const sid = (m.params ?? {}).sessionId",
+    "      if (mode === 'hang') { setTimeout(() => emitEvent(sid, 1, 'turn.started'), 20) }",
+    "      else { setTimeout(() => emitEvent(sid, 1, 'turn.started'), 20); setTimeout(() => emitEvent(sid, 2, 'message.upserted'), 40); setTimeout(() => emitEvent(sid, 3, 'turn.completed', 'success'), 60) }",
+    "      return",
+    "    }",
+    "    if (m.method === 'session/stop') { send({ id: m.id, result: { stopped: true } }); const sid = (m.params ?? {}).sessionId; setTimeout(() => emitEvent(sid, 9, 'turn.completed', 'cancelled'), 30); return }",
+    "    if (m.method === 'session/close') { send({ id: m.id, result: { closed: true } }); return }",
+    "    send({ id: m.id, error: { code: -32601, message: 'fixture: method not found: ' + m.method } })",
+    "    return",
+    "  }",
+    "  if (m.id !== undefined && (m.result !== undefined || m.error !== undefined)) {",
+    "    const method = serverReqMethods.get(m.id) ?? null",
+    "    log({ serverAnswer: { id: m.id, method, result: m.result ?? null, error: m.error ?? null } })",
+    "    if (pendingCreate !== null && method === 'session/requestRuntimePreferences') {",
+    "      const sessionId = 'sess_t2fixture-' + process.pid",
+    "      send({ id: pendingCreate.id, result: { protocol: { name: 'ZCode Protocol', version: 1 }, session: { sessionId, mode: 'build', model: { modelId: 'dummy-model', providerId: 'dummyhub' }, title: 'fixture-title', status: 'idle', workspace: (pendingCreate.params ?? {}).workspace ?? null } } })",
+    "      pendingCreate = null",
+    "      serverReqN += 1; serverReqMethods.set('server-' + serverReqN, 'interaction/requestPermission')",
+    "      send({ id: 'server-' + serverReqN, method: 'interaction/requestPermission', params: { sessionId, requestId: 'perm-1' } })",
+    "    }",
+    "    return",
+    "  }",
+    "}",
+    "let buf = ''",
+    "process.stdin.setEncoding('utf8')",
+    "process.stdin.on('data', (d) => { buf += d; let i; while ((i = buf.indexOf('\\n')) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1); handleLine(l) } })",
+    "process.stdin.on('end', () => process.exit(0))",
+    "process.stdin.on('close', () => process.exit(0))",
+  ].join('\n')
+
+  // 101. 帧编解码（Z1 证据形态直锁）：无 jsonrpc 字段、id string|int、错误 id
+  //      可为字符串、trace 容忍、非法帧 invalid。
+  registerCase('t2z-101: zcode protocol frames — encode has no jsonrpc field (Z1 diff #1), parse request/notification/response/error with string|int ids (Z1 live fixtures), trace tolerated, invalid frames never throw', async () => {
+    const proto = await import(new URL('../src/main/services/agentControl/providers/zcodeProtocol.ts', import.meta.url).href)
+
+    // 请求编码：无 jsonrpc 字段（Z1 差异 #1 的负向断言）
+    const reqLine = proto.encodeRequest(4, 'session/create', { persistence: 'immediate' })
+    const reqObj = JSON.parse(reqLine)
+    assert.equal(reqObj.id, 4)
+    assert.equal(reqObj.method, 'session/create')
+    assert.deepEqual(reqObj.params, { persistence: 'immediate' })
+    assert.equal('jsonrpc' in reqObj, false, 'Z1 diff #1: frames carry NO jsonrpc field')
+    const stringIdReq = JSON.parse(proto.encodeRequest('server-1', 'session/requestRuntimePreferences', {}))
+    assert.equal(stringIdReq.id, 'server-1', 'string ids (server-N namespace) encode fine')
+
+    // Z1 活体证据帧直锁（run1 log 原形，脱敏形态）
+    const z1Notification = proto.parseZcodeFrame('{"method":"process/mcpTelemetry","params":{"kind":"process_start","platform":"win32"}}')
+    assert.equal(z1Notification.kind, 'notification')
+    const z1Error = proto.parseZcodeFrame('{"error":{"code":-32601,"message":"Method not found: bogus/method"},"id":3}')
+    assert.equal(z1Error.kind, 'error')
+    assert.equal(z1Error.id, 3)
+    assert.equal(z1Error.error.code, -32601)
+    const z1CreateResult = proto.parseZcodeFrame('{"id":4,"result":{"protocol":{"name":"ZCode Protocol","version":1},"session":{"sessionId":"sess_x","status":"idle"}}}')
+    assert.equal(z1CreateResult.kind, 'response')
+    assert.equal(z1CreateResult.result.session.sessionId, 'sess_x')
+    // 服务端反向请求（string id + method → request 帧）
+    const serverReq = proto.parseZcodeFrame('{"id":"server-1","method":"session/requestRuntimePreferences","params":{"scope":"runtime-materialization"}}')
+    assert.equal(serverReq.kind, 'request')
+    assert.equal(serverReq.id, 'server-1')
+
+    // trace 可选字段容忍（Z1：trace 为可选分布式追踪四字段）
+    const traced = proto.parseZcodeFrame('{"id":1,"method":"session/list","params":{"limit":3},"trace":{"traceId":"t","spanId":"s"}}')
+    assert.equal(traced.kind, 'request')
+
+    // 非法/畸形帧：invalid，绝不抛
+    assert.equal(proto.parseZcodeFrame('not-json').kind, 'invalid')
+    assert.equal(proto.parseZcodeFrame('[1,2,3]').kind, 'invalid')
+    assert.equal(proto.parseZcodeFrame('{"method":"x"}').kind, 'notification', 'no id + method = notification')
+    assert.equal(proto.parseZcodeFrame('{"id":true,"method":"x"}').kind, 'invalid', 'bool id is not string|int')
+    assert.equal(proto.parseZcodeFrame('{"id":7}').kind, 'invalid', 'id without method/result/error = invalid')
+    assert.equal(proto.parseZcodeFrame('{"id":7,"error":{"code":"x","message":"m"}}').kind, 'invalid', 'non-numeric error code = invalid')
+
+    // 通知/响应/错误编码 round-trip
+    assert.deepEqual(JSON.parse(proto.encodeNotification('session/close', { sessionId: 's' })), { method: 'session/close', params: { sessionId: 's' } })
+    assert.deepEqual(JSON.parse(proto.encodeResponse('server-1', { ok: 1 })), { id: 'server-1', result: { ok: 1 } })
+    assert.deepEqual(JSON.parse(proto.encodeErrorResponse('server-2', -32601, 'nope')), { id: 'server-2', error: { code: -32601, message: 'nope' } })
+  }, 'fast')
+
+  // 102. server-request 分发器（Z1 差异 #3）：runtimePreferences 默认四字段、
+  //      permission denied、未实现 interaction/* → -32601、非请求帧 null。
+  registerCase('t2z-102: zcode server-request dispatcher — runtimePreferences answered with default four fields (brief decision #3, Z1 run2 shape), interaction/requestPermission denied, unimplemented interaction/* -32601, non-request frames ignored', async () => {
+    const proto = await import(new URL('../src/main/services/agentControl/providers/zcodeProtocol.ts', import.meta.url).href)
+
+    assert.deepEqual(proto.ZCODE_RUNTIME_PREFERENCES_DEFAULT, {
+      nativeSearchEnhancementsEnabled: false,
+      memoryEnabled: false,
+      askUserQuestionAutoResolutionEnabled: false,
+      modelContextBudgetStrategy: 'preflight-v1',
+    }, '主控定案 #3：false/false/false/默认策略（preflight-v1 = Z1 活体实证值）')
+
+    const rt = proto.respondToServerRequest(proto.parseZcodeFrame('{"id":"server-1","method":"session/requestRuntimePreferences","params":{"scope":"runtime-materialization"}}'))
+    const rtObj = JSON.parse(rt)
+    assert.equal(rtObj.id, 'server-1', 'answer echoes the server-request id')
+    assert.deepEqual(rtObj.result, proto.ZCODE_RUNTIME_PREFERENCES_DEFAULT)
+
+    const perm = JSON.parse(proto.respondToServerRequest(proto.parseZcodeFrame('{"id":"server-2","method":"interaction/requestPermission","params":{}}')))
+    assert.deepEqual(perm.result, { decision: 'denied' }, 'v1 conservative honest policy: permission always denied')
+
+    const unimplemented = JSON.parse(proto.respondToServerRequest(proto.parseZcodeFrame('{"id":"server-3","method":"interaction/requestUserInput","params":{}}')))
+    assert.equal(unimplemented.error.code, -32601, 'unimplemented interaction/* folds to -32601 (server has compatible fallback)')
+    const mcpAuth = JSON.parse(proto.respondToServerRequest(proto.parseZcodeFrame('{"id":"server-4","method":"interaction/requestOfficialMcpAuthHeaders","params":{}}')))
+    assert.equal(mcpAuth.error.code, -32601)
+
+    assert.equal(proto.respondToServerRequest({ kind: 'notification', method: 'x' }), null, 'non-request frames are not server requests')
+    assert.equal(proto.respondToServerRequest({ kind: 'response', id: 1, result: {} }), null)
+    assert.equal(proto.respondToServerRequest({ kind: 'invalid' }), null)
+  }, 'fast')
+
+  // 103. 事件判态（主控定案 #4/#7 判定面）：resultType 六值如实映射、未知值
+  //      unknown、内容事件 null、session/event params 提取容忍形态漂移。
+  registerCase('t2z-103: zcode event status judgment — six resultTypes mapped faithfully (success→waiting_input, cancelled→paused, error_*→failed), unknown resultType→unknown (never guesses), content events null, session/event extraction tolerates drift', async () => {
+    const proto = await import(new URL('../src/main/services/agentControl/providers/zcodeProtocol.ts', import.meta.url).href)
+
+    assert.deepEqual([...proto.ZCODE_TURN_RESULT_TYPES], ['success', 'cancelled', 'error_max_turns', 'error_max_budget', 'error_during_execution', 'error_max_tool_calls'], 'Z1 resultType enum verbatim')
+    assert.ok(proto.ZCODE_EVENT_PAYLOAD_TYPES.includes('turn.completed'), 'static payload.type enumeration carries turn.completed')
+    assert.ok(proto.ZCODE_EVENT_PAYLOAD_TYPES.includes('permission.requested'))
+
+    assert.equal(proto.evalZcodeEventStatus('turn.started', null), 'running')
+    assert.equal(proto.evalZcodeEventStatus('turn.completed', 'success'), 'waiting_input', 'managed semantics: turn end = idle awaiting next input')
+    assert.equal(proto.evalZcodeEventStatus('turn.completed', 'cancelled'), 'paused', 'managed semantics: interrupt = paused')
+    assert.equal(proto.evalZcodeEventStatus('turn.completed', 'error_max_turns'), 'failed')
+    assert.equal(proto.evalZcodeEventStatus('turn.completed', 'error_max_budget'), 'failed')
+    assert.equal(proto.evalZcodeEventStatus('turn.completed', 'error_during_execution'), 'failed')
+    assert.equal(proto.evalZcodeEventStatus('turn.completed', 'error_max_tool_calls'), 'failed')
+    assert.equal(proto.evalZcodeEventStatus('turn.completed', 'mystery_future_value'), 'unknown', '未登录取值 → unknown（绝不猜）')
+    assert.equal(proto.evalZcodeEventStatus('turn.failed', null), 'failed')
+    assert.equal(proto.evalZcodeEventStatus('permission.requested', null), 'approval_required')
+    assert.equal(proto.evalZcodeEventStatus('userInput.requested', null), 'waiting_input')
+    assert.equal(proto.evalZcodeEventStatus('session.closed', null), 'stopped')
+    assert.equal(proto.evalZcodeEventStatus('message.upserted', null), null, '内容事件零额外工作（同库转录面）')
+    assert.equal(proto.evalZcodeEventStatus('part.delta', null), null)
+    assert.equal(proto.evalZcodeEventStatus('tool.updated', null), null)
+
+    assert.equal(proto.isTurnTerminalEvent('turn.completed'), true)
+    assert.equal(proto.isTurnTerminalEvent('turn.failed'), true)
+    assert.equal(proto.isTurnTerminalEvent('session.closed'), true)
+    assert.equal(proto.isTurnTerminalEvent('turn.started'), false)
+
+    // Z1 事件帧形态提取（params 含 seq/eventId/sessionId/turnId/deliveryKind/payload）
+    const ev = proto.extractSessionEvent('session/event', { seq: 7, eventId: 'e7', sessionId: 'sess_x', turnId: 'turn_1', deliveryKind: 'desktop-continuous', payload: { type: 'turn.completed', resultType: 'cancelled' } })
+    assert.deepEqual(ev, { sessionId: 'sess_x', seq: 7, type: 'turn.completed', resultType: 'cancelled', turnId: 'turn_1', deliveryKind: 'desktop-continuous' })
+    assert.equal(proto.extractSessionEvent('process/mcpTelemetry', {}), null, 'non session/event → null')
+    assert.equal(proto.extractSessionEvent('session/event', null), null)
+    assert.equal(proto.extractSessionEvent('session/event', { sessionId: 'sess_x' }), null, 'payload missing → null (tolerated)')
+    assert.equal(proto.extractSessionEvent('session/event', { sessionId: 'sess_x', payload: 'flat' }), null, 'non-object payload → null')
+    const drift = proto.extractSessionEvent('session/event', { sessionId: 'sess_x', payload: { type: 'session.updated' } })
+    assert.equal(drift.seq, null, 'missing seq tolerated as null')
+    assert.equal(drift.resultType, null)
+  }, 'fast')
+
+  // 104. 托管配置源 + env 拼装（主控定案 #1）：键名派生、ready 判定链
+  //      （键空 → 档案缺失 → ready）、快照 → env 四键、kind 不注入（Z1 无证据）。
+  registerCase('t2z-104: zcode managed config source + env assembly — settings key default empty = disabled (llm_review precedent), ApiHub zcode active profile resolution against fixture home, env keys per Z1 live-verified trio + <PROVIDER>_API_KEY, kind never injected (no Z1 evidence)', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+    const settings = await import(new URL('../src/main/services/settingsService.ts', import.meta.url).href)
+    const cfg = await import(new URL('../src/main/services/agentControl/providers/zcodeManagedConfig.ts', import.meta.url).href)
+    const apihub = await import(new URL('../src/main/services/apihub/apihubService.ts', import.meta.url).href)
+    const { plaintextKeyCrypto } = await import(new URL('../src/main/services/apihub/keyStore.ts', import.meta.url).href)
+
+    // 纯函数：providerId → env 键名
+    assert.equal(cfg.providerIdToEnvKeyName('bigmodel'), 'BIGMODEL_API_KEY')
+    assert.equal(cfg.providerIdToEnvKeyName('open-router'), 'OPEN_ROUTER_API_KEY')
+    assert.equal(cfg.providerIdToEnvKeyName('9dragons'), '_9DRAGONS_API_KEY', '数字开头前置下划线保证合法 env 名')
+    assert.equal(cfg.providerIdToEnvKeyName('  '), null)
+
+    await makeTempHome('devhub-t2z-104-')
+    try {
+      // 1) 键缺行 = 停用（llm_review「默认空 = 停用绝不半开」先例；无种子行零迁移）
+      assert.equal(settings.getSetting('zcode_managed_model'), undefined, 'no seed row: absence = disabled')
+      const unconfiguredKey = await cfg.readZcodeManagedConfig({ homeDir: tmpdir() })
+      assert.equal(unconfiguredKey.ready, false)
+      assert.ok(unconfiguredKey.reason.includes('zcode_managed_model'), 'structured reason names the settings key')
+      assert.equal(unconfiguredKey.reason.includes('fake-key'), false, 'reason carries zero credential material')
+
+      // 2) 键设值但无活动档案 → unconfigured
+      settings.setSetting('zcode_managed_model', 'dummyhub/dummy-model')
+      const noProfile = await cfg.readZcodeManagedConfig({ homeDir: tmpdir() })
+      assert.equal(noProfile.ready, false)
+      assert.ok(noProfile.reason.includes('profile'), 'reason names the missing active profile')
+
+      // 3) 夹具 home：v2/config.json + setting.json 命中档案 → ready 快照
+      const home = mkdtempSync(join(tmpdir(), 'devhub-t2z-104-home-'))
+      mkdirSync(join(home, '.zcode', 'v2'), { recursive: true })
+      writeFileSync(
+        join(home, '.zcode', 'v2', 'config.json'),
+        JSON.stringify({ provider: { dummyhub: { name: 'Dummy Hub', kind: 'anthropic', options: { apiKey: 'irrelevant-file-key', baseURL: 'https://dummyhub.test/api/anthropic' }, enabled: true, source: 'custom' } } }),
+      )
+      writeFileSync(join(home, '.zcode', 'v2', 'setting.json'), JSON.stringify({ modelProviderFamilySelectedKeys: { bigmodel: 'coding-plan:builtin:dummyhub' } }))
+      await apihub.saveProfile(
+        { adapterId: 'zcode', name: 'T2 Smoke Hub', fields: { providerId: 'dummyhub', providerName: 'Dummy Hub', baseURL: 'https://dummyhub.test/api/anthropic', kind: 'anthropic' } },
+        'smoke-profile-key-4451',
+        { homeDir: home, crypto: plaintextKeyCrypto(), probeProcesses: async () => [] },
+      )
+      const ready = await cfg.readZcodeManagedConfig({ homeDir: home })
+      assert.equal(ready.ready, true, `profile+key resolve: ${ready.reason ?? ''}`)
+      assert.equal(ready.model, 'dummyhub/dummy-model')
+      assert.equal(ready.baseUrl, 'https://dummyhub.test/api/anthropic')
+      assert.equal(ready.providerId, 'dummyhub')
+      assert.equal(ready.kind, 'anthropic')
+      assert.equal(ready.envProviderKeyName, 'DUMMYHUB_API_KEY')
+      assert.equal(ready.apiKeyPlain, 'smoke-profile-key-4451', 'decrypted key transits in memory only')
+
+      // 4) env 拼装（Z1 活体 run3 形态；base env 保留；kind 不注入）
+      const env = cfg.buildManagedSpawnEnv(ready, { PATH: 'keep', T2Z: '1' })
+      assert.equal(env['ZCODE_MODEL'], 'dummyhub/dummy-model')
+      assert.equal(env['ZCODE_BASE_URL'], 'https://dummyhub.test/api/anthropic')
+      assert.equal(env['ZCODE_API_KEY'], 'smoke-profile-key-4451')
+      assert.equal(env['DUMMYHUB_API_KEY'], 'smoke-profile-key-4451')
+      assert.equal(env['PATH'], 'keep')
+      assert.equal(env['ZCODE_KIND'], undefined, 'Z1 evidence has no kind env key — never guessed')
+      assert.equal(env['ZCODE_SESSION_DB_PATH'], undefined, '同库转录：不重定向会话库（主控定案 #6）')
+      const untouched = cfg.buildManagedSpawnEnv({ ready: false, reason: 'x' }, { A: '1' })
+      assert.deepEqual(untouched, { A: '1' }, 'not-ready snapshot injects nothing (defensive)')
+    } finally {
+      dbModule.closeDatabase()
+    }
+  }, 'fast')
+
+  // 105. caps 探测链（主控定案 #2）：配置判定在前（未配置零子进程）→ doctor
+  //      alive → managed granted[reply,pause]；doctor 失败回 observed；evidence 零凭据。
+  registerCase('t2z-105: zcode caps probe chain — unconfigured stays observed with zero doctor spawns (config check first), configured + doctor alive → managed granted reply|pause, doctor failure → observed with structured evidence; evidence carries zero key/baseUrl', async () => {
+    const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+    const zcodeMod = await import(new URL('../src/main/services/agentControl/providers/zcodeProvider.ts', import.meta.url).href)
+
+    await makeTempHome('devhub-t2z-105-')
+    try {
+      let doctorCalls = 0
+      const doctorOk = async () => { doctorCalls += 1; return { alive: true, version: '0.16.5', detail: 'fixture doctor ok (1ms)' } }
+      const ref = { providerId: 'zcode', nativeId: '-' }
+
+      // 未配置（键缺行）：observed + 零 doctor 子进程
+      const unconfigured = zcodeMod.createZcodeProvider({
+        managedConfigSource: async () => ({ ready: false, reason: 'settings key zcode_managed_model is empty (managed face disabled by default)' }),
+        managedDoctorProbe: doctorOk,
+      })
+      const capsOff = await unconfigured.getCapabilities(ref)
+      assert.equal(capsOff.mode, 'observed')
+      assert.deepEqual(capsOff.granted, [])
+      assert.ok(capsOff.evidence.includes('unconfigured'))
+      assert.equal(doctorCalls, 0, 'config readiness check comes first: zero subprocess when unconfigured')
+
+      // 配置就绪 + doctor alive → managed（reply/pause；resume 无已验证方法不授予）
+      const configured = zcodeMod.createZcodeProvider({
+        managedConfigSource: async () => ({ ready: true, model: 'dummyhub/dummy-model', baseUrl: 'https://dummyhub.test/api/anthropic', kind: 'anthropic', providerId: 'dummyhub', apiKeyPlain: 'smoke-fake-key-t2z105', envProviderKeyName: 'DUMMYHUB_API_KEY' }),
+        managedDoctorProbe: doctorOk,
+      })
+      const capsOn = await configured.getCapabilities(ref)
+      assert.equal(capsOn.mode, 'managed', 'data-driven managed gate (App「启动托管会话」自动开)')
+      assert.deepEqual(capsOn.granted, ['reply', 'pause'])
+      assert.ok(capsOn.evidence.includes('doctor'), 'evidence cites the doctor probe')
+      assert.ok(capsOn.evidence.includes('zcode_managed_model'), 'evidence cites the settings key (name only)')
+      assert.equal(capsOn.evidence.includes('smoke-fake-key-t2z105'), false, '令牌三零：evidence 零 key')
+      assert.equal(capsOn.evidence.includes('https://dummyhub.test'), false, 'evidence 零 baseUrl 全值')
+      assert.equal(doctorCalls, 1)
+
+      // 配置就绪但 doctor 不 alive → observed + 结构化失败
+      const sickDoctor = zcodeMod.createZcodeProvider({
+        managedConfigSource: async () => ({ ready: true, model: 'm', baseUrl: 'https://x.test', apiKeyPlain: 'smoke-fake-key-sick-77a4' }),
+        managedDoctorProbe: async () => ({ alive: false, detail: 'doctor failed: exit 1' }),
+      })
+      const capsSick = await sickDoctor.getCapabilities(ref)
+      assert.equal(capsSick.mode, 'observed')
+      assert.deepEqual(capsSick.granted, [])
+      assert.ok(capsSick.evidence.includes('doctor probe failed'))
+      assert.equal(capsSick.evidence.includes('smoke-fake-key-sick-77a4'), false, '令牌三零：失败 evidence 同样零 key')
+      assert.equal(capsSick.evidence.includes('https://x.test'), false, '失败 evidence 零 baseUrl')
+    } finally {
+      dbModule.closeDatabase()
+    }
+  }, 'fast')
+
+  // 106. managed 动作结构化拒绝面：无活跃连接的 sendReply/pause → failed +
+  //      COMMAND_NOT_EXECUTABLE；resume 恒 unsupported（v1 无已验证方法）。
+  registerCase('t2z-106: zcode managed actions without a live connection — sendReply/pause structured COMMAND_NOT_EXECUTABLE failures, resume stays unsupported (no verified method; never guesses)', async () => {
+    const zcodeMod = await import(new URL('../src/main/services/agentControl/providers/zcodeProvider.ts', import.meta.url).href)
+    const provider = zcodeMod.createZcodeProvider({
+      managedConfigSource: async () => ({ ready: false, reason: 'fixture-unconfigured' }),
+    })
+    const ref = { providerId: 'zcode', nativeId: 'sess_dead' }
+    const reply = await provider.sendReply(ref, 'hi')
+    assert.equal(reply.ok, false)
+    assert.equal(reply.status, 'failed')
+    assert.equal(reply.errorCode, 'COMMAND_NOT_EXECUTABLE')
+    assert.ok(reply.detail.includes('no live managed zcode connection'))
+    const pause = await provider.pause(ref)
+    assert.equal(pause.ok, false)
+    assert.equal(pause.errorCode, 'COMMAND_NOT_EXECUTABLE')
+    const resume = await provider.resume(ref)
+    assert.equal(resume.status, 'unsupported', 'resume: ZCode Protocol v1 has no verified resume method')
+    assert.equal(typeof provider.startManagedSession, 'function', 'startManagedSession implemented (spawn entry point for the generic L3 gate)')
+  }, 'fast')
+
+  // 110. settings 键白名单（T2 批 18→19）：读写闭环、未注入键照旧拒绝、缺行 =
+  //      停用语义；无种子行（migration 种子键清单锁值零变化，s1 先例不动）。
+  registerCase('t2z-110: settings key zcode_managed_model — whitelist round-trip, non-whitelisted keys still rejected, absence reads as disabled (empty); no seed row so the migration seed-key list lock is untouched', async () => {
+    const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+    const settings = await import(new URL('../src/main/services/settingsService.ts', import.meta.url).href)
+    const cfg = await import(new URL('../src/main/services/agentControl/providers/zcodeManagedConfig.ts', import.meta.url).href)
+
+    await makeTempHome('devhub-t2z-110-')
+    try {
+      assert.equal(settings.allowedSettingKeys().includes('zcode_managed_model'), true, 'whitelist carries the T2 key (18→19)')
+      assert.equal(settings.allowedSettingKeys().length, 19, 'ALLOWED_KEYS 18→19 (T2 batch; no prior count lock — settingsService header note updated)')
+      assert.throws(() => settings.setSetting('zcode_managed_not_a_key', 'x'), /not allowed/, 'non-whitelisted keys still rejected')
+      assert.equal(cfg.zcodeManagedModelSetting(), '', 'absence = empty = disabled')
+      settings.setSetting('zcode_managed_model', 'dummyhub/dummy-model')
+      assert.equal(settings.getSetting('zcode_managed_model'), 'dummyhub/dummy-model')
+      assert.equal(cfg.zcodeManagedModelSetting(), 'dummyhub/dummy-model')
+      assert.equal(settings.getSetting('llm_review_base_url'), '', 'LR1 seed rows untouched by the T2 whitelist extension (007 seeds = empty string)')
+    } finally {
+      dbModule.closeDatabase()
+    }
+  }, 'fast')
 
     await run(parseTierArg())
 }

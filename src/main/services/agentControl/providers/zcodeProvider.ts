@@ -1,5 +1,29 @@
 /**
- * zcodeProvider.ts — ZCode 接入适配器（docs/12 §8.4；**首版全部 observed，裁决 4**）。
+ * zcodeProvider.ts — ZCode 接入适配器（docs/12 §8.4；observed 转录面 + T2 批真托管面）。
+ *
+ * T2 批（docs/briefs/t2-zcode-managed.md，用户裁决 2026-09-11 夜：zcode 可直接托管，
+ * 取代首版「恒 observed 裁决 4」的控制边界；observed 转录面语义零变化）：
+ * - **托管面**：ZCode Protocol v1 app-server（ndjson over stdio，无 jsonrpc 字段、
+ *   无 initialize 握手、服务端反向请求必答——协议事实权威 =
+ *   acceptance/agents-mobile/zcode-appserver-scout-20260912/REPORT.md（Z1 侦察），
+ *   帧编解码/分发器/判态见 zcodeProtocol.ts 纯函数层）。spawn 经 exec.spawnManaged
+ *   调 `node zcode.cjs app-server --cwd=<ws>`（exec.ts 唯一 spawn，约束 #7）；
+ *   env 注入 = ApiHub zcode 活动档案 + settings 键 zcode_managed_model
+ *   （zcodeManagedConfig.ts；Z1 活体 run3 实证 env 引导形态）。
+ * - **turn 路径**（主控定案 #4）：session/create(persistence:'immediate') →
+ *   session/subscribe(deliveryKind:'desktop-continuous') → session/send →
+ *   消费 session/event 至 turn 终止沿 → session/close；中断 = session/stop
+ *   （服务端旁路队列软中断）→ 兜底 killTree。
+ * - **探针**（主控定案 #2）：配置就绪（档案 + 模型键，零子进程）→ doctor 快探
+ *   （node zcode.cjs doctor，exit 0 = alive，Z1 实测 ~0.5s）→ caps.mode='managed'
+ *   （granted=['reply','pause']；resume 无已验证协议方法，绝不猜）。
+ *   未配置 = 默认态（llm_review 双键「默认空 = 停用绝不半开」先例）→ observed。
+ * - **转录零额外工作**（主控定案 #6）：CLI 会话与桌面同库 ~/.zcode/cli/db/db.sqlite，
+ *   下方 observed 监控面天然可见托管会话的消息/工具面；session/event 只投影
+ *   状态沿（waiting_input/paused/active 判态沿用现有 managed 语义），
+ *   message/part/tool 内容事件不重复投影。
+ * - **会话投影**（主控定案 #7）：spawn 的会话以 session_mode='managed' 经 sink
+ *   落库（scanAwareSessionMode 保持既有行 mode，重扫不降级）。
  *
  * 数据源（AC0 盘点 + 本批真机只读复核，db 活跃写入中，~165 sessions / 8.6k messages）：
  * - `~/.zcode/cli/db/db.sqlite`（WAL）：19 表实测；本 provider 依赖（PRAGMA 白名单）：
@@ -47,10 +71,13 @@
  * （首启从 0 全量入库，与 codex/claude 重放语义一致）；读失败连续 5 次 →
  * connection_lost 降级沿。
  *
- * 控制边界：getCapabilities 恒 observed + 空集（裁决 4）；sendReply/pause/resume
- * 结构化 unsupported；禁 GUI 自动化、禁逆向。
+ * 控制边界（T2 批更新）：managed 面 = caps 探测真实判定（doctor + 配置就绪）→
+ * reply/pause 真实执行（app-server 通道）；observed 外部会话照旧无输入通道
+ * （L3 resolveCommandGate 拒绝）；resume 结构化 unsupported（v1 无已验证方法）。
+ * 禁 GUI 自动化、禁逆向。令牌三零：spawn env 含 apiKeyPlain 但绝不入任何日志/
+ * 审计/错误（env 对象仅 spawn 瞬间消费）。
  *
- * electron-free；零 child_process import（约束 #7）；一切 SQL 参数绑定（约束 #11）。
+ * electron-free；spawn 经 core/exec spawnManaged/run（约束 #7）；一切 SQL 参数绑定（约束 #11）。
  */
 
 import { mkdirSync, rmSync, statSync, copyFileSync, existsSync } from 'node:fs'
@@ -59,11 +86,29 @@ import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import type { AgentCapabilitySet, SessionStatus } from '../../../../shared/types.ts'
+import { run, spawnManaged, type ManagedExit, type ManagedProcess } from '../../../core/exec.ts'
 import { getDataDir } from '../../../core/paths.ts'
 import { nowSec } from '../../internal.ts'
 import { ReadFailureTracker, cancellableSleep, startMonitorTask, type MonitorCancelToken } from '../monitorRegistry.ts'
 import { redactText } from '../redact.ts'
 import { buildSegments, type RawSegmentBlock } from '../messageSegments.ts'
+import {
+  buildManagedSpawnEnv,
+  readZcodeManagedConfig,
+  ZCODE_MANAGED_MODEL_SETTING_KEY,
+  type ZcodeManagedConfigSnapshot,
+} from './zcodeManagedConfig.ts'
+import {
+  encodeRequest,
+  isTurnTerminalEvent,
+  evalZcodeEventStatus,
+  extractSessionEvent,
+  parseZcodeFrame,
+  respondToServerRequest,
+  type ZcodeFrameId,
+  type ZcodeRpcError,
+  type ZcodeSessionEventParams,
+} from './zcodeProtocol.ts'
 import type {
   AgentProvider,
   CommandOutcome,
@@ -97,12 +142,94 @@ export interface ZcodeProviderOptions {
   messageTextCap?: number
   /** 每轮每表读取行上限（防大库单轮拖垮）。 */
   batchRows?: number
+
+  // ---- T2 托管面选项（全部可选；smoke 注入 fake transport/探针/配置源）----
+
+  /** zcode.cjs 路径（默认 `%LOCALAPPDATA%\Programs\ZCode\resources\glm\zcode.cjs`，Z1 Q4：固定文件名）。 */
+  managedCjsPath?: string
+  /** 托管子进程命令（默认 'node'；Z1：无 PATH shim 需显式 node 调起）。 */
+  managedCommand?: string
+  /** app-server 启动参数（默认 `[cjsPath, 'app-server', '--cwd=<ws>']`；smoke 注入 fake transport 脚本）。 */
+  managedArgs?: string[]
+  /** 托管子进程 env（默认 buildManagedSpawnEnv 快照拼装；smoke 注入固定 env）。 */
+  managedEnv?: NodeJS.ProcessEnv
+  /** 托管会话工作区（默认用户 home；session/create workspace 与 --cwd 同源）。 */
+  managedWorkspacePath?: string
+  /** 托管连接心跳空闲上限毫秒（默认 120_000；turn 推理期事件流持续重置心跳）。 */
+  managedIdleTimeoutMs?: number
+  /** 托管连接总生命周期上限毫秒（默认 3_600_000；真推理 turn 的绝对天花板）。 */
+  managedLifetimeTimeoutMs?: number
+  /** 托管单请求等待超时毫秒（默认 30_000；Z1：app-server 启动到首帧 ≈2s）。 */
+  managedRequestTimeoutMs?: number
+  /** doctor 快探超时毫秒（默认 10_000；Z1 实测 ~0.5s，放宽容忍冷启动）。 */
+  managedDoctorTimeoutMs?: number
+  /** 配置源注入（默认 readZcodeManagedConfig；smoke 注入固定快照）。 */
+  managedConfigSource?: () => Promise<ZcodeManagedConfigSnapshot>
+  /** doctor 探针注入（默认 run(node,[cjs,'doctor']) 真探；smoke 注入 fake）。 */
+  managedDoctorProbe?: () => Promise<{ alive: boolean; version?: string; detail: string }>
 }
 
 const DEFAULT_POLL_MS = 8_000
 const DEFAULT_SNAPSHOT_REFRESH_MS = 300_000
 const DEFAULT_MESSAGE_TEXT_CAP = 4_000
 const DEFAULT_BATCH_ROWS = 500
+
+// T2 托管面默认值（真推理 turn 的时间量级：请求宽 30s、心跳宽 120s、生命周期
+// 天花板 1h——spawnManaged 双上限纪律不变，绝不存在无超时状态）
+const DEFAULT_MANAGED_IDLE_MS = 120_000
+const DEFAULT_MANAGED_LIFETIME_MS = 3_600_000
+const DEFAULT_MANAGED_REQUEST_MS = 30_000
+const DEFAULT_MANAGED_DOCTOR_MS = 10_000
+/** 默认 zcode.cjs 束路径（Z1 Q4：固定文件名，更新原位替换 → 路径稳定）。 */
+export const ZCODE_DEFAULT_CJS_PATH = join(
+  process.env['LOCALAPPDATA'] ?? join(homedir(), 'AppData', 'Local'),
+  'Programs',
+  'ZCode',
+  'resources',
+  'glm',
+  'zcode.cjs',
+)
+/** doctor 输出中的版本行模式（Z1 probe/doctor-output.txt：`version: 0.16.5`）。 */
+const ZCODE_DOCTOR_VERSION_PATTERN = /^version:\s*(\S+)/m
+
+/** 进程退出收敛的有限等待（codexProvider ac3-97 同款：一切等待有上限，绝不无限挂起）。 */
+async function waitForProcExit(
+  proc: ManagedProcess,
+  what: string,
+  timeoutMs = 30_000,
+): Promise<{ observed: boolean; exit: ManagedExit | null; detail: string }> {
+  const raceExit = (ms: number): Promise<ManagedExit | 'timeout'> => {
+    let timer: NodeJS.Timeout | null = null
+    const timeoutP = new Promise<ManagedExit | 'timeout'>((resolve) => {
+      timer = setTimeout(() => resolve('timeout'), ms)
+    })
+    return Promise.race([
+      proc.exited.then((exit) => {
+        if (timer !== null) clearTimeout(timer)
+        return exit
+      }),
+      timeoutP,
+    ])
+  }
+  const first = await raceExit(timeoutMs)
+  if (first !== 'timeout') {
+    return { observed: true, exit: first, detail: `${what}: exit observed (${first.reason}, ${first.durationMs}ms)` }
+  }
+  try {
+    await proc.killTree()
+  } catch {
+    /* 已退出等幂等场景 */
+  }
+  const second = await raceExit(5_000)
+  if (second !== 'timeout') {
+    return { observed: true, exit: second, detail: `${what}: exit observed after re-kill (${second.reason})` }
+  }
+  return {
+    observed: false,
+    exit: null,
+    detail: `${what}: child exit not observed within ${timeoutMs}ms (+5s after re-kill); pid=${proc.pid} may be lingering`,
+  }
+}
 
 /**
  * db.sqlite schema 白名单（表 → 必需列全集；实测 schema 子集，多余列/表不拒）。
@@ -363,10 +490,237 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
   const snapshotRefreshMs = options.snapshotRefreshMs ?? DEFAULT_SNAPSHOT_REFRESH_MS
   const messageTextCap = options.messageTextCap ?? DEFAULT_MESSAGE_TEXT_CAP
   const batchRows = options.batchRows ?? DEFAULT_BATCH_ROWS
+  // T2 托管面（全部可选注入；缺省走生产路径）
+  const managedCommand = options.managedCommand ?? 'node'
+  const managedWorkspacePath = options.managedWorkspacePath ?? homedir()
+  const managedIdleTimeoutMs = options.managedIdleTimeoutMs ?? DEFAULT_MANAGED_IDLE_MS
+  const managedLifetimeTimeoutMs = options.managedLifetimeTimeoutMs ?? DEFAULT_MANAGED_LIFETIME_MS
+  const managedRequestTimeoutMs = options.managedRequestTimeoutMs ?? DEFAULT_MANAGED_REQUEST_MS
+  const managedDoctorTimeoutMs = options.managedDoctorTimeoutMs ?? DEFAULT_MANAGED_DOCTOR_MS
+  const managedConfigSource = options.managedConfigSource ?? readZcodeManagedConfig
 
   const stats = { parseFailures: 0, snapshotOpens: 0, directOpens: 0, lastSchemaProblems: [] as string[] }
   /** 常驻快照（监控轮询间复用；snapshotRefreshMs 到期重建）。 */
   let residentSnapshot: { dir: string; createdAt: number; sourceKey: string; close(): void } | null = null
+  // T2 托管面运行态
+  /**
+   * 活跃托管连接（nativeId → 句柄）：startManagedSession/sendReply/pause 共用
+   * （docs/12 §2「长驻受控」语义——session/send 响应即时而真实推理数秒以上，
+   * 连接必须存活到 turn 终止沿；终态后 session/close + killTree 收尾）。
+   */
+  const managedSessions = new Map<
+    string,
+    {
+      nativeId: string
+      proc: ManagedProcess
+      rpc: ZcodeRpcSession
+      lastStatus: SessionStatus | null
+      turnInFlight: boolean
+      finalized: boolean
+    }
+  >()
+  /** DevHub 亲自发起过的托管会话全集（终态后保留）：listSessions 扫描投影据此标 managed。 */
+  const managedSessionIds = new Set<string>()
+  /** 协议容忍计数 + 最近一次 caps 探测证据（诊断面）。 */
+  const managedStats = {
+    serverRequestsAnswered: 0,
+    unknownFrames: 0,
+    unknownNotifications: 0,
+    turnsCompleted: 0,
+  }
+  let lastManagedProbe: { at: number; ok: boolean; evidence: string } | null = null
+
+  /** 托管 cjs 路径解析（显式注入 > 默认束路径；存在性实测）。 */
+  function resolveManagedCjsPath(): string | null {
+    const candidate = options.managedCjsPath ?? ZCODE_DEFAULT_CJS_PATH
+    try {
+      return existsSync(candidate) ? candidate : null
+    } catch {
+      return null
+    }
+  }
+
+  /** 托管 spawn 参数（显式注入 > 默认 `[cjsPath, 'app-server', '--cwd=<ws>']`）。 */
+  function managedSpawnArgs(cjsPath: string): string[] {
+    if (options.managedArgs !== undefined) return options.managedArgs
+    return [cjsPath, 'app-server', `--cwd=${managedWorkspacePath}`]
+  }
+
+  // -------------------------------------------------------------------------
+  // T2 托管面 — app-server 连接（ZCode Protocol v1 over stdio，spawnManaged 托管）
+  // -------------------------------------------------------------------------
+
+  interface ZcodeRpcSession {
+    /** 结构化 null = 超时/写失败/进程退出（调用方按失败处理，绝不抛挂起）。 */
+    rawRequest(
+      method: string,
+      params: Record<string, unknown>,
+      timeoutMs?: number,
+    ): Promise<{ id: ZcodeFrameId; result?: unknown; error?: ZcodeRpcError } | null>
+    request(method: string, params: Record<string, unknown>, timeoutMs?: number): Promise<unknown>
+  }
+
+  interface ZcodeConnection {
+    proc: ManagedProcess
+    rpc: ZcodeRpcSession
+    waitForExit(what: string, timeoutMs?: number): Promise<{ observed: boolean; detail: string }>
+  }
+
+  /**
+   * spawn + 行解析 + RPC 客户端一体（无 initialize 握手——Z1 差异 #2：首帧即业务
+   * 请求）。帧路由（zcodeProtocol.parseZcodeFrame）：
+   * - 服务端反向请求（id+method）→ respondToServerRequest 分发器应答（同 id 回写）；
+   * - 响应/错误响应 → pending 表（id 归一 String 键——服务端 id 为 string|int 宽松域）；
+   * - 通知 → session/event 交给 onSessionEvent，其余容忍计数（mcpTelemetry 等）；
+   * - 非法帧 → unknownFrames 计数。
+   */
+  function spawnRpcConnection(env: NodeJS.ProcessEnv, onSessionEvent: (ev: ZcodeSessionEventParams) => void): ZcodeConnection {
+    const pending = new Map<string, { resolve: (resp: { id: ZcodeFrameId; result?: unknown; error?: ZcodeRpcError } | null) => void; timer: NodeJS.Timeout }>()
+    let nextId = 1
+    const cjsPath = resolveManagedCjsPath()
+    const proc = spawnManaged(managedCommand, managedSpawnArgs(cjsPath ?? ZCODE_DEFAULT_CJS_PATH), {
+      idleTimeoutMs: managedIdleTimeoutMs,
+      lifetimeTimeoutMs: managedLifetimeTimeoutMs,
+      stdinWritable: true,
+      ...(options.managedEnv !== undefined ? { env: options.managedEnv } : { env }),
+      onStdout: (line) => {
+        const text = line.trim()
+        if (text.length === 0) return
+        const frame = parseZcodeFrame(text)
+        if (frame.kind === 'invalid') {
+          managedStats.unknownFrames += 1 // 容忍丢弃 + 计数（docs/12 §8.1 纪律）
+          return
+        }
+        if (frame.kind === 'request') {
+          // 服务端→客户端反向请求：分发器应答（Z1 差异 #3：不答则 create 挂起）
+          const responseLine = respondToServerRequest(frame)
+          if (responseLine !== null) {
+            managedStats.serverRequestsAnswered += 1
+            proc.writeStdin(`${responseLine}\n`)
+          }
+          return
+        }
+        if (frame.kind === 'notification') {
+          const ev = extractSessionEvent(frame.method, frame.params)
+          if (ev !== null) onSessionEvent(ev)
+          else managedStats.unknownNotifications += 1 // process/mcpTelemetry 等：容忍计数
+          return
+        }
+        // response / error：pending 表按 String(id) 归一收敛
+        const key = String(frame.id)
+        const entry = pending.get(key)
+        if (entry === undefined) {
+          managedStats.unknownFrames += 1 // 未知 id 帧（超时后迟到的响应等）：容忍计数
+          return
+        }
+        pending.delete(key)
+        clearTimeout(entry.timer)
+        entry.resolve(frame.kind === 'response' ? { id: frame.id, result: frame.result } : { id: frame.id, error: frame.error })
+      },
+    })
+    const rpc: ZcodeRpcSession = {
+      rawRequest(method, params, timeoutMs = managedRequestTimeoutMs) {
+        const id = nextId++
+        return new Promise((resolve) => {
+          const timer = setTimeout(() => {
+            pending.delete(String(id))
+            resolve(null) // 超时 → 结构化 null
+          }, timeoutMs)
+          pending.set(String(id), { resolve, timer })
+          const written = proc.writeStdin(`${encodeRequest(id, method, params)}\n`)
+          if (!written.ok) {
+            clearTimeout(timer)
+            pending.delete(String(id))
+            resolve(null)
+          }
+        })
+      },
+      async request(method, params, timeoutMs) {
+        const resp = await rpc.rawRequest(method, params, timeoutMs)
+        if (resp === null) throw new Error(`app-server request timeout or write failure: ${method}`)
+        if (resp.error !== undefined) throw new Error(`app-server error ${resp.error.code}: ${resp.error.message}`)
+        return resp.result
+      },
+    }
+    // ac3-97 同款稳定化：进程退出后未决请求立即以结构化 null 收敛
+    void proc.exited.then(() => {
+      for (const [key, entry] of pending) {
+        pending.delete(key)
+        clearTimeout(entry.timer)
+        entry.resolve(null)
+      }
+    })
+    return {
+      proc,
+      rpc,
+      async waitForExit(what, timeoutMs = 30_000) {
+        const info = await waitForProcExit(proc, what, timeoutMs)
+        return { observed: info.observed, detail: info.detail }
+      },
+    }
+  }
+
+  /** 会话 create 响应 → sessionId（run3 形态 result.session.sessionId；run2 兼容 result.sessionId）。 */
+  function extractZcodeSessionId(result: unknown): string | null {
+    if (result === null || typeof result !== 'object') return null
+    const r = result as Record<string, unknown>
+    const session = r['session']
+    if (session !== null && typeof session === 'object') {
+      const sid = (session as Record<string, unknown>)['sessionId']
+      if (typeof sid === 'string' && sid.length > 0) return sid
+    }
+    const direct = r['sessionId']
+    return typeof direct === 'string' && direct.length > 0 ? direct : null
+  }
+
+  /** 会话 create 响应 → title（可选；非字符串容忍缺失）。 */
+  function extractZcodeSessionTitle(result: unknown): string | undefined {
+    if (result === null || typeof result !== 'object') return undefined
+    const session = (result as Record<string, unknown>)['session']
+    if (session === null || typeof session !== 'object') return undefined
+    const title = (session as Record<string, unknown>)['title']
+    return typeof title === 'string' && title.length > 0 ? title : undefined
+  }
+
+  /** 托管连接收尾：session/close 容忍失败 → killTree → 有界退出等待（绝不留活进程）。 */
+  async function teardownManagedConnection(handle: { proc: ManagedProcess; rpc: ZcodeRpcSession; nativeId?: string }, closeSession: boolean): Promise<void> {
+    if (closeSession && handle.nativeId !== undefined) {
+      await handle.rpc.rawRequest('session/close', { sessionId: handle.nativeId }, 5_000).catch(() => null)
+    }
+    try {
+      await handle.proc.killTree()
+    } catch {
+      /* 已退出等幂等场景 */
+    }
+    await waitForProcExit(handle.proc, 'managed connection teardown').catch(() => {})
+  }
+
+  /** turn 终止沿收尾：close + 树杀 + 句柄摘除（managedSessionIds 保留 managed 标记）。 */
+  function finalizeManagedSession(nativeId: string): void {
+    const handle = managedSessions.get(nativeId)
+    if (handle === undefined || handle.finalized) return
+    handle.finalized = true
+    managedSessions.delete(nativeId)
+    void teardownManagedConnection(handle, true)
+  }
+
+  /** session/event 投影（主控定案 #7：状态沿走 sink；内容事件零额外工作——同库转录面可见）。 */
+  function handleManagedEvent(sink: EventSink, ev: ZcodeSessionEventParams): void {
+    const handle = managedSessions.get(ev.sessionId)
+    if (handle === undefined) return // 已收尾会话的迟到事件：容忍丢弃
+    const next = evalZcodeEventStatus(ev.type, ev.resultType)
+    if (next !== null && next !== handle.lastStatus) {
+      const from = handle.lastStatus ?? undefined
+      handle.lastStatus = next
+      const detail =
+        ev.type === 'turn.completed' && ev.resultType !== null
+          ? `turn completed (resultType: ${ev.resultType})`
+          : `zcode event: ${ev.type}`
+      sink.onStatusChanged?.({ providerId: 'zcode', nativeId: ev.sessionId }, from, next, detail)
+    }
+    if (ev.type === 'turn.completed' || ev.type === 'turn.failed') managedStats.turnsCompleted += 1
+    if (isTurnTerminalEvent(ev.type)) finalizeManagedSession(ev.sessionId)
+  }
 
   // -------------------------------------------------------------------------
 
@@ -561,6 +915,9 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
           ...(row.title !== null && row.title.length > 0 ? { title: row.title } : {}),
           ...(row.time_created !== null && row.time_created > 0 ? { startedAt: Math.floor(row.time_created / 1000) } : {}),
           ...(row.time_updated !== null && row.time_updated > 0 ? { lastActivityAt: Math.floor(row.time_updated / 1000) } : {}),
+          // T2：DevHub 亲自发起过的托管会话（同库扫描再发现时）显式携带 managed
+          //（codex managedTurns 同款；「DevHub 发起」是第一手事实，扫描无权改写）
+          ...(managedSessionIds.has(id) ? { mode: 'managed' as const } : {}),
         }
         if (!isZcodeSubagentSession(id, taskType)) {
           snapshots.push(base)
@@ -728,24 +1085,181 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
   }
 
   // -------------------------------------------------------------------------
-  // 九方法 4-7：getCapabilities（恒 observed，裁决 4）/ sendReply / pause / resume
+  // T2 托管面 — 探针（主控定案 #2）：配置就绪（零子进程）→ doctor 快探 → caps
   // -------------------------------------------------------------------------
 
-  async function getCapabilities(_ref: SessionRef): Promise<AgentCapabilitySet> {
+  /** doctor 快探（默认 run(node,[cjs,'doctor'])；env 继承不注入 key——doctor 无需模型配置）。 */
+  async function defaultDoctorProbe(): Promise<{ alive: boolean; version?: string; detail: string }> {
+    const cjsPath = resolveManagedCjsPath()
+    if (cjsPath === null) {
+      return { alive: false, detail: `zcode.cjs not found (default bundle path: ${ZCODE_DEFAULT_CJS_PATH})` }
+    }
+    const r = await run(managedCommand, [cjsPath, 'doctor'], { timeoutMs: managedDoctorTimeoutMs })
+    if (r.code === 0 && !r.timedOut) {
+      const version = ZCODE_DOCTOR_VERSION_PATTERN.exec(r.stdout)?.[1]
+      return { alive: true, ...(version !== undefined ? { version } : {}), detail: `doctor exit 0 (${r.durationMs}ms)` }
+    }
     return {
-      mode: 'observed',
-      granted: [],
-      verifiedAt: nowSec(),
-      evidence: 'observed-only per ruling 4 (docs/12 §8.4): read-only db snapshot source, no control channel implemented',
+      alive: false,
+      detail: `doctor failed: ${(r.stderr || r.stdout || `exit ${r.code}`).slice(0, 160)}`,
     }
   }
 
+  /**
+   * 九方法 4：getCapabilities（T2 托管判定，数据驱动）：
+   * - 配置未就绪（settings 键空或档案缺失）→ observed + 结构化 reason（默认态；
+   *   llm_review「默认空 = 停用绝不半开」先例；零子进程零开销）；
+   * - 配置就绪但 doctor 不 alive → observed + 探测失败原因；
+   * - 全部就绪 → managed + granted ['reply','pause']（session/send、session/stop；
+   *   resume 无已验证协议方法——Z1 方法表无 resume 语义，绝不猜）。
+   * 探测零凭据：evidence 只含「就绪」事实，绝不含 baseUrl/key。
+   */
+  async function getCapabilities(_ref: SessionRef): Promise<AgentCapabilitySet> {
+    const doctorProbe = options.managedDoctorProbe ?? defaultDoctorProbe
+    const snapshot = await managedConfigSource()
+    if (!snapshot.ready) {
+      const evidence = `managed face unconfigured: ${snapshot.reason ?? 'unknown'} (caps stay observed)`
+      lastManagedProbe = { at: nowSec(), ok: false, evidence }
+      return { mode: 'observed', granted: [], verifiedAt: nowSec(), evidence }
+    }
+    const doctor = await doctorProbe()
+    if (!doctor.alive) {
+      const evidence = `managed face configured but zcode doctor probe failed: ${doctor.detail}`
+      lastManagedProbe = { at: nowSec(), ok: false, evidence }
+      return { mode: 'observed', granted: [], verifiedAt: nowSec(), evidence }
+    }
+    const evidence = `zcode managed probe ok: ${doctor.detail} + ApiHub zcode active profile ready + ${ZCODE_MANAGED_MODEL_SETTING_KEY} set`
+    lastManagedProbe = { at: nowSec(), ok: true, evidence }
+    return { mode: 'managed', granted: ['reply', 'pause'], verifiedAt: nowSec(), evidence }
+  }
+
+  // -------------------------------------------------------------------------
+  // T2 托管面 — turn 生命周期（主控定案 #4）：create → subscribe → send →
+  // 消费 session/event 至 turn 终止沿 → close；中断 = session/stop → 兜底树杀
+  // -------------------------------------------------------------------------
+
+  async function startManagedSession(task: string, sink: EventSink): Promise<{ ok: boolean; nativeId?: string; detail?: string }> {
+    const snapshot = await managedConfigSource()
+    if (!snapshot.ready) {
+      return { ok: false, detail: `zcode managed face unconfigured: ${snapshot.reason ?? 'unknown'}` }
+    }
+    const cjsPath = resolveManagedCjsPath()
+    if (cjsPath === null) {
+      return { ok: false, detail: `zcode.cjs not found (default bundle path: ${ZCODE_DEFAULT_CJS_PATH})` }
+    }
+    const env = options.managedEnv ?? buildManagedSpawnEnv(snapshot, process.env)
+    let nativeId: string | null = null
+    // 连接独占本会话：事件路由闭包携带本会话 sink（快照/状态沿落库经 L3）
+    const conn = spawnRpcConnection(env, (ev) => handleManagedEvent(sink, ev))
+    try {
+      if (conn.proc.pid <= 0) throw new Error('app-server spawn failed (synchronous spawn error)')
+      const workspace = managedWorkspacePath
+      const createResult = await conn.rpc.request('session/create', {
+        workspace: { workspacePath: workspace, workspaceKey: workspace },
+        persistence: 'immediate',
+      })
+      nativeId = extractZcodeSessionId(createResult)
+      if (nativeId === null) {
+        throw new Error('session/create response missing session id (protocol shape change tolerated)')
+      }
+      managedSessionIds.add(nativeId)
+      const handle = { nativeId, proc: conn.proc, rpc: conn.rpc, lastStatus: null as SessionStatus | null, turnInFlight: false, finalized: false }
+      managedSessions.set(nativeId, handle)
+      // managed 快照即时落库（sink → L3 upsert 落 session_mode='managed'）——
+      // 手机侧会话列表在 turn 进行中即可见；后续状态由 session/event 沿推进。
+      const title = extractZcodeSessionTitle(createResult)
+      sink.onSessionDiscovered?.('zcode', {
+        nativeId,
+        mode: 'managed',
+        workdir: workspace,
+        lastActivityAt: nowSec(),
+        ...(title !== undefined ? { title } : {}),
+      })
+      await conn.rpc.request('session/subscribe', { sessionId: nativeId, deliveryKind: 'desktop-continuous' })
+      await conn.rpc.request('session/send', { sessionId: nativeId, content: task })
+      handle.turnInFlight = true
+      return { ok: true, nativeId, detail: 'session/create + subscribe + send ok (turn in flight; events stream to terminal state)' }
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err)
+      if (nativeId !== null) {
+        // create 已成功：会话保留 managed 标记（同 codex 'session kept as managed' 语义），
+        // 连接收尾由 finalize 路径清理
+        finalizeManagedSession(nativeId)
+        return { ok: false, nativeId, detail: `zcode managed turn start failed after create: ${reason.slice(0, 200)}` }
+      }
+      await teardownManagedConnection({ proc: conn.proc, rpc: conn.rpc }, false)
+      return { ok: false, detail: `zcode managed turn start failed: ${reason.slice(0, 200)}` }
+    }
+  }
+
+  /**
+   * 九方法 5：sendReply（managed zcode 会话 = 活跃连接上的 session/send）。
+   * 无活跃连接（DevHub 重启/turn 终止后已 close）→ 结构化失败（转录面仍可见，
+   * 同库语义）；进行中 turn 的并发 send 由服务端 -32010 拒绝，如实折叠。
+   */
+  async function sendReply(ref: SessionRef, text: string): Promise<CommandOutcome> {
+    const handle = managedSessions.get(ref.nativeId)
+    if (handle === undefined) {
+      return {
+        ok: false,
+        status: 'failed',
+        errorCode: 'COMMAND_NOT_EXECUTABLE',
+        detail:
+          'no live managed zcode connection for this session (terminal state already closed it, or DevHub restarted); transcript remains visible via the shared zcode db',
+      }
+    }
+    try {
+      await handle.rpc.request('session/send', { sessionId: ref.nativeId, content: text })
+      handle.turnInFlight = true
+      return { ok: true, status: 'executed', detail: 'session/send ok (managed turn in flight)' }
+    } catch (err) {
+      return {
+        ok: false,
+        status: 'failed',
+        errorCode: 'COMMAND_NOT_EXECUTABLE',
+        detail: `session/send failed: ${(err instanceof Error ? err.message : String(err)).slice(0, 200)}`,
+      }
+    }
+  }
+
+  /**
+   * 九方法 6：pause（managed zcode 会话 = session/stop，服务端旁路队列软中断，
+   * Z1 代码级确认可中断进行中 turn）。turn.completed(cancelled) 事件到达时由
+   * 消费循环投影 paused 并收尾连接；此处只确认 stop 受理。
+   */
+  async function pause(ref: SessionRef): Promise<CommandOutcome> {
+    const handle = managedSessions.get(ref.nativeId)
+    if (handle === undefined) {
+      return {
+        ok: false,
+        status: 'failed',
+        errorCode: 'COMMAND_NOT_EXECUTABLE',
+        detail: 'no live managed zcode connection for this session (nothing to interrupt)',
+      }
+    }
+    try {
+      await handle.rpc.request('session/stop', { sessionId: ref.nativeId })
+      return { ok: true, status: 'executed', detail: 'session/stop accepted (server-side bypass queue; paused projected on turn.completed(cancelled))' }
+    } catch (err) {
+      return {
+        ok: false,
+        status: 'failed',
+        errorCode: 'COMMAND_NOT_EXECUTABLE',
+        detail: `session/stop failed: ${(err instanceof Error ? err.message : String(err)).slice(0, 200)}`,
+      }
+    }
+  }
+
+  /**
+   * 九方法 7：resume — v1 保持 unsupported（Z1 方法表无已验证的 resume 语义；
+   * caps 不授予 resume → L3 门在 provider 之前已拒；此处结构化兜底，绝不猜）。
+   */
   function unsupported(): CommandOutcome {
     return {
       ok: false,
       status: 'unsupported',
       errorCode: 'COMMAND_NOT_EXECUTABLE',
-      detail: 'zcode is observed-only (ruling 4, docs/12 §8.4): no control channel; GUI automation and reverse engineering forbidden',
+      detail: 'zcode managed face grants reply/pause only (T2, docs/briefs/t2-zcode-managed.md): no verified resume method in ZCode Protocol v1',
     }
   }
 
@@ -1150,6 +1664,17 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
       }
       residentSnapshot = null
     }
+    // T2：收尾全部活跃托管连接（docs/12 §10 树杀收尾；单连接失败不阻断其余）
+    const handles = [...managedSessions.values()]
+    managedSessions.clear()
+    for (const handle of handles) {
+      handle.finalized = true
+      try {
+        await teardownManagedConnection(handle, false)
+      } catch {
+        /* 单连接收尾失败不阻断（killTree 幂等兜底在 exec 内部） */
+      }
+    }
   }
 
   function describeDiagnostics(): ProviderDiagnosticsInfo {
@@ -1163,7 +1688,11 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
             : `direct opens: ${stats.directOpens}, snapshot opens: ${stats.snapshotOpens}, parse failures: ${stats.parseFailures}`,
       },
       control: {
-        note: 'observed-only (ruling 4, docs/12 §8.4): no control channel implemented',
+        ...(lastManagedProbe !== null ? { appServer: lastManagedProbe.ok } : {}),
+        note:
+          lastManagedProbe === null
+            ? 'zcode managed face (T2): no capability probe attempted yet (unconfigured = observed by default)'
+            : lastManagedProbe.evidence,
       },
     }
   }
@@ -1174,11 +1703,15 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
     listSessions,
     readMessages,
     getCapabilities,
-    sendReply: async () => unsupported(),
-    pause: async () => unsupported(),
+    sendReply,
+    pause,
     resume: async () => unsupported(),
     startMonitor,
     dispose,
     describeDiagnostics,
+    // T2（docs/briefs/t2-zcode-managed.md）：远程/桌面「启动托管会话」共用
+    // session/create + subscribe + send 托管路径（spawnManaged 双上限子进程；
+    // 快照以 mode:'managed' 经 sink 落库；事件流消费至 turn 终止沿后 close）。
+    startManagedSession,
   }
 }
