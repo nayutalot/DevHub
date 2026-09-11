@@ -4,6 +4,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
@@ -290,6 +291,14 @@ internal fun readClipboardHttpUrl(context: Context): String? = try {
     null
 }
 
+/**
+ * V 批：去除 Android WebView 默认 UA 中的 "; wv)" 标记（保留其余成分——最小侵入）。
+ * 部分网页按该标记识别 WebView 并拒绝渲染（白屏常见嫌疑位）；纯函数便于单测。
+ * 已含标记 → 恰去一处；不含（普通 Chrome UA / 已处理过）→ 原样返回（幂等）。
+ */
+internal fun stripWebViewUaMarker(ua: String): String =
+    if (ua.contains("; wv)")) ua.replaceFirst("; wv)", ")") else ua
+
 // ---------------------------------------------------------------------------
 // S 批：ZCode 工作区智能条目卡片（顶部固定；状态机 = WorkspaceLinkCard，:app 单测锁）
 // ---------------------------------------------------------------------------
@@ -473,6 +482,16 @@ private fun WebViewPane(entry: RemoteWorkspaceEntryEntity, onExit: () -> Unit) {
                         settings.domStorageEnabled = true
                         settings.allowFileAccess = false // file scheme 红线：存储层同样拒载
                         settings.allowContentAccess = false
+                        // V 批（白屏诊断纵深）：默认 UA 去除 "; wv)" WebView 标记——部分站点按
+                        // 该标记拒绝渲染；保留 UA 其余成分（最小侵入）。桌面 A/B 已证当前白屏
+                        // 主因在服务端基建（zcode 子域私网 A 记录 + ALB 503），此项为恢复期
+                        // 拒渲染嫌疑位一的纵深防御。
+                        settings.userAgentString = stripWebViewUaMarker(WebSettings.getDefaultUserAgent(ctx))
+                        // V 批：仅 debug 构建开 WebView 远程调试（chrome://inspect 抓 console）；
+                        // 运行时 FLAG_DEBUGGABLE 核验，生产构建零变化。
+                        if ((ctx.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
+                            WebView.setWebContentsDebuggingEnabled(true)
+                        }
                         webViewClient = object : WebViewClient() {
                             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                                 // 白名单 http/https；file/content/javascript 等一律拒载（仅拒载，
