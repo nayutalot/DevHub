@@ -33,7 +33,8 @@ import kotlinx.coroutines.withContext
  * 1) 控制器已 Ready → 直开该条目；
  * 2) 既往智能条目仍在（stale，旧链接成分静态有效）→ 直开旧条目（自动请求照常刷新）；
  * 3) 无条目可开 → 发起自动请求并挂起等待：Ready 到达后自动导航；
- *    Queued（电脑离线）/ Unavailable（结构化不可用）→ 状态行如实收口，绝不伪导航。
+ *    Queued（桌面 ZCode 链路未就绪，U1-M4 分层文案）/ Unavailable（结构化不可用）
+ *    → 状态行如实收口，绝不伪导航。
  */
 internal object ZCodeRemoteEntryOp {
 
@@ -72,7 +73,9 @@ internal object ZCodeRemoteEntryOp {
     fun settleWhilePending(state: WorkspaceLinkCard.State): PendingSettle = when (state) {
         is WorkspaceLinkCard.State.Ready -> PendingSettle.Open(state.entryId)
         is WorkspaceLinkCard.State.Queued ->
-            PendingSettle.GiveUp("电脑离线：链接请求已排队，桌面恢复连接后再试")
+            // U1-M4（AUDIT P1#4）：与心跳横幅分层——横幅「已连接」指 relay 链路，
+            // 排队真因是桌面侧 ZCode 工作区链路未就绪，文案如实区分（不写「电脑离线」）
+            PendingSettle.GiveUp("桌面 ZCode 链路未就绪：链接请求已排队，就绪后再试")
         is WorkspaceLinkCard.State.Unavailable -> PendingSettle.GiveUp(state.message)
         WorkspaceLinkCard.State.Idle, WorkspaceLinkCard.State.Requesting -> PendingSettle.KeepWaiting
     }

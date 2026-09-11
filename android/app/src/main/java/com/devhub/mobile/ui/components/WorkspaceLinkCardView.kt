@@ -32,7 +32,8 @@ import com.devhub.mobile.connect.WorkspaceLinkCard
  * - Ready → 整卡可点，直达全屏 WebView（onOpen(entryId)）；
  * - 非 Ready 但存在既往会话留下的智能条目行（staleEntryId）→ 同样可点打开
  *   （链接成分静态、t 为 nonce——旧条目仍有效；自动请求照常刷新）；
- * - Queued = 离线桌面排队提示（relay 语义，绝不伪造成功）；
+ * - Queued = 桌面侧 ZCode 工作区链路未就绪（relay 排队语义，绝不伪造成功；
+ *   U1-M4 文案与 relay 心跳横幅分层——横幅指中继链路，卡片指 ZCode 链路）；
  * - Unavailable = 结构化不可用（ZCODE_LINK_UNAVAILABLE 等）+ 重试按钮。
  * 卡片零 URL 展示（点击才进 WebView；WebView 标题栏本就中段省略）。
  */
@@ -79,7 +80,10 @@ fun WorkspaceLinkCardView(
                         )
 
                     WorkspaceLinkCard.State.Queued ->
-                        Text("电脑离线：请求已排队，桌面恢复连接后自动送达", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        // U1-M4（AUDIT P1#4）：顶部横幅「已连接·心跳」指 relay 链路（手机↔中继），
+                        // 卡片 Queued 指桌面侧 ZCode 工作区链路——两者不同层。原「电脑离线」
+                        // 与心跳横幅同屏自相矛盾（05/12/16 号截图实证），改如实分层表述。
+                        Text("桌面 ZCode 链路未就绪：请求已排队，就绪后自动送达", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
                     is WorkspaceLinkCard.State.Unavailable -> {
                         Text(s.message, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
