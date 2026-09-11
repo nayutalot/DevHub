@@ -57,6 +57,7 @@ import com.devhub.mobile.ui.components.MessageBubble
 import com.devhub.mobile.ui.components.ProviderAvatarFor
 import com.devhub.mobile.ui.components.StatusBadge
 import com.devhub.mobile.ui.components.TimeFmt
+import com.devhub.mobile.ui.components.ZcodeRemoteOpenButton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -78,13 +79,17 @@ private const val UX_LOG_TAG = "DevHubUx"
  *   预算 ScrubberMath.maxPagingStepsPerDrag ≤2 页）+「⏬ 跳到最新」FAB；
  * - R11：气泡对话流 + R1 思维链折叠 + R8 迷你渲染（MessageBubble 组件）；
  * - R2：存在子会话时显示「🤖 子智能体会话 (N)」入口；
- * - capabilities / ControlGate 控制门语义保持现状（observed 零控件；本批不动）。
+ * - capabilities / ControlGate 控制门语义保持现状（observed 零控件；本批不动）；
+ * - T1 批：provider=zcode 的会话在控制区加「打开 ZCode 遥控」入口（数据驱动展示入口层
+ *   特判 InteractionHonesty.isZcodeDisplayEntry）——转录仍只读，控制经 ZCode 自家认证
+ *   遥控页（remote/{entryId}）；徽章诚实原则不变：observed 投影绝不显示为 managed/可控。
  */
 @Composable
 fun SessionDetailScreen(
     sessionId: Long,
     onBack: () -> Unit,
     onOpenChildren: (Long) -> Unit = {},
+    onOpenRemoteEntry: (Long) -> Unit = {},
 ) {
     val context = LocalContext.current
     val db = remember { DevHubDb.get(context) }
@@ -308,6 +313,25 @@ fun SessionDetailScreen(
                     .fillMaxWidth()
                     .background(Color(0xFFFFF8E1), RoundedCornerShape(8.dp))
                     .padding(horizontal = 8.dp, vertical = 6.dp),
+            )
+        }
+        // —— T1 批：zcode 会话「打开 ZCode 遥控」入口（observed 零控件现状不变——
+        // 本入口不提交任何 DevHub 命令，只跳转 ZCode 自家认证遥控页；文案如实注明
+        // 转录只读。判定 = 展示入口层 providerId/providerKey 特判，不碰能力门）——
+        if (com.devhub.mobile.core.InteractionHonesty.isZcodeDisplayEntry(
+                providerKey = d.session.providerKey,
+                displayName = d.session.providerLabel,
+            )
+        ) {
+            ZcodeRemoteOpenButton(
+                buttonLabel = com.devhub.mobile.core.InteractionHonesty.ZCODE_REMOTE_SESSION_BUTTON,
+                noteText = com.devhub.mobile.core.InteractionHonesty.ZCODE_REMOTE_DETAIL_NOTE,
+                staleLookup = {
+                    db.remoteWorkspaceEntryDao().getByTitle(
+                        com.devhub.mobile.connect.WorkspaceLinkCard.ENTRY_TITLE,
+                    )?.id
+                },
+                onOpen = onOpenRemoteEntry,
             )
         }
         if (controls.reply) {
