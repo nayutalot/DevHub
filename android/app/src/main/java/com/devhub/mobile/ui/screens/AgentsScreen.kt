@@ -42,12 +42,15 @@ import com.devhub.mobile.connect.ConnectionManager
 import com.devhub.mobile.connect.ConnState
 import com.devhub.mobile.connect.ManagedSpawnSubmit
 import com.devhub.mobile.connect.WakeSubmit
+import com.devhub.mobile.connect.WorkspaceLinkCard
 import com.devhub.mobile.data.ApiProvider
 import com.devhub.mobile.data.FixtureMode
+import com.devhub.mobile.data.db.DevHubDb
 import com.devhub.mobile.data.remote.AgentDto
 import com.devhub.mobile.data.remote.ApiError
 import com.devhub.mobile.ui.components.HealthBadge
 import com.devhub.mobile.ui.components.ModeBadge
+import com.devhub.mobile.ui.components.ZcodeRemoteOpenButton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -73,10 +76,16 @@ private const val WAKE_LOCAL_COOLDOWN_MS = 15_000L
  *   reply/pause/resume 真实可用；夹具演示模式一律不给按钮（绝不伪造控制通道）；
  * - R7.1/R7.2：observed provider 行显示 per-provider 原因卡（文案与
  *   docs/known-limitations.md §1 一致），只展示会话级真实可用动作——不可用的
- *   绝不显示为可点。
+ *   绝不显示为可点；
+ * - T1 批：zcode provider 卡加「打开遥控」动作（数据驱动
+ *   InteractionHonesty.isZcodeDisplayEntry；与「启动托管会话」视觉同层、文案区分，
+ *   注明控制经 ZCode 自家认证遥控页；observed 原因卡保持——DevHub 原生控制仍不可用）。
  */
 @Composable
-fun AgentsScreen(onOpenSession: (Long) -> Unit = {}) {
+fun AgentsScreen(
+    onOpenSession: (Long) -> Unit = {},
+    onOpenRemoteEntry: (Long) -> Unit = {},
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var agents by remember { mutableStateOf<List<AgentDto>?>(null) }
@@ -116,6 +125,7 @@ fun AgentsScreen(onOpenSession: (Long) -> Unit = {}) {
                         agent = agent,
                         fixtureOn = fixtureOn,
                         onOpenSession = onOpenSession,
+                        onOpenRemoteEntry = onOpenRemoteEntry,
                     )
                 }
             }
@@ -258,6 +268,7 @@ private fun ProviderCard(
     agent: AgentDto,
     fixtureOn: Boolean,
     onOpenSession: (Long) -> Unit,
+    onOpenRemoteEntry: (Long) -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -275,6 +286,8 @@ private fun ProviderCard(
     } else {
         null
     }
+    // T1 批：zcode 卡「打开遥控」展示入口（displayName 数据驱动；/v1/agents 投影无 providerKey）
+    val isZcode = InteractionHonesty.isZcodeDisplayEntry(providerKey = null, displayName = agent.displayName)
 
     Column(
         Modifier
@@ -310,6 +323,21 @@ private fun ProviderCard(
                     .fillMaxWidth()
                     .background(Color(0xFFFFF8E1), RoundedCornerShape(8.dp))
                     .padding(horizontal = 8.dp, vertical = 6.dp),
+            )
+        }
+
+        // T1 批：zcode 卡「打开遥控」动作（与「启动托管会话」视觉同层、文案区分；
+        // observed 原因卡保持——DevHub 原生 reply/pause/resume 仍不可用，控制走 ZCode
+        // 自家认证遥控页 remote/{entryId}，绝不显示为 DevHub 可控）
+        if (isZcode) {
+            ZcodeRemoteOpenButton(
+                buttonLabel = InteractionHonesty.ZCODE_REMOTE_AGENTS_BUTTON,
+                noteText = InteractionHonesty.ZCODE_REMOTE_AGENTS_NOTE,
+                staleLookup = {
+                    DevHubDb.get(context).remoteWorkspaceEntryDao()
+                        .getByTitle(WorkspaceLinkCard.ENTRY_TITLE)?.id
+                },
+                onOpen = onOpenRemoteEntry,
             )
         }
 
