@@ -23,7 +23,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -61,6 +60,7 @@ import com.devhub.mobile.data.RemoteWorkspaceUrl
 import com.devhub.mobile.data.db.DevHubDb
 import com.devhub.mobile.data.db.RemoteWorkspaceEntryEntity
 import com.devhub.mobile.ui.components.TimeFmt
+import com.devhub.mobile.ui.components.WorkspaceLinkCardView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -76,13 +76,18 @@ import kotlinx.coroutines.withContext
  *   与 App pin-TL 红线同向）；返回键先 WebView.canGoBack() 再屏退；
  * - URL 可能含动态会话令牌：按敏感对待——零入日志、零外发；展示一律中段省略。
  *
- * S 批追加：顶部固定「ZCode 工作区」智能条目（docs/18 §5.3 注记）——tab 打开时
+ * S 批追加：顶部固定「ZCode 工作区」智能条目（docs/18 §5.3 注记）——进入本屏时
  * **自动请求**桌面重建的当前有效链接（WorkspaceLinkController → relay
  * workspace_link 查询），结果自动建/更新置顶条目，点击即开 WebView；离线桌面 =
  * 排队提示照 relay 语义；手动粘贴路径原样保留（零粘贴路径不动，任务书 §1 #4）。
+ *
+ * T1 批改判：独立「远程工作区」tab 撤销——本屏保留为**可路由条目管理屏**
+ * （路由 remote-manage），从会话页「ZCode 工作区」智能卡的管理入口（小图标）可达；
+ * 手工 URL 条目功能原样保留。遥控主入口并入会话/Agent 流（sessions 智能卡 /
+ * zcode 会话详情按钮 / zcode Agent 卡按钮）。
  */
 @Composable
-fun RemoteWorkspaceScreen(onOpenEntry: (Long) -> Unit) {
+fun RemoteWorkspaceScreen(onOpenEntry: (Long) -> Unit, onBack: () -> Unit = {}) {
     val context = LocalContext.current
     val db = remember { DevHubDb.get(context) }
     val scope = rememberCoroutineScope()
@@ -96,8 +101,9 @@ fun RemoteWorkspaceScreen(onOpenEntry: (Long) -> Unit) {
     var clipboardUrl by remember { mutableStateOf<String?>(null) }
     var formError by remember { mutableStateOf<String?>(null) }
 
-    // S 批：tab 打开即自动请求（拉取模型——App 需要时取，永远新鲜且有效）；
+    // S 批：进入本屏即自动请求（拉取模型——App 需要时取，永远新鲜且有效）；
     // LaunchedEffect(Unit) = 每次进入本屏恰一次，重试由卡片按钮/下次进入承载。
+    // T1 批：tab 撤销，节奏原样迁移（会话页智能卡同款 LaunchedEffect(Unit)）。
     LaunchedEffect(Unit) {
         WorkspaceLinkController.request()
     }
@@ -122,7 +128,11 @@ fun RemoteWorkspaceScreen(onOpenEntry: (Long) -> Unit) {
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("远程工作区", style = MaterialTheme.typography.titleLarge)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            // T1 批：独立 tab 撤销后本屏为路由推送目的地——显式返回面（系统返回键同效）
+            TextButton(onClick = onBack) { Text("< 返回") }
+            Text("远程工作区", style = MaterialTheme.typography.titleLarge)
+        }
         Text(
             "把电脑上复制的远程控制页链接（ZCode 移动端遥控、网页终端、控制面板等，https://）存成条目，" +
                 "在手机上全屏打开。链接可能含动态会话令牌：仅存本机、绝不外发，展示时中段省略。",
@@ -306,75 +316,6 @@ internal fun stripWebViewUaMarker(ua: String): String =
  * 须跳过之（否则反向抹掉结构化错误横幅/把标题栏 URL 冲成 data: 文本）。纯函数便于单测。
  */
 internal fun isErrorPageClearPayload(url: String): Boolean = url.startsWith("data:")
-
-// ---------------------------------------------------------------------------
-// S 批：ZCode 工作区智能条目卡片（顶部固定；状态机 = WorkspaceLinkCard，:app 单测锁）
-// ---------------------------------------------------------------------------
-
-/**
- * 智能条目卡片：状态分五个面（Idle/Requesting/Ready/Queued/Unavailable）。
- * - Ready → 整卡可点，直达全屏 WebView（onOpen(entryId)）；
- * - 非 Ready 但存在既往会话留下的智能条目行（staleEntryId）→ 同样可点打开
- *   （链接成分静态、t 为 nonce——旧条目仍有效；自动请求照常刷新）；
- * - Queued = 离线桌面排队提示（relay 语义，绝不伪造成功）；
- * - Unavailable = 结构化不可用（ZCODE_LINK_UNAVAILABLE 等）+ 重试按钮。
- * 卡片零 URL 展示（点击才进 WebView；WebView 标题栏本就中段省略）。
- */
-@Composable
-private fun WorkspaceLinkCardView(
-    state: WorkspaceLinkCard.State,
-    staleEntryId: Long?,
-    onOpen: (Long) -> Unit,
-    onRetry: () -> Unit,
-) {
-    Surface(
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        shape = MaterialTheme.shapes.medium,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(enabled = state is WorkspaceLinkCard.State.Ready || staleEntryId != null) {
-                    when (state) {
-                        is WorkspaceLinkCard.State.Ready -> onOpen(state.entryId)
-                        else -> staleEntryId?.let(onOpen)
-                    }
-                }
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text("ZCode 工作区", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                when (val s = state) {
-                    WorkspaceLinkCard.State.Idle ->
-                        Text("进入本页时自动获取桌面链接…", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-
-                    WorkspaceLinkCard.State.Requesting ->
-                        Text("正在从桌面获取当前链接…", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-
-                    is WorkspaceLinkCard.State.Ready ->
-                        Text(
-                            "已获取（${s.deviceName ?: "桌面"}）· 点击全屏打开",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-
-                    WorkspaceLinkCard.State.Queued ->
-                        Text("电脑离线：请求已排队，桌面恢复连接后自动送达", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-
-                    is WorkspaceLinkCard.State.Unavailable -> {
-                        Text(s.message, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
-                        TextButton(onClick = onRetry) { Text("重试", fontSize = 12.sp) }
-                    }
-                }
-            }
-            if (state is WorkspaceLinkCard.State.Ready || staleEntryId != null) {
-                Icon(Icons.Filled.ExitToApp, contentDescription = "打开 ZCode 工作区")
-            }
-        }
-    }
-}
 
 // ---------------------------------------------------------------------------
 // 全屏 WebView 屏（独立导航目的地，主导航底栏之外 = 真全屏）

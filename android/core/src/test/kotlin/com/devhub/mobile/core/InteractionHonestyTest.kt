@@ -107,4 +107,42 @@ class InteractionHonestyTest {
         assertEquals(InteractionHonesty.observedReason("zcode"), InteractionHonesty.observedReason("ZCode"))
         assertEquals(InteractionHonesty.observedReason("claude-code"), InteractionHonesty.observedReason("ClaudeCode"))
     }
+
+    // —— T1 批：zcode 遥控展示入口可见性（isZcodeDisplayEntry；仅展示入口层，
+    // 不碰能力门/服务端语义） ——
+
+    @Test
+    fun `zcode display entry matches provider key case insensitively`() {
+        assertTrue(InteractionHonesty.isZcodeDisplayEntry("zcode"))
+        assertTrue(InteractionHonesty.isZcodeDisplayEntry("ZCode"))
+        assertTrue(InteractionHonesty.isZcodeDisplayEntry("ZCODE"))
+    }
+
+    @Test
+    fun `zcode display entry matches display name for agents projection`() {
+        // /v1/agents 投影无 providerKey——真库 display_name 实测值「ZCode」必须命中
+        assertTrue(InteractionHonesty.isZcodeDisplayEntry(null, "ZCode"))
+        assertTrue(InteractionHonesty.isZcodeDisplayEntry(null, "ZCode CLI"))
+        // 双输入任一命中即可
+        assertTrue(InteractionHonesty.isZcodeDisplayEntry("zcode", "Something Else"))
+    }
+
+    @Test
+    fun `zcode display entry rejected for other providers and blanks`() {
+        assertFalse(InteractionHonesty.isZcodeDisplayEntry(null))
+        assertFalse(InteractionHonesty.isZcodeDisplayEntry(null, "Codex"))
+        assertFalse(InteractionHonesty.isZcodeDisplayEntry("claude-code", "Claude Code"))
+        assertFalse(InteractionHonesty.isZcodeDisplayEntry("kimi", "Kimi Code"))
+        assertFalse(InteractionHonesty.isZcodeDisplayEntry("deepseek", "DeepSeek"))
+        assertFalse(InteractionHonesty.isZcodeDisplayEntry("", ""))
+    }
+
+    @Test
+    fun `zcode display entry copy stays honest about read-only transcript`() {
+        // 入口文案诚实纪律：转录只读、控制经 ZCode 遥控页，绝不显示为 DevHub 可控
+        assertTrue(InteractionHonesty.ZCODE_REMOTE_DETAIL_NOTE.contains("只读"))
+        assertTrue(InteractionHonesty.ZCODE_REMOTE_DETAIL_NOTE.contains("ZCode 遥控"))
+        assertTrue(InteractionHonesty.ZCODE_REMOTE_SESSION_BUTTON.contains("ZCode"))
+        assertTrue(InteractionHonesty.ZCODE_REMOTE_AGENTS_BUTTON.contains("遥控"))
+    }
 }

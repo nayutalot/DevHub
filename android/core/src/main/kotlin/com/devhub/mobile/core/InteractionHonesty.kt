@@ -32,6 +32,14 @@ object InteractionHonesty {
     /** granted 非空且非 managed/observed 的既有形态（attached 等）沿用明细展示。 */
     const val EMPTY_GRANTED_NOTE = "无控制能力"
 
+    // —— T1 批：ZCode 遥控展示入口文案（诚实纪律：转录仍只读，控制走 ZCode 自家认证页，
+    // 绝不显示为 DevHub 可控/managed）——
+    const val ZCODE_REMOTE_SESSION_BUTTON = "打开 ZCode 遥控"
+    const val ZCODE_REMOTE_AGENTS_BUTTON = "打开遥控"
+    const val ZCODE_REMOTE_DETAIL_NOTE = "转录只读 · 控制经 ZCode 遥控页"
+    const val ZCODE_REMOTE_AGENTS_NOTE = "控制经 ZCode 遥控页（ZCode 自家认证）"
+    const val ZCODE_REMOTE_FETCHING = "正在获取 ZCode 遥控链接…"
+
     /** R6 判定：服务端 CapabilitySet.mode == managed（数据驱动，绝不硬编码 provider 名）。 */
     const val MODE_MANAGED = "managed"
 
@@ -71,6 +79,18 @@ object InteractionHonesty {
 
             else -> null
         }
+    }
+
+    /**
+     * T1 批：zcode provider 的「打开 ZCode 遥控」展示入口可见性判定（纯函数）。
+     * 与 observedReason 同归一化匹配模式（providerKey / providerLabel / displayName
+     * 任一含 zcode 令牌即命中；/v1/agents 投影无 providerKey，Agents 卡用 displayName）。
+     * 红线对齐：本判定**只**决定展示入口（按钮/智能卡）是否出现，绝不改写会话能力门
+     * 与服务端语义——zcode 会话本体仍是 observed 只读投影（徽章诚实原则不变）。
+     */
+    fun isZcodeDisplayEntry(providerKey: String?, displayName: String? = null): Boolean {
+        val haystacks = listOfNotNull(normalize(providerKey), normalize(displayName))
+        return haystacks.any { it == "zcode" || it.contains("zcode") }
     }
 
     /**
