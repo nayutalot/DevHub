@@ -408,6 +408,34 @@ fun GatewayConfigScreen(
                 onDemoMode()
             }
         }) { Text("进入演示模式（夹具数据 · 非真实 Gateway）") }
+
+        // —— U1-M5（AUDIT P1#5）：通知权限入口（拒绝过 → 冷启动不再自动弹，
+        // 主动开启面 + 价值说明移到本页；用户主动点击不属自动弹，不受限）——
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            var notifGranted by remember { mutableStateOf(checkNotifGranted(context)) }
+            // 从系统设置返回（ON_RESUME）即刷新授权状态
+            androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                notifGranted = checkNotifGranted(context)
+            }
+            Text("通知权限", style = MaterialTheme.typography.titleMedium)
+            Text(
+                if (notifGranted) {
+                    "已授权：会话事件（等待输入、新会话等）将按系统通知提醒。"
+                } else {
+                    "用于会话事件提醒（等待输入、新会话等）。此前拒绝过将不再自动弹出，可随时在此开启。"
+                },
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (!notifGranted) {
+                TextButton(onClick = {
+                    context.startActivity(
+                        android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                            .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName),
+                    )
+                }) { Text("开启通知权限") }
+            }
+        }
     }
 }
 
@@ -417,3 +445,9 @@ private sealed interface ProbeOutcome {
 
     data class Err(val presentable: com.devhub.mobile.core.ErrorPresent.Presentable) : ProbeOutcome
 }
+
+/** U1-M5：POST_NOTIFICATIONS 当前授权状态（API 33+ 调用；系统回调/设置页共用判定）。 */
+internal fun checkNotifGranted(context: android.content.Context): Boolean =
+    androidx.core.content.ContextCompat.checkSelfPermission(
+        context, android.Manifest.permission.POST_NOTIFICATIONS,
+    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
