@@ -372,7 +372,8 @@ private fun SessionRow(
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
-                StatusBadge(session.status)
+                // U1-M2（AUDIT P1#2）：observed 会话 waiting_input 徽章锁定语义（列表面）
+                StatusBadge(session.status, sessionMode = session.sessionMode)
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 ModeBadge(session.sessionMode) // observed 整行标注（左 chip 一处；行尾重复文字已去除）

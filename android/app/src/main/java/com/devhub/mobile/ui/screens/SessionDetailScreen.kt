@@ -261,8 +261,10 @@ fun SessionDetailScreen(
         }
 
         // —— 元数据行 ——
+        // U1-M2（AUDIT P1#2）：observed 会话 waiting_input 徽章锁定语义（详情面，
+        // sessionMode/capsMode 双门同口径——详情页零控件，原「等待输入」= 假可供性）
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            StatusBadge(d.session.status)
+            StatusBadge(d.session.status, sessionMode = d.session.sessionMode, capsMode = d.capabilities.mode)
             ModeBadge(d.session.sessionMode)
             if (d.session.stale) Text("数据过期（stale）", fontSize = 11.sp, color = Color(0xFFC7A008))
         }
@@ -322,6 +324,21 @@ fun SessionDetailScreen(
                     .background(Color(0xFFFFF8E1), RoundedCornerShape(8.dp))
                     .padding(horizontal = 8.dp, vertical = 6.dp),
             )
+            // U1-M2（AUDIT P1#2）：observed + waiting_input 同屏 → 零控件处补解释行，
+            // 直接回应徽章召唤（为何本端无输入途径；文案复用「转录只读」族，不杜撰能力）
+            if (com.devhub.mobile.core.InteractionHonesty.waitingInputBadge(
+                    status = d.session.status,
+                    sessionMode = d.session.sessionMode,
+                    capsMode = d.capabilities.mode,
+                ) != null
+            ) {
+                Text(
+                    com.devhub.mobile.core.InteractionHonesty.OBSERVED_WAITING_NOTE,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
         }
         // —— T1 批：zcode 会话「打开 ZCode 遥控」入口（observed 零控件现状不变——
         // 本入口不提交任何 DevHub 命令，只跳转 ZCode 自家认证遥控页；文案如实注明

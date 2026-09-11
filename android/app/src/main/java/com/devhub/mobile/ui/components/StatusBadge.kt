@@ -39,10 +39,25 @@ object StatusColors {
     fun foreground(status: String): Color = (specs[status] ?: specs["unknown"]!!).fg
 }
 
+/**
+ * 会话 9 值状态徽章（docs/12 §4：对外展示用户锁定 7 态 + stopped/unknown 辅助态透明展示）。
+ * waiting_input（等文本输入）与 approval_required（等工具批准）高亮区分（docs/11 D3）。
+ *
+ * U1-M2（AUDIT P1#2）：observed 会话的 waiting_input 徽章加锁定语义
+ * （「等待输入 · 只读」）——observed 详情页零控件，原徽章 = 假可供性；
+ * sessionMode/capsMode 传入时经 InteractionHonesty.waitingInputBadge 纯判定替换。
+ */
 @Composable
-fun StatusBadge(status: String, modifier: Modifier = Modifier) {
+fun StatusBadge(
+    status: String,
+    modifier: Modifier = Modifier,
+    sessionMode: String? = null,
+    capsMode: String? = null,
+) {
+    val honestLabel = com.devhub.mobile.core.InteractionHonesty
+        .waitingInputBadge(status, sessionMode, capsMode)
     Text(
-        text = StatusColors.label(status),
+        text = honestLabel ?: StatusColors.label(status),
         color = StatusColors.foreground(status),
         fontSize = 12.sp,
         fontWeight = if (StatusColors.highlight(status)) FontWeight.Bold else FontWeight.Medium,

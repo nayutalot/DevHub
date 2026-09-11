@@ -32,6 +32,39 @@ object InteractionHonesty {
     /** granted 非空且非 managed/observed 的既有形态（attached 等）沿用明细展示。 */
     const val EMPTY_GRANTED_NOTE = "无控制能力"
 
+    // —— U1-M2（AUDIT P1#2）：observed 会话「等待输入」假可供性修复 ——
+    // 列表/详情的 waiting_input 徽章在 observed 会话上加锁定语义：
+    // 详情页零控件（无 composer/无按钮），「等待输入」召唤的输入动作本端不可达
+    // = 假可供性。徽章改「等待输入 · 只读」+ 详情页解释行，与 InteractionHonesty
+    // 同一纪律：绝不显示本端不具备的交互。
+    const val MODE_OBSERVED = "observed"
+    const val STATUS_WAITING_INPUT = "waiting_input"
+
+    /** observed 会话 waiting_input 徽章替换文案（锁定语义）。 */
+    const val WAITING_INPUT_OBSERVED_LABEL = "等待输入 · 只读"
+
+    /**
+     * 详情页零控件处解释行（observed + waiting_input 同屏时补一行「为什么不能输入」；
+     * 语义复用既有「转录只读」文案族——ZCODE_REMOTE_DETAIL_NOTE 同源，不杜撰能力）。
+     */
+    const val OBSERVED_WAITING_NOTE =
+        "转录只读，无输入通道：「等待输入」指该会话正在等待桌面端输入；本端仅观察，请到桌面侧回复。"
+
+    /**
+     * U1-M2 纯判定：observed 会话 waiting_input 徽章应替换的锁定文案；
+     * 非 observed 或非 waiting_input → null（调用方沿用 StatusColors 原文案）。
+     * sessionMode / capsMode 任一为 observed 即命中（与 SessionDetail 的 observed
+     * 原因卡触发同口径，绝不把 managed/attached 误标只读）。
+     */
+    fun waitingInputBadge(status: String, sessionMode: String?, capsMode: String?): String? =
+        if (status == STATUS_WAITING_INPUT &&
+            (sessionMode == MODE_OBSERVED || capsMode == MODE_OBSERVED)
+        ) {
+            WAITING_INPUT_OBSERVED_LABEL
+        } else {
+            null
+        }
+
     // —— T1 批：ZCode 遥控展示入口文案（诚实纪律：转录仍只读，控制走 ZCode 自家认证页，
     // 绝不显示为 DevHub 可控/managed）——
     const val ZCODE_REMOTE_SESSION_BUTTON = "打开 ZCode 遥控"
