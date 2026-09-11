@@ -1,4 +1,11 @@
-# DevHub 会话交接文档（2026-09-11 18:4x——远程工作区线全收官：Q-V-W 批全合 main+用户真机全链实证）
+# DevHub 会话交接文档（2026-09-11 19:4x——X 批 origin 修正收官：「白屏=ZCode 服务端双断」改判为 DevHub 硬编码死域名，已修复+换装在役）
+
+> **✅ X 批收口（09-11 19:0x-19:4x，用户问「扫码能连上 App 连不上」触发）**：
+> 1. **真因改判（推翻 V 批旧结论「服务端双断、App 零责」）**：DevHub `zcodeLinkProvider` 硬编码 `ZCODE_LINK_ORIGIN='https://zcode.chatglm.site'`——R 批当年误读 ZCode endpoint 对话框的 **placeholder**（asar 反混淆实证生产主默认=`https://zcode.z.ai`，chatglm.site 仅次选）。主控五面实测：chatglm.site 权威 DNS→私网死址 172.25.136.172（五递归同口径+桌面直连/7897 代理 CONNECT 后死/ECS 机房直连四面全死）；**zcode.z.ai/remote/v4 直连 HTTP 200 一直活着**（用户扫码 QR 指向它，故扫码通 App 不通）。V 批隔离 Chrome A/B 测的是死域名，结论无效。
+> 2. **X 批已合 main（37bc891，已推）**：常量+注释改判+smoke 两断言前缀（11823/11950）；门禁 tsc 0+fast **106/106**（主控独立复跑过；196=full 档计数，X 任务书曾笔误 196，agent 侦查定性正确）。
+> 3. **X2 重打包+换装在役**：47s 出包（19:30），asar 四点过（含 `ZCODE_LINK_ORIGIN="https://zcode.z.ai"` 字节实证+旧域名 https:// 形态零命中+pdfjs/napi 回归点在位）；dist 根五件新产物（NSIS sha256 5644f1d9…）；常驻换装 PID 3832 /v1/health×3 同 PID 稳定（活性路由=**/v1/health**，/health 本就 404）。
+> 4. **Android 面零改动——不出新 APK**（origin 纯桌面侧拼链）；**用户待装件不变=dist 28923f35（W 批版）**；App 内旧 chatglm.site 条目点「刷新」即取 z.ai 新链（t=now 动态取设计）。
+> 5. 卫生：app-rws/app-rws2/wlink/xfix 四 worktree+四已合并分支已清，仅剩主仓。
 
 > **✅ 晚间收口（09-11 14:0x-18:4x，W 批合并即本提交）——「ZCode 工作区」线关账**：
 > 1. **用户真机端到端实证通过（截图为证）**：证书指纹已配（sha256/oH96t3vC…=Trust anchor 解）→配对→「ZCode 工作区」智能条目**自动取链成功**（卡片带完整遥控 URL+刷新+复制 URL 按钮）——指纹/relay 配对/workspace_link 自动推送三面全通，旧段"真机待办仍挂"就此销账。
@@ -42,7 +49,7 @@
 
 ## 1. 当前状态一句话
 
-**（09-11 18:4x）远程工作区线全收官**：Q/S/T/V/W 批全合 main（W=错误页凭据加固+V=WebView 纵深防御；main 门禁 tsc 0/fast 196/:app 94）；**用户真机全链实证过**（指纹/配对/自动取链），页面渲染唯一待项=ZCode 服务端恢复（DNS 私网死址+ALB 503 双断，App 零责）；**dist APK=28923f35 版待用户重装**。在役常驻=Release v0.1.0 版（108 通道，属设计内滞后）；ECS=M3-E1+RW0 wake 面+0004 八值；ContestPin CP0-CP6 全收官（Release 已发）。RW1 待用户真关机 S5 实测。
+**（09-11 19:4x）远程工作区线全收官+X 批 origin 修正**：Q/S/T/V/W/X 批全合 main（main=37bc891；常驻=X2 换装版 PID 3832 在役）；**用户真机全链实证过**（指纹/配对/自动取链），白屏真因=DevHub 硬编码死域名 chatglm.site（已修，见顶部 X 批块——旧「服务端双断」结论作废）；**dist APK=28923f35 版待用户重装**（含 W 批错误页加固，Android 面与 X 批无关）。在役常驻=X2 换装版；ECS=M3-E1+RW0 wake 面+0004 八值；ContestPin CP0-CP6 全收官（Release 已发）。RW1 待用户真关机 S5 实测。
 
 ## 2. C2c→C2e 修复弧线台账（本会话续）
 
@@ -121,3 +128,4 @@
 - **【ECS 幽灵表/观测面（09-11 凌晨实证）】**：`relay_connections` 表**代码零 INSERT**（仅 0001 建表）——用它断在线恒假，真实连接台账=relay_audit 的 connection_opened/closed；devhub-relay journal 只记启停（连接生命周期不入）=零条目属正常；**caddy access 行连接结束才落盘**（活连接看不到行，勿据此误判掉线）；桌面 host 腿重连实测 3s。附：App relay 模式 GET /v1/devices 在 ECS REST 面无端点→结构化 NOT_FOUND（DeviceScreen 文案面，WS 路径不受影响）=小缺陷面待后续批
 - **【真库操作工具】**：本仓 DB 层=Node v24 内置 `node:sqlite`（DatabaseSync），**非 better-sqlite3**（node_modules 无此包）；进程外脚本走 DEVHUB_HOME/paths.ts 四级策略落 %APPDATA%\DevHub（纯 Node 回落取 name 小写 devhub——大小写不敏感同一文件，非缺陷勿"修"）
 - **【ECS systemd 硬化（RW0）】**：devhub-relay 服务 ProtectHome=yes/ProtectSystem=strict/ReadWritePaths=/var/lib/devhub-relay 且无 HOME——服务内 ssh 不读 ~/.ssh（别名/密钥/known_hosts 全失效，exit 255 毫秒级）；**解法=/etc/devhub-relay/ 下放 ssh_config+wake_key+wake_known_hosts（0600 devhub-relay）+ `ssh -F` 绝对路径**；root 手测通过≠服务内通过，必须以服务用户+同等沙箱验证
+- **【ZCode endpoint 误读教训（09-11 夜 X 批实证）】**：**endpoint 对话框 placeholder ≠ 生产默认**——R 批从 placeholder 读到 zcode.chatglm.site 并硬编码，实际 asar 常量组主默认=zcode.z.ai（chatglm.site 仅次选/特例分支）；死域名四面全死时 A/B 测试测它=无效实验，得出「服务端双断」假结论挂了两天。**教训：外部产品常量以 asar/二进制反混淆为准（常量组首个值），placeholder/文案不作数；下结论「对方服务挂了」前先交叉证明自己没连错地址**。附：桌面网关活性路由=`GET /v1/health`（/health 404 属正常，httpServer.ts:612）；本机 ugrep 转义点模式（`z\.z\.ai`）会误报 0 命中，grep 域名用固定字符串模式
