@@ -1,4 +1,9 @@
-# DevHub 会话交接文档（2026-09-12 14:4x——U2 收官+X4 换装在役：体验优化线本段全落，APK a004b94f 待装）
+# DevHub 会话交接文档（2026-09-12 22:1x——U3 markdown+Z2 子会话终态收官合 main；X5 换装执行中）
+
+> **✅ U3+Z2 批（09-12 晚，「继续」令）**：
+> 1. **U3 气泡 markdown 子集渲染已合 main（18e1abc）**：:core MarkdownOps 零依赖纯函数解析器（块级标题/段落/列表/GFM 简化表格/代码围栏+行内加粗/code/斜体；零抛 indexOf 游标 20 万字符线性有界；子集外整块回退纯文本绝不空白）+:app 四条文本路径接入（非平凡才走渲染器+remember 记忆化）；新增 49 单测 :core 301+:app 111=412 全绿；**审计清单 Android 侧至此全部消费完毕**。
+> 2. **Z2 子会话终态接线已合 main（c127ff6）**：Phase1 结论 A——`turn_usage` 表=可靠终态源（insert-at-terminal 1051/1051 completed_at 非空实测；子会话域 356 行 {completed277/cancelled26/error53}，latest-turn-wins 覆盖 336/344）；根因=旧投影只消费 tasks-index（子会话覆盖 3/344）。Phase2 零 migration 接线：rowid 游标增量+emitStatus 优先级（审批>turn 终态>task_status>unknown）+映射 completed→completed/error→failed/cancelled→paused（不设 ended_at，托管面同义先例）；主会话语义零变化；模型请求粒度 status 绝不借位美化（8 无证据行如实 unknown）；fast **114/114**（+t2z-111）+全量 **207/207**+t2z-107 ZCode 派生 shell 环境加固（spawn 前剥 4 变量 finally 归还）。**子会话「未知」恒值问题根治**。
+> 3. **X5 重打包换装执行中**（T2e+Z2 桌面改动进常驻；**APK 47158b8f=最新待装件**）。
 
 > **✅ U2 体验整改批（09-12 下午，已合 main=d6d6ac2）**：剩余 P2×5+P3×6 全修（X4 已换装在役 14:15 PID 17344 health×3 过；asar 十项：ensureZcodeCliConfig 在位+buildManagedSpawnEnv/buildZcodeCliEnv 零命中+回归点全在；dist 根五件新件 Setup sha256 e62f4904）：
 > 1. **M1 capabilities 人话化+头部折叠**（P2#1+P3#7）：:core CapabilitiesExplain 译码 17 形态穷举（zcode3/codex2/claude2/kimi7/deepseek1/service1/夹具1，未知兜底「详见技术信息」绝不猜）+详情页折叠一行摘要+ⓘ 弹层（技术原值折叠零吞码）；头部常态占屏大减。
