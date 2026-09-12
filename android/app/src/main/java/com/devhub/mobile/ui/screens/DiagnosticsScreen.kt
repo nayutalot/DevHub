@@ -21,6 +21,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -44,6 +45,9 @@ import java.io.IOException
 fun DiagnosticsScreen() {
     val context = LocalContext.current
     var diag by remember { mutableStateOf<DiagnosticsDto?>(null) }
+    // U2-M5（AUDIT P3#2）：provider 数字 id → catalog displayName/health 映射
+    //（数据驱动 = GET /v1/agents 名录，与桌面 AGENT_PROVIDER_CATALOG 行同源；取不到回退 provider #id 如实）
+    var agentsById by remember { mutableStateOf<Map<Long, com.devhub.mobile.data.remote.AgentDto>>(emptyMap()) }
     var error by remember { mutableStateOf<com.devhub.mobile.core.ErrorPresent.Presentable?>(null) }
 
     // R5.3：本页属「连接健康」面 → REST 探测保留 120s 低频节奏（WS 状态/最近事件/错误
@@ -59,6 +63,8 @@ fun DiagnosticsScreen() {
             } catch (err: IOException) {
                 error = com.devhub.mobile.core.ErrorPresent.io(err)
             }
+            runCatching { withContext(Dispatchers.IO) { ApiProvider.projection(context).agents() } }
+                .onSuccess { list -> agentsById = list.associateBy { it.id } }
             delay(ConnectionManager.FALLBACK_POLL_MS)
         }
     }
@@ -118,7 +124,17 @@ fun DiagnosticsScreen() {
             else -> {
                 for (p in d.providers) {
                     Column(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-                        Text(p.id, fontWeight = FontWeight.Medium, fontSize = 13.sp)
+                        // U2-M5（AUDIT P3#2）：数字 id → catalog displayName + 健康色徽章
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            val agent = p.id.toLongOrNull()?.let { agentsById[it] }
+                            Text(
+                                agent?.displayName ?: "provider #${p.id}",
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 13.sp,
+                                modifier = Modifier.weight(1f),
+                            )
+                            com.devhub.mobile.ui.components.HealthBadge(agent?.health ?: "unknown")
+                        }
                         Text(
                             "installed=${p.installed}" + (p.version?.let { " version=$it" } ?: "") +
                                 " exeFound=${p.exeFound}" +

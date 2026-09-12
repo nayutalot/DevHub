@@ -14,6 +14,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -288,7 +289,8 @@ fun GatewayConfigScreen(
                 },
             ) { Text("保存并继续") }
 
-            Button(
+            // U2-M5（AUDIT P3#6）：「测试连接」降 outlined——「保存并继续」唯一主按钮
+            OutlinedButton(
                 onClick = {
                     busy = true
                     message = null
