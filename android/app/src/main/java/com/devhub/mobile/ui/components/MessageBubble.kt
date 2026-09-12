@@ -56,12 +56,14 @@ fun parseSegments(json: String?): List<MessageSegments.Segment>? {
 private const val USER_AVATAR_ARGB = 0xFF1B6B3A
 
 /**
- * R11 气泡对话流（微信式）+ R1 思维链折叠 + R8 迷你渲染：
+ * R11 气泡对话流（微信式）+ R1 思维链折叠 + R8 迷你渲染 + U3 块级 markdown：
  * - role=user → 右侧主色气泡右对齐，头像固定"我"；
  * - role=assistant → 左侧 surfaceVariant 气泡，头像 = R4 色板 provider 首字母（与列表同色）；
  * - system/tool/事件/未识别 role → 居中灰 chip；
  * - 跨天日期分隔线（core.DateGrouping）；时间戳入气泡尾注；
- * - kind='thinking' 默认收起（「💭 思维链 · N 字 ▸」点按展开）；无 segments 回退整段纯文本不回归。
+ * - kind='thinking' 默认收起（「💭 思维链 · N 字 ▸」点按展开）；无 segments 回退整段纯文本不回归；
+ * - U3（AUDIT P3#1）：文本路径统一走 MarkdownBubbleText——非平凡（标题/表格/列表/代码块）
+ *   走 MarkdownOps 块级渲染器，平凡走既有 RichMarkdownText 原路径；解析按消息记忆化。
  */
 @Composable
 fun MessageBubble(
@@ -152,7 +154,10 @@ fun MessageBubble(
                         Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
                             // 打磨批 D：所有文本展示路径统一过 R8 渲染器（tokenizer）——
                             // system/tool 事件 chip 此前走纯 Text，真实消息里的 `**` 等记号原样露出。
-                            RichMarkdownText(
+                            // U3（AUDIT P3#1）：升级为块级入口——非平凡（标题/表格/列表/代码块）走
+                            // MarkdownOps 渲染器，平凡走既有 RichMarkdownText 原路径零回退。
+                            MarkdownBubbleText(
+                                memoKey = message.messageId,
                                 text = message.contentRedacted,
                                 fontSize = 11.sp,
                                 baseColor = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -201,8 +206,9 @@ private fun BubbleBody(
     Surface(color = bubbleColor, shape = shape, modifier = modifier) {
         Column(Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
             if (segments == null) {
-                // R1 回退：无 segments → 整段纯文本（R8 mini 渲染仍生效）
-                RichMarkdownText(
+                // R1 回退：无 segments → 整段纯文本（R8 mini 渲染仍生效；U3 起含块级渲染）
+                MarkdownBubbleText(
+                    memoKey = message.messageId,
                     text = message.contentRedacted,
                     fontSize = 13.sp,
                     baseColor = contentColor,
@@ -215,7 +221,8 @@ private fun BubbleBody(
             } else {
                 segments.forEachIndexed { idx, segment ->
                     when (segment) {
-                        is MessageSegments.Segment.Text -> RichMarkdownText(
+                        is MessageSegments.Segment.Text -> MarkdownBubbleText(
+                            memoKey = message.messageId,
                             text = segment.content,
                             fontSize = 13.sp,
                             baseColor = contentColor,
@@ -297,8 +304,10 @@ private fun ThinkingFold(
                 .padding(horizontal = 8.dp, vertical = 4.dp),
         )
         if (expanded) {
-            // 打磨批 D：展开后的思维链原文同样过 R8 渲染器（记号不原样露出；失败回退纯文本由渲染器兜底）
-            RichMarkdownText(
+            // 打磨批 D：展开后的思维链原文同样过渲染器（记号不原样露出；失败回退纯文本由渲染器兜底）
+            // U3：块级入口 + 按消息记忆化（keyId 即 messageId）
+            MarkdownBubbleText(
+                memoKey = keyId,
                 text = content,
                 fontSize = 11.sp,
                 baseColor = codeFg.copy(alpha = 0.92f),
