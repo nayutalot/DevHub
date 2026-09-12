@@ -8,8 +8,11 @@
  *   acceptance/agents-mobile/zcode-appserver-scout-20260912/REPORT.md（Z1 侦察），
  *   帧编解码/分发器/判态见 zcodeProtocol.ts 纯函数层）。spawn 经 exec.spawnManaged
  *   调 `node zcode.cjs app-server --cwd=<ws>`（exec.ts 唯一 spawn，约束 #7）；
- *   env 注入 = ApiHub zcode 活动档案 + settings 键 zcode_managed_model
- *   （zcodeManagedConfig.ts；Z1 活体 run3 实证 env 引导形态）。
+ *   模型配置注入（T2e 批改版）= spawn 前 ensureZcodeCliConfig 原子 upsert
+ *   `~/.zcode/cli/config.json`（CLI 官方推荐机制；ApiHub zcode 活动档案 + settings
+ *   键 zcode_managed_model → 合并保留用户字段 + tmp+rename 原子写；schema 侦察
+ *   与活体验证见 docs/briefs/t2e-config-inject.md）；spawn env 零密钥，回归
+ *   process.env 透传（T2d 的 env 注入面随本批退役）。
  * - **turn 路径**（主控定案 #4）：session/create(persistence:'immediate') →
  *   session/subscribe(deliveryKind:'desktop-continuous') → session/send →
  *   消费 session/event 至 turn 终止沿 → session/close；中断 = session/stop
@@ -74,8 +77,9 @@
  * 控制边界（T2 批更新）：managed 面 = caps 探测真实判定（doctor + 配置就绪）→
  * reply/pause 真实执行（app-server 通道）；observed 外部会话照旧无输入通道
  * （L3 resolveCommandGate 拒绝）；resume 结构化 unsupported（v1 无已验证方法）。
- * 禁 GUI 自动化、禁逆向。令牌三零：spawn env 含 apiKeyPlain 但绝不入任何日志/
- * 审计/错误（env 对象仅 spawn 瞬间消费）。
+ * 禁 GUI 自动化、禁逆向。令牌三零（T2e 批改版）：apiKeyPlain 不进 spawn env，
+ * 唯一去处 = spawn 前 ensureZcodeCliConfig 写入用户 CLI 配置文件（CLI 官方配置
+ * 面，原子 upsert）；绝不入任何日志/审计/错误文案。
  *
  * electron-free；spawn 经 core/exec spawnManaged/run（约束 #7）；一切 SQL 参数绑定（约束 #11）。
  */
@@ -93,7 +97,7 @@ import { ReadFailureTracker, cancellableSleep, startMonitorTask, type MonitorCan
 import { redactText } from '../redact.ts'
 import { buildSegments, type RawSegmentBlock } from '../messageSegments.ts'
 import {
-  buildManagedSpawnEnv,
+  ensureZcodeCliConfig,
   readZcodeManagedConfig,
   ZCODE_MANAGED_MODEL_SETTING_KEY,
   type ZcodeManagedConfigSnapshot,
@@ -151,8 +155,12 @@ export interface ZcodeProviderOptions {
   managedCommand?: string
   /** app-server 启动参数（默认 `[cjsPath, 'app-server', '--cwd=<ws>']`；smoke 注入 fake transport 脚本）。 */
   managedArgs?: string[]
-  /** 托管子进程 env（默认 buildManagedSpawnEnv 快照拼装；smoke 注入固定 env）。 */
-  managedEnv?: NodeJS.ProcessEnv
+  /**
+   * CLI 配置文件覆盖路径（T2e 批；默认 `~/.zcode/cli/config.json`）。spawn 前
+   * ensureZcodeCliConfig 原子 upsert 模型配置到此文件；smoke 注入夹具路径，
+   * 真实用户配置在测试路径下零改动。
+   */
+  managedCliConfigPath?: string
   /** 托管会话工作区（默认用户 home；session/create workspace 与 --cwd 同源）。 */
   managedWorkspacePath?: string
   /** 托管连接心跳空闲上限毫秒（默认 120_000；turn 推理期事件流持续重置心跳）。 */
@@ -573,13 +581,15 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
 
   /**
    * spawn + 行解析 + RPC 客户端一体（无 initialize 握手——Z1 差异 #2：首帧即业务
-   * 请求）。帧路由（zcodeProtocol.parseZcodeFrame）：
+   * 请求）。spawn env 不注入（T2e 批：模型配置已由 ensureZcodeCliConfig 写入 CLI
+   * 配置文件，env 回归 process.env 透传——子进程零密钥）。帧路由
+   * （zcodeProtocol.parseZcodeFrame）：
    * - 服务端反向请求（id+method）→ respondToServerRequest 分发器应答（同 id 回写）；
    * - 响应/错误响应 → pending 表（id 归一 String 键——服务端 id 为 string|int 宽松域）；
    * - 通知 → session/event 交给 onSessionEvent，其余容忍计数（mcpTelemetry 等）；
    * - 非法帧 → unknownFrames 计数。
    */
-  function spawnRpcConnection(env: NodeJS.ProcessEnv, onSessionEvent: (ev: ZcodeSessionEventParams) => void): ZcodeConnection {
+  function spawnRpcConnection(onSessionEvent: (ev: ZcodeSessionEventParams) => void): ZcodeConnection {
     const pending = new Map<string, { resolve: (resp: { id: ZcodeFrameId; result?: unknown; error?: ZcodeRpcError } | null) => void; timer: NodeJS.Timeout }>()
     let nextId = 1
     const cjsPath = resolveManagedCjsPath()
@@ -587,7 +597,6 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
       idleTimeoutMs: managedIdleTimeoutMs,
       lifetimeTimeoutMs: managedLifetimeTimeoutMs,
       stdinWritable: true,
-      ...(options.managedEnv !== undefined ? { env: options.managedEnv } : { env }),
       onStdout: (line) => {
         const text = line.trim()
         if (text.length === 0) return
@@ -1152,10 +1161,18 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
     if (cjsPath === null) {
       return { ok: false, detail: `zcode.cjs not found (default bundle path: ${ZCODE_DEFAULT_CJS_PATH})` }
     }
-    const env = options.managedEnv ?? buildManagedSpawnEnv(snapshot, process.env)
+    // T2e 批：spawn 前把托管模型配置原子 upsert 进 CLI 配置文件（CLI 官方推荐
+    // 机制），成功才 spawn；失败 → 结构化 detail（reason 零凭据）。
+    const ensured = await ensureZcodeCliConfig(
+      snapshot,
+      ...(options.managedCliConfigPath !== undefined ? [{ configFile: options.managedCliConfigPath }] : []),
+    )
+    if (!ensured.ok) {
+      return { ok: false, detail: `zcode managed cli config inject failed: ${ensured.reason ?? 'unknown'}` }
+    }
     let nativeId: string | null = null
     // 连接独占本会话：事件路由闭包携带本会话 sink（快照/状态沿落库经 L3）
-    const conn = spawnRpcConnection(env, (ev) => handleManagedEvent(sink, ev))
+    const conn = spawnRpcConnection((ev) => handleManagedEvent(sink, ev))
     try {
       if (conn.proc.pid <= 0) throw new Error('app-server spawn failed (synchronous spawn error)')
       const workspace = managedWorkspacePath
