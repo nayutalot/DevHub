@@ -1,4 +1,12 @@
-# DevHub 会话交接文档（2026-09-12 13:4x——Mimosa 残余 medium 根治（T2e 配置文件注入）+U2 执行中）
+# DevHub 会话交接文档（2026-09-12 14:3x——U2 体验整改收官合 main；X4 换装执行中）
+
+> **✅ U2 体验整改批（09-12 下午，已合 main=d6d6ac2）**：剩余 P2×5+P3×6 全修（X4 换装并行执行中）：
+> 1. **M1 capabilities 人话化+头部折叠**（P2#1+P3#7）：:core CapabilitiesExplain 译码 17 形态穷举（zcode3/codex2/claude2/kimi7/deepseek1/service1/夹具1，未知兜底「详见技术信息」绝不猜）+详情页折叠一行摘要+ⓘ 弹层（技术原值折叠零吞码）；头部常态占屏大减。
+> 2. **M2 遥控排队态内联重试**（P2#2）：beginRequest 唯一路径+重试按钮（挂起中隐藏防风暴）。
+> 3. **M3 文案卫生**（P2#6/7+P3#4/5）：docs/19 引用全清（规则语义保留）、placeholder=wss://your-relay-host（生产 IP 下架）、模拟器专属文案清除、BAD_PAYLOAD 码归 ErrorPresent。
+> 4. **M4 子会话状态归一+标题提取**（P2#8+P3#3）：:core SessionStatusCore 9 值状态机唯一投影源（徽章+排序三处统一）；**投影源实查：桌面 DB 子会话 status 真值 unknown（338/341），zcode 监控无子会话终态证据——App 侧如实显「未知」不虚构；桌面侧终态证据缺口=新发现，建议另立桌面批**；SessionTitleOps 标题任务语义提取（滤「你是…」角色句）。
+> 5. **M5 视觉打磨**（P3#2/6/8）：诊断页 provider catalog 名称+健康徽章、测试连接降 outlined、chips 渐隐。
+> 6. 门禁 ：app **105**+:core **258**（新增 25 单测）主控独立复跑过；**APK a004b94f=最新待装件**（14:09，含 W+T1+U1+U2 全部）。剩余=仅 P3#1 气泡 markdown（待渲染库选型）。
 
 > **✅ Mimosa 弹窗根治（09-12 午，用户裁决「根治」路线）**：
 > 1. **弹窗根因链**：commit 钩子增量扫（过）/push 钩子**全树跨文件 L3**（拦）——T2d 薄委托没断链因数据流本身还在（decryptProfileKey→apiKeyPlain→buildManagedSpawnEnv→spawnManaged env）；且 push 钩子**恒扫主仓树**（worktree CWD 也扫主仓路径，弹窗 finding 路径为 F:\Active_Project\DevHub\src 实证）。
