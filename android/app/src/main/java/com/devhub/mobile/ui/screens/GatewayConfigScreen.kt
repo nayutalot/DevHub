@@ -14,6 +14,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -123,8 +124,8 @@ fun GatewayConfigScreen(
         Text("Remote Gateway 配置", style = MaterialTheme.typography.titleLarge)
         Text(
             "连接模式（显式选择，同一设备 Token 两模式通用）：\n" +
-                "· 本地模式：桌面 DevHub 开启 gateway_enabled（默认 127.0.0.1:8746），模拟器经 10.0.2.2 访问。\n" +
-                "· Relay 模式：经 ECS 中继（wss://，强制 TLS）——电脑不在同一内网时使用。",
+                "· 本地模式：桌面 DevHub 开启 gateway_enabled（默认 127.0.0.1:8746），主机填桌面电脑的局域网地址。\n" +
+                "· Relay 模式：经中继服务器（wss://，强制 TLS）——电脑不在同一内网时使用。",
             fontSize = 13.sp,
         )
 
@@ -166,12 +167,13 @@ fun GatewayConfigScreen(
             OutlinedTextField(
                 value = relayUrl,
                 onValueChange = { relayUrl = it.trim() },
-                label = { Text("Relay endpoint（wss://IP[:端口]，如 wss://59.110.149.11）") },
+                label = { Text("Relay endpoint") },
+                placeholder = { Text("wss://your-relay-host") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 supportingText = {
                     Text(
-                        "仅接受 wss://（docs/19 §11：ws:// 明文禁作正式方案，代码层拒绝保存与连接）",
+                        "仅接受 wss://（ws:// 为明文，App 在保存与连接两层一律拒绝）",
                         fontSize = 11.sp,
                     )
                 },
@@ -184,7 +186,7 @@ fun GatewayConfigScreen(
                 )
             }
             Text(
-                "使用与本地模式相同的设备 Token（docs/19 §7.1：凭据共用，无需重新配对）。",
+                "使用与本地模式相同的设备 Token（凭据共用，无需重新配对）。",
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -194,7 +196,7 @@ fun GatewayConfigScreen(
             // found」，引导前置到配置页）
             if (pinFingerprints.isBlank()) {
                 Text(
-                    "提示：尚未配置证书指纹。自签 IP 证书不受系统默认信任（docs/19 §10.5 属预期），" +
+                    "提示：尚未配置证书指纹。自签 IP 证书不受系统默认信任，" +
                         "生产使用请在下方「证书指纹（高级，可选）」填入 SPKI sha256 指纹，否则连接将失败" +
                         "（Trust anchor not found）。",
                     fontSize = 12.sp,
@@ -215,7 +217,7 @@ fun GatewayConfigScreen(
                     minLines = 2,
                     supportingText = {
                         Text(
-                            "自签 IP 证书不受系统默认信任（docs/19 §10.5 属预期）：配置指纹后信任锚 = 指纹本身；" +
+                            "自签 IP 证书不受系统默认信任：配置指纹后信任锚 = 指纹本身；" +
                                 "留空 = 系统默认信任（生产必须配置）。",
                             fontSize = 11.sp,
                         )
@@ -246,7 +248,7 @@ fun GatewayConfigScreen(
                                 // 即拒，不再后移到 pair 时才 BAD_CONFIG。
                                 when (val verdict = PinFingerprintSaveGate.check(mode, pinFingerprints)) {
                                     is PinFingerprintSaveGate.Verdict.Invalid -> {
-                                        presentFormError("TLS 指纹格式非法（docs/19 §10.2）：${verdict.message}")
+                                        presentFormError("TLS 指纹格式非法：${verdict.message}")
                                         busy = false
                                         return@launch
                                     }
@@ -287,7 +289,8 @@ fun GatewayConfigScreen(
                 },
             ) { Text("保存并继续") }
 
-            Button(
+            // U2-M5（AUDIT P3#6）：「测试连接」降 outlined——「保存并继续」唯一主按钮
+            OutlinedButton(
                 onClick = {
                     busy = true
                     message = null

@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -112,6 +113,8 @@ fun SessionDetailScreen(
     // U1-M3：指令被拒 → 统一呈现体（人话 + 原码「技术细节」折叠），不再直出 [code] msg
     var submitError by remember { mutableStateOf<com.devhub.mobile.core.ErrorPresent.Presentable?>(null) }
     var scrubFraction by remember { mutableStateOf<Float?>(null) }
+    // U2-M1（AUDIT P3#7）：capabilities ⓘ 弹层开关（详情页头部常态 = 一行摘要）
+    var showCapsInfo by remember { mutableStateOf(false) }
 
     /** 消息分页入库（脱敏投影；segments 序列化为 JSON 供 UI 解析）。 */
     suspend fun insertPage(page: com.devhub.mobile.data.remote.MessagesPage) {
@@ -278,11 +281,27 @@ fun SessionDetailScreen(
             if (d.session.stale) Text("数据过期（stale）", fontSize = 11.sp, color = Color(0xFFC7A008))
         }
         d.session.statusDetail?.let { Text(it, fontSize = 12.sp) }
-        Text(
-            "capabilities：mode=${d.capabilities.mode} granted=[${d.capabilities.granted.joinToString(", ")}] evidence=${d.capabilities.evidence}",
-            fontSize = 11.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant, // 打磨批 D：深色主题下灰字升为主题次级色
-        )
+        // —— U2-M1（AUDIT P2#1 + P3#7）：capabilities 人话化 + 头部压缩 ——
+        // 原样直出行（mode=… granted=[…] evidence=…英文原句，06/08/24 号截图）退役：
+        // 常态 = 一行人话摘要（core.CapabilitiesExplain 纯函数译码，:core 单测穷举锁）+ ⓘ 弹层；
+        // 技术原值（mode/granted/evidence 逐字原串）收进弹层「技术信息」折叠区——翻译不删除，
+        // 零吞码。provider 只读原因卡同压缩进弹层（常态占屏显著缩小，对照 06 号）。
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                com.devhub.mobile.core.CapabilitiesExplain.summaryLine(
+                    mode = d.capabilities.mode,
+                    evidence = d.capabilities.evidence,
+                ),
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            )
+            TextButton(onClick = { showCapsInfo = true }, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
+                Text("ⓘ 能力说明", fontSize = 11.sp)
+            }
+        }
 
         // —— R2 子智能体会话入口 ——
         if (d.childSessions.isNotEmpty()) {
@@ -318,23 +337,9 @@ fun SessionDetailScreen(
             granted = d.capabilities.granted,
         )
         if (d.session.sessionMode == "observed" || d.capabilities.mode == "observed") {
-            // R7.1：per-provider 原因卡（文案 = known-limitations §1 摘取，批次 C）；
-            // provider 未知时回退通用文案，绝不猜。
-            val reason = com.devhub.mobile.core.InteractionHonesty.observedReason(
-                providerKey = d.session.providerKey,
-                displayName = d.session.providerLabel,
-            ) ?: com.devhub.mobile.core.InteractionHonesty.GENERIC_OBSERVED_NOTE
-            Text(
-                reason,
-                fontSize = 12.sp,
-                color = Color(0xFF7A4F00),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color(0xFFFFF8E1), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-            )
-            // U1-M2（AUDIT P1#2）：observed + waiting_input 同屏 → 零控件处补解释行，
-            // 直接回应徽章召唤（为何本端无输入途径；文案复用「转录只读」族，不杜撰能力）
+            // R7.1 per-provider 原因卡 → U2-M1（AUDIT P3#7）压缩进 ⓘ 弹层（「为何只读」区），
+            // 常态头部不再占两行 amber 卡；provider 未知时回退通用文案，绝不猜。
+            // U1-M2（AUDIT P1#2）：observed + waiting_input 同屏 → 保留解释行（直接回应徽章召唤）
             if (com.devhub.mobile.core.InteractionHonesty.waitingInputBadge(
                     status = d.session.status,
                     sessionMode = d.session.sessionMode,
@@ -579,6 +584,65 @@ fun SessionDetailScreen(
                 },
             )
         }
+    }
+
+    // —— U2-M1（AUDIT P2#1 + P3#7）：capabilities ⓘ 弹层 ——
+    // 人话明细（mode/granted/reason 译码）+ observed provider 只读原因 + 「技术信息」折叠区
+    // （mode/granted/evidence 原值逐字承载，默认收起）——翻译不删除，零吞码。
+    if (showCapsInfo && d != null) {
+        val explain = com.devhub.mobile.core.CapabilitiesExplain.explain(
+            mode = d.capabilities.mode,
+            granted = d.capabilities.granted,
+            evidence = d.capabilities.evidence,
+        )
+        var techOpen by remember { mutableStateOf(false) }
+        AlertDialog(
+            onDismissRequest = { showCapsInfo = false },
+            title = { Text("接入能力", fontWeight = FontWeight.SemiBold) },
+            text = {
+                Column {
+                    Text("接入深度：${explain.modeLabel}", fontSize = 13.sp)
+                    Spacer(Modifier.height(4.dp))
+                    Text("可执行操作：${explain.grantedLabel}", fontSize = 13.sp)
+                    Spacer(Modifier.height(4.dp))
+                    Text("状态说明：${explain.reasonLabel}", fontSize = 13.sp)
+                    if (d.session.sessionMode == "observed" || d.capabilities.mode == "observed") {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "为何只读：" + (
+                                com.devhub.mobile.core.InteractionHonesty.observedReason(
+                                    providerKey = d.session.providerKey,
+                                    displayName = d.session.providerLabel,
+                                )
+                                    ?: com.devhub.mobile.core.InteractionHonesty.GENERIC_OBSERVED_NOTE
+                                ),
+                            fontSize = 12.sp,
+                            color = Color(0xFF7A4F00),
+                        )
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    TextButton(onClick = { techOpen = !techOpen }, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
+                        Text(if (techOpen) "收起技术信息" else "技术信息", fontSize = 12.sp)
+                    }
+                    if (techOpen) {
+                        Text(
+                            "mode=${d.capabilities.mode}\n" +
+                                "granted=[${d.capabilities.granted.joinToString(", ")}]\n" +
+                                "evidence=${d.capabilities.evidence}",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(6.dp))
+                                .padding(8.dp),
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showCapsInfo = false }) { Text("关闭") }
+            },
+        )
     }
 }
 

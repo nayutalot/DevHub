@@ -92,7 +92,7 @@ fun PairingScreen(onPaired: () -> Unit) {
             fontSize = 13.sp,
         )
         Text(
-            if (relayMode) "当前模式：Relay（配对经 wss 裸连接 pair 帧，docs/18 §3.2）"
+            if (relayMode) "当前模式：Relay（配对经 wss 加密直连中继服务器）"
             else "当前模式：本地（REST claim → 桌面 Gateway）",
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,

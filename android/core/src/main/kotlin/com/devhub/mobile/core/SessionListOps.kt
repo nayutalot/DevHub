@@ -40,6 +40,8 @@ object SessionListOps {
     /**
      * 子会话排序（R2 子会话列表页）：运行中 > 等待 > 其他活跃态 > 已结束；
      * 同组按 lastActivity 降序。返回排序后的升序下标序列。
+     * U2-M4（AUDIT P2#8）：分组判定同经 SessionStatusCore.normalize 归一——
+     * 与徽章同一状态机投影，杜绝第三处映射分叉。
      */
     fun <T> sortChildren(
         children: List<T>,
@@ -48,7 +50,7 @@ object SessionListOps {
     ): List<Int> {
         data class Key(val group: Int, val activity: Long, val index: Int)
 
-        fun groupOf(status: String): Int = when (status) {
+        fun groupOf(status: String): Int = when (SessionStatusCore.normalize(status)) {
             "waiting_input", "approval_required" -> 0
             "running" -> 1
             "paused" -> 2

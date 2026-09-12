@@ -1,11 +1,14 @@
 package com.devhub.mobile.ui.components
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -103,6 +106,28 @@ fun ZcodeRemoteOpenButton(
     var sawRequesting by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf<String?>(null) }
 
+    // U2-M2（AUDIT P2#2）：取链请求路径唯一化（主体点击与排队/失败态「重试」共用同一路径：
+    // 决策 → 挂起等待 → 终态收口），重试不是第二套实现。
+    fun beginRequest() {
+        scope.launch {
+            // 状态直读 StateFlow（最新值；collectAsState 的帧滞后不影响决策）
+            val decision = ZCodeRemoteEntryOp.onClick(
+                WorkspaceLinkController.state.value,
+                runCatching { withContext(Dispatchers.IO) { staleLookup() } }.getOrNull(),
+            )
+            when (decision) {
+                is ZCodeRemoteEntryOp.ClickDecision.OpenReady -> onOpen(decision.entryId)
+                is ZCodeRemoteEntryOp.ClickDecision.OpenStale -> onOpen(decision.entryId)
+                ZCodeRemoteEntryOp.ClickDecision.RequestAndAwait -> {
+                    note = InteractionHonesty.ZCODE_REMOTE_FETCHING
+                    sawRequesting = WorkspaceLinkController.state.value is WorkspaceLinkCard.State.Requesting
+                    pending = true
+                    WorkspaceLinkController.request()
+                }
+            }
+        }
+    }
+
     LaunchedEffect(linkState) {
         if (linkState is WorkspaceLinkCard.State.Requesting) sawRequesting = true
         if (pending && sawRequesting) {
@@ -133,30 +158,28 @@ fun ZcodeRemoteOpenButton(
         OutlinedButton(
             onClick = {
                 if (pending) return@OutlinedButton
-                scope.launch {
-                    // 状态直读 StateFlow（最新值；collectAsState 的帧滞后不影响决策）
-                    val decision = ZCodeRemoteEntryOp.onClick(
-                        WorkspaceLinkController.state.value,
-                        runCatching { withContext(Dispatchers.IO) { staleLookup() } }.getOrNull(),
-                    )
-                    when (decision) {
-                        is ZCodeRemoteEntryOp.ClickDecision.OpenReady -> onOpen(decision.entryId)
-                        is ZCodeRemoteEntryOp.ClickDecision.OpenStale -> onOpen(decision.entryId)
-                        ZCodeRemoteEntryOp.ClickDecision.RequestAndAwait -> {
-                            note = InteractionHonesty.ZCODE_REMOTE_FETCHING
-                            sawRequesting = WorkspaceLinkController.state.value is WorkspaceLinkCard.State.Requesting
-                            pending = true
-                            WorkspaceLinkController.request()
-                        }
-                    }
-                }
+                // 主体点击仍可导航：Ready/有既往条目（stale）→ 直开 WebView（手工条目路径已证可用）
+                beginRequest()
             },
             enabled = !pending,
         ) {
             Text(buttonLabel, fontSize = 13.sp)
         }
-        note?.let {
-            Text(it, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        // U2-M2（AUDIT P2#2）：Queued/失败收口不再只插一行文案——内联状态行附「重试」
+        //（同一取链路径重发）；挂起中（正在获取）不显示重试，防风暴（request() 幂等去抖在控制器）。
+        if (note != null && !pending) {
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Text(
+                    note!!,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                Spacer(Modifier.width(6.dp))
+                TextButton(onClick = { beginRequest() }) {
+                    Text("重试", fontSize = 11.sp)
+                }
+            }
         }
     }
 }

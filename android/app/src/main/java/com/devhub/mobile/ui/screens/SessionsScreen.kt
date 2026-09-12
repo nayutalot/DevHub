@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -226,27 +227,48 @@ fun SessionsScreen(
         Spacer(Modifier.height(2.dp))
 
         // —— R4 provider 过滤 chips（全部 + /v1/agents 名录）——
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            item {
-                FilterChip(
-                    selected = selectedProviderId == null,
-                    onClick = { selectedProviderId = null },
-                    label = { Text("全部", fontSize = 12.sp) },
-                )
+        // U2-M5（AUDIT P3#8）：横向滚动两端 24dp 渐隐 falloff——截断的 chip 有视觉收口提示，
+        // 不再「第 5 枚只露一角」生硬截断（遮罩为纯绘制层，不拦触摸）。
+        Box(Modifier.fillMaxWidth()) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                item {
+                    FilterChip(
+                        selected = selectedProviderId == null,
+                        onClick = { selectedProviderId = null },
+                        label = { Text("全部", fontSize = 12.sp) },
+                    )
+                }
+                items(agents, key = { it.id }) { agent ->
+                    val spec = ProviderPalette.resolve(null, agent.displayName)
+                    FilterChip(
+                        selected = selectedProviderId == agent.id,
+                        onClick = { selectedProviderId = if (selectedProviderId == agent.id) null else agent.id },
+                        label = { Text(agent.displayName, fontSize = 12.sp) },
+                        leadingIcon = {
+                            androidx.compose.foundation.layout.Box(
+                                Modifier
+                                    .size(10.dp)
+                                    .background(Color(spec.argb), CircleShape),
+                            )
+                        },
+                    )
+                }
             }
-            items(agents, key = { it.id }) { agent ->
-                val spec = ProviderPalette.resolve(null, agent.displayName)
-                FilterChip(
-                    selected = selectedProviderId == agent.id,
-                    onClick = { selectedProviderId = if (selectedProviderId == agent.id) null else agent.id },
-                    label = { Text(agent.displayName, fontSize = 12.sp) },
-                    leadingIcon = {
-                        androidx.compose.foundation.layout.Box(
-                            Modifier
-                                .size(10.dp)
-                                .background(Color(spec.argb), CircleShape),
-                        )
-                    },
+            val fadeBg = MaterialTheme.colorScheme.background
+            Box(Modifier.matchParentSize()) {
+                Box(
+                    Modifier
+                        .fillMaxHeight()
+                        .width(24.dp)
+                        .align(Alignment.CenterStart)
+                        .background(androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(fadeBg, Color.Transparent))),
+                )
+                Box(
+                    Modifier
+                        .fillMaxHeight()
+                        .width(24.dp)
+                        .align(Alignment.CenterEnd)
+                        .background(androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(Color.Transparent, fadeBg))),
                 )
             }
         }

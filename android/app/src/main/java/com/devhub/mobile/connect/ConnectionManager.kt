@@ -367,7 +367,7 @@ object ConnectionManager {
         val pinning = try {
             parsePinning(cfg.pinFingerprints)
         } catch (err: IllegalArgumentException) {
-            _lastWsError.value = "relay TLS 指纹配置非法（docs/19 §10.2）：${err.message}"
+            _lastWsError.value = "relay TLS 指纹配置非法：${err.message}"
             return
         }
         // M3-C3a 修 2（C2 #3）：pin pattern = 具体 host（IP 字面量直接用）。空/非法 host
