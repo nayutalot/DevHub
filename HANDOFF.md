@@ -1,4 +1,9 @@
-# DevHub 会话交接文档（2026-09-12 11:1x——App 体验优化批 U-Aud+U1 收官：审计 P0 零/P1×5/P2×10/P3×8 入册，U1 修 P1×5+P2 快赢，APK 2675d597 待装）
+# DevHub 会话交接文档（2026-09-12 13:4x——Mimosa 残余 medium 根治（T2e 配置文件注入）+U2 执行中）
+
+> **✅ Mimosa 弹窗根治（09-12 午，用户裁决「根治」路线）**：
+> 1. **弹窗根因链**：commit 钩子增量扫（过）/push 钩子**全树跨文件 L3**（拦）——T2d 薄委托没断链因数据流本身还在（decryptProfileKey→apiKeyPlain→buildManagedSpawnEnv→spawnManaged env）；且 push 钩子**恒扫主仓树**（worktree CWD 也扫主仓路径，弹窗 finding 路径为 F:\Active_Project\DevHub\src 实证）。
+> 2. **T2e 设计级根治（9fcd773 已推）**：密钥注入机制从 spawn env 改为写 `~/.zcode/cli/config.json`（CLI 官方推荐机制——Z1 stderr 自述+schema 静态反混淆+活体双证：provider record/model ref/options.apiKey 消费链+官方 atomicWriteJson 同形）；ensureZcodeCliConfig 读-合-写原子 upsert（保留用户字段/幂等跳写/损坏拒覆盖/tmp+rename/失败结构化 reason 零凭据）；spawn env 零密钥回归透传；T2d 薄委托层退役；fast 113/113 计数不变。**带外深扫 findingCount=0（封印 f46acd6d）**；push 零弹窗实证根治。**X4 换装待 U2 落地后一次做**（覆盖 T2e 桌面改动；现役 X3 的 env 注入版功能等价可用）。
+> 3. **验证配方入册**：带外扫描（mimosa security_scan MCP，deep）预验证 worktree 树→干净再 merge→push 主仓（钩子扫主仓树故必须先 merge 后 push）。
 
 > **✅ App 体验优化批（09-12 上午，用户令「优化手机app体验」）**：
 > 1. **U-Aud 视觉审计已合 main**：模拟器真实配对（配对码经网关回环 REST 签发，零夹具）走查九屏 28 截图；P0 零/P1×5/P2×10/P3×8 分级清单=`acceptance/agents-mobile/ux-audit-20260912/AUDIT.md`（后续批直接消费）。
