@@ -151,8 +151,11 @@ fun ChildSessionsScreen(
                                 ProviderAvatarFor(providerKey = child.providerKey, providerLabel = child.providerLabel, size = 26.dp, fontSize = 11)
                                 Spacer(Modifier.width(8.dp))
                                 Text(
-                                    // 打磨批 D：显示层清理 ** 记号；超长标题单行省略号截断
-                                    com.devhub.mobile.core.RichTextTokenizer.stripDisplayMarkers(child.title)
+                                    // U2-M4（AUDIT P3#3）：子会话标题 = 任务语义提取
+                                    //（core.SessionTitleOps 纯函数：去系统提示词形态首行，
+                                    // 取首个非系统句；提不出 → null 如实回退原截断显示）
+                                    com.devhub.mobile.core.SessionTitleOps.extractTitle(child.title)
+                                        ?: com.devhub.mobile.core.RichTextTokenizer.stripDisplayMarkers(child.title)
                                         ?: "会话 #${child.id}",
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 13.sp,

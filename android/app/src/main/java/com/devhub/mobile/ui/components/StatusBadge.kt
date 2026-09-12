@@ -14,6 +14,10 @@ import androidx.compose.ui.unit.sp
 /**
  * 会话 9 值状态徽章（docs/12 §4：对外展示用户锁定 7 态 + stopped/unknown 辅助态透明展示）。
  * waiting_input（等文本输入）与 approval_required（等工具批准）高亮区分（docs/11 D3）。
+ *
+ * U2-M4（AUDIT P2#8）：全部查表先经 core.SessionStatusCore.normalize 归一——
+ * 父列表/子会话列表/详情页共用同一状态机投影，结构上杜绝两套映射分叉；
+ * 集外原词（历史缺陷：英文原状态直出标签）一律如实落「未知」，绝不再漏行话。
  */
 object StatusColors {
     private data class Spec(val label: String, val bg: Color, val fg: Color, val highlight: Boolean = false)
@@ -30,13 +34,17 @@ object StatusColors {
         "unknown" to Spec("未知", Color(0xFFF5F5F5), Color(0xFF757575)),
     )
 
-    fun label(status: String): String = (specs[status] ?: Spec(status, Color(0xFFF5F5F5), Color(0xFF757575))).label
+    fun label(status: String): String = specs[com.devhub.mobile.core.SessionStatusCore.normalize(status)]?.label
+        ?: specs.getValue("unknown").label
 
-    fun highlight(status: String): Boolean = specs[status]?.highlight == true
+    fun highlight(status: String): Boolean =
+        specs[com.devhub.mobile.core.SessionStatusCore.normalize(status)]?.highlight == true
 
-    fun background(status: String): Color = (specs[status] ?: specs["unknown"]!!).bg
+    fun background(status: String): Color =
+        specs[com.devhub.mobile.core.SessionStatusCore.normalize(status)]?.bg ?: specs.getValue("unknown").bg
 
-    fun foreground(status: String): Color = (specs[status] ?: specs["unknown"]!!).fg
+    fun foreground(status: String): Color =
+        specs[com.devhub.mobile.core.SessionStatusCore.normalize(status)]?.fg ?: specs.getValue("unknown").fg
 }
 
 /**
