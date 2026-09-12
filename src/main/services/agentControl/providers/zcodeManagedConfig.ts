@@ -24,7 +24,7 @@
 
 import { getSetting } from '../../settingsService.ts'
 import { getKeyCrypto } from '../../apihub/keyStore.ts'
-import { readCurrent, resolveHomeDir } from '../../apihub/adapters.ts'
+import { buildZcodeCliEnv, readCurrent, resolveHomeDir } from '../../apihub/adapters.ts'
 import { decryptProfileKey, getProfile, listProfileViews } from '../../apihub/profileStore.ts'
 
 /** settings 键名（主控定案 #1）。 */
@@ -137,7 +137,9 @@ export async function readZcodeManagedConfig(deps?: { homeDir?: string }): Promi
 }
 
 /**
- * spawn env 拼装（纯函数，主控定案 #1；Z1 活体 run3 形态）：
+ * spawn env 拼装（纯函数，主控定案 #1；Z1 活体 run3 形态）——T2d 批起为
+ * apihub/adapters.buildZcodeCliEnv 的薄委托（解密 key → env 键的汇流点归位
+ * ApiHub 适配器 glue 既有边界，语义逐字节不变）：
  * - `ZCODE_MODEL` = settings 键值（完整 "provider/model" 串）；
  * - `ZCODE_BASE_URL` = 活动档案 baseURL；
  * - `ZCODE_API_KEY` = 活动档案 apiKeyPlain（仅内存中转）；
@@ -150,13 +152,12 @@ export function buildManagedSpawnEnv(
   snapshot: ZcodeManagedConfigSnapshot,
   baseEnv: NodeJS.ProcessEnv = {},
 ): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...baseEnv }
-  if (!snapshot.ready) return env
-  env['ZCODE_MODEL'] = snapshot.model ?? ''
-  env['ZCODE_BASE_URL'] = snapshot.baseUrl ?? ''
-  env['ZCODE_API_KEY'] = snapshot.apiKeyPlain ?? ''
-  if (snapshot.envProviderKeyName !== undefined && snapshot.envProviderKeyName.length > 0) {
-    env[snapshot.envProviderKeyName] = snapshot.apiKeyPlain ?? ''
-  }
-  return env
+  if (!snapshot.ready) return { ...baseEnv }
+  return buildZcodeCliEnv(
+    baseEnv,
+    snapshot.model ?? '',
+    snapshot.baseUrl ?? '',
+    snapshot.apiKeyPlain ?? '',
+    snapshot.envProviderKeyName,
+  )
 }
