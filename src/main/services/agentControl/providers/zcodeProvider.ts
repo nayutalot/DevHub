@@ -35,6 +35,9 @@
  *   / tool_usage(id, session_id, tool_name, approval_status, status, started_at,
  *   completed_at, exit_code, error_type…)；part(id, message_id, data JSON, sequence)
  *   为消息正文的**可选**来源（part.type='text'）；
+ *   / turn_usage(session_id, turn_id, status, started_at, completed_at, error_type,
+ *   error_code, cancelled_by_user…)（Z2 批新增消费：turn 级终态证据，可选列白名单
+ *   ZCODE_DB_TURN_USAGE_OPTIONAL_SCHEMA——表/列缺失时该证据面关闭，其余不降级）；
  *
  * 子会话过滤（用户需求：ZCode provider 只抓主智能体会话，过滤子智能体会话）：
  * ZCode 库 session 表的子会话判别特征（真库实测三重）：task_type='subagent_child'
@@ -53,6 +56,20 @@
  * 状态判定（实机复核取值集合，映射表写死；绝不猜）：
  * - task_status 实测全集 = {completed(43), error(8)} → ZCODE_TASK_STATUS_MAP：
  *   completed→completed、error→failed；未登录取值 → unknown；无任务行 → 无证据；
+ * - turn_usage.status（Z2 批新增消费，docs/briefs/z2-child-terminal.md；实机副本
+ *   侦查 2026-09-12：全表 1051 行取值全集 = {completed(797), cancelled(171),
+ *   error(83)}，completed_at 1051/1051 非空、无在途值 = insert-at-terminal；
+ *   子会话域 356 行 {completed(277), cancelled(26), error(53)}，按 started_at
+ *   latest-turn-wins 后覆盖 336/344 子会话）→ ZCODE_TURN_STATUS_MAP：
+ *   completed→completed、error→failed（与 task_status 同词族同义）、
+ *   cancelled→paused（托管面先例同义：evalZcodeEventStatus turn.completed
+ *   (cancelled)→paused；子会话域 26/26 cancelled_by_user=1 实证用户取消）；
+ *   未登录取值 → unknown；无 turn 行 → 无证据 → unknown 如实保留（8/344 无行：
+ *   在途/旧库行——绝不借 model_usage 的请求粒度 status 美化成 turn 终态）。
+ *   仅消费父可解析子会话（includedChildIds）；主会话语义零变化（其终态证据源
+ *   仍是 tasks-index，Z2 范围纪律）；tasks-index 对子会话域近乎零覆盖（实测
+ *   3/344 且与 turn_usage 覆盖互斥）——子会话判定优先级：审批等待 > turn 终态
+ *   > task_status > unknown；
  * - tool_usage.approval_status 实测全集 = {none(8601)}（resolved 后归 none）：
  *   'none'/空 = 无审批；匹配 pending/request/await/wait 形态（docs/12 §5 指定判定源）
  *   → approval_required；其余取值不产生审批状态（绝不猜）；
@@ -278,6 +295,16 @@ export const ZCODE_DB_PARENT_ID_OPTIONAL_SCHEMA: Readonly<Record<string, readonl
   session: ['parent_id'],
 } as const
 
+/**
+ * turn_usage 可选列白名单（Z2 批：子会话 turn 终态证据源）。
+ * 不进 ZCODE_DB_REQUIRED_SCHEMA 的原因同 task_type/parent_id：旧版 CLI 库可能无
+ * 此表（实测 8/344 子会话先于该表）——表/列缺失 → 证据面关闭（子会话如实
+ * unknown），provider 整体不降级、health 不因此 unavailable。
+ */
+export const ZCODE_DB_TURN_USAGE_OPTIONAL_SCHEMA: Readonly<Record<string, readonly string[]>> = {
+  turn_usage: ['session_id', 'status', 'started_at'],
+} as const
+
 /** 子会话显式 task_type 标记（真库实测取值；与 id 前缀判据 100% 重合，仍双保险都判）。 */
 export const ZCODE_SUBAGENT_TASK_TYPE = 'subagent_child'
 /** 子会话 ID 前缀（双保险第二判据：task_type 列缺失/行值 NULL 时的兜底）。 */
@@ -330,6 +357,32 @@ export function evalZcodeTaskStatus(value: string | null | undefined): SessionSt
   const v = String(value).trim().toLowerCase()
   if (v.length === 0) return null
   return ZCODE_TASK_STATUS_MAP[v] ?? 'unknown'
+}
+
+/**
+ * turn_usage.status → 9 值状态映射表（Z2 批：实机副本侦查 2026-09-12 取值全集
+ * {completed, cancelled, error} 后写死；证据与边界见文件头「状态判定」段）。
+ * - completed → completed（与 ZCODE_TASK_STATUS_MAP 同词族同义——库内同一终态词汇）；
+ * - error → failed（同上）；
+ * - cancelled → paused（托管面先例同义：evalZcodeEventStatus turn.completed
+ *   (cancelled) → paused；子会话域 26/26 cancelled_by_user=1 实证用户取消。
+ *   paused 非终态不落 ended_at——cancelled 是「可再续」的中断语义，不是完成/失败）；
+ * - 未登录取值 → unknown（evalZcodeTurnStatus，绝不猜）；
+ * - 无 turn 行 → null（无证据，上层如实 unknown——绝不借 model_usage 请求粒度
+ *   status 美化成 turn 终态）。
+ */
+export const ZCODE_TURN_STATUS_MAP: Readonly<Record<string, SessionStatus>> = {
+  completed: 'completed',
+  error: 'failed',
+  cancelled: 'paused',
+} as const
+
+/** turn_usage.status 值 → 状态（无行/空值 → null 无证据；未登录值 → unknown）。 */
+export function evalZcodeTurnStatus(value: string | null | undefined): SessionStatus | null {
+  if (value === null || value === undefined) return null
+  const v = String(value).trim().toLowerCase()
+  if (v.length === 0) return null
+  return ZCODE_TURN_STATUS_MAP[v] ?? 'unknown'
 }
 
 // ---------------------------------------------------------------------------
@@ -1311,10 +1364,12 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
   interface MonitorCursors {
     message: number
     toolUsage: number
+    /** turn_usage rowid 游标（Z2 批：子会话 turn 终态证据增量）。 */
+    turnUsage: number
   }
 
   async function runMonitorLoop(sink: EventSink, token: MonitorCancelToken): Promise<void> {
-    const cursors: MonitorCursors = { message: 0, toolUsage: 0 }
+    const cursors: MonitorCursors = { message: 0, toolUsage: 0, turnUsage: 0 }
     /** 会话 → 待审批 tool_usage rowid 集（evalZcodeApprovalStatus 为 true 的行）。 */
     const pendingApprovals = new Map<string, Set<number>>()
     /** 会话 → 最近一次判定状态（变化沿才上抛）。 */
@@ -1323,13 +1378,15 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
     const knownSessions = new Map<string, { timeUpdated: number; directory: string | null; title: string | null; parentId?: string }>()
     /** 会话 → tasks.task_status 原值缓存。 */
     const taskStatusCache = new Map<string, string>()
+    /** 会话 → 最新 turn 终态证据（Z2 批：仅 includedChildIds 成员入缓存；started_at 越新越权威）。 */
+    const turnStatusCache = new Map<string, { startedAt: number; status: string }>()
     const tracker = new ReadFailureTracker()
     let degraded = false
     let effectivePollMs = Math.max(pollMs, 1)
 
     try {
       while (!token.cancelled) {
-        const result = await monitorTick(sink, token, cursors, pendingApprovals, lastStatus, knownSessions, taskStatusCache)
+        const result = await monitorTick(sink, token, cursors, pendingApprovals, lastStatus, knownSessions, taskStatusCache, turnStatusCache)
         if (result === null) {
           if (tracker.recordFailure()) {
             degraded = true
@@ -1395,6 +1452,7 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
     lastStatus: Map<string, SessionStatus | null>,
     knownSessions: Map<string, { timeUpdated: number; directory: string | null; title: string | null; parentId?: string }>,
     taskStatusCache: Map<string, string>,
+    turnStatusCache: Map<string, { startedAt: number; status: string }>,
   ): Promise<'ok' | null> {
     // 1) 直连 readOnly 优先（活跃 WAL 真库的常规路径；零写入）
     if (directOpenMode !== 'disabled' && existsSync(dbPath)) {
@@ -1402,7 +1460,7 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
       if (direct.conn !== null) {
         stats.directOpens += 1
         try {
-          const result = await tickOnConnection(direct.conn.db, 'direct', sink, token, cursors, pendingApprovals, lastStatus, knownSessions, taskStatusCache)
+          const result = await tickOnConnection(direct.conn.db, 'direct', sink, token, cursors, pendingApprovals, lastStatus, knownSessions, taskStatusCache, turnStatusCache)
           if (result !== null && residentSnapshot !== null) {
             // 直连恢复（CANTOPEN 退场）：常驻快照不再需要 → 即刻清理
             try {
@@ -1438,7 +1496,7 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
       db.exec('PRAGMA query_only = 1')
     }
     try {
-      return await tickOnConnection(db, 'snapshot', sink, token, cursors, pendingApprovals, lastStatus, knownSessions, taskStatusCache)
+      return await tickOnConnection(db, 'snapshot', sink, token, cursors, pendingApprovals, lastStatus, knownSessions, taskStatusCache, turnStatusCache)
     } finally {
       try {
         db.close()
@@ -1448,7 +1506,7 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
     }
   }
 
-  /** 单轮监控主体（已持有连接）：schema 白名单 → sessions/messages/tool_usage/tasks。 */
+  /** 单轮监控主体（已持有连接）：schema 白名单 → sessions/turn_usage/messages/tool_usage/tasks。 */
   async function tickOnConnection(
     db: DatabaseSync,
     kind: 'direct' | 'snapshot',
@@ -1459,6 +1517,7 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
     lastStatus: Map<string, SessionStatus | null>,
     knownSessions: Map<string, { timeUpdated: number; directory: string | null; title: string | null; parentId?: string }>,
     taskStatusCache: Map<string, string>,
+    turnStatusCache: Map<string, { startedAt: number; status: string }>,
   ): Promise<'ok' | null> {
     const conn: ZcodeReadConnection = {
       db,
@@ -1532,6 +1591,45 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
         emitSessionDiscovered(sink, knownSessions, id, row.directory, row.title, row.time_created, row.time_updated, parentId)
       }
 
+      // 1.5) turn_usage（Z2 批）：子会话 turn 终态证据。rowid 游标增量——实测
+      //      insert-at-terminal（全表 1051/1051 行 completed_at 非空、status 全域
+      //      {completed, cancelled, error} 无在途值，行落库即终态），游标增量不漏。
+      //      仅消费 includedChildIds（父可解析子会话）：主会话语义零变化（Z2 范围
+      //      纪律，其终态证据源仍是 tasks-index）；父不可解析子会话绝不入缓存、
+      //      绝不 emitStatus（applySessionStatus 会经 ensureSessionRow 反向建行）。
+      const turnUsageAvailable = checkSchema(db, ZCODE_DB_TURN_USAGE_OPTIONAL_SCHEMA).ok
+      if (turnUsageAvailable) {
+        const turnChanged = new Set<string>()
+        while (!token.cancelled) {
+          const rows = db
+            .prepare('SELECT rowid, session_id, status, started_at FROM turn_usage WHERE rowid > ? ORDER BY rowid LIMIT ?')
+            .all(cursors.turnUsage, batchRows) as unknown as Array<{
+            rowid: number
+            session_id: string
+            status: string | null
+            started_at: number | null
+          }>
+          if (rows.length === 0) break
+          for (const row of rows) {
+            cursors.turnUsage = Math.max(cursors.turnUsage, Number(row.rowid))
+            const sid = String(row.session_id)
+            if (!includedChildIds.has(sid)) continue
+            const startedAt = Number(row.started_at ?? 0)
+            const prev = turnStatusCache.get(sid)
+            // latest-turn-wins：started_at 新者胜（同刻按 rowid 迭代序后者胜）；
+            // 晚到的旧行（乱序回填防御）不覆盖已缓存的新终态
+            if (prev === undefined || startedAt >= prev.startedAt) {
+              turnStatusCache.set(sid, { startedAt, status: String(row.status ?? '') })
+              turnChanged.add(sid)
+            }
+          }
+          if (rows.length < batchRows) break
+        }
+        for (const sid of turnChanged) {
+          emitStatus(sid, pendingApprovals, turnStatusCache, taskStatusCache, lastStatus, sink)
+        }
+      }
+
       // 2) messages：rowid 游标增量投影（主会话 + 已纳管子会话；排除集成员不投影）
       while (!token.cancelled) {
         const rows = db
@@ -1577,7 +1675,7 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
             }
             if (!set.has(Number(row.rowid))) {
               set.add(Number(row.rowid))
-              emitStatus(sid, pendingApprovals, taskStatusCache, lastStatus, sink)
+              emitStatus(sid, pendingApprovals, turnStatusCache, taskStatusCache, lastStatus, sink)
             }
           }
         }
@@ -1598,7 +1696,7 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
         }
         for (const resolved of rowids.filter((r) => !stillPending.has(r))) set.delete(resolved)
         if (stillPending.size === 0) pendingApprovals.set(sid, set)
-        emitStatus(sid, pendingApprovals, taskStatusCache, lastStatus, sink)
+        emitStatus(sid, pendingApprovals, turnStatusCache, taskStatusCache, lastStatus, sink)
       }
 
       // 5) task_status 复核（UPDATE 不 bump rowid → 每轮全量小表重读）；排除集
@@ -1609,7 +1707,7 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
           if (isZcodeSubagentSession(taskId, undefined) && !includedChildIds.has(taskId)) continue
           if (taskStatusCache.get(taskId) !== raw) {
             taskStatusCache.set(taskId, raw)
-            emitStatus(taskId, pendingApprovals, taskStatusCache, lastStatus, sink)
+            emitStatus(taskId, pendingApprovals, turnStatusCache, taskStatusCache, lastStatus, sink)
           }
         }
       }
@@ -1644,10 +1742,14 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
     }
   }
 
-  /** 会话状态评估 + 变化沿上抛：审批等待 > task_status 映射 > 无证据。 */
+  /**
+   * 会话状态评估 + 变化沿上抛：审批等待 > turn 终态（Z2，仅子会话域入缓存）
+   * > task_status 映射 > 无证据。
+   */
   function emitStatus(
     sessionId: string,
     pendingApprovals: Map<string, Set<number>>,
+    turnStatusCache: Map<string, { startedAt: number; status: string }>,
     taskStatusCache: Map<string, string>,
     lastStatus: Map<string, SessionStatus | null>,
     sink: EventSink,
@@ -1656,8 +1758,17 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
     if ((pendingApprovals.get(sessionId)?.size ?? 0) > 0) {
       next = 'approval_required'
     } else {
-      const raw = taskStatusCache.get(sessionId)
-      next = raw !== undefined ? evalZcodeTaskStatus(raw) : null
+      // Z2：子会话 turn 终态证据优先于 task_status——turn 粒度是该会话自己的第一手
+      // 终态事实，且 tasks-index 对子会话域近乎零覆盖（实测 3/344，与 turn_usage
+      // 覆盖互斥）。主会话从不在 turnStatusCache（缓存写入仅限 includedChildIds），
+      // 既有 task_status 语义零变化。
+      const turn = turnStatusCache.get(sessionId)
+      if (turn !== undefined) {
+        next = evalZcodeTurnStatus(turn.status)
+      } else {
+        const raw = taskStatusCache.get(sessionId)
+        next = raw !== undefined ? evalZcodeTaskStatus(raw) : null
+      }
     }
     const previous = lastStatus.get(sessionId)
     if (next === null) {

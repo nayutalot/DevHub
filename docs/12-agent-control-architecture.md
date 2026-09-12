@@ -292,7 +292,10 @@ provider.startMonitor(sink)
 ### 8.4 ZCode（zcodeProvider.ts）
 
 - 数据源：`~/.zcode/cli/db/db.sqlite`（session / message / tool_usage（审批状态，
-  `approval_status` 为 approval_required 判定源之一）/ sequence）+ `~/.zcode/v2/tasks-index.sqlite`（tasks(workspace_path/task_id/title/
+  `approval_status` 为 approval_required 判定源之一）/ sequence / turn_usage（Z2 批：
+  turn 级终态证据——status 实测全集 {completed, cancelled, error}，映射 completed→
+  completed、error→failed、cancelled→paused；仅消费父可解析子会话，子会话行据此落
+  真实终态而非恒 unknown；表缺失时证据面关闭、provider 不降级））+ `~/.zcode/v2/tasks-index.sqlite`（tasks(workspace_path/task_id/title/
   task_status/provider)）。
 - 只读策略：优先 `readOnly` 打开；失败（锁/node:sqlite 版本）→ 复制 db + -wal + -shm
   快照到 `getDataDir()/tmp/` 后读快照（快照用完即删）。**绝不写第三方库、绝不 checkpoint**。

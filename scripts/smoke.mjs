@@ -14540,6 +14540,12 @@ if (isEntrypoint()) {
     const fakeKey = 'smoke-fake-key-DO-NOT-LOG-9f2c'
     process.env['ZCODE_FIXTURE_LOG'] = logPath
     delete process.env['ZCODE_FIXTURE_MODE']
+    // T2e env 断言对宿主环境敏感（Z2 批现场实证：ZCode 桌面派生的 shell 继承环境级
+    // ZCODE_BASE_URL → 夹具 env 位非 null，被误读成「DevHub 注入了 env」）。本用例
+    // 断言的本体是「DevHub spawn 零注入」——先剥除四个被断言变量再 spawn，
+    // finally 归还宿主原值（DEVHUB_HOME save/restore 同款模式）。
+    const savedZcodeEnv = ['ZCODE_MODEL', 'ZCODE_BASE_URL', 'ZCODE_API_KEY', 'DUMMYHUB_API_KEY'].map((k) => [k, process.env[k]])
+    for (const [k] of savedZcodeEnv) delete process.env[k]
     await makeTempHome('devhub-t2z-107-')
     try {
       const provider = zcodeMod.createZcodeProvider({
@@ -14615,6 +14621,10 @@ if (isEntrypoint()) {
 
       await provider.dispose()
     } finally {
+      for (const [k, v] of savedZcodeEnv) {
+        if (v === undefined) delete process.env[k]
+        else process.env[k] = v
+      }
       delete process.env['ZCODE_FIXTURE_LOG']
       delete process.env['ZCODE_FIXTURE_MODE']
       dbModule.closeDatabase()
@@ -14813,6 +14823,141 @@ if (isEntrypoint()) {
       assert.equal(cfg.zcodeManagedModelSetting(), 'dummyhub/dummy-model')
       assert.equal(settings.getSetting('llm_review_base_url'), '', 'LR1 seed rows untouched by the T2 whitelist extension (007 seeds = empty string)')
     } finally {
+      dbModule.closeDatabase()
+    }
+  }, 'fast')
+
+  // 111. Z2 批（docs/briefs/z2-child-terminal.md）：zcode 子会话 turn 终态证据投影——
+  //      turn_usage.status 映射表（completed→completed / error→failed / cancelled→paused，
+  //      证据源 = 实机副本侦查 2026-09-12：全表 1051 行取值全集、completed_at 全非空 =
+  //      insert-at-terminal、子会话域 latest-turn-wins 后覆盖 336/344）锁死 + 边界：
+  //      latest-turn-wins、turn 证据优先于 task_status（子会话域）、无 turn 行如实
+  //      unknown（绝不美化）、父不可解析子会话整行排除、主会话 task_status 语义零变化。
+  //      （turn_usage 列缺失 → 证据面关闭且 provider 不降级，由 ac4-110 夹具
+  //      「无 turn_usage 表仍 health ok」锁定。）
+  registerCase('t2z-111: zcode child-session turn terminal evidence — turn_usage.status map locked (completed→completed, error→failed, cancelled→paused per managed-face precedent; unknown value→unknown, absent row→null), monitor projects child rows with ended_at on terminal statuses, latest-turn-wins, turn evidence outranks task_status for children, no-evidence child stays unknown, unresolvable-parent child excluded, main-session task_status semantics unchanged', async () => {
+    const { mkdtempSync, mkdirSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const { DatabaseSync } = await import('node:sqlite')
+    const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+    const svc = await import(new URL('../src/main/services/agentControl/agentControlService.ts', import.meta.url).href)
+    const zcodeMod = await import(new URL('../src/main/services/agentControl/providers/zcodeProvider.ts', import.meta.url).href)
+
+    // 映射表锁（实机取值全集 {completed, cancelled, error} 后写死；未登录取值绝不猜）
+    assert.deepEqual(zcodeMod.ZCODE_TURN_STATUS_MAP, { completed: 'completed', error: 'failed', cancelled: 'paused' }, 'turn_usage.status 实测全集 {completed,cancelled,error} 的写死映射（cancelled→paused 与托管面 evalZcodeEventStatus 同义）')
+    assert.equal(zcodeMod.evalZcodeTurnStatus('completed'), 'completed')
+    assert.equal(zcodeMod.evalZcodeTurnStatus('error'), 'failed')
+    assert.equal(zcodeMod.evalZcodeTurnStatus('cancelled'), 'paused')
+    assert.equal(zcodeMod.evalZcodeTurnStatus('COMPLETED'), 'completed', '值归一小写后映射（防御）')
+    assert.equal(zcodeMod.evalZcodeTurnStatus('mystery_value'), 'unknown', '未登录取值 → unknown（绝不猜）')
+    assert.equal(zcodeMod.evalZcodeTurnStatus(null), null, '无 turn 行 → 无证据（上层如实 unknown）')
+    assert.equal(zcodeMod.evalZcodeTurnStatus(''), null, '空值 → 无证据')
+    assert.deepEqual(zcodeMod.ZCODE_DB_TURN_USAGE_OPTIONAL_SCHEMA, { turn_usage: ['session_id', 'status', 'started_at'] }, '可选列白名单（缺表/缺列 = 证据面关闭，provider 不降级）')
+
+    const dir = mkdtempSync(join(tmpdir(), 'devhub-t2z-111-'))
+    const dbPath = join(dir, 'db.sqlite')
+    const tasksPath = join(dir, 'tasks-index.sqlite')
+    const snapshotRoot = join(dir, 'snaps')
+    const nowMs = 1789300000000
+    // 夹具库按真实 schema 子集建表插数（PRAGMA 白名单必须通过）
+    const fdb = new DatabaseSync(dbPath)
+    fdb.exec(`
+      CREATE TABLE session (id TEXT, project_id TEXT, workspace_id TEXT, parent_id TEXT, directory TEXT, title TEXT, time_created INTEGER, time_updated INTEGER, time_archived INTEGER, task_type TEXT);
+      CREATE TABLE message (id TEXT, session_id TEXT, data TEXT, sequence INTEGER, time_created INTEGER);
+      CREATE TABLE tool_usage (id TEXT, session_id TEXT, tool_name TEXT, approval_status TEXT, status TEXT, started_at INTEGER, completed_at INTEGER);
+      CREATE TABLE turn_usage (session_id TEXT, turn_id TEXT, status TEXT, started_at INTEGER, completed_at INTEGER, error_type TEXT, cancelled_by_user INTEGER);
+    `)
+    const insSession = fdb.prepare('INSERT INTO session (id, parent_id, directory, title, time_created, time_updated, task_type) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    insSession.run('sess_parent_main', null, 'C:\\ws\\demo', 'Parent main', nowMs, nowMs + 9000, 'interactive')
+    insSession.run('sess_subagent_agent_done', 'sess_parent_main', 'C:\\ws\\demo', 'Child done', nowMs + 10, nowMs + 100, 'subagent_child')
+    insSession.run('sess_subagent_agent_err', 'sess_parent_main', 'C:\\ws\\demo', 'Child error', nowMs + 20, nowMs + 200, 'subagent_child')
+    insSession.run('sess_subagent_agent_cancel', 'sess_parent_main', 'C:\\ws\\demo', 'Child cancelled', nowMs + 30, nowMs + 300, 'subagent_child')
+    insSession.run('sess_subagent_agent_late', 'sess_parent_main', 'C:\\ws\\demo', 'Child latest wins', nowMs + 40, nowMs + 400, 'subagent_child')
+    insSession.run('sess_subagent_agent_both', 'sess_parent_main', 'C:\\ws\\demo', 'Child turn outranks task', nowMs + 50, nowMs + 500, 'subagent_child')
+    insSession.run('sess_subagent_agent_norow', 'sess_parent_main', 'C:\\ws\\demo', 'Child no turn row', nowMs + 60, nowMs + 600, 'subagent_child')
+    insSession.run('sess_subagent_agent_orphan', null, 'C:\\ws\\demo', 'Child orphan parent', nowMs + 70, nowMs + 700, 'subagent_child')
+    const insTurn = fdb.prepare('INSERT INTO turn_usage (session_id, turn_id, status, started_at, completed_at, error_type, cancelled_by_user) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    insTurn.run('sess_subagent_agent_done', 't_done', 'completed', nowMs + 100, nowMs + 150, null, 0)
+    insTurn.run('sess_subagent_agent_err', 't_err', 'error', nowMs + 200, nowMs + 250, 'model_error', 0)
+    insTurn.run('sess_subagent_agent_cancel', 't_cancel', 'cancelled', nowMs + 300, nowMs + 350, 'turn_cancelled', 1)
+    insTurn.run('sess_subagent_agent_late', 't_late1', 'error', nowMs + 400, nowMs + 420, 'model_error', 0)
+    insTurn.run('sess_subagent_agent_late', 't_late2', 'completed', nowMs + 430, nowMs + 450, null, 0)
+    insTurn.run('sess_subagent_agent_both', 't_both', 'completed', nowMs + 500, nowMs + 550, null, 0)
+    insTurn.run('sess_subagent_agent_orphan', 't_orphan', 'completed', nowMs + 700, nowMs + 750, null, 0)
+    fdb.close()
+    const tdb = new DatabaseSync(tasksPath)
+    tdb.exec('CREATE TABLE tasks (task_id TEXT, title TEXT, task_status TEXT, workspace_path TEXT, updated_at INTEGER);')
+    const insTask = tdb.prepare('INSERT INTO tasks (task_id, title, task_status, workspace_path, updated_at) VALUES (?, ?, ?, ?, ?)')
+    insTask.run('sess_parent_main', 'Parent main', 'completed', 'C:\\ws\\demo', nowMs)
+    insTask.run('sess_subagent_agent_both', 'Child turn outranks task', 'error', 'C:\\ws\\demo', nowMs)
+    tdb.close()
+
+    await makeTempHome('devhub-t2z-111-')
+    try {
+      const db = dbModule.getDatabase()
+      const provider = zcodeMod.createZcodeProvider({ zcodeDbPath: dbPath, tasksIndexPath: tasksPath, snapshotRoot, pollMs: 100, snapshotRefreshMs: 60_000 })
+      svc.setProviderOverride('zcode', provider)
+      svc.setProviderOverride('codex', stubAgentProvider('codex'))
+      svc.setProviderOverride('claude-code', stubAgentProvider('claude-code'))
+      svc.setProviderOverride('kimi', stubAgentProvider('kimi'))
+      svc.setProviderOverride('deepseek', stubAgentProvider('deepseek'))
+      svc.ensureAgentProviderRows()
+      svc.syncMonitorTasks()
+
+      // 轮询等待：子会话终态 + 主会话 task_status + 无证据子会话保持 unknown
+      let verdict = null
+      for (let i = 0; i < 80; i++) {
+        const row = (nativeId) => db.prepare('SELECT status, ended_at FROM agent_sessions WHERE native_id = ?').get(nativeId)
+        const v = {
+          done: row('sess_subagent_agent_done'),
+          err: row('sess_subagent_agent_err'),
+          cancel: row('sess_subagent_agent_cancel'),
+          late: row('sess_subagent_agent_late'),
+          both: row('sess_subagent_agent_both'),
+          norow: row('sess_subagent_agent_norow'),
+          parent: row('sess_parent_main'),
+        }
+        const rowsReady =
+          v.done !== undefined && v.err !== undefined && v.cancel !== undefined && v.late !== undefined &&
+          v.both !== undefined && v.norow !== undefined && v.parent !== undefined
+        if (rowsReady) {
+          verdict = v
+          if (
+            v.done.status === 'completed' && v.err.status === 'failed' && v.cancel.status === 'paused' &&
+            v.late.status === 'completed' && v.both.status === 'completed' && v.norow.status === 'unknown' &&
+            v.parent.status === 'completed'
+          ) break
+        }
+        await new Promise((r) => setTimeout(r, 100))
+      }
+      assert.ok(verdict !== null, 'monitor discovered all seven fixture sessions')
+      assert.equal(verdict.done.status, 'completed', 'turn completed → completed')
+      assert.ok(verdict.done.ended_at !== null, 'terminal status lands ended_at')
+      assert.equal(verdict.err.status, 'failed', 'turn error → failed')
+      assert.ok(verdict.err.ended_at !== null, 'terminal status lands ended_at')
+      assert.equal(verdict.cancel.status, 'paused', 'turn cancelled → paused（托管面先例同义）')
+      assert.equal(verdict.cancel.ended_at, null, 'paused 非终态：不落 ended_at')
+      assert.equal(verdict.late.status, 'completed', 'latest-turn-wins：error(t1) 后 completed(t2) → completed')
+      assert.equal(verdict.both.status, 'completed', '子会话域 turn 证据优先于 task_status（tasks-index error 不覆盖 turn completed）')
+      assert.equal(verdict.norow.status, 'unknown', '无 turn 行 → unknown 如实保留（绝不美化）')
+      assert.equal(verdict.norow.ended_at, null, '无证据行不落 ended_at')
+      assert.equal(verdict.parent.status, 'completed', '主会话 task_status 语义零变化（turn 证据不消费主会话）')
+      const orphan = db.prepare("SELECT id FROM agent_sessions WHERE native_id = 'sess_subagent_agent_orphan'").get()
+      assert.equal(orphan, undefined, '父不可解析子会话整行排除（绝不反向建行）')
+
+      const health = await provider.probeHealth()
+      assert.equal(health.health, 'ok', `probeHealth ok with turn_usage present, got ${health.health}: ${health.healthDetail ?? ''}`)
+      const sessions = await provider.listSessions()
+      assert.equal(sessions.length, 7, 'listSessions：1 主 + 6 父可解析子（orphan 排除）')
+      const childSnaps = sessions.filter((s) => String(s.nativeId).startsWith('sess_subagent_agent_'))
+      assert.equal(childSnaps.length, 6, '六个子会话以快照上抛')
+      assert.ok(childSnaps.every((s) => s.parentNativeSessionId === 'sess_parent_main'), '子会话快照携带 parentNativeSessionId')
+
+      svc.stopAllAgentControlRuntime()
+      await new Promise((r) => setTimeout(r, 300))
+    } finally {
+      svc.stopAllAgentControlRuntime()
       dbModule.closeDatabase()
     }
   }, 'fast')
