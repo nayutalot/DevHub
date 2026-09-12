@@ -1,6 +1,6 @@
-# DevHub 会话交接文档（2026-09-12 14:3x——U2 体验整改收官合 main；X4 换装执行中）
+# DevHub 会话交接文档（2026-09-12 14:4x——U2 收官+X4 换装在役：体验优化线本段全落，APK a004b94f 待装）
 
-> **✅ U2 体验整改批（09-12 下午，已合 main=d6d6ac2）**：剩余 P2×5+P3×6 全修（X4 换装并行执行中）：
+> **✅ U2 体验整改批（09-12 下午，已合 main=d6d6ac2）**：剩余 P2×5+P3×6 全修（X4 已换装在役 14:15 PID 17344 health×3 过；asar 十项：ensureZcodeCliConfig 在位+buildManagedSpawnEnv/buildZcodeCliEnv 零命中+回归点全在；dist 根五件新件 Setup sha256 e62f4904）：
 > 1. **M1 capabilities 人话化+头部折叠**（P2#1+P3#7）：:core CapabilitiesExplain 译码 17 形态穷举（zcode3/codex2/claude2/kimi7/deepseek1/service1/夹具1，未知兜底「详见技术信息」绝不猜）+详情页折叠一行摘要+ⓘ 弹层（技术原值折叠零吞码）；头部常态占屏大减。
 > 2. **M2 遥控排队态内联重试**（P2#2）：beginRequest 唯一路径+重试按钮（挂起中隐藏防风暴）。
 > 3. **M3 文案卫生**（P2#6/7+P3#4/5）：docs/19 引用全清（规则语义保留）、placeholder=wss://your-relay-host（生产 IP 下架）、模拟器专属文案清除、BAD_PAYLOAD 码归 ErrorPresent。
