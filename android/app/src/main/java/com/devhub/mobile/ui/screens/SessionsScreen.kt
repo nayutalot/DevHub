@@ -216,7 +216,13 @@ fun SessionsScreen(
 
         // —— T1 批：ZCode 工作区智能卡（列表顶部；独立 tab 撤销后的遥控主入口）——
         // 点击 → 取/建智能条目 → remote/{entryId}；管理入口（小图标）→ 条目管理屏
-        val linkState by WorkspaceLinkController.state.collectAsState()
+        // U5 批：本地模式诚实态投影（displayState 纯函数；relay/fixture 原状态透传零改写）
+        val rawLinkState by WorkspaceLinkController.state.collectAsState()
+        val activeMode by ConnectionManager.activeMode.collectAsState()
+        val linkState = com.devhub.mobile.connect.WorkspaceLinkModePolicy.displayState(
+            rawLinkState,
+            com.devhub.mobile.connect.WorkspaceLinkModePolicy.presentation(activeMode, fixtureOn),
+        )
         WorkspaceLinkCardView(
             state = linkState,
             staleEntryId = smartEntryId,
