@@ -92,4 +92,43 @@ class WorkspaceLinkModePolicyTest {
         // 绝不渲染成假等待/假失败语义
         assertTrue(!copy.contains("排队") && !copy.contains("重试") && !copy.contains("失败"))
     }
+
+    // ---- 卡面状态投影（displayState；U5-M2）----
+
+    @Test
+    fun `display state passes the controller state through untouched on full flow`() {
+        // relay 现状零改写锚点：全状态透传（含 Queued——relay 排队语义原样保留）
+        val states = listOf<WorkspaceLinkCard.State>(
+            WorkspaceLinkCard.State.Idle,
+            WorkspaceLinkCard.State.Requesting,
+            WorkspaceLinkCard.State.Ready(entryId = 3, deviceName = "desk-1"),
+            WorkspaceLinkCard.State.Queued,
+            WorkspaceLinkCard.State.Unavailable("ZCODE_LINK_UNAVAILABLE", "x"),
+        )
+        for (state in states) {
+            assertEquals(
+                state,
+                WorkspaceLinkModePolicy.displayState(state, WorkspaceLinkModePolicy.Presentation.FullFlow),
+            )
+        }
+    }
+
+    @Test
+    fun `display state forces the honest local state regardless of underlying state`() {
+        // 本地模式绝不渲染排队/等待承诺：含既往 relay 期遗留的 Queued/Ready 一律强制诚实态
+        val states = listOf<WorkspaceLinkCard.State>(
+            WorkspaceLinkCard.State.Idle,
+            WorkspaceLinkCard.State.Requesting,
+            WorkspaceLinkCard.State.Ready(entryId = 3, deviceName = null),
+            WorkspaceLinkCard.State.Queued,
+            WorkspaceLinkCard.State.Unavailable("X", "m"),
+            WorkspaceLinkCard.State.NotAvailableInLocal,
+        )
+        for (state in states) {
+            assertEquals(
+                WorkspaceLinkCard.State.NotAvailableInLocal,
+                WorkspaceLinkModePolicy.displayState(state, WorkspaceLinkModePolicy.Presentation.NotAvailableInLocal),
+            )
+        }
+    }
 }

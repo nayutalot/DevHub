@@ -43,4 +43,15 @@ object WorkspaceLinkModePolicy {
         connectionMode == MODE_LOCAL -> Presentation.NotAvailableInLocal
         else -> Presentation.FullFlow
     }
+
+    /**
+     * 卡面状态投影（纯函数）：FullFlow → 控制器原状态透传（relay 现状零改写）；
+     * NotAvailableInLocal → 无论控制器现状态为何（含既往 relay 期遗留的 Queued/Ready）
+     * 一律强制诚实态——本地模式绝不渲染排队/等待承诺。
+     */
+    fun displayState(state: WorkspaceLinkCard.State, presentation: Presentation): WorkspaceLinkCard.State =
+        when (presentation) {
+            is Presentation.FullFlow -> state
+            is Presentation.NotAvailableInLocal -> WorkspaceLinkCard.State.NotAvailableInLocal
+        }
 }

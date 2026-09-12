@@ -63,6 +63,14 @@ object WorkspaceLinkCard {
 
         /** 结构化不可用：桌面 ZCODE_LINK_UNAVAILABLE / 链接白名单复检拒绝 / 拒绝码。 */
         data class Unavailable(val code: String, val message: String) : State
+
+        /**
+         * U5 批（Z3 结论 B 方案①）：本地模式诚实态——本地帧协议无 workspace_link
+         * 结算回程（结构性恒 Queued），App 侧不发起取链；卡显三入口统一诚实文案
+         * （InteractionHonesty.ZCODE_REMOTE_LOCAL_UNAVAILABLE），绝不渲染排队/重试。
+         * 判定源 = WorkspaceLinkModePolicy（纯函数，:app 单测直锁）。
+         */
+        data object NotAvailableInLocal : State
     }
 
     /**
@@ -113,10 +121,23 @@ object WorkspaceLinkController {
      * 发起一次链接查询（tab 打开自动 / 卡片点击重试）。Requesting 中幂等忽略。
      * local 模式：submitWorkspaceLink 走 relay 帧面——未连接（含 local 无 relay WS）
      * 一律 Queued 排队语义，绝不伪造成功。
+     *
+     * U5 批模式门（Z3 结论 B 方案①；docs/briefs/u5-local-honest.md §1 #2）：
+     * local 模式（非 fixture 演示）**不发出 workspace_link 帧**——本地帧协议无
+     * command 结算回程，帧必然 10s 超时后入队（幂等键垃圾行），诚实态直接落卡，
+     * 零请求零入队零超时等待。relay/fixture/未知模式走现状路径（逐字节不变）。
      */
     fun request() {
         if (_state.value is WorkspaceLinkCard.State.Requesting) return
-        if (appContext == null) return
+        val ctx = appContext ?: return
+        if (WorkspaceLinkModePolicy.presentation(
+                connectionMode = ConnectionManager.configuredMode(),
+                fixtureMode = com.devhub.mobile.data.FixtureMode.enabled(ctx),
+            ) is WorkspaceLinkModePolicy.Presentation.NotAvailableInLocal
+        ) {
+            _state.value = WorkspaceLinkCard.State.NotAvailableInLocal
+            return
+        }
         _state.value = WorkspaceLinkCard.State.Requesting
         scope.launch {
             val submit = ConnectionManager.submitWorkspaceLink()

@@ -85,6 +85,15 @@ fun WorkspaceLinkCardView(
                         // 与心跳横幅同屏自相矛盾（05/12/16 号截图实证），改如实分层表述。
                         Text("桌面 ZCode 链路未就绪：请求已排队，就绪后自动送达", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
+                    // U5 批（Z3 结论 B 方案①）：本地模式诚实态——不提供+出路（Relay 接入），
+                    // 无重试钮、不排队（本地帧协议无 workspace_link 结算回程，请求门在控制器）
+                    WorkspaceLinkCard.State.NotAvailableInLocal ->
+                        Text(
+                            com.devhub.mobile.core.InteractionHonesty.ZCODE_REMOTE_LOCAL_UNAVAILABLE,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+
                     is WorkspaceLinkCard.State.Unavailable -> {
                         Text(s.message, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
                         TextButton(onClick = onRetry) { Text("重试", fontSize = 12.sp) }
