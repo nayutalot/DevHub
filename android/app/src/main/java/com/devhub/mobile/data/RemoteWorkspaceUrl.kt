@@ -11,8 +11,12 @@ package com.devhub.mobile.data
  */
 object RemoteWorkspaceUrl {
 
-    /** 结构化拒绝提示（BAD_PAYLOAD 风格；UI 与测试共用同一文案常量，绝不双标）。 */
-    const val REJECT_REASON: String = "URL 校验失败：仅接受 http(s):// 链接（BAD_PAYLOAD）"
+    /**
+     * 结构化拒绝提示（UI 与测试共用同一文案常量，绝不双标）。
+     * U2-M3（AUDIT P3#5）：用户面 headline 只讲规则，不再直出 BAD_PAYLOAD 码
+     * （码语义归网关结构化错误面 ErrorPresent 承载；本地表单拒绝无需前置曝码）。
+     */
+    const val REJECT_REASON: String = "URL 校验失败：仅接受 http(s):// 链接，其余一律拒绝"
 
     /** 结构化校验结果：Ok(规范化 url) / Rejected(理由)。 */
     sealed interface Verdict {

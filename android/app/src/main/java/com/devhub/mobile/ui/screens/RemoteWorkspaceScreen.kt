@@ -214,7 +214,8 @@ fun RemoteWorkspaceScreen(onOpenEntry: (Long) -> Unit, onBack: () -> Unit = {}) 
             singleLine = true,
             isError = url.isNotBlank() && RemoteWorkspaceUrl.parse(url) is RemoteWorkspaceUrl.Verdict.Rejected,
             supportingText = {
-                Text("仅接受 http(s)://，其余一律拒绝（BAD_PAYLOAD）", fontSize = 11.sp)
+                // U2-M3（AUDIT P3#5）：helper 不再直出错误码（码归结构化错误面承载）
+                Text("仅接受 http(s):// 链接，其余一律拒绝", fontSize = 11.sp)
             },
         )
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

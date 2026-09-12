@@ -28,7 +28,10 @@ class RelayHealthProbeFactoryTest {
         assertTrue("expected Invalid, got $result", result is RelayProbeBuildResult.Invalid)
         val invalid = result as RelayProbeBuildResult.Invalid
         assertTrue("structured message must be non-blank", invalid.message.isNotBlank())
-        assertTrue("message must cite the doc anchor", invalid.message.contains("docs/19"))
+        // U2-M3（AUDIT P2#6）：用户面文案不再引用内部文档编号（原锁「message must cite
+        // the doc anchor docs/19」随批退役）——规则本身语义保留，人话可读
+        assertTrue("message must state the rule in human language", invalid.message.contains("TLS 指纹格式非法"))
+        assertTrue("message must not leak internal doc anchors", !invalid.message.contains("docs/19"))
     }
 
     @Test

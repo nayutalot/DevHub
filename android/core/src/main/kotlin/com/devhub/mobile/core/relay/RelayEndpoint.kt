@@ -22,9 +22,12 @@ data class RelayEndpoint(
         const val WSS_PREFIX = "wss://"
         const val DEFAULT_PORT = 443
 
-        /** 文案引用 docs/19 §11（保存层 UI 与连接层异常共用）。 */
+        /**
+         * 文案（保存层 UI 与连接层异常共用）：只讲规则本身，不引内部文档编号
+         * （U2-M3，AUDIT P2#6；原「docs/19 §11」引用移除，语义不变）。
+         */
         const val REJECT_REASON =
-            "relay endpoint 必须为 wss://（docs/19 §11：ws:// 明文禁作正式方案，仅限联调时间盒且不承载真实配对）"
+            "relay endpoint 必须为 wss://（ws:// 为明文，不承载真实配对；App 在保存与连接两层一律拒绝）"
 
         /**
          * 解析并强制 wss；非法形态抛 IllegalArgumentException（fail-fast，绝不静默降级）。

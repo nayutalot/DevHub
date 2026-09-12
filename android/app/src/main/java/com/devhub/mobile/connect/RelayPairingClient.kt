@@ -114,7 +114,7 @@ object RelayPairingClient {
         } catch (err: IllegalArgumentException) {
             return@withContext Outcome.Failure(
                 "BAD_CONFIG",
-                "relay TLS 指纹配置非法（docs/19 §10.2）：${err.message}",
+                "relay TLS 指纹配置非法：${err.message}",
             )
         }
         val pinPattern = if (pinning != null) TlsPinningConfig.pinPatternFor(endpoint.host) else null

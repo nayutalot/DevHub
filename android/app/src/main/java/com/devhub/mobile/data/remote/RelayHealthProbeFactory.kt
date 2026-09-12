@@ -45,7 +45,7 @@ internal object RelayHealthProbeFactory {
             )
         } catch (err: IllegalArgumentException) {
             RelayProbeBuildResult.Invalid(
-                "TLS 指纹格式非法（docs/19 §10.2）：${err.message ?: "须为 sha256/ + 64 位 hex，或可解码为 32 字节的 base64"}",
+                "TLS 指纹格式非法：${err.message ?: "须为 sha256/ + 64 位 hex，或可解码为 32 字节的 base64"}",
             )
         }
     }
