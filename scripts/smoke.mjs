@@ -14328,10 +14328,11 @@ if (isEntrypoint()) {
     assert.equal(drift.resultType, null)
   }, 'fast')
 
-  // 104. 托管配置源 + env 拼装（主控定案 #1）：键名派生、ready 判定链
-  //      （键空 → 档案缺失 → ready）、快照 → env 四键、kind 不注入（Z1 无证据）。
-  registerCase('t2z-104: zcode managed config source + env assembly — settings key default empty = disabled (llm_review precedent), ApiHub zcode active profile resolution against fixture home, env keys per Z1 live-verified trio + <PROVIDER>_API_KEY, kind never injected (no Z1 evidence)', async () => {
-    const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs')
+  // 104. 托管配置源 + CLI 配置注入（T2e 批改版）：ready 判定链（键空 → 档案缺失 →
+  //      ready）、快照 → 注入计划纯函数（provider 前缀守卫）、ensureZcodeCliConfig
+  //      合并原子 upsert（用户字段保留/幂等/结构化失败）；env 注入面退役零断言残留。
+  registerCase('t2z-104: zcode managed config source + cli config injection — settings key default empty = disabled (llm_review precedent), ApiHub zcode active profile resolution against fixture home, ensureZcodeCliConfig merge-upsert into ~/.zcode/cli/config.json (user fields preserved, idempotent rewrite skip, structured read/parse/write failures), env key derivation retired (T2e)', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
     const { join } = await import('node:path')
     const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
@@ -14340,11 +14341,18 @@ if (isEntrypoint()) {
     const apihub = await import(new URL('../src/main/services/apihub/apihubService.ts', import.meta.url).href)
     const { plaintextKeyCrypto } = await import(new URL('../src/main/services/apihub/keyStore.ts', import.meta.url).href)
 
-    // 纯函数：providerId → env 键名
-    assert.equal(cfg.providerIdToEnvKeyName('bigmodel'), 'BIGMODEL_API_KEY')
-    assert.equal(cfg.providerIdToEnvKeyName('open-router'), 'OPEN_ROUTER_API_KEY')
-    assert.equal(cfg.providerIdToEnvKeyName('9dragons'), '_9DRAGONS_API_KEY', '数字开头前置下划线保证合法 env 名')
-    assert.equal(cfg.providerIdToEnvKeyName('  '), null)
+    // 纯函数：快照 → CLI 配置注入计划（T2e：providerKey = model 前缀 = CLI 匹配键）
+    const okPlan = cfg.zcodeCliConfigPlanOf({ ready: true, model: 'dummyhub/dummy-model', providerId: 'dummyhub', baseUrl: 'https://dummyhub.test/api/anthropic', kind: 'anthropic', apiKeyPlain: 'k' })
+    assert.equal(okPlan.ok, true)
+    assert.equal(okPlan.plan.providerKey, 'dummyhub', 'provider key = model ref prefix (the key CLI enrichModelTarget looks up)')
+    assert.equal(okPlan.plan.modelId, 'dummy-model')
+    assert.equal(okPlan.plan.kind, 'anthropic')
+    assert.equal(okPlan.plan.modelRef, 'dummyhub/dummy-model')
+    const noRef = cfg.zcodeCliConfigPlanOf({ ready: true, model: 'notqualified', providerId: 'dummyhub', baseUrl: 'https://x.test', apiKeyPlain: 'k' })
+    assert.equal(noRef.ok, false, 'model without a provider-qualified ref refused (CLI isProviderQualifiedModelRef semantics)')
+    const mismatch = cfg.zcodeCliConfigPlanOf({ ready: true, model: 'other/m', providerId: 'dummyhub', baseUrl: 'https://x.test', apiKeyPlain: 'k' })
+    assert.equal(mismatch.ok, false, 'model prefix != active profile providerId refused (prevents the entry being silently unconsumed)')
+    assert.ok(mismatch.reason.includes('provider prefix') && mismatch.reason.includes('does not match'), 'structured reason names the mismatch')
 
     await makeTempHome('devhub-t2z-104-')
     try {
@@ -14380,20 +14388,59 @@ if (isEntrypoint()) {
       assert.equal(ready.baseUrl, 'https://dummyhub.test/api/anthropic')
       assert.equal(ready.providerId, 'dummyhub')
       assert.equal(ready.kind, 'anthropic')
-      assert.equal(ready.envProviderKeyName, 'DUMMYHUB_API_KEY')
       assert.equal(ready.apiKeyPlain, 'smoke-profile-key-4451', 'decrypted key transits in memory only')
+      assert.equal(ready.envProviderKeyName, undefined, 'T2e: env key derivation retired with the env injection face')
 
-      // 4) env 拼装（Z1 活体 run3 形态；base env 保留；kind 不注入）
-      const env = cfg.buildManagedSpawnEnv(ready, { PATH: 'keep', T2Z: '1' })
-      assert.equal(env['ZCODE_MODEL'], 'dummyhub/dummy-model')
-      assert.equal(env['ZCODE_BASE_URL'], 'https://dummyhub.test/api/anthropic')
-      assert.equal(env['ZCODE_API_KEY'], 'smoke-profile-key-4451')
-      assert.equal(env['DUMMYHUB_API_KEY'], 'smoke-profile-key-4451')
-      assert.equal(env['PATH'], 'keep')
-      assert.equal(env['ZCODE_KIND'], undefined, 'Z1 evidence has no kind env key — never guessed')
-      assert.equal(env['ZCODE_SESSION_DB_PATH'], undefined, '同库转录：不重定向会话库（主控定案 #6）')
-      const untouched = cfg.buildManagedSpawnEnv({ ready: false, reason: 'x' }, { A: '1' })
-      assert.deepEqual(untouched, { A: '1' }, 'not-ready snapshot injects nothing (defensive)')
+      // 4) ensureZcodeCliConfig（T2e 核心）：合并原子 upsert ~/.zcode/cli/config.json
+      const cfgPath = join(home, '.zcode', 'cli', 'config.json')
+
+      // 4a) 未就绪快照 → 结构化拒绝且零写
+      const refused = await cfg.ensureZcodeCliConfig({ ready: false, reason: 'fixture-off' }, { homeDir: home })
+      assert.equal(refused.ok, false)
+      assert.ok(refused.reason.includes('fixture-off'), 'not-ready reason passes through verbatim')
+      assert.equal(existsSync(cfgPath), false, 'not-ready snapshot writes nothing')
+
+      // 4b) 全新 home：父目录创建 + 计划内容写入（provider 键 = model 前缀）
+      const fresh = await cfg.ensureZcodeCliConfig(ready, { homeDir: home })
+      assert.equal(fresh.ok, true, `ensure ok: ${fresh.reason ?? ''}`)
+      assert.equal(fresh.wrote, true)
+      const written = JSON.parse(readFileSync(cfgPath, 'utf8'))
+      assert.equal(written.model, 'dummyhub/dummy-model', 'model main selection written')
+      assert.equal(written.provider.dummyhub.kind, 'anthropic', 'kind from the active profile (CLI schema enum member)')
+      assert.equal(written.provider.dummyhub.options.baseURL, 'https://dummyhub.test/api/anthropic', 'baseURL from the active profile')
+      assert.equal(written.provider.dummyhub.options.apiKey, 'smoke-profile-key-4451', 'key lands in the sanctioned CLI config file (never in spawn env)')
+      assert.equal(written.provider.dummyhub.options.apiKeyRequired, true, 'options.apiKeyRequired mirrors the official coding-plan writer')
+      assert.deepEqual(written.provider.dummyhub.models['dummy-model'], { name: 'dummy-model' }, 'models entry mirrors the official writer shape')
+
+      // 4c) 已存在文件：用户既有字段合并保留，只 upsert 本批键
+      writeFileSync(cfgPath, JSON.stringify({ ui: { locale: 'zh' }, provider: { 'user-prov': { kind: 'openai', options: { apiKey: 'user-key' } } }, model: { main: 'user-prov/user-m', lite: 'user-prov/lite-m' } }))
+      const merged = await cfg.ensureZcodeCliConfig(ready, { homeDir: home })
+      assert.equal(merged.ok, true)
+      const mergedText = JSON.parse(readFileSync(cfgPath, 'utf8'))
+      assert.deepEqual(mergedText.ui, { locale: 'zh' }, 'passthrough user keys preserved (top-level merge)')
+      assert.equal(mergedText.provider['user-prov'].options.apiKey, 'user-key', 'other provider entries untouched')
+      assert.equal(mergedText.provider.dummyhub.options.apiKey, 'smoke-profile-key-4451', 'target provider entry upserted')
+      assert.deepEqual(mergedText.model, { main: 'dummyhub/dummy-model', lite: 'user-prov/lite-m' }, 'object model: only main replaced (official patchMainModelSelection semantics)')
+
+      // 4d) 幂等：内容已满足 → 跳过写盘（deps 注入缝证明零写调用）
+      let writeCalls = 0
+      const idem = await cfg.ensureZcodeCliConfig(ready, { readFile: () => readFileSync(cfgPath, 'utf8'), writeFile: () => { writeCalls += 1 } })
+      assert.equal(idem.ok, true)
+      assert.equal(idem.wrote, false, 'idempotent re-run skips the write')
+      assert.equal(writeCalls, 0)
+
+      // 4e) 损坏 JSON：结构化拒绝，绝不覆盖用户文件
+      writeFileSync(cfgPath, '{not-json')
+      const corrupt = await cfg.ensureZcodeCliConfig(ready, { homeDir: home })
+      assert.equal(corrupt.ok, false)
+      assert.ok(corrupt.reason.includes('parse failed'), 'structured parse-failure reason')
+      assert.equal(readFileSync(cfgPath, 'utf8'), '{not-json', 'corrupt user file never overwritten')
+
+      // 4f) 写失败：结构化 reason（默认实现 tmp+rename 保证绝不半写）
+      const failWrite = await cfg.ensureZcodeCliConfig(ready, { readFile: () => null, writeFile: () => { throw new Error('disk on fire') } })
+      assert.equal(failWrite.ok, false)
+      assert.ok(failWrite.reason.includes('cli config write failed'), 'structured write-failure reason')
+      assert.equal(failWrite.reason.includes('disk on fire'), true, 'fs error message carried (never credential material)')
     } finally {
       dbModule.closeDatabase()
     }
@@ -14424,7 +14471,7 @@ if (isEntrypoint()) {
 
       // 配置就绪 + doctor alive → managed（reply/pause；resume 无已验证方法不授予）
       const configured = zcodeMod.createZcodeProvider({
-        managedConfigSource: async () => ({ ready: true, model: 'dummyhub/dummy-model', baseUrl: 'https://dummyhub.test/api/anthropic', kind: 'anthropic', providerId: 'dummyhub', apiKeyPlain: 'smoke-fake-key-t2z105', envProviderKeyName: 'DUMMYHUB_API_KEY' }),
+        managedConfigSource: async () => ({ ready: true, model: 'dummyhub/dummy-model', baseUrl: 'https://dummyhub.test/api/anthropic', kind: 'anthropic', providerId: 'dummyhub', apiKeyPlain: 'smoke-fake-key-t2z105' }),
         managedDoctorProbe: doctorOk,
       })
       const capsOn = await configured.getCapabilities(ref)
@@ -14473,11 +14520,12 @@ if (isEntrypoint()) {
     assert.equal(typeof provider.startManagedSession, 'function', 'startManagedSession implemented (spawn entry point for the generic L3 gate)')
   }, 'fast')
 
-  // 107. 托管 turn 全链（fake transport，full 档）：env 注入 spawn → create 期间
+  // 107. 托管 turn 全链（fake transport，full 档）：spawn 前 CLI 配置注入
+  //      （ensureZcodeCliConfig → 夹具 config 文件，env 零注入）→ create 期间
   //      runtimePreferences 分发器应答默认四字段 + permission denied →
   //      create/subscribe/send/close 顺序 → turn.started/turn.completed(success)
   //      投影 running→waiting_input → managed 快照 sink；夹具日志零 key 值。
-  registerCase('t2z-107: zcode managed turn over fake transport — env-injected spawn answers runtimePreferences with defaults + permission denied, create/subscribe/send/close in order (brief decision #4), turn.started→running and turn.completed(success)→waiting_input projected, managed snapshot to sink, fixture log never contains the key value', async () => {
+  registerCase('t2z-107: zcode managed turn over fake transport — cli config file injected before spawn (ensureZcodeCliConfig writes the fixture config; spawn env carries zero managed keys), answers runtimePreferences with defaults + permission denied, create/subscribe/send/close in order (brief decision #4), turn.started→running and turn.completed(success)→waiting_input projected, managed snapshot to sink, fixture log never contains the key value', async () => {
     const { mkdtempSync, writeFileSync, readFileSync, existsSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
     const { join } = await import('node:path')
@@ -14487,6 +14535,7 @@ if (isEntrypoint()) {
     const dir = mkdtempSync(join(tmpdir(), 'devhub-t2z-107-'))
     const logPath = join(dir, 'fixture-log.jsonl')
     const fixtureScript = join(dir, 'zcode-fake-appserver.mjs')
+    const cliConfigPath = join(dir, 'cli-config.json')
     writeFileSync(fixtureScript, T2Z_FAKE_APPSERVER_SCRIPT)
     const fakeKey = 'smoke-fake-key-DO-NOT-LOG-9f2c'
     process.env['ZCODE_FIXTURE_LOG'] = logPath
@@ -14501,8 +14550,8 @@ if (isEntrypoint()) {
           kind: 'anthropic',
           providerId: 'dummyhub',
           apiKeyPlain: fakeKey,
-          envProviderKeyName: 'DUMMYHUB_API_KEY',
         }),
+        managedCliConfigPath: cliConfigPath,
         managedCommand: process.execPath,
         managedArgs: [fixtureScript],
         managedWorkspacePath: join(dir, 'ws'),
@@ -14534,10 +14583,19 @@ if (isEntrypoint()) {
       // turn 终止沿 → session/close + 连接收尾（夹具日志出现 close 请求）
       await pollUntil(() => existsSync(logPath) && readFileSync(logPath, 'utf8').includes('"method":"session/close"'), 5000, 20, 'session/close issued after terminal event')
       const entries = readFileSync(logPath, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
-      assert.equal(entries[0].env.zcodeModel, 'dummyhub/dummy-model', 'env injection: ZCODE_MODEL from the settings-key snapshot')
-      assert.equal(entries[0].env.zcodeBaseUrl, 'https://dummyhub.test/api/anthropic', 'env injection: ZCODE_BASE_URL from the active profile')
-      assert.equal(entries[0].env.zcodeApiKeySet, true, 'env injection: ZCODE_API_KEY set (value never logged)')
-      assert.equal(entries[0].env.providerKeySet, true, 'env injection: <PROVIDER>_API_KEY set')
+      // T2e 断言面一：spawn env 零注入（fixture 启动即记录 env 位——env 回归透传）
+      assert.equal(entries[0].env.zcodeModel, null, 'T2e: ZCODE_MODEL no longer injected into spawn env')
+      assert.equal(entries[0].env.zcodeBaseUrl, null, 'T2e: ZCODE_BASE_URL no longer injected into spawn env')
+      assert.equal(entries[0].env.zcodeApiKeySet, false, 'T2e: ZCODE_API_KEY no longer injected into spawn env')
+      assert.equal(entries[0].env.providerKeySet, false, 'T2e: <PROVIDER>_API_KEY no longer injected into spawn env')
+      // T2e 断言面二：CLI 配置文件注入（ensureZcodeCliConfig 在 spawn 前写入）
+      const cliConfig = JSON.parse(readFileSync(cliConfigPath, 'utf8'))
+      assert.equal(cliConfig.model, 'dummyhub/dummy-model', 'cli config: model main selection written before spawn')
+      assert.equal(cliConfig.provider.dummyhub.kind, 'anthropic', 'cli config: kind from the active profile')
+      assert.equal(cliConfig.provider.dummyhub.options.baseURL, 'https://dummyhub.test/api/anthropic', 'cli config: baseURL from the active profile')
+      assert.equal(cliConfig.provider.dummyhub.options.apiKey, fakeKey, 'cli config: key goes to the sanctioned config file (never to env)')
+      assert.equal(cliConfig.provider.dummyhub.options.apiKeyRequired, true)
+      assert.equal(cliConfig.provider.dummyhub.models['dummy-model'].name, 'dummy-model')
       const methods = entries.filter((e) => e.request !== undefined).map((e) => e.request.method)
       assert.deepEqual(methods, ['session/create', 'session/subscribe', 'session/send', 'session/close'], 'turn path order: create → subscribe → send → … → close (no initialize handshake, Z1 diff #2)')
       const rtAnswer = entries.find((e) => e.serverAnswer !== undefined && e.serverAnswer.method === 'session/requestRuntimePreferences')
@@ -14589,8 +14647,8 @@ if (isEntrypoint()) {
           kind: 'anthropic',
           providerId: 'dummyhub',
           apiKeyPlain: 'smoke-fake-key-t2z108',
-          envProviderKeyName: 'DUMMYHUB_API_KEY',
         }),
+        managedCliConfigPath: join(dir, 'cli-config-108.json'),
         managedCommand: process.execPath,
         managedArgs: [fixtureScript],
         managedWorkspacePath: join(dir, 'ws'),
@@ -14667,8 +14725,8 @@ if (isEntrypoint()) {
           kind: 'anthropic',
           providerId: 'dummyhub',
           apiKeyPlain: 'smoke-fake-key-t2z109',
-          envProviderKeyName: 'DUMMYHUB_API_KEY',
         }),
+        managedCliConfigPath: join(dir, 'cli-config-109.json'),
         managedCommand: process.execPath,
         managedArgs: [fixtureScript],
         managedWorkspacePath: join(dir, 'ws'),
