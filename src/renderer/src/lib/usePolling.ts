@@ -76,3 +76,11 @@ export function usePolling<T>(fn: () => Promise<T>, deps: readonly unknown[], in
 
 /** AGENTS_POLL_MS：docs/14 §A.3 规定的 Agents 视图轮询间隔（2s）。 */
 export const AGENTS_POLL_MS = 2000
+
+/**
+ * AGENTS_SLOW_POLL_MS：D3-F1 慢变面降频间隔（10s，AUDIT D-Aud F1 修法 ≥10s）。
+ * 仅用于 devices / diagnostics 等非新鲜度敏感面（配对/撤销/自启等低频变化，
+ * 且操作后本就有 onChanged→refresh 立即重拉）；providers / sessions / events /
+ * detail / messages 的新鲜度契约面保持 AGENTS_POLL_MS 不降。
+ */
+export const AGENTS_SLOW_POLL_MS = 10_000
