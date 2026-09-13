@@ -350,7 +350,7 @@ function MaterialImportPanelOpen({ onClose }: { onClose: () => void }) {
         onDrop={onDrop}
         className="add-form"
         style={{
-          border: dragOver ? '1px dashed var(--accent, #4a7dff)' : '1px dashed var(--border, #888)',
+          border: dragOver ? '1px dashed var(--accent-bright)' : '1px dashed var(--border)',
           padding: 12,
           borderRadius: 6,
         }}
@@ -594,8 +594,8 @@ function JobRow({
           {job.mode} · 进度 {job.progress ?? 0}%
           {agent !== undefined && ` · ${agent.provider} 会话${SESSION_STATUS_LABEL[agent.sessionStatus] ?? agent.sessionStatus}`}
         </span>
-        <div style={{ width: 260, height: 6, background: 'var(--border, #555)', borderRadius: 3, overflow: 'hidden' }}>
-          <div style={{ width: `${job.progress ?? 0}%`, height: '100%', background: job.stage === 'failed' ? 'var(--err, #d55)' : 'var(--accent, #4a7dff)' }} />
+        <div style={{ width: 260, height: 6, background: 'var(--border)', borderRadius: 3, overflow: 'hidden' }}>
+          <div style={{ width: `${job.progress ?? 0}%`, height: '100%', background: job.stage === 'failed' ? 'var(--status-err)' : 'var(--accent-bright)' }} />
         </div>
         {job.error !== null && <span className="form-error">{job.error.kind}: {job.error.message}</span>}
       </div>

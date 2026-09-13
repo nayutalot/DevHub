@@ -40,6 +40,13 @@ export function DockerView() {
   const [logTail, setLogTail] = useState<number>(200)
   /** 正在执行动作的容器（禁用该行按钮，防重复点击）。 */
   const [busy, setBusy] = useState<string | null>(null)
+  /**
+   * Remove 两段式第二段的应用内确认 modal（AUDIT D-Aud I1：window.prompt 在
+   * Electron 必抛 → 改 cp-modal 式确认流，输入匹配语义不变 —— 与 Archive
+   * DOUBLE_CONFIRM / ContestDetailView 删除确认同形态）。
+   */
+  const [removeConfirm, setRemoveConfirm] = useState<DockerActionImpacts | null>(null)
+  const [removeInput, setRemoveInput] = useState('')
 
   async function runAction(name: string, action: DockerActionName): Promise<void> {
     setBusy(`${name}:${action}`)
@@ -49,25 +56,16 @@ export function DockerView() {
       const first = await call('docker:action', { name, action })
       if (first.confirmRequired === true) {
         if (action === 'remove') {
-          // DOUBLE_CONFIRM：额外输入容器名匹配（docs/09 §8.1「输入容器名匹配」），
-          // 不匹配 / 取消 → 绝不发 confirmed
-          const typed = window.prompt(buildConfirmText(action, first.impacts) + `\n\nType the container name "${first.impacts.name}" to confirm removal:`)
-          if (typed === null || typed.trim() !== first.impacts.name) {
-            show('remove cancelled — name did not match', 'err')
-            return
-          }
-        } else if (!window.confirm(buildConfirmText(action, first.impacts))) {
+          // DOUBLE_CONFIRM：改应用内 modal 输入容器名匹配（docs/09 §8.1「输入容器名
+          // 匹配」），不匹配 / 取消 → 绝不发 confirmed（原 window.prompt 在 Electron 必抛）
+          setRemoveInput('')
+          setRemoveConfirm(first.impacts)
           return
         }
-        // 第二段：confirmed 执行
-        const done = await call('docker:action', { name, action, confirmed: true })
-        if (done.confirmRequired === true) return
-        if (done.ok) {
-          show(`${done.name}: ${done.action === 'remove' ? 'removed' : `${done.action}ed`}${done.detail !== undefined ? ` — ${done.detail}` : ''}`)
-          overview.refresh()
-        } else {
-          show(`${done.name}: ${done.action} failed — ${done.error ?? 'unknown error'}`, 'err')
+        if (!window.confirm(buildConfirmText(action, first.impacts))) {
+          return
         }
+        await executeConfirmed(name, action)
         return
       }
       if (first.ok) {
@@ -81,6 +79,37 @@ export function DockerView() {
     } finally {
       setBusy(null)
     }
+  }
+
+  /** 第二段：confirmed 重发（start/stop/restart 的 window.confirm 与 remove modal 通过后共用）。 */
+  async function executeConfirmed(name: string, action: DockerActionName): Promise<void> {
+    setBusy(`${name}:${action}`)
+    try {
+      const done = await call('docker:action', { name, action, confirmed: true })
+      if (done.confirmRequired === true) return
+      if (done.ok) {
+        show(`${done.name}: ${done.action === 'remove' ? 'removed' : `${done.action}ed`}${done.detail !== undefined ? ` — ${done.detail}` : ''}`)
+        overview.refresh()
+      } else {
+        show(`${done.name}: ${done.action} failed — ${done.error ?? 'unknown error'}`, 'err')
+      }
+    } catch (err) {
+      show(err instanceof Error ? err.message : String(err), 'err')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  /** remove modal 确认：输入精确匹配（trim 容差同原 prompt 语义）才发 confirmed。 */
+  async function confirmRemove(): Promise<void> {
+    if (removeConfirm === null) return
+    if (removeInput.trim() !== removeConfirm.name) {
+      show('remove cancelled — name did not match', 'err')
+      return
+    }
+    const name = removeConfirm.name
+    setRemoveConfirm(null)
+    await executeConfirmed(name, 'remove')
   }
 
   const data = overview.data
@@ -249,6 +278,46 @@ export function DockerView() {
             </div>
           )}
         </>
+      )}
+
+      {removeConfirm !== null && (
+        <div className="cp-modal-overlay" role="dialog" aria-modal="true">
+          <div className="cp-modal">
+            <h3 className="section-title">Confirm REMOVE of container &quot;{removeConfirm.name}&quot;?</h3>
+            <pre className="mono docker-confirm-impacts">{buildConfirmText('remove', removeConfirm)}</pre>
+            <label className="docker-confirm-input-label">
+              Type the container name to confirm removal (mismatch or empty = no removal):
+              <input
+                type="text"
+                className="input mono"
+                value={removeInput}
+                placeholder={removeConfirm.name}
+                autoFocus
+                onChange={(e) => setRemoveInput(e.target.value)}
+              />
+            </label>
+            <div className="form-row">
+              <button
+                type="button"
+                className="btn btn-danger"
+                disabled={removeInput.trim() !== removeConfirm.name}
+                title="Remove container (enabled only when the typed name matches exactly)"
+                onClick={() => {
+                  void confirmRemove()
+                }}
+              >
+                Remove
+              </button>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setRemoveConfirm(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <Toast toast={toast} />

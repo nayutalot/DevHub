@@ -299,7 +299,7 @@ function ConfirmFaceModal({
   onClose: () => void
 }) {
   return (
-    <div style={{ border: '1px solid var(--border, #888)', borderRadius: 6, padding: 10, margin: '8px 0' }}>
+    <div style={{ border: '1px solid var(--border)', borderRadius: 6, padding: 10, margin: '8px 0' }}>
       <h4 className="panel-title">确认导入（两段式）</h4>
       <p className="dim">
         草稿含 {face.draft.contests.length} 个比赛、{face.draft.contests.reduce((acc, c) => acc + c.nodes.length, 0)} 个节点、

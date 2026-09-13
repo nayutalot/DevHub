@@ -1,9 +1,10 @@
 /**
  * App.tsx — 布局骨架 + 视图切换 + 全局刷新上下文（docs/06 §2）。
  *
- * 导航为 useState 切换（不引入 router 依赖）；AppContext 提供 navigate 与
- * refreshKey/refreshAll（扫描完成后整体重拉）。Topbar 显示当前视图名与
- * app:version 真实版本信息（失败静默降级，不影响视图三态）。
+ * 导航为 useState 切换（不引入 router 依赖）；navigate 同步回写 location.hash、
+ * initialTarget 全视图映射（深链/F5 刷新保持视图态，AUDIT D-Aud I3）；AppContext
+ * 提供 navigate 与 refreshKey/refreshAll（扫描完成后整体重拉）。Topbar 显示当前
+ * 视图名与 app:version 真实版本信息（失败静默降级，不影响视图三态）。
  *
  * CP2（docs/22 §4.2）：同一 renderer 产物按 hash 分流——`#overlay` 渲染精简
  * OverlayApp（悬浮窗，无侧栏/顶栏，usePolling 轮询 contestpin:*）；`#contest:<id>`
@@ -49,14 +50,35 @@ function initialMode(): 'overlay' | 'main' {
 }
 
 /**
- * hash 导航解析（主窗口）：#agents（托盘「查看 Agent 摘要」先例）/
- * #contest:<id>（CP2 悬浮窗卡片 → 比赛详情）/ 默认 dashboard。
+ * hash 导航解析（主窗口）：11 视图全映射（AUDIT D-Aud I3——原仅 #agents/
+ * #contest:<id> 两个入口，其余视图深链/刷新全落 Dashboard）。canonical 形态
+ * `#<view>` / `#contest:<id>`（托盘「查看 Agent 摘要」#agents 与 CP2 悬浮窗
+ * openInMain #contest:<id> 既有行为不变；#/​<view> 斜杠变体兼容保留）。
  */
+const VIEW_IDS: readonly ViewTarget['view'][] = [
+  'dashboard',
+  'projects',
+  'environment',
+  'services',
+  'skills',
+  'apihub',
+  'versions',
+  'docker',
+  'archive',
+  'agents',
+  'contest',
+]
+
+/** ViewTarget → canonical hash（projects 的 projectId 属视图内选中态，不入 hash）。 */
+function hashForTarget(t: ViewTarget): string {
+  return t.view === 'contest' && t.contestId !== undefined ? `#contest:${t.contestId}` : `#${t.view}`
+}
+
 function initialTarget(): ViewTarget {
-  const hash = window.location.hash
-  if (hash === '#agents' || hash === '#/agents') return { view: 'agents' }
-  const contestMatch = hash.match(/^#\/?contest:(\d+)$/)
+  const key = window.location.hash.replace(/^#\/?/, '')
+  const contestMatch = key.match(/^contest:(\d+)$/)
   if (contestMatch !== null) return { view: 'contest', contestId: Number(contestMatch[1]) }
+  if ((VIEW_IDS as readonly string[]).includes(key)) return { view: key } as ViewTarget
   return { view: 'dashboard' }
 }
 
@@ -78,7 +100,14 @@ function MainApp() {
   }, [])
 
   const refreshAll = useCallback(() => setRefreshKey((k) => k + 1), [])
-  const navigate = useCallback((t: ViewTarget) => setTarget(t), [])
+  // navigate 同步回写 hash（AUDIT D-Aud I3：F5/重开保持视图态）。setTarget 先行
+  // 保证即时切换；hashchange 随后的重解析产生等价 target（initial*Id 均为
+  // useState 初值，prop 变更无副作用），不回环。
+  const navigate = useCallback((t: ViewTarget) => {
+    setTarget(t)
+    const h = hashForTarget(t)
+    if (window.location.hash !== h) window.location.hash = h
+  }, [])
   const appState = useMemo(() => ({ refreshKey, refreshAll, navigate }), [refreshKey, refreshAll, navigate])
 
   return (
