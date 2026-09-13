@@ -1,10 +1,11 @@
-# DevHub 会话交接文档（2026-09-13 23:4x——桌面端优化线：D-Aud 审计收官（P0 零/P1×3/P2×13/P3×10）+D1 实现批执行中）
+# DevHub 会话交接文档（2026-09-14 01:5x——桌面端优化线全收官：D-Aud 审计+D1 交互修复+D3 性能+B3 累积修复+D2 文案统一五批全合，常驻 X9 版在役）
 
 > **✅ D-Aud 桌面端三向审计（09-13 深夜，「优化桌面端」令）**：美观/交互/性能三桶×四级，**P0 零/P1×3/P2×13/P3×10**（清单=acceptance/desktop-audit-20260913/AUDIT.md+15 截图）。P1：I1 Docker Remove 用 window.prompt（Electron 必抛）=删除功能整体失效/I2 「加载更多」实为重载第一页（useCursorStream loadMore=refresh 游标重置）/I3 hash 路由仅 2/11 视图且不回写。性能基线：启动 health200 中位 **1321ms**、内存 465→575MB、Agents 滚动 169fps、bundle 931KB 无代码分割。走查护栏实证：锁屏检测→CDP 零注入完成 11 视图+悬浮窗（未对锁屏注入）。
 > **✅ D1 已合 main（4d1648c）+X7 已换装在役（PID 27748）**：P1×3 全修（Docker Remove modal 化转可用/loadMore 真追加 CDP 实证 100→163 行/hash 路由 11 视图全映射+回写）+美观快赢×3；typecheck 0+fast 115+CDP 运行时验证。
 > **✅ D3 性能批已合 main**：F1 Agents 轮询器清点（9 个双证）+devices/diagnostics 降频 10s+四类行 memo；F2 路由级代码分割 **934KB→593KB（-36.6%）**+懒加载失败结构化 Retry；hash 深链 12/12+回写 11/11 全回归；fast 115/115。
 > **✅ B3 已合 main（本地待推由后台循环兜底）**：services 表无界累积修复三件套——upsert 键 (port,origin) 止增（pid 漂移原位 UPDATE 首见时间保留）/list 默认 15min recency 过滤（全调用方 grep 均最近快照语义零损失）/7 天裁剪（首用触发+每日定时；真实库盘点 665 行将删 286、527 尸行坍缩 68 逻辑键）；零 migration；typecheck 0+fast 115/115+full 209/209 主控独立复核 fast。
-> **排队**：B3 落地后 X8 终换装（D3+B3 进常驻）→D2 文案语言统一批（涉全量 smoke 断言联动）→X9。
+> **✅ D2 已合 main（c458d47）+X9 终换装在役（09-14 01:46 PID 33808 health×3，asar 11/11 全命中）**：D2 用户面文案统一中文（27 文件+589/−486 纯展示层；术语表入 AUDIT 附注 A；**主控裁决落地 known-limitations §6.1 目标语言=中文为主技术名词英文，用户可翻回**；smoke 断言联动 0 处=format.ts relativeTime 中文契约零触碰原样过）；X9 包含 D1+D3+B3+D2 全量。门禁全程 typecheck 0+fast 115+full 209 各批独立复跑。
+> **留档后备**：D-Aud P2×10/P3×10 未修清单（AUDIT.md）；本地命令协议方案②；桌面文案若用户要英文界面可翻回（纯文案易逆）。
 
 > **✅ B1+B2 bug 扫查双批（09-13 深夜，「自主推进 bug 检查并修复」令）**：
 > 1. **B1 Android 崩溃面全量扫查已合 main**：必修 5（**GatewayApi parseContract=P0 非 JSON 修复的补集**：契约违约 2xx 体〔合法 JSON 错形状/缺字段/错型〕11 端点结构化 BAD_PAYLOAD；SessionDetail 五处交互提交裸协程 catch 兜底；Agents spawn/wake catch+busy 卡死面；Device 撤销 catch）；P2 注记全量上报（!!族多在 runCatching 内/require 族 fail-fast 有护栏/帧解析两腿有 try）；新增 7 单测 :app **134**/:core **301**；模拟器畸形 202 实测不闪退。
