@@ -1338,6 +1338,27 @@ table.table {
   color: var(--status-ok);
 }
 
+/* Remove 两段式第二段应用内确认 modal（D1-M1，cp-modal 容器内）：
+   impacts 摘要块 + 容器名匹配输入（替代 Electron 不支持的 window.prompt） */
+.docker-confirm-impacts {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.docker-confirm-input-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+
 /* 内联日志面板 */
 .logs-panel {
   margin-top: 10px;
