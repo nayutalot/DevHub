@@ -186,26 +186,32 @@ private fun WakeHostCard() {
                     busy = true
                     statusText = null
                     scope.launch {
-                        val r = ConnectionManager.submitWakeHost()
-                        when (r) {
-                            is WakeSubmit.Result -> {
-                                statusText = wakeResultText(r)
-                                val cooldownMs = when (r.status) {
-                                    WakeResultStatus.RATE_LIMITED -> r.retryAfterMs ?: WAKE_LOCAL_COOLDOWN_MS
-                                    WakeResultStatus.SENT, WakeResultStatus.ALREADY_ON -> WAKE_LOCAL_COOLDOWN_MS
-                                    else -> 0L
+                        try {
+                            val r = ConnectionManager.submitWakeHost()
+                            when (r) {
+                                is WakeSubmit.Result -> {
+                                    statusText = wakeResultText(r)
+                                    val cooldownMs = when (r.status) {
+                                        WakeResultStatus.RATE_LIMITED -> r.retryAfterMs ?: WAKE_LOCAL_COOLDOWN_MS
+                                        WakeResultStatus.SENT, WakeResultStatus.ALREADY_ON -> WAKE_LOCAL_COOLDOWN_MS
+                                        else -> 0L
+                                    }
+                                    if (cooldownMs > 0) cooldownUntilMs = System.currentTimeMillis() + cooldownMs
                                 }
-                                if (cooldownMs > 0) cooldownUntilMs = System.currentTimeMillis() + cooldownMs
+
+                                WakeSubmit.NotConnected ->
+                                    statusText = "未连接：唤醒仅在 Relay 已连接时可用（不排队、不伪成功）"
+
+                                WakeSubmit.Timeout ->
+                                    // App 侧等待窗超时：与 relay timeout 态同文案（不谎报 sent）
+                                    statusText = "唤醒超时（timeout）：15s 内未完成，可稍后重试"
                             }
-
-                            WakeSubmit.NotConnected ->
-                                statusText = "未连接：唤醒仅在 Relay 已连接时可用（不排队、不伪成功）"
-
-                            WakeSubmit.Timeout ->
-                                // App 侧等待窗超时：与 relay timeout 态同文案（不谎报 sent）
-                                statusText = "唤醒超时（timeout）：15s 内未完成，可稍后重试"
+                        } catch (err: Exception) {
+                            // B1 泛化热修（P0 先例）：未预期异常绝不崩 UI 进程；busy 复位防按钮卡死。
+                            statusText = "唤醒异常：请重试（${err.javaClass.simpleName}）"
+                        } finally {
+                            busy = false
                         }
-                        busy = false
                     }
                 },
                 enabled = connected && !busy && !cooling,
@@ -416,6 +422,11 @@ private fun ProviderCard(
                                         "启动被拒绝：[${err.code}] ${err.message}"
                                     } catch (err: IOException) {
                                         "网络不可达，未启动"
+                                    } catch (err: Exception) {
+                                        // B1 泛化热修（P0 先例）：提交协程跑在 rememberCoroutineScope
+                                        //（主线程无异常处理器）——未预期异常绝不崩 UI 进程；
+                                        // spawnBusy 在下方统一复位，按钮不卡死。
+                                        "启动异常：请重试（${err.javaClass.simpleName}）"
                                     }
                                 }
                                 spawnBusy = false

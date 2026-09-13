@@ -173,6 +173,34 @@ class GatewayApi(
         throw IOException("unreachable")
     }
 
+    /**
+     * B1 泛化热修（P0 同类，2026-09-13）：2xx 响应体是**合法 JSON** 但违反 docs/14 §B.1
+     * DTO 契约（形状/错型/必填缺失：如 `{"providers":"x"}`、数组元素非对象、claim 体缺
+     * deviceId）→ Dtos 解析抛 JSONException/NumberFormatException。该抛出族不在任何
+     * 调用方既有 catch（ApiError/IOException）面内：UI 提交协程（reply/actions/spawn）
+     * 与离线补发轮均会穿透（P0 实证模式 = 进程闪退 / 连接循环终止）。
+     * 对齐 P0 execute 修法：结构化 ApiError(BAD_PAYLOAD) 如实上抛，原异常 message 收进
+     * 不吞码（ErrorPresent 已有 BAD_PAYLOAD 人话映射：「App 与网关版本可能不匹配」）。
+     * 只有 2xx 响应体会到达 Dtos 解析（非 2xx 已在 execute 转 ApiError；空体→空对象），
+     * 故 httpCode 记 200（2xx 形态）。
+     */
+    private inline fun <T> parseContract(body: JSONObject, parse: (JSONObject) -> T): T =
+        try {
+            parse(body)
+        } catch (err: JSONException) {
+            throw ApiError(
+                code = "BAD_PAYLOAD",
+                message = "gateway: response JSON violates contract (${err.message})",
+                httpCode = 200,
+            )
+        } catch (err: NumberFormatException) {
+            throw ApiError(
+                code = "BAD_PAYLOAD",
+                message = "gateway: response JSON violates contract (${err.message})",
+                httpCode = 200,
+            )
+        }
+
     private fun get(path: String): JSONObject = execute(Request.Builder().url(url(path)).get().build())
 
     private fun post(path: String, payload: JSONObject): JSONObject =
@@ -183,7 +211,7 @@ class GatewayApi(
     // --- 端点（docs/14 §B.1 逐条） -----------------------------------------
 
     /** GET /v1/health（无鉴权活性探测）。 */
-    fun health(): HealthInfo = Dtos.parseHealth(get("/v1/health"))
+    fun health(): HealthInfo = parseContract(get("/v1/health"), Dtos::parseHealth)
 
     /**
      * POST /v1/pairing/claim（AC7b 裁决：pairingId 可选——null/空白时不发送该字段，
@@ -197,18 +225,22 @@ class GatewayApi(
         if (!pairingId.isNullOrBlank()) {
             payload.put("pairingId", pairingId)
         }
-        return Dtos.parseClaim(post("/v1/pairing/claim", payload))
+        return parseContract(post("/v1/pairing/claim", payload), Dtos::parseClaim)
     }
 
     /** GET /v1/agents。 */
-    override fun agents(): List<AgentDto> = Dtos.parseAgents(get("/v1/agents"))
+    override fun agents(): List<AgentDto> = parseContract(get("/v1/agents"), Dtos::parseAgents)
 
     /** GET /v1/sessions?limit（R3 includeArchived / R2 parentId 契约参数，批次 A 同名实现）。 */
     override fun sessions(limit: Int, includeArchived: Boolean, parentId: Long?): List<SessionDto> =
-        Dtos.parseSessions(get(com.devhub.mobile.core.SessionListOps.sessionsQuery(limit, includeArchived, parentId)))
+        parseContract(
+            get(com.devhub.mobile.core.SessionListOps.sessionsQuery(limit, includeArchived, parentId)),
+            Dtos::parseSessions,
+        )
 
     /** GET /v1/sessions/{id}（R2：childSessions 可选附加）。 */
-    override fun sessionDetail(sessionId: Long): SessionDetailDto = Dtos.parseSessionDetail(get("/v1/sessions/$sessionId"))
+    override fun sessionDetail(sessionId: Long): SessionDetailDto =
+        parseContract(get("/v1/sessions/$sessionId"), Dtos::parseSessionDetail)
 
     /** GET /v1/sessions/{id}/messages?after|last|before（游标分页；R10 尾部取数 last=<n> → prevAfter）。 */
     override fun messages(sessionId: Long, after: Long?, last: Int?, before: Long?, limit: Int): MessagesPage {
@@ -230,7 +262,7 @@ class GatewayApi(
                 append(before)
             }
         }
-        return Dtos.parseMessages(get(query))
+        return parseContract(get(query), Dtos::parseMessages)
     }
 
     /** POST /v1/sessions/{id}/archive（R3：只动本地投影）。 */
@@ -249,19 +281,21 @@ class GatewayApi(
     }
 
     /** POST /v1/sessions/{id}/reply（能力门：reply ∈ granted；202 accepted）。 */
-    fun reply(sessionId: Long, text: String, idempotencyKey: String): CommandAccept = Dtos.parseCommandAccept(
+    fun reply(sessionId: Long, text: String, idempotencyKey: String): CommandAccept = parseContract(
         post(
             "/v1/sessions/$sessionId/reply",
             JSONObject().put("text", text).put("idempotencyKey", idempotencyKey),
         ),
+        Dtos::parseCommandAccept,
     )
 
     /** POST /v1/sessions/{id}/actions（pause | resume；202 accepted）。 */
-    fun action(sessionId: Long, action: String, idempotencyKey: String): CommandAccept = Dtos.parseCommandAccept(
+    fun action(sessionId: Long, action: String, idempotencyKey: String): CommandAccept = parseContract(
         post(
             "/v1/sessions/$sessionId/actions",
             JSONObject().put("action", action).put("idempotencyKey", idempotencyKey),
         ),
+        Dtos::parseCommandAccept,
     )
 
     /**
@@ -270,16 +304,16 @@ class GatewayApi(
      * InteractionHonesty.canSpawnManagedSession 判定；服务端 L3 二次校验非 managed →
      * 403 COMMAND_NOT_EXECUTABLE。控制类端点：刻意不进 ProjectionApi（夹具绝不伪造）。
      */
-    fun startManagedSession(providerId: Long, task: String, idempotencyKey: String): ManagedSessionStart =
-        Dtos.parseManagedSessionStart(
-            post(
-                "/v1/providers/$providerId/sessions",
-                JSONObject().put("task", task).put("idempotencyKey", idempotencyKey),
-            ),
-        )
+    fun startManagedSession(providerId: Long, task: String, idempotencyKey: String): ManagedSessionStart = parseContract(
+        post(
+            "/v1/providers/$providerId/sessions",
+            JSONObject().put("task", task).put("idempotencyKey", idempotencyKey),
+        ),
+        Dtos::parseManagedSessionStart,
+    )
 
     /** GET /v1/devices。 */
-    fun devices(): List<DeviceDto> = Dtos.parseDevices(get("/v1/devices"))
+    fun devices(): List<DeviceDto> = parseContract(get("/v1/devices"), Dtos::parseDevices)
 
     /** DELETE /v1/devices/{id}（仅自撤销）。 */
     fun revokeSelf(deviceId: Long): Unit {
@@ -287,7 +321,7 @@ class GatewayApi(
     }
 
     /** GET /v1/diagnostics。 */
-    fun diagnostics(): DiagnosticsDto = Dtos.parseDiagnostics(get("/v1/diagnostics"))
+    fun diagnostics(): DiagnosticsDto = parseContract(get("/v1/diagnostics"), Dtos::parseDiagnostics)
 
     /** POST /v1/events/{seq}/ack（WS ack 的 REST 等效兜底）。 */
     fun ackEvent(sequence: Long) {
