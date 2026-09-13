@@ -852,7 +852,7 @@ if (isEntrypoint()) {
     }
   })
 
-  registerCase('step5: services refresh merges sources with attribution fields; upsert is idempotent per key', async () => {
+  registerCase('step5: services refresh merges sources with attribution fields; upsert idempotent per (port, origin); pid drift updates in place (B3)', async () => {
     const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
     const servicesService = await import(new URL('../src/main/services/servicesService.ts', import.meta.url).href)
 
@@ -873,18 +873,34 @@ if (isEntrypoint()) {
       )
 
       const rows = servicesService.listServices()
-      assert.ok(rows.length >= records.length, 'list returns everything seen this round (plus retained stale rows)')
+      // B3：业务键收敛为 (port, origin)——列表行数以本轮观测到的逻辑键数下界
+      const freshKeys = new Set(records.map((r) => `${r.port}|${r.origin}`))
+      assert.ok(rows.length >= freshKeys.size, `list returns at least one row per logical (port, origin) key, rows=${rows.length} keys=${freshKeys.size}`)
       assert.ok('projectName' in rows[0], 'list rows carry the joined projectName field (may be undefined)')
       const byPort = servicesService.findByPort(rows[0].port)
       assert.ok(byPort.length >= 1, 'findByPort hits at least the queried port')
 
-      // upsert 幂等：第二次 refresh 不得产生 (port, origin, pid) 重复行
+      // upsert 幂等：第二次 refresh 不得产生 (port, origin) 业务键重复行（B3：pid 漂移 UPDATE 不 INSERT）
       await servicesService.refreshServices()
       const db = dbModule.getDatabase()
       const dupes = db
-        .prepare('SELECT port, origin, IFNULL(pid, -1) AS k, COUNT(*) AS c FROM services GROUP BY port, origin, k HAVING c > 1')
+        .prepare('SELECT port, origin, COUNT(*) AS c FROM services GROUP BY port, origin HAVING c > 1')
         .all()
       assert.equal(dupes.length, 0, `no duplicate service keys, got ${JSON.stringify(dupes)}`)
+
+      // B3 语义：pid 漂移（同 port+origin 换 pid）→ 原位 UPDATE 现行，不 INSERT 新行
+      const probe = records[0]
+      db.prepare('UPDATE services SET pid = 999999 WHERE port = ? AND origin = ?').run(probe.port, probe.origin)
+      const beforeDrift = db.prepare('SELECT id, first_seen_at FROM services WHERE port = ? AND origin = ?').get(probe.port, probe.origin)
+      const third = await servicesService.refreshServices()
+      const afterDrift = db.prepare('SELECT id, pid, first_seen_at FROM services WHERE port = ? AND origin = ?').all(probe.port, probe.origin)
+      assert.equal(afterDrift.length, 1, 'pid drift folds into the same (port, origin) row (no INSERT)')
+      assert.equal(afterDrift[0].id, beforeDrift.id, 'drift refresh keeps the existing row id')
+      assert.equal(afterDrift[0].first_seen_at, beforeDrift.first_seen_at, 'first_seen_at preserved across pid drift')
+      const probeAfter = third.find((r) => r.port === probe.port && r.origin === probe.origin)
+      if (probeAfter !== undefined) {
+        assert.equal(afterDrift[0].pid, probeAfter.pid ?? null, 'pid is a mutable attribute updated in place')
+      }
 
       console.log(`    services sample: ${JSON.stringify(records.slice(0, 3))}`)
     } finally {

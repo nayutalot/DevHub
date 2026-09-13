@@ -12,8 +12,10 @@
  *  - docker 源：compose label `com.docker.compose.project` 或容器名前缀匹配项目名；
  *  - 归因不到 → project_id = null。
  *
- * services upsert 业务键 (port, origin, pid)：存在则更新 last_seen_at 与字段，
- * 不存在插入；本次未见的旧记录保留 last_seen_at 原值（UI 按 last_seen 排序）。
+ * services upsert 业务键 (port, origin)：同端口同来源 = 同一逻辑服务，存在则更新
+ * last_seen_at 与可变属性（pid/process/commandLine/归因），不存在插入；本次未见的
+ * 旧记录保留 last_seen_at 原值（UI 按 last_seen 排序）。pid 是可变属性列，漂移走
+ * UPDATE 不 INSERT（B3 止增）。
  */
 
 import type { DatabaseSync } from 'node:sqlite'
@@ -229,19 +231,18 @@ interface ServiceDbRow {
 function upsertService(db: DatabaseSync, pending: PendingService, projects: readonly ProjectRef[], now: number): ServiceRecord {
   const projectId = attributeProject(pending, projects)
 
-  const existing =
-    pending.pid === null
-      ? (db.prepare('SELECT id, first_seen_at FROM services WHERE port = ? AND origin = ? AND pid IS NULL').get(pending.port, pending.origin) as
-          | { id: number; first_seen_at: number }
-          | undefined)
-      : (db.prepare('SELECT id, first_seen_at FROM services WHERE port = ? AND origin = ? AND pid = ?').get(pending.port, pending.origin, pending.pid) as
-          | { id: number; first_seen_at: number }
-          | undefined)
+  // 业务键 (port, origin)（B3）：同端口同来源视为同一逻辑服务；pid 漂移（进程重启换
+  // pid）命中同一行走 UPDATE，不再 INSERT 新行造成无界累积。
+  const existing = db.prepare('SELECT id, first_seen_at FROM services WHERE port = ? AND origin = ?').get(pending.port, pending.origin) as
+    | { id: number; first_seen_at: number }
+    | undefined
 
   let id: number
   let firstSeenAt: number
   if (existing !== undefined) {
-    db.prepare('UPDATE services SET process_name = ?, command_line = ?, working_dir = ?, project_id = ?, last_seen_at = ? WHERE id = ?').run(
+    // pid 与 process/commandLine/归因一样是可变属性：随本轮观测原位更新
+    db.prepare('UPDATE services SET pid = ?, process_name = ?, command_line = ?, working_dir = ?, project_id = ?, last_seen_at = ? WHERE id = ?').run(
+      pending.pid,
       pending.processName,
       pending.commandLine,
       null,
