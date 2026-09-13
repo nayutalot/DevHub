@@ -35,6 +35,13 @@ const STATUS_POLL_MS = 600
 
 type WizardStep = 'pick' | 'previewed' | 'running' | 'result'
 
+/** 归档运行状态 → 用户面中文（值保留原样，仅展示层投影）。 */
+const RUN_STATUS_LABEL: Record<string, string> = {
+  done: '已完成',
+  failed: '失败',
+  'rolled-back': '已回滚',
+}
+
 const PHASE_LABELS: Record<ArchivePhase, string> = {
   moving: '正在移动真实目录…（同卷重命名 / 跨卷复制校验）',
   fixing: '正在改写路径引用…（改写前逐文件备份）',
@@ -82,7 +89,7 @@ export function ArchiveView() {
     setDestSaving(true)
     try {
       await call('settings:set', { key: 'archive_dest_root', value: destInput.trim() })
-      show('archive_dest_root saved')
+      show('archive_dest_root 已保存')
       destSetting.refresh()
     } catch (err) {
       show(err instanceof Error ? err.message : String(err), 'err')
@@ -155,9 +162,9 @@ export function ArchiveView() {
       const first = await call('archive:rollback', { runId })
       if (first.confirmRequired === true) {
         const lines = [
-          `Rollback run #${first.impacts.runId} (${first.impacts.projectName})?`,
+          `回滚第 #${first.impacts.runId} 次归档（${first.impacts.projectName}）？`,
           `${first.impacts.oldPath}  <-  ${first.impacts.newPath}`,
-          `content restores: ${first.impacts.undoEntries} · note: ${first.impacts.note}`,
+          `内容还原：${first.impacts.undoEntries} 处 · 注：${first.impacts.note}`,
         ]
         if (window.confirm(lines.join('\n'))) {
           const done = await call('archive:rollback', { runId, confirmed: true })
@@ -182,8 +189,8 @@ export function ArchiveView() {
     <section className="view">
       <header className="view-header">
         <div>
-          <h2 className="view-title">Archive</h2>
-          <p className="view-sub">Move dormant projects to the archive volume — dry-run preview, double confirm, always rollback-able</p>
+          <h2 className="view-title">归档</h2>
+          <p className="view-sub">将休眠项目移动到归档卷 — dry-run 预检、双重确认、随时可回滚</p>
         </div>
       </header>
 
@@ -196,15 +203,15 @@ export function ArchiveView() {
           id="archive-dest-root"
           className="archive-dest-input mono"
           type="text"
-          placeholder="D:\ArchiveRoot — destination root for archived projects (required before scanning)"
+          placeholder="D:\ArchiveRoot — 归档项目的目标根目录（扫描前必填）"
           value={destInput}
           onChange={(e) => setDestInput(e.target.value)}
           disabled={destSetting.loading || destSaving}
         />
         <button type="button" className="btn" disabled={destSaving || destInput.trim() === (destSetting.data?.value ?? '')} onClick={() => void saveDestRoot()}>
-          {destSaving && <Spinner />} Save
+          {destSaving && <Spinner />} 保存
         </button>
-        {!destReady && <span className="archive-dest-warning">destination root is not set — scanning is refused until configured</span>}
+        {!destReady && <span className="archive-dest-warning">尚未设置归档目标根目录 — 设置前拒绝扫描</span>}
       </div>
 
       {/* LLM 复核设置卡片（LR1 advisory-only：base_url/model 双键 + 端点测试入口；
@@ -218,15 +225,15 @@ export function ArchiveView() {
       {/* 项目选择器 + 预检动作 */}
       <div className="panel archive-picker">
         {projects.loading ? (
-          <Loading label="Loading projects…" />
+          <Loading label="正在加载项目…" />
         ) : projects.error !== null ? (
           <ErrorState error={projects.error} onRetry={projects.refresh} />
         ) : (projects.data?.length ?? 0) === 0 ? (
-          <EmptyState title="No projects registered" hint="Register projects via Projects → Scan first; archive targets come from the projects table." />
+          <EmptyState title="尚未注册项目" hint="请先在「项目」页扫描注册项目；归档目标来自项目表。" />
         ) : (
           <>
             <label className="archive-picker-label" htmlFor="archive-project">
-              Project to archive
+              要归档的项目
             </label>
             <select
               id="archive-project"
@@ -238,55 +245,55 @@ export function ArchiveView() {
                 setPreview(null)
               }}
             >
-              <option value="">— select a project —</option>
+              <option value="">— 选择项目 —</option>
               {(projects.data ?? []).map((p: ProjectSummary) => (
                 <option key={p.id} value={p.id}>
-                  {p.name} · {p.winPath ?? p.wslPath ?? '(no path)'}
-                  {p.hasGit ? ` · git${p.dirtyCount > 0 ? ` dirty(${p.dirtyCount})` : ' clean'}` : ''}
+                  {p.name} · {p.winPath ?? p.wslPath ?? '（无路径）'}
+                  {p.hasGit ? ` · git${p.dirtyCount > 0 ? ` 有改动(${p.dirtyCount})` : ' 干净'}` : ''}
                 </option>
               ))}
             </select>
             {selected !== null && (
               <span className="td-dim archive-picker-meta mono" title={selected.winPath}>
-                {selected.winPath ?? '—'} · {selected.runtimeHint ?? 'unknown runtime'}
+                {selected.winPath ?? '—'} · {selected.runtimeHint ?? '运行时未知'}
               </span>
             )}
             <button type="button" className="btn" disabled={projectId === null || scanBusy || !destReady} onClick={() => void runPreview()}>
-              {scanBusy ? <Spinner /> : null} Scan references (dry-run)
+              {scanBusy ? <Spinner /> : null} 扫描引用（dry-run）
             </button>
           </>
         )}
       </div>
 
-      {scanBusy && <Loading label="Scanning path references, occupancy and strip candidates (read-only)…" />}
+      {scanBusy && <Loading label="正在扫描路径引用、占用与可剥离目录（只读）…" />}
 
       {/* ① 预检结果 */}
       {step !== 'pick' && impacts !== null && (
         <div className="panel">
-          <h3 className="panel-title">Precheck — {impacts.projectName}</h3>
+          <h3 className="panel-title">预检 — {impacts.projectName}</h3>
           <div className="archive-impacts-grid">
-            <ImpactsCard label="Reference hits" value={`${impacts.report.totalHits}`} detail={`${impacts.report.scannedFiles} files scanned · ${impacts.report.hits.length} shown`} />
-            <ImpactsCard label="Files to rewrite" value={`${new Set(impacts.report.hits.map((h) => h.file)).size}`} detail="unique files containing the old root path" />
-            <ImpactsCard label="Strip dirs (regenerable)" value={`${impacts.depSkipDirs.length}`} detail={impacts.depSkipDirs.join(', ') || 'none'} />
-            <ImpactsCard label="Occupiers" value={`${impacts.occupiers.length}`} detail={impacts.occupiers.map((o) => `${o.name}(${o.pid})`).join(', ') || 'none'} />
-            <ImpactsCard label="Destination" value={impacts.destPath} detail={`${impacts.destRoot} · ${impacts.crossVolume ? 'cross-volume copy (verified)' : 'same-volume rename'}`} />
+            <ImpactsCard label="引用命中" value={`${impacts.report.totalHits}`} detail="扫描 ${impacts.report.scannedFiles} 个文件 · 展示 ${impacts.report.hits.length} 处" />
+            <ImpactsCard label="待改写文件" value={`${new Set(impacts.report.hits.map((h) => h.file)).size}`} detail="含旧根路径的去重文件数" />
+            <ImpactsCard label="可剥离目录（可再生）" value={`${impacts.depSkipDirs.length}`} detail={impacts.depSkipDirs.join(', ') || '无'} />
+            <ImpactsCard label="占用进程" value={`${impacts.occupiers.length}`} detail={impacts.occupiers.map((o) => `${o.name}(${o.pid})`).join(', ') || '无'} />
+            <ImpactsCard label="目标位置" value={impacts.destPath} detail={`${impacts.destRoot} · ${impacts.crossVolume ? '跨卷复制（已校验）' : '同卷重命名'}`} />
           </div>
           {impacts.report.errorSummary.length > 0 && (
-            <div className="degraded-banner">scan errors (degraded, continued): {impacts.report.errorSummary.slice(0, 5).join(' · ')}</div>
+            <div className="degraded-banner">扫描错误（降级继续）：{impacts.report.errorSummary.slice(0, 5).join(' · ')}</div>
           )}
 
-          <h4 className="panel-title">Reference files (expand a row for the matched line)</h4>
+          <h4 className="panel-title">引用文件（展开行可看命中行）</h4>
           {impacts.report.hits.length === 0 ? (
-            <div className="inline-note">No references to the old path were found — the rewrite step will be a no-op.</div>
+            <div className="inline-note">未发现旧路径引用 — 改写步骤将无操作。</div>
           ) : (
             <div className="table-wrap">
               <table className="table">
                 <thead>
                   <tr>
-                    <th>File</th>
-                    <th>Line:Col</th>
-                    <th>Matched</th>
-                    <th>Snippet</th>
+                    <th>文件</th>
+                    <th>行:列</th>
+                    <th>命中</th>
+                    <th>片段</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -308,7 +315,7 @@ export function ArchiveView() {
           )}
           {impacts.report.hits.length > 30 && (
             <button type="button" className="btn btn-small" onClick={() => setExpandAllHits((v) => !v)}>
-              {expandAllHits ? 'Show fewer' : `Show all ${impacts.report.hits.length} hits`}
+              {expandAllHits ? '收起' : `展开全部 ${impacts.report.hits.length} 处命中`}
             </button>
           )}
         </div>
@@ -317,7 +324,7 @@ export function ArchiveView() {
       {/* ② 确认 */}
       {impacts !== null && step === 'previewed' && (
         <div className="panel archive-confirm">
-          <h3 className="panel-title">Confirm before execution</h3>
+          <h3 className="panel-title">执行前确认</h3>
           <div className="degraded-banner">
             执行将把真实目录 {impacts.oldPath} 移动到 {impacts.destPath}
             {impacts.crossVolume ? '（跨卷：复制校验通过后才删源，失败保源）' : '（同卷重命名）'}；被改写的文件会先逐文件备份到 undo 目录，随时可回滚。
@@ -360,10 +367,10 @@ export function ArchiveView() {
             type="button"
             className="btn btn-danger"
             disabled={!confirmed || typedName !== impacts.projectName}
-            title="Run archive — moves the real directory"
+            title="执行归档 — 将移动真实目录"
             onClick={() => void executeRun()}
           >
-            Execute archive (moves the real directory)
+            执行归档（将移动真实目录）
           </button>
         </div>
       )}
@@ -371,7 +378,7 @@ export function ArchiveView() {
       {/* ③ 执行进度 */}
       {step === 'running' && (
         <div className="panel">
-          <h3 className="panel-title">Executing</h3>
+          <h3 className="panel-title">执行中</h3>
           <ul className="archive-phases">
             {(['moving', 'fixing', 'verifying'] as const).map((p) => (
               <li key={p} className={phase === p ? 'archive-phase current' : phaseIdx(phase) > phaseIdx(p) ? 'archive-phase done' : 'archive-phase'}>
@@ -379,7 +386,7 @@ export function ArchiveView() {
               </li>
             ))}
           </ul>
-          {percent !== undefined && <div className="inline-note">copy progress: {percent}%</div>}
+          {percent !== undefined && <div className="inline-note">复制进度：{percent}%</div>}
         </div>
       )}
 
@@ -387,17 +394,17 @@ export function ArchiveView() {
       {step === 'result' && runResult !== null && (
         <div className="panel">
           <h3 className="panel-title">
-            Result — run #{runResult.runId} <Badge tone={runResult.residualHits > 0 ? 'warn' : 'ok'}>{runResult.residualHits > 0 ? 'done with residual warnings' : 'done'}</Badge>
+            结果 — 第 #{runResult.runId} 次归档 <Badge tone={runResult.residualHits > 0 ? 'warn' : 'ok'}>{runResult.residualHits > 0 ? '完成（有残留警告）' : '完成'}</Badge>
           </h3>
           <div className="inline-note mono">
             {runResult.movedFrom} → {runResult.movedTo} · mode={runResult.mode} · {runResult.durationMs}ms · replacements={runResult.totalReplacements}
           </div>
           {runResult.skippedDeps.length > 0 && (
-            <div className="inline-note">stripped regenerable dirs: {runResult.skippedDeps.join(', ')} — reinstall dependencies at the archive location when restoring</div>
+            <div className="inline-note">已剥离可再生目录：{runResult.skippedDeps.join(', ')} — 恢复时需在归档位置重装依赖</div>
           )}
-          {runResult.sourceLeftovers.length > 0 && <div className="degraded-banner">source leftovers (manual cleanup ok): {runResult.sourceLeftovers.slice(0, 10).join(' · ')}</div>}
-          <FileFixTable title="Project-internal files" fixes={runResult.fixed} />
-          <FileFixTable title="External reference files" fixes={runResult.external} />
+          {runResult.sourceLeftovers.length > 0 && <div className="degraded-banner">源目录残留（可手动清理）：{runResult.sourceLeftovers.slice(0, 10).join(' · ')}</div>}
+          <FileFixTable title="项目内文件" fixes={runResult.fixed} />
+          <FileFixTable title="外部引用文件" fixes={runResult.external} />
           {/* LLM 归档后复核（按需触发；ok 态缓存 review_post_json，命中不再打端点——任务书 §4.2） */}
           <ReviewPostButton runId={runResult.runId} />
           {runResult.residualHits > 0 && (
@@ -406,34 +413,34 @@ export function ArchiveView() {
             </div>
           )}
           <button type="button" className="btn btn-danger" disabled={rollbackBusy !== null} onClick={() => void rollbackRun(runResult.runId)}>
-            {rollbackBusy === runResult.runId && <Spinner />} Rollback this run
+            {rollbackBusy === runResult.runId && <Spinner />} 回滚本次归档
           </button>
         </div>
       )}
 
       {/* 历史区（AUDIT D-Aud A3：内部表名 archive_runs 不出用户面，只留规则语义） */}
-      <h3 className="panel-title">History (latest 100 — includes imported legacy records)</h3>
+      <h3 className="panel-title">历史（最近 100 条 — 含导入的旧记录）</h3>
       <div className="panel">
         {history.loading ? (
-          <Loading label="Loading archive history…" />
+          <Loading label="正在加载归档历史…" />
         ) : history.error !== null ? (
           <ErrorState error={history.error} onRetry={history.refresh} />
         ) : (history.data?.runs.length ?? 0) === 0 ? (
-          <EmptyState title="No archive runs yet" hint="Completed archives land here with their rollback entry." />
+          <EmptyState title="还没有归档记录" hint="完成的归档会连同回滚入口出现在这里。" />
         ) : (
           <div className="table-wrap">
             <table className="table">
               <thead>
                 <tr>
                   <th>#</th>
-                  <th>Started</th>
-                  <th>Project</th>
-                  <th>Old → New</th>
-                  <th>Fixed</th>
-                  <th>Residual</th>
-                  <th>Stripped</th>
-                  <th>Status</th>
-                  <th>Undo</th>
+                  <th>开始时间</th>
+                  <th>项目</th>
+                  <th>原路径 → 新路径</th>
+                  <th>改写</th>
+                  <th>残留</th>
+                  <th>剥离</th>
+                  <th>状态</th>
+                  <th>回滚材料</th>
                   <th>LLM 复核</th>
                   <th></th>
                 </tr>
@@ -453,16 +460,16 @@ export function ArchiveView() {
                     <td>{r.residualHits > 0 ? <Badge tone="warn">{r.residualHits}</Badge> : <span className="td-dim">0</span>}</td>
                     <td className="td-dim">{r.strippedDirs !== null ? r.strippedDirs.join(', ') || '—' : '—'}</td>
                     <td>
-                      <Badge tone={stateTone(r.status === 'rolled-back' ? 'dim' : r.status)}>{r.status}</Badge>
+                      <Badge tone={stateTone(r.status === 'rolled-back' ? 'dim' : r.status)}>{RUN_STATUS_LABEL[r.status] ?? r.status}</Badge>
                     </td>
-                    <td className="td-dim">{r.undoEntries !== null ? `${r.undoEntries} files` : '—'}</td>
+                    <td className="td-dim">{r.undoEntries !== null ? `${r.undoEntries} 个文件` : '—'}</td>
                     <td>
                       <ReviewPostButton runId={r.id} />
                     </td>
                     <td>
                       {r.status === 'done' && (
                         <button type="button" className="btn btn-small btn-danger" disabled={rollbackBusy !== null} onClick={() => void rollbackRun(r.id)}>
-                          {rollbackBusy === r.id && <Spinner />} Rollback
+                          {rollbackBusy === r.id && <Spinner />} 回滚
                         </button>
                       )}
                     </td>
@@ -518,9 +525,9 @@ function FileFixTable({ title, fixes }: { title: string; fixes: ArchiveFileFix[]
         <table className="table">
           <thead>
             <tr>
-              <th>File</th>
-              <th>Replacements</th>
-              <th>Kind</th>
+              <th>文件</th>
+              <th>替换数</th>
+              <th>类型</th>
             </tr>
           </thead>
           <tbody>
@@ -532,9 +539,9 @@ function FileFixTable({ title, fixes }: { title: string; fixes: ArchiveFileFix[]
                 <td>{f.kind === 'fixed' ? f.count : '—'}</td>
                 <td>
                   {f.kind === 'fixed' ? (
-                    <Badge tone="ok">fixed</Badge>
+                    <Badge tone="ok">已改写</Badge>
                   ) : (
-                    <Badge tone="err" title={f.kind === 'missing' ? 'file not found at rewrite time' : 'non-UTF-8 encoding — skipped to avoid corruption'}>
+                    <Badge tone="err" title={f.kind === 'missing' ? '改写时未找到文件' : '非 UTF-8 编码 — 为避免损坏已跳过'}>
                       {f.kind}
                     </Badge>
                   )}
@@ -557,8 +564,8 @@ export function OccupierRows({ occupiers }: { occupiers: ArchiveOccupier[] }) {
         <thead>
           <tr>
             <th>PID</th>
-            <th>Name</th>
-            <th>Command line</th>
+            <th>进程名</th>
+            <th>命令行</th>
           </tr>
         </thead>
         <tbody>

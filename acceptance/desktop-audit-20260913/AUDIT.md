@@ -145,3 +145,44 @@
 | screens/14-agents-session-detail.png | 会话表选中行（A2 对比度）+ 过滤工具条 |
 | screens/15-overlay.png | ContestPin 悬浮窗折叠态 |
 | cdp.mjs / ui-helper.ps1 | 审计工具（CDP 零注入走查 / 前台探测与全屏截图） |
+
+## 附注 A：D2 批 UI 术语表（2026-09-13，agent/desktop-d2-copy）
+
+依主控裁决（A1 修法落批）：用户面文案统一为中文，技术名词保留英文原文；内部日志与结构化错误 technical 面不入本批。
+
+**保留英文清单**（产品/技术专名与契约词）：
+- 产品与进程名：DevHub、ApiHub、ZCode、Codex（CLI）、Claude、Kimi、Docker（Desktop）、WSL、Windows、Git、VS Code、PowerShell、skm、Doctor
+- Provider 名与目录名（deepseek / codex / kimi / zcode / glm 等数据值原样）
+- 协议与技术词：Relay、Gateway、WebSocket、wss://、ws://、HTTP、API Key、Base URL、Model、endpoint、TLS、SPKI、token、PID、CLI、daemon、netstat、sha256、TTL、manifest、URL、PDF、LLM、Provider、skill、vault、frontmatter、kebab-case、advisory、dry-run、provenance、flag、cursor / after 游标、junction / hardlink / symlink、Crockford Base32、managed / attached / observed（接入深度契约值，徽章中文投影托/附/观见下）、hooks / appServer / stdin（诊断字段）、uptime、mem、usage、total_tokens
+- 命令与路径：wsl.exe、docker ps -a、docker images、wsl.exe -l -v、wsl.exe --shutdown、/root/skill-vault/bin、scripts/migrate-legacy.mjs、D:\ArchiveRoot 等
+- settings 键与 IPC channel 名（agents_monitor_enabled、login_autostart、relay_enabled、relay_endpoint、archive_dest_root、vault_path、zcode_managed_model、llm_review_base_url、llm_review_model、contestpin_default_mode、agents:providers 等出现在括注/降级横幅内者）
+
+**统一译法表**（本批起全 UI 一致）：
+| 英文 | 中文 | 英文 | 中文 |
+| --- | --- | --- | --- |
+| container | 容器 | image | 镜像 |
+| session | 会话 | pairing | 配对 |
+| archive | 归档 | refresh | 刷新 |
+| device | 设备 | pairing code | 配对码 |
+| scan | 扫描 | rescan / re-probe | 重新扫描 / 重新探测 |
+| running | 运行中 | stopped | 已停止 |
+| dirty | 有改动 | clean | 干净 |
+| installed | 已安装 | missing | 未安装 / 未找到 |
+| enabled | 已启用 | disabled | 已停用 |
+| linked | 已链接 | dangling | 悬空 |
+| stale | 过期 | unknown | 未知 |
+| ok（健康） | 正常 | degraded | 降级 |
+| unavailable | 不可用 | failed | 失败 |
+| waiting_input | 等待输入 | approval_required | 待批准 |
+| paused | 已暂停 | connection_lost | 连接丢失 |
+| managed（mode） | 托管 | attached | 附加 |
+| observed（mode） | 观察 | acked / delivered / pending | 已签收 / 已投递 / 待投递 |
+| active（设备） | 生效中 | revoked | 已撤销 |
+| up-to-date | 最新 | upgradable | 可升级 |
+| Revoke | 撤销 | Rollback | 回滚 |
+| Load more | 加载更多 | Show more / Show less | 展开 / 收起 |
+| Boot / Terminate | 启动 / 终止 | Shutdown all | 全部关停 |
+| Start / Stop / Restart | 启动 / 停止 / 重启 | Remove | 移除（Docker 容器删除动作=删除） |
+| View 导航名 | 仪表盘 / 项目 / 环境 / 服务 / 技能 / ApiHub / 版本 / Docker / 归档 / Agents / 比赛 |  |  |
+
+**纪律**：徽章内时间词（"verified 刚刚"类混排）经本批消除；relativeTime 中文输出保持；错误呈现层维持 U1「headline 人话 + technical 原样」。

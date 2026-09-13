@@ -136,7 +136,7 @@ function RecognitionSettingsPanelOpen({ onClose }: { onClose: () => void }) {
       )}
 
       {list.loading ? (
-        <Loading label="Loading configs…" />
+        <Loading label="正在加载配置…" />
       ) : list.error !== null ? (
         <ErrorState error={list.error} onRetry={list.refresh} />
       ) : configs.length === 0 ? (

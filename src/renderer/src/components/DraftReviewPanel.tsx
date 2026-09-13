@@ -51,7 +51,7 @@ export function DraftReviewPanel() {
         </button>
       </div>
       {drafts.loading && count === 0 ? (
-        <Loading label="Loading drafts…" />
+        <Loading label="正在加载草稿…" />
       ) : drafts.error !== null ? (
         <ErrorState error={drafts.error} onRetry={drafts.refresh} />
       ) : count === 0 ? (

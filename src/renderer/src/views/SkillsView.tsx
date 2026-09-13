@@ -125,35 +125,35 @@ export function SkillsView() {
   }
 
   function handleScan(): void {
-    void runAction('Scan', async () => {
+    void runAction('扫描', async () => {
       const r = await call('skills:scan', {})
       setFeedback({
-        title: `Scan 完成：${r.skills.length} skill · vault ${r.vaultOk ? '健康' : '异常'}`,
+        title: `扫描完成：${r.skills.length} 个 skill · vault ${r.vaultOk ? '健康' : '异常'}`,
         lines: r.vaultOk ? r.skills.map((s) => `${s.name} — ${s.description.slice(0, 60) || '(无描述)'}`) : r.issues,
         ...(r.vaultOk ? {} : { conflicts: r.issues }),
       })
       data.refresh()
-      show('Scan 完成')
+      show('扫描完成')
     })
   }
 
   function handleScanWsl(): void {
-    void runAction('Scan WSL', async () => {
+    void runAction('扫描 WSL', async () => {
       const r = await call('skills:scanWsl', {})
       const lines: string[] = []
       if (r.report !== null) {
-        lines.push(`skills: ${r.report.skills.length} · agents: ${r.report.agents.length} · 缓存时间: ${new Date(r.report.ts).toLocaleString()}`)
+        lines.push(`skills ${r.report.skills.length} · agents ${r.report.agents.length} · 缓存时间：${new Date(r.report.ts).toLocaleString()}`)
         for (const a of r.report.agents) {
           const linked = Object.values(a.links).filter((s) => s === 'linked').length
-          lines.push(`${a.name}: ${linked}/${Object.keys(a.links).length} linked`)
+          lines.push(`${a.name}：已链接 ${linked}/${Object.keys(a.links).length}`)
         }
       } else {
         lines.push('companion 不可达且无缓存')
       }
-      if (r.reason !== undefined) lines.push(`note: ${r.reason}`)
-      setFeedback({ title: r.stale ? 'Scan WSL（缓存回落，stale）' : 'Scan WSL 完成', lines })
+      if (r.reason !== undefined) lines.push(`注：${r.reason}`)
+      setFeedback({ title: r.stale ? '扫描 WSL（缓存回落，stale）' : '扫描 WSL 完成', lines })
       data.refresh()
-      show(r.stale ? 'Scan WSL 使用了缓存' : 'Scan WSL 完成', r.stale ? 'err' : 'ok')
+      show(r.stale ? '扫描 WSL 使用了缓存' : '扫描 WSL 完成', r.stale ? 'err' : 'ok')
     })
   }
 
@@ -164,10 +164,10 @@ export function SkillsView() {
       const errors = r.items.filter((i) => i.severity === 'error').length
       const warns = r.items.filter((i) => i.severity === 'warn').length
       setFeedback({
-        title: `Doctor 完成：${r.items.length} 项（error ${errors} · warn ${warns}）`,
+        title: `Doctor 完成：${r.items.length} 项（错误 ${errors} · 警告 ${warns}）`,
         lines: r.items.map((i) => `[${i.severity}]${i.fixable ? ' (可修复)' : ''} ${i.message}`),
       })
-      show(`Doctor 完成：error ${errors} · warn ${warns}`, errors > 0 ? 'err' : 'ok')
+      show(`Doctor 完成：错误 ${errors} · 警告 ${warns}`, errors > 0 ? 'err' : 'ok')
     })
   }
 
@@ -192,26 +192,26 @@ export function SkillsView() {
 
   function handleSync(): void {
     if (!window.confirm('执行双侧同步（Windows commit/push → WSL companion sync → Windows pull）？')) return
-    void runAction('Sync', async () => {
+    void runAction('同步', async () => {
       const r: SkillsSyncResult = await call('skills:sync', { confirmed: true })
       if (r.confirmRequired === true) {
-        setFeedback({ title: 'Sync 需要确认', lines: ['未携带 confirmed，操作未执行'] })
+        setFeedback({ title: '同步需要确认', lines: ['未携带 confirmed，操作未执行'] })
         return
       }
-      const lines = r.steps.map((s: SkillSyncStep) => `[${s.side}] ${s.ok ? 'ok' : 'FAIL'} — ${s.cmd}${s.detail.length > 0 ? ` · ${s.detail.slice(-160)}` : ''}`)
+      const lines = r.steps.map((s: SkillSyncStep) => `[${s.side}] ${s.ok ? '成功' : '失败'} — ${s.cmd}${s.detail.length > 0 ? ` · ${s.detail.slice(-160)}` : ''}`)
       setFeedback({
-        title: r.degraded === true ? `Sync 降级：${r.reason ?? ''}` : `Sync 完成：${r.steps.length} 步 · 冲突 ${r.conflicts.length}`,
+        title: r.degraded === true ? `同步降级：${r.reason ?? ''}` : `同步完成：${r.steps.length} 步 · 冲突 ${r.conflicts.length}`,
         lines,
         ...(r.conflicts.length > 0 ? { conflicts: r.conflicts } : {}),
       })
       data.refresh()
-      show(r.degraded === true ? 'Sync 结构化降级' : 'Sync 完成', r.degraded === true || r.conflicts.length > 0 ? 'err' : 'ok')
+      show(r.degraded === true ? '同步结构化降级' : '同步完成', r.degraded === true || r.conflicts.length > 0 ? 'err' : 'ok')
     })
   }
 
   function handleDeploy(): void {
     if (!window.confirm('部署/更新 WSL companion（skm）到 /root/skill-vault/bin？')) return
-    void runAction('Deploy', async () => {
+    void runAction('部署', async () => {
       const r = await call('skills:companion.deploy', { confirmed: true })
       if (r.confirmRequired === true) return
       setFeedback({
@@ -226,9 +226,9 @@ export function SkillsView() {
     if (state === 'real-dir') return
     const enable = state !== 'linked'
     if (!window.confirm(`${enable ? '建立' : '解除'}链接：${agent.name} / ${skill}？`)) return
-    void runAction('Toggle', async () => {
+    void runAction('切换链接', async () => {
       const r = await call('skills:toggleLink', { agentId: agent.id, skill, enable, confirmed: true })
-      setFeedback({ title: `Toggle ${agent.name}/${skill}: ${r.changed ? '已变更' : '无变更'} → ${LINK_LABEL[r.state]}`, lines: r.steps })
+      setFeedback({ title: `链接切换 ${agent.name}/${skill}：${r.changed ? '已变更' : '无变更'} → ${LINK_LABEL[r.state]}`, lines: r.steps })
       data.refresh()
       show(`${agent.name}/${skill} → ${LINK_LABEL[r.state]}`, r.state === 'linked' || (!enable && r.state === 'missing') ? 'ok' : 'err')
     })
@@ -236,16 +236,16 @@ export function SkillsView() {
 
   function handleRepair(item: SkillDoctorItem): void {
     if (!window.confirm(`执行修复「${item.fixId}」？\n${item.message}`)) return
-    void runAction('Repair', async () => {
+    void runAction('修复', async () => {
       const r = await call('skills:repair', { fixId: item.fixId ?? '', payload: item.payload, confirmed: true })
       if (r.manualRequired === true) {
         setFeedback({ title: '该项需人工处理（永不自动处理）', lines: [r.message ?? ''] })
         show('需人工处理', 'err')
         return
       }
-      setFeedback({ title: `Repair (${item.fixId}) 完成`, lines: r.steps })
+      setFeedback({ title: `修复（${item.fixId}）完成`, lines: r.steps })
       data.refresh()
-      show('Repair 完成')
+      show('修复完成')
     })
   }
 
@@ -253,7 +253,7 @@ export function SkillsView() {
     return (
       <section className="view">
         <ViewHeader />
-        <Loading label="Loading skills (vault scan + live link states)…" />
+        <Loading label="正在加载技能（vault 扫描 + 实时链接态）…" />
       </section>
     )
   }
@@ -278,17 +278,17 @@ export function SkillsView() {
         <span className="vault-path mono" title={vaultPath}>
           {vaultPath.length > 0 ? vaultPath : '(vault_path 未设置)'}
         </span>
-        <Badge tone={vaultSkills > 0 ? 'accent' : 'warn'}>{vaultSkills} skills</Badge>
+        <Badge tone={vaultSkills > 0 ? 'accent' : 'warn'}>{vaultSkills} 个 skill</Badge>
         <span className="dim">上次同步: {data.data?.lastSyncAt !== undefined ? relativeTime(data.data.lastSyncAt) : '从未'}</span>
         <span className="vault-bar-actions">
           <button type="button" className="btn" disabled={busy !== null} onClick={handleScan}>
-            Scan
+            扫描
           </button>
           <button type="button" className="btn" disabled={busy !== null} onClick={handleScanWsl}>
-            Scan WSL
+            扫描 WSL
           </button>
           <button type="button" className="btn" disabled={busy !== null} onClick={handleDeploy} title="部署/更新 WSL companion（skm）到 /root/skill-vault/bin">
-            Deploy Companion
+            部署 Companion
           </button>
           <button type="button" className="btn" disabled={busy !== null} onClick={handleDoctor}>
             Doctor
@@ -297,7 +297,7 @@ export function SkillsView() {
             Sync
           </button>
           <button type="button" className="btn" disabled={busy !== null} onClick={() => setImportOpen(true)}>
-            Import
+            导入
           </button>
           <button
             type="button"
@@ -339,7 +339,7 @@ export function SkillsView() {
       {agents.length === 0 ? (
         <div className="panel">
           <EmptyState
-            title="No agents registered"
+            title="尚未注册 agent"
             hint="skill_agents 表为空 —— 可先运行一次性导入（scripts/migrate-legacy.mjs）或在本页添加 agent。"
           />
         </div>
@@ -353,10 +353,10 @@ export function SkillsView() {
                   <span className="agent-name">{a.name}</span>
                   <Badge tone={a.platform === 'windows' ? 'accent' : 'wsl'}>{a.platform}</Badge>
                   {!a.enabled && <Badge tone="dim">停用</Badge>}
-                  {a.stale === true && <Badge tone="warn" title="companion 缓存已过期（>10 分钟）">stale</Badge>}
+                  {a.stale === true && <Badge tone="warn" title="companion 缓存已过期（>10 分钟）">过期</Badge>}
                   {badge !== undefined && (
                     <Badge tone={badge.errors > 0 ? 'err' : 'warn'} title="最近一次 Doctor 的该 agent 异常计数">
-                      doctor {badge.errors > 0 ? `${badge.errors} err` : `${badge.warns} warn`}
+                      Doctor {badge.errors > 0 ? `${badge.errors} 错误` : `${badge.warns} 警告`}
                     </Badge>
                   )}
                 </div>
@@ -379,11 +379,11 @@ export function SkillsView() {
                 )}
                 {a.available ? (
                   <div className="agent-counts">
-                    <Badge tone="ok" title="linked">{a.counts.linked} linked</Badge>
-                    <Badge tone="dim" title="missing">{a.counts.missing} missing</Badge>
-                    {a.counts.wrongTarget > 0 && <Badge tone="warn" title="wrong-target">{a.counts.wrongTarget} wrong</Badge>}
-                    {a.counts.realDir > 0 && <Badge tone="warn" title="real-dir">{a.counts.realDir} real-dir</Badge>}
-                    {a.counts.vaultMissing > 0 && <Badge tone="err" title="vault-missing">{a.counts.vaultMissing} dangling</Badge>}
+                    <Badge tone="ok" title="已链接">已链接 {a.counts.linked}</Badge>
+                    <Badge tone="dim" title="未链接">未链接 {a.counts.missing}</Badge>
+                    {a.counts.wrongTarget > 0 && <Badge tone="warn" title="目标错误">目标错误 {a.counts.wrongTarget}</Badge>}
+                    {a.counts.realDir > 0 && <Badge tone="warn" title="真实目录">真实目录 {a.counts.realDir}</Badge>}
+                    {a.counts.vaultMissing > 0 && <Badge tone="err" title="vault 缺失">悬空 {a.counts.vaultMissing}</Badge>}
                   </div>
                 ) : (
                   <div className="agent-counts dim">{a.reason ?? '状态不可用'}</div>
@@ -398,9 +398,9 @@ export function SkillsView() {
       {skillNames.length === 0 ? (
         <div className="panel">
           <EmptyState
-            title="No skills in the vault mirror"
+            title="vault 镜像中还没有 skill"
             hint="点击 Scan 扫描 vault_path 下的 skills/<name>/SKILL.md 并镜像入库。"
-            action={{ label: 'Scan', onClick: handleScan }}
+            action={{ label: '扫描', onClick: handleScan }}
           />
         </div>
       ) : (
@@ -409,7 +409,7 @@ export function SkillsView() {
             <thead>
               <tr>
                 <th>Skill</th>
-                <th>Description</th>
+                <th>描述</th>
                 {agents.map((a) => (
                   <th key={a.id} className="th-agent" title={a.skillsDir}>
                     {a.name}
@@ -437,7 +437,7 @@ export function SkillsView() {
                     if (!included || state === undefined) {
                       return (
                         <td key={a.id} className="matrix-cell">
-                          <span className="dim" title="不在该 agent 的 include 白名单内">excluded</span>
+                          <span className="dim" title="不在该 agent 的 include 白名单内">未纳入</span>
                         </td>
                       )
                     }
@@ -450,7 +450,7 @@ export function SkillsView() {
                             disabled
                             title="真实目录（非链接）：永不自动处理，请人工处理或走导入流水线"
                           >
-                            real-dir
+                            真实目录
                           </button>
                         </td>
                       )
@@ -483,7 +483,7 @@ export function SkillsView() {
           <pre className="feedback-lines">{feedback.lines.join('\n')}</pre>
           {feedback.conflicts !== undefined && feedback.conflicts.length > 0 && (
             <>
-              <div className="panel-title">Conflicts</div>
+              <div className="panel-title">冲突</div>
               <pre className="feedback-lines feedback-err">{feedback.conflicts.join('\n')}</pre>
             </>
           )}
@@ -493,14 +493,14 @@ export function SkillsView() {
       {/* Doctor 结果（可修复项带按钮） */}
       {doctorItems !== null && doctorItems.length > 0 && (
         <div className="panel feedback">
-          <div className="panel-title">Doctor items</div>
+          <div className="panel-title">Doctor 项</div>
           <ul className="doctor-list">
             {doctorItems.map((item) => (
               <li key={item.id} className={`doctor-item diag-${item.severity === 'warn' ? 'warning' : item.severity === 'error' ? 'error' : 'info'}`}>
                 <span className="doctor-msg">{item.message}</span>
                 {item.fixable && item.fixId !== undefined && (
                   <button type="button" className="btn" disabled={busy !== null} onClick={() => handleRepair(item)}>
-                    Fix ({item.fixId})
+                    修复（{item.fixId}）
                   </button>
                 )}
               </li>
@@ -515,11 +515,11 @@ export function SkillsView() {
           onClose={() => setImportOpen(false)}
           onDone={(r) => {
             setFeedback({
-              title: `Import ${r.plan.skillName}: ${r.steps.length} 步`,
+              title: `导入 ${r.plan.skillName}：${r.steps.length} 步`,
               lines: r.steps,
             })
             data.refresh()
-            show(`Import ${r.plan.skillName} 完成`)
+            show(`导入 ${r.plan.skillName} 完成`)
           }}
           onError={(msg) => show(msg, 'err')}
         />
@@ -534,8 +534,8 @@ function ViewHeader() {
   return (
     <header className="view-header">
       <div>
-        <h2 className="view-title">Skills</h2>
-        <p className="view-sub">AI skills vault: agents, links (junction / hardlink / WSL symlink), doctor and two-side sync</p>
+        <h2 className="view-title">技能</h2>
+        <p className="view-sub">AI skill vault：agent、链接（junction / hardlink / WSL symlink）、Doctor 与双侧同步</p>
       </div>
     </header>
   )
@@ -590,9 +590,9 @@ function ImportDialog({
   }
 
   return (
-    <div className="import-overlay" role="dialog" aria-label="Import skill">
+    <div className="import-overlay" role="dialog" aria-label="导入 Skill">
       <div className="import-dialog">
-        <div className="panel-title">Import skill</div>
+        <div className="panel-title">导入 Skill</div>
         <form className="toolbar" onSubmit={(e) => void preview(e)}>
           <input
             type="text"
@@ -605,7 +605,7 @@ function ImportDialog({
             }}
           />
           <button type="submit" className="btn" disabled={busy || sourceDir.trim().length === 0}>
-            Preview
+            预览
           </button>
         </form>
 
@@ -616,9 +616,9 @@ function ImportDialog({
                 <div>
                   <span className="dim">skill 名: </span>
                   <span className="mono">{plan.skillName}</span>
-                  <Badge tone="ok">kebab-case ok</Badge>
+                  <Badge tone="ok">kebab-case 通过</Badge>
                   <Badge tone="dim">
-                    {plan.fileCount} files · {plan.totalBytes} bytes
+                    {plan.fileCount} 个文件 · {plan.totalBytes} 字节
                   </Badge>
                   {plan.sourceIsLink && <Badge tone="warn">源是链接 → {plan.sourceRealPath}</Badge>}
                 </div>
@@ -663,7 +663,7 @@ function ImportDialog({
 
         <div className="import-footer">
           <button type="button" className="btn" onClick={onClose}>
-            Close
+            关闭
           </button>
         </div>
       </div>

@@ -57,8 +57,8 @@ export function EnvironmentView() {
     <section className="view">
       <header className="view-header">
         <div>
-          <h2 className="view-title">Environment</h2>
-          <p className="view-sub">Windows vs WSL toolchains, with doctor diagnostics</p>
+          <h2 className="view-title">环境</h2>
+          <p className="view-sub">Windows 与 WSL 工具链对比，含 Doctor 诊断</p>
         </div>
         <div className="view-actions">
           <button
@@ -70,13 +70,13 @@ export function EnvironmentView() {
               doctor.refresh()
             }}
           >
-            {detect.loading && <Spinner />} Re-detect
+            {detect.loading && <Spinner />} 重新检测
           </button>
         </div>
       </header>
 
       {detect.loading ? (
-        <Loading label="Detecting toolchains (Windows + WSL) — this can take a few seconds…" />
+        <Loading label="正在检测工具链（Windows + WSL）— 可能需要数秒…" />
       ) : detect.error !== null ? (
         <ErrorState error={detect.error} onRetry={detect.refresh} />
       ) : detect.data === null ? null : (
@@ -92,11 +92,11 @@ export function EnvironmentView() {
         Doctor
       </h3>
       {doctor.loading ? (
-        <Loading label="Running doctor checks…" />
+        <Loading label="正在运行 Doctor 检查…" />
       ) : doctor.error !== null ? (
         <ErrorState error={doctor.error} onRetry={doctor.refresh} />
       ) : doctor.data === null || doctor.data.checks.length === 0 ? (
-        <EmptyState title="No doctor findings" hint="environment:doctor reported no diagnostics." />
+        <EmptyState title="Doctor 无发现" hint="environment:doctor 未报告任何诊断项。" />
       ) : (
         doctor.data.checks.map((c) => (
           <div key={c.id} className={`diag-card ${severityClass(c.severity)}`}>
@@ -148,14 +148,14 @@ function DetectPanels({ envs, checks }: { envs: EnvironmentWithTools[]; checks: 
   return (
     <>
       {wslEnvs.length === 0 && (
-        <div className="degraded-banner">DEGRADED: no WSL distribution detected — WSL columns unavailable</div>
+        <div className="degraded-banner">降级：未检测到 WSL 发行版 — WSL 列不可用</div>
       )}
 
       <div className="table-wrap">
         <table className="table">
           <thead>
             <tr>
-              <th>Tool</th>
+              <th>工具</th>
               {[...windows, ...wslEnvs].map((e) => (
               <th key={e.id} title={e.osVersion}>
                 {envDisplayName(e.name)}
@@ -177,7 +177,7 @@ function DetectPanels({ envs, checks }: { envs: EnvironmentWithTools[]; checks: 
       </div>
 
       <details className="path-details">
-        <summary>Executable paths</summary>
+        <summary>可执行文件路径</summary>
         {envs.map((env) => (
           <div key={env.id}>
             <strong>{envDisplayName(env.name)}</strong>
@@ -200,7 +200,7 @@ function DetectPanels({ envs, checks }: { envs: EnvironmentWithTools[]; checks: 
 function ToolCell({ entries }: { entries: EnvironmentToolInfo[] }) {
   if (entries.length === 0) {
     return (
-      <td className="td-dim cell-missing" title="not probed in this environment">
+      <td className="td-dim cell-missing" title="未在该环境中探测">
         —
       </td>
     )
@@ -222,13 +222,13 @@ function ToolCell({ entries }: { entries: EnvironmentToolInfo[] }) {
         if (t.state === 'error') {
           return (
             <div key={i} className="env-cell-entry cell-error" title={t.path ?? undefined}>
-              probe error
+              探测错误
             </div>
           )
         }
         return (
           <div key={i} className="env-cell-entry cell-missing" title={t.path ?? undefined}>
-            missing
+            未安装
           </div>
         )
       })}
@@ -253,7 +253,7 @@ function DockerCard({ envs, checks }: { envs: EnvironmentWithTools[]; checks: Do
     <div className="section">
       <h3 className="section-title">Docker</h3>
       {dockerTools.length === 0 ? (
-        <div className="inline-note">docker tool not probed in any environment</div>
+        <div className="inline-note">所有环境均未探测 docker 工具</div>
       ) : (
         dockerTools.map(({ env, tool }) => (
           <div key={env} className="repo-line">
@@ -278,7 +278,7 @@ function DockerCard({ envs, checks }: { envs: EnvironmentWithTools[]; checks: Do
             />
           </>
         ) : (
-          <span className="repo-meta">{checks === null ? 'waiting for doctor…' : 'no daemon diagnostic reported (assumed reachable)'}</span>
+          <span className="repo-meta">{checks === null ? '等待 Doctor 结果…' : '无 daemon 诊断报告（假定可达）'}</span>
         )}
       </div>
     </div>
@@ -337,23 +337,23 @@ function WslDistroCards() {
         const ports = imp.listeningPorts
           .map((p) => `${p.port}${p.processName !== null ? ` (${p.processName})` : ''}`)
           .join(', ')
-        const lines = [`Terminate WSL distro "${imp.distro}"?`, `state: ${imp.state}`, `listening ports: ${ports || '—'}`]
+        const lines = [`确认终止 WSL 发行版「${imp.distro}」？`, `状态：${imp.state}`, `监听端口：${ports || '—'}`]
         if (imp.note !== undefined) lines.push(imp.note)
         if (window.confirm(lines.join('\n'))) {
           const done = await call('wsl:action', { distro, action: 'terminate', confirmed: true })
           if (done.confirmRequired === true) return
           if (!('distro' in done)) return
           if (done.ok) {
-            show(`${done.distro}: terminated${done.detail !== undefined ? ` — ${done.detail}` : ''}`)
+            show(`${done.distro}：已终止${done.detail !== undefined ? ` — ${done.detail}` : ''}`)
             stats.refresh()
           } else {
-            show(`${done.distro}: terminate failed — ${done.error ?? 'unknown error'}`, 'err')
+            show(`${done.distro}：终止失败 — ${done.error ?? '原因未知'}`, 'err')
           }
         }
         return
       }
       if (!('distro' in first)) return
-      show(`${first.distro}: terminated`)
+      show(`${first.distro}：已终止`)
       stats.refresh()
     } catch (err) {
       show(err instanceof Error ? err.message : String(err), 'err')
@@ -369,10 +369,10 @@ function WslDistroCards() {
       if (done.confirmRequired === true) return
       if (!('distro' in done)) return
       if (done.ok) {
-        show(`${done.distro}: running`)
+        show(`${done.distro}：运行中`)
         stats.refresh()
       } else {
-        show(`${done.distro}: boot failed — ${done.error ?? 'unknown error'}`, 'err')
+        show(`${done.distro}：启动失败 — ${done.error ?? '原因未知'}`, 'err')
       }
     } catch (err) {
       show(err instanceof Error ? err.message : String(err), 'err')
@@ -391,11 +391,11 @@ function WslDistroCards() {
         if (!('distros' in first.impacts)) return
         const imp = first.impacts
         const lines = [
-          `Shutdown the whole WSL VM? ${imp.distros.length} distro(s) will stop (${imp.distros.filter((d) => d.state.toLowerCase() === 'running').length} running):`,
+          `关停整个 WSL VM？将停止 ${imp.distros.length} 个发行版（${imp.distros.filter((d) => d.state.toLowerCase() === 'running').length} 个运行中）：`,
           ...imp.distros.map((d) => `  - ${d.name} (${d.state})`),
         ]
         if (imp.dockerDesktopDistros.length > 0) {
-          lines.push(`docker-desktop managed: ${imp.dockerDesktopDistros.join(', ')}`)
+          lines.push(`docker-desktop 系（由 Docker Desktop 管理）：${imp.dockerDesktopDistros.join(', ')}`)
         }
         if (imp.note !== undefined) lines.push(imp.note)
         if (window.confirm(lines.join('\n'))) {
@@ -403,16 +403,16 @@ function WslDistroCards() {
           if (done.confirmRequired === true) return
           if (!('runningBefore' in done)) return
           if (done.ok) {
-            show(`WSL shut down — ${done.runningBefore} running distro(s) stopped`)
+            show(`WSL 已关停 — 停止了 ${done.runningBefore} 个运行中的发行版`)
             stats.refresh()
           } else {
-            show(`shutdown failed — ${done.error ?? 'unknown error'}`, 'err')
+            show(`关停失败 — ${done.error ?? '原因未知'}`, 'err')
           }
         }
         return
       }
       // 无 confirmed 之外的直接结果只可能是降级失败（service 层保证）
-      show(`shutdown failed — ${first.error ?? 'unknown error'}`, 'err')
+      show(`关停失败 — ${first.error ?? '原因未知'}`, 'err')
     } catch (err) {
       show(err instanceof Error ? err.message : String(err), 'err')
     } finally {
@@ -422,50 +422,50 @@ function WslDistroCards() {
 
   return (
     <div className="section">
-      <h3 className="section-title">WSL distributions</h3>
+      <h3 className="section-title">WSL 发行版</h3>
       <div className="agents-poll-line">
         <span className="td-dim">
-          shutdown all stops the whole WSL VM (every distro, incl. docker-desktop) — double confirm with the full distro list
+          全部关停将停止整个 WSL VM（所有发行版，含 docker-desktop）— 二次确认展示完整发行版清单
         </span>
         <button
           type="button"
           className="btn btn-small btn-danger"
           disabled={busy !== null || stats.data?.available !== true}
-          title="wsl.exe --shutdown (asks for confirmation with the full distro list)"
+          title="wsl.exe --shutdown（二次确认展示完整发行版清单）"
           onClick={() => {
             void shutdownAll()
           }}
         >
           {busy === 'shutdownAll' ? <Spinner /> : null}
-          Shutdown all
+          全部关停
         </button>
       </div>
       {stats.loading ? (
-        <Loading label="Probing WSL distributions (no stopped distro is started)…" />
+        <Loading label="正在探测 WSL 发行版（不会启动已停止的发行版）…" />
       ) : stats.error !== null ? (
         <ErrorState error={stats.error} onRetry={stats.refresh} />
       ) : stats.data === null ? null : stats.data.available === false ? (
-        <div className="degraded-banner">DEGRADED: WSL unavailable — {stats.data.reason ?? 'unknown reason'}</div>
+        <div className="degraded-banner">降级：WSL 不可用 — {stats.data.reason ?? '原因未知'}</div>
       ) : stats.data.distros.length === 0 ? (
-        <EmptyState title="No WSL distribution" hint="wsl.exe -l -v returned no distributions." />
+        <EmptyState title="无 WSL 发行版" hint="wsl.exe -l -v 未返回任何发行版。" />
       ) : (
         <div className="agent-grid">
           {stats.data.distros.map((d) => {
             const running = d.state.toLowerCase() === 'running'
             const summary =
               d.stats !== null && d.stats.uptimeSec !== null
-                ? `uptime ${formatUptime(d.stats.uptimeSec)} · mem ${formatMem(d.stats)}`
+                ? `运行 ${formatUptime(d.stats.uptimeSec)} · 内存 ${formatMem(d.stats)}`
                 : null
             return (
               <div key={d.name} className="agent-card">
                 <div className="agent-card-head">
                   <span className="agent-name mono">{d.name}</span>
                   <Badge tone={stateTone(running ? 'running' : d.state)}>{d.state}</Badge>
-                  {d.isDefault === true && <Badge tone="accent">default</Badge>}
+                  {d.isDefault === true && <Badge tone="accent">默认</Badge>}
                 </div>
                 <div className="agent-dir mono dim">WSL {d.version}</div>
                 {d.managedByDocker === true ? (
-                  <div className="agent-counts dim">managed by Docker Desktop — status only</div>
+                  <div className="agent-counts dim">由 Docker Desktop 管理 — 仅显示状态</div>
                 ) : (
                   <>
                     {summary !== null ? <div className="agent-counts mono">{summary}</div> : null}
@@ -476,26 +476,26 @@ function WslDistroCards() {
                           type="button"
                           className="btn btn-small btn-danger"
                           disabled={busy !== null}
-                          title={`terminate ${d.name} (asks for confirmation with listening ports)`}
+                          title={`终止 ${d.name}（二次确认将列出监听端口）`}
                           onClick={() => {
                             void terminate(d.name)
                           }}
                         >
                           {busy === d.name ? <Spinner /> : null}
-                          Terminate
+                          终止
                         </button>
                       ) : (
                         <button
                           type="button"
                           className="btn btn-small"
                           disabled={busy !== null}
-                          title={`boot ${d.name} (harmless, idempotent)`}
+                          title={`启动 ${d.name}（无害、幂等）`}
                           onClick={() => {
                             void boot(d.name)
                           }}
                         >
                           {busy === d.name ? <Spinner /> : null}
-                          Boot
+                          启动
                         </button>
                       )}
                     </div>

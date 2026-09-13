@@ -65,16 +65,16 @@ export function ProjectsView({ initialProjectId }: { initialProjectId?: number }
     <section className="view">
       <header className="view-header">
         <div>
-          <h2 className="view-title">Projects</h2>
-          <p className="view-sub">Discovered and manually added projects with their relations</p>
+          <h2 className="view-title">项目</h2>
+          <p className="view-sub">已发现与手动添加的项目及其关联关系</p>
         </div>
         <div className="view-actions">
           <button type="button" className="btn" disabled={scanRunning} onClick={() => void startScan()}>
             {scanRunning && <Spinner />}
-            {scanRunning ? 'Scanning…' : 'Scan'}
+            {scanRunning ? '扫描中…' : '扫描'}
           </button>
           <button type="button" className="btn btn-primary" onClick={() => setAddOpen((v) => !v)}>
-            Add Project
+            添加项目
           </button>
         </div>
       </header>
@@ -97,25 +97,25 @@ export function ProjectsView({ initialProjectId }: { initialProjectId?: number }
             type="text"
             className="search-input"
             style={{ width: '100%', marginBottom: 8 }}
-            placeholder="Filter by name or path…"
+            placeholder="按名称或路径筛选…"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
           />
           {list.loading ? (
-            <Loading label="Loading projects…" />
+            <Loading label="正在加载项目…" />
           ) : list.error !== null ? (
             <ErrorState error={list.error} onRetry={list.refresh} />
           ) : projects.length === 0 ? (
             <div className="list-pane">
               <EmptyState
-                title="No projects"
-                hint="Scan the configured root to discover projects automatically, or add one manually."
-                action={{ label: 'Scan now', onClick: () => void startScan() }}
+                title="还没有项目"
+                hint="扫描配置的根目录可自动发现项目，也可手动添加。"
+                action={{ label: '立即扫描', onClick: () => void startScan() }}
               />
             </div>
           ) : visible.length === 0 ? (
             <div className="list-pane">
-              <EmptyState title="No matches" hint={`No project matches "${filter}".`} />
+              <EmptyState title="无匹配结果" hint={`没有项目匹配「${filter}」。`} />
             </div>
           ) : (
             <div className="list-pane">
@@ -132,7 +132,7 @@ export function ProjectsView({ initialProjectId }: { initialProjectId?: number }
                       {p.runtimeHint !== undefined && <Badge tone="accent">{p.runtimeHint}</Badge>}
                     </span>
                     {p.dirtyCount > 0 && (
-                      <span className="dirty-dot" title={`${p.dirtyCount} uncommitted change(s)`} />
+                      <span className="dirty-dot" title={`${p.dirtyCount} 处未提交改动`} />
                     )}
                   </span>
                   <span className="pi-path">{truncate(p.winPath ?? p.wslPath ?? '', 34)}</span>
@@ -145,7 +145,7 @@ export function ProjectsView({ initialProjectId }: { initialProjectId?: number }
         {selectedId === undefined ? (
           <div className="detail-pane">
             {projects.length > 0 ? (
-              <EmptyState title="Select a project" hint="Pick a project on the left to inspect its relations." />
+              <EmptyState title="选择一个项目" hint="在左侧选择项目以查看其关联详情。" />
             ) : null}
           </div>
         ) : (
@@ -179,7 +179,7 @@ function AddProjectForm({ onDone, onCancel }: { onDone: (added?: { id: number })
     e.preventDefault()
     if (submitting) return
     if (name.trim() === '' || winPath.trim() === '') {
-      setError('Name and Windows path are required.')
+      setError('名称与 Windows 路径必填。')
       return
     }
     setSubmitting(true)
@@ -198,20 +198,20 @@ function AddProjectForm({ onDone, onCancel }: { onDone: (added?: { id: number })
     <form className="add-form" onSubmit={(e) => void submit(e)}>
       <div className="form-row">
         <span className="field">
-          <label htmlFor="add-name">Name *</label>
+          <label htmlFor="add-name">名称 *</label>
           <input id="add-name" className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="my-project" />
         </span>
         <span className="field">
-          <label htmlFor="add-path">Windows path *</label>
+          <label htmlFor="add-path">Windows 路径 *</label>
           <input id="add-path" className="input" value={winPath} onChange={(e) => setWinPath(e.target.value)} placeholder="F:\\somewhere\\my-project" />
         </span>
       </div>
       <div className="form-row">
         <button type="submit" className="btn btn-primary" disabled={submitting}>
-          {submitting && <Spinner />}Add
+          {submitting && <Spinner />}添加
         </button>
         <button type="button" className="btn" onClick={onCancel}>
-          Cancel
+          取消
         </button>
       </div>
       {error !== null && <p className="form-error">{error}</p>}

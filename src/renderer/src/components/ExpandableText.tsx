@@ -51,7 +51,7 @@ export function ExpandableText({
         className="expandable-toggle"
         onClick={() => setExpanded((v) => !v)}
       >
-        {expanded ? 'Show less' : 'Show more'}
+        {expanded ? '收起' : '展开'}
       </button>
     </span>
   )

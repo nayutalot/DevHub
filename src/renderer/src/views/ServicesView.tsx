@@ -45,15 +45,15 @@ export function ServicesView() {
     <section className="view">
       <header className="view-header">
         <div>
-          <h2 className="view-title">Services</h2>
+          <h2 className="view-title">服务</h2>
           <p className="view-sub">
-            Listening ports attributed to processes, environments and projects
-            {services.data !== null ? ` — last refresh saw ${services.data.refreshedCount} record(s)` : ''}
+            监听端口归因到进程、环境与项目
+            {services.data !== null ? ` — 上次刷新记录 ${services.data.refreshedCount} 条` : ''}
           </p>
         </div>
         <div className="view-actions">
           <button type="button" className="btn" disabled={services.loading} onClick={services.refresh}>
-            Refresh
+            刷新
           </button>
         </div>
       </header>
@@ -62,8 +62,8 @@ export function ServicesView() {
         <input
           type="text"
           className="search-input"
-          placeholder="Filter ports, processes, projects"
-          title="Substring filter; press Enter on a pure number to lock that exact port"
+          placeholder="筛选端口、进程、项目"
+          title="子串筛选；输入纯数字按回车可锁定该精确端口"
           value={query}
           onChange={(e) => {
             setQuery(e.target.value)
@@ -79,45 +79,45 @@ export function ServicesView() {
               setQuery('')
             }}
           >
-            Clear port {lockedPort}
+            解除锁定端口 {lockedPort}
           </button>
         )}
       </form>
 
       {lockedPort !== null && (
         <div className="port-answer">
-          Port {lockedPort} — {visible.length} listener(s)
-          {visible.length === 0 ? <span className="dim"> (nobody is listening on this port right now)</span> : null}
+          端口 {lockedPort} — {visible.length} 个监听者
+          {visible.length === 0 ? <span className="dim">（当前没有进程监听该端口）</span> : null}
         </div>
       )}
 
       {services.loading ? (
-        <Loading label="Scanning listening ports (Windows netstat / WSL / Docker)…" />
+        <Loading label="正在扫描监听端口（Windows netstat / WSL / Docker）…" />
       ) : services.error !== null ? (
         <ErrorState error={services.error} onRetry={services.refresh} />
       ) : rows.length === 0 ? (
         <div className="panel">
           <EmptyState
-            title="No listening ports"
-            hint="Nothing was listening when the last refresh ran. Hit Refresh to scan again."
-            action={{ label: 'Refresh', onClick: services.refresh }}
+            title="没有监听端口"
+            hint="上次刷新时没有发现监听。点击「刷新」重新扫描。"
+            action={{ label: '刷新', onClick: services.refresh }}
           />
         </div>
       ) : visible.length === 0 ? (
         <div className="panel">
-          <EmptyState title="No matches" hint={`Nothing matches "${query.trim()}".`} />
+          <EmptyState title="无匹配结果" hint={`没有匹配「${query.trim()}」的结果。`} />
         </div>
       ) : (
         <div className="table-wrap">
           <table className="table">
             <thead>
               <tr>
-                <th>Port</th>
+                <th>端口</th>
                 <th>PID</th>
-                <th>Process</th>
-                <th>Origin</th>
-                <th>Project</th>
-                <th>Command</th>
+                <th>进程</th>
+                <th>来源</th>
+                <th>项目</th>
+                <th>命令</th>
               </tr>
             </thead>
             <tbody>
@@ -127,7 +127,7 @@ export function ServicesView() {
                   <tr key={r.id} className={lockedPort !== null && r.port === lockedPort ? 'row-hit' : undefined}>
                     <td className="td-mono">{r.port}</td>
                     <td className="td-mono td-dim">{r.pid ?? '—'}</td>
-                    <td className="td-mono">{r.processName ?? 'unknown'}</td>
+                    <td className="td-mono">{r.processName ?? '未知'}</td>
                     <td>
                       <Badge tone={originTone(r.origin)}>{r.origin}</Badge>
                     </td>
