@@ -14155,7 +14155,10 @@ if (isEntrypoint()) {
   /** ZCode Protocol v1 fake app-server（T2 smoke 夹具）：stdio 逐行 JSON、
    *  无 jsonrpc 字段、无握手、服务端反向请求先行；行为开关 ZCODE_FIXTURE_MODE
    *  = 'happy'（send 后事件流至 turn.completed(success)）| 'hang'（只发
-   *  turn.started，等 session/stop）。全部交互落 ZCODE_FIXTURE_LOG（**绝不记录
+   *  turn.started，等 session/stop）| 'late'（happy 时间线 + session/close 请求
+   *  先回放一条迟到 turn.completed 再应答——B2 t2z-112 迟到事件丢弃路径）。
+   *  启动即发一条未知通知（process/mcpTelemetry 形态）+ 一行非法帧（B2 容忍
+   *  计数断言面）。全部交互落 ZCODE_FIXTURE_LOG（**绝不记录
    *  ZCODE_API_KEY / <PROVIDER>_API_KEY 值**——令牌三零断言面）。 */
   const T2Z_FAKE_APPSERVER_SCRIPT = [
     "import { appendFileSync } from 'node:fs'",
@@ -14164,6 +14167,8 @@ if (isEntrypoint()) {
     "const log = (entry) => { try { appendFileSync(logPath, JSON.stringify(entry) + '\\n') } catch {} }",
     "log({ env: { zcodeModel: process.env.ZCODE_MODEL ?? null, zcodeBaseUrl: process.env.ZCODE_BASE_URL ?? null, zcodeApiKeySet: Boolean(process.env.ZCODE_API_KEY), providerKeySet: Boolean(process.env.DUMMYHUB_API_KEY) } })",
     "const send = (frame) => process.stdout.write(JSON.stringify(frame) + '\\n')",
+    "send({ method: 'process/mcpTelemetry', params: { kind: 'fixture-boot' } })",
+    "process.stdout.write('fixture-not-json-line\\n')",
     "let serverReqN = 0",
     "const serverReqMethods = new Map()",
     "let pendingCreate = null",
@@ -14184,7 +14189,7 @@ if (isEntrypoint()) {
     "      return",
     "    }",
     "    if (m.method === 'session/stop') { send({ id: m.id, result: { stopped: true } }); const sid = (m.params ?? {}).sessionId; setTimeout(() => emitEvent(sid, 9, 'turn.completed', 'cancelled'), 30); return }",
-    "    if (m.method === 'session/close') { send({ id: m.id, result: { closed: true } }); return }",
+    "    if (m.method === 'session/close') { if (mode === 'late') { emitEvent((m.params ?? {}).sessionId, 99, 'turn.completed', 'success') } send({ id: m.id, result: { closed: true } }); return }",
     "    send({ id: m.id, error: { code: -32601, message: 'fixture: method not found: ' + m.method } })",
     "    return",
     "  }",
@@ -14960,6 +14965,164 @@ if (isEntrypoint()) {
       svc.stopAllAgentControlRuntime()
       dbModule.closeDatabase()
     }
+  }, 'fast')
+
+  // ==================================================================
+  // B2 批（docs/briefs/b2-desktop-robust.md）：zcode 托管面健壮性审查+修复。
+  // 审查矩阵六项逐项过（findings：必修 4 + 注记 8，详见 commit/汇报）；
+  // 每个必修缺陷配 fake 用例锁（本节 112/113）；真实 CLI 端到端仍不做。
+  // ==================================================================
+
+  // 112.（B2 修复 F1+F3 锁）事件消费崩溃面：L3 sink 投影异常（applySessionStatus
+  //      → node:sqlite 抛错族）绝不能穿透 stdout 'data' 事件链——修复前 = 一次
+  //      SQLITE_BUSY/磁盘满即 uncaughtException 主进程崩溃；修复后 = 截断 + 计数，
+  //      终态 finalize 照常（close 落夹具日志、迟到事件被丢弃计数）。
+  //      容忍计数出诊断面（unknown frames/notifications = 夹具启动噪声帧；
+  //      late events = close 请求触发的迟到回放；sink errors = 两次状态沿投影）。
+  registerCase('t2z-112: B2 zcode managed event-face robustness — a throwing L3 sink cannot penetrate the stdout data chain (exception truncated + counted, terminal finalize still issues session/close, late event after finalize dropped + counted), tolerance counters surfaced in describeDiagnostics (unknown frames/notifications from fixture boot noise), provider stays alive after the storm', async () => {
+    const { mkdtempSync, writeFileSync, readFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+    const zcodeMod = await import(new URL('../src/main/services/agentControl/providers/zcodeProvider.ts', import.meta.url).href)
+
+    const dir = mkdtempSync(join(tmpdir(), 'devhub-t2z-112-'))
+    const logPath = join(dir, 'fixture-log.jsonl')
+    const fixtureScript = join(dir, 'zcode-fake-appserver.mjs')
+    writeFileSync(fixtureScript, T2Z_FAKE_APPSERVER_SCRIPT)
+    process.env['ZCODE_FIXTURE_LOG'] = logPath
+    process.env['ZCODE_FIXTURE_MODE'] = 'late'
+    const fakeKey = 'smoke-fake-key-DO-NOT-LOG-b2112'
+    await makeTempHome('devhub-t2z-112-')
+    try {
+      const provider = zcodeMod.createZcodeProvider({
+        managedConfigSource: async () => ({
+          ready: true,
+          model: 'dummyhub/dummy-model',
+          baseUrl: 'https://dummyhub.test/api/anthropic',
+          kind: 'anthropic',
+          providerId: 'dummyhub',
+          apiKeyPlain: fakeKey,
+        }),
+        managedCliConfigPath: join(dir, 'cli-config-112.json'),
+        managedCommand: process.execPath,
+        managedArgs: [fixtureScript],
+        managedWorkspacePath: join(dir, 'ws'),
+        managedIdleTimeoutMs: 15_000,
+        managedLifetimeTimeoutMs: 60_000,
+        managedRequestTimeoutMs: 10_000,
+      })
+      let statusCalls = 0
+      const sink = {
+        onSessionDiscovered: () => {},
+        onStatusChanged: () => {
+          statusCalls += 1
+          throw new Error('fixture sink boom (simulated SQLITE_BUSY from L3)')
+        },
+      }
+      const start = await provider.startManagedSession('sink-storm task', sink)
+      assert.equal(start.ok, true, `start ok despite throwing sink: ${start.detail ?? ''}`)
+
+      // 状态沿投影两次抛错（turn.started→running、turn.completed→waiting_input），
+      // 终态 finalize 仍照常执行（close 落夹具日志 = 修复的核心行为断言）
+      await pollUntil(() => statusCalls >= 2, 5000, 20, 'both status projections attempted (running + waiting_input)')
+      await pollUntil(() => readFileSync(logPath, 'utf8').includes('"method":"session/close"'), 5000, 20, 'session/close issued after terminal event despite sink exceptions (no connection leak)')
+
+      // 终态后迟到回放（fixture 在 close 请求上先回放一条 turn.completed）：
+      // 已收尾会话 → 容忍丢弃 + 计数
+      await pollUntil(() => {
+        const diag = provider.describeDiagnostics()
+        return diag.dataSource.detail?.includes('late events dropped 1') === true
+      }, 5000, 20, 'late event after finalize dropped and counted')
+      const diag = provider.describeDiagnostics()
+      assert.ok(diag.dataSource.readable, 'diagnostics readable (managed counters live in dataSource.detail)')
+      assert.ok(diag.dataSource.detail?.includes('sink projection errors 2'), `sink errors counted: ${diag.dataSource.detail ?? ''}`)
+      assert.ok(diag.dataSource.detail?.includes('unknown frames 1'), `boot malformed line counted: ${diag.dataSource.detail ?? ''}`)
+      assert.ok(diag.dataSource.detail?.includes('unknown notifications 1'), `boot unknown notification counted: ${diag.dataSource.detail ?? ''}`)
+      assert.ok(diag.dataSource.detail?.includes('turns completed 1'), `turn completion counted: ${diag.dataSource.detail ?? ''}`)
+      assert.equal(diag.dataSource.detail?.includes(fakeKey), false, '令牌三零：diagnostics 零 key')
+
+      // 进程仍健在（修复前 = uncaughtException 整个 smoke 进程即死）：终态后动作
+      // 走结构化拒绝面
+      const after = await provider.sendReply({ providerId: 'zcode', nativeId: String(start.nativeId) }, 'too late')
+      assert.equal(after.status, 'failed')
+      assert.equal(after.errorCode, 'COMMAND_NOT_EXECUTABLE')
+
+      assert.equal(readFileSync(logPath, 'utf8').includes(fakeKey), false, 'token red line holds on the event-face path')
+      await provider.dispose()
+    } finally {
+      delete process.env['ZCODE_FIXTURE_LOG']
+      delete process.env['ZCODE_FIXTURE_MODE']
+      dbModule.closeDatabase()
+    }
+  }, 'full')
+
+  // 113.（B2 修复 F2+F4 锁，fast 档）探针防抖 + dispose 后 spawn 拒绝：
+  //      - doctor 瞬断（单次失败）在防抖窗口内保留最近真实 ok 的 managed 判定
+  //        （evidence 如实记载瞬断+窗口，绝不伪装成新验证）；
+  //      - 窗口过期（真实小窗口 + 真实等待）如实回 observed；
+  //      - 从未 ok 的实例首探即失败 → observed（防抖绝不无中生有）；
+  //      - dispose 后 startManagedSession 结构化拒绝（零 config 读取、零子进程）。
+  registerCase('t2z-113: B2 zcode probe hysteresis + disposed guard — single doctor transient failure retains the managed verdict within the hysteresis window (evidence documents the transient honestly), real-window expiry flips to observed, first-probe failure on a never-ok instance is observed (no invented retention), dispose refuses managed spawn with zero config reads', async () => {
+    const zcodeMod = await import(new URL('../src/main/services/agentControl/providers/zcodeProvider.ts', import.meta.url).href)
+    const ref = { providerId: 'zcode', nativeId: '-' }
+    const managedSnapshot = () => ({
+      ready: true,
+      model: 'dummyhub/dummy-model',
+      baseUrl: 'https://dummyhub.test/api/anthropic',
+      kind: 'anthropic',
+      providerId: 'dummyhub',
+      apiKeyPlain: 'smoke-fake-key-t2z113',
+    })
+    let doctorAlive = true
+    const flakyDoctor = async () =>
+      doctorAlive
+        ? { alive: true, version: '0.16.5', detail: 'fixture doctor ok (1ms)' }
+        : { alive: false, detail: 'doctor failed: fixture transient (exit 1)' }
+
+    // A) 瞬断保留：同实例 ok → 瞬断（age ≈ 0 < 默认 300s 窗口）→ managed 保留
+    const p1 = zcodeMod.createZcodeProvider({ managedConfigSource: managedSnapshot, managedDoctorProbe: flakyDoctor })
+    const capsOk = await p1.getCapabilities(ref)
+    assert.equal(capsOk.mode, 'managed')
+    doctorAlive = false
+    const capsRetained = await p1.getCapabilities(ref)
+    assert.equal(capsRetained.mode, 'managed', 'single transient doctor failure retains managed within the hysteresis window')
+    assert.deepEqual(capsRetained.granted, ['reply', 'pause'], 'retained verdict keeps the same grant set')
+    assert.ok(capsRetained.evidence.includes('failed transiently'), `evidence documents the transient honestly: ${capsRetained.evidence}`)
+    assert.ok(capsRetained.evidence.includes('retained from real ok probe'), 'evidence names the retention basis (never pretends a fresh verification)')
+    assert.ok(capsRetained.evidence.includes('doctor failed: fixture transient'), 'evidence carries the probe failure detail')
+    assert.equal(capsRetained.evidence.includes('smoke-fake-key-t2z113'), false, '令牌三零：retained evidence 同样零 key')
+
+    // B) 真实小窗口过期：30ms 窗口 + 80ms 真实等待 → age > 窗口 → observed 如实翻转
+    doctorAlive = true
+    const p2 = zcodeMod.createZcodeProvider({ managedConfigSource: managedSnapshot, managedDoctorProbe: flakyDoctor, managedProbeHysteresisMs: 30 })
+    assert.equal((await p2.getCapabilities(ref)).mode, 'managed')
+    await new Promise((r) => setTimeout(r, 80))
+    doctorAlive = false
+    const capsExpired = await p2.getCapabilities(ref)
+    assert.equal(capsExpired.mode, 'observed', 'aged-out failure flips to observed faithfully')
+    assert.ok(capsExpired.evidence.includes('doctor probe failed'), `expiry evidence: ${capsExpired.evidence}`)
+
+    // C) 从未 ok：首探即失败 → observed（防抖绝不无中生有 managed）
+    const p3 = zcodeMod.createZcodeProvider({ managedConfigSource: managedSnapshot, managedDoctorProbe: flakyDoctor })
+    const capsNever = await p3.getCapabilities(ref)
+    assert.equal(capsNever.mode, 'observed', 'first-probe failure on a never-ok instance flips observed (no invented retention)')
+
+    // D) dispose 后 spawn 拒绝：结构化失败、零 config 读取（防关停竞态孤儿进程）
+    let configReads = 0
+    const p4 = zcodeMod.createZcodeProvider({
+      managedConfigSource: async () => {
+        configReads += 1
+        return managedSnapshot()
+      },
+      managedDoctorProbe: flakyDoctor,
+    })
+    await p4.dispose()
+    const refused = await p4.startManagedSession('post-dispose task', { onSessionDiscovered: () => {} })
+    assert.equal(refused.ok, false, 'disposed provider refuses managed spawn')
+    assert.ok(refused.detail?.includes('disposed'), `structured refusal names dispose: ${refused.detail ?? ''}`)
+    assert.equal(refused.nativeId, undefined, 'no native id issued after dispose')
+    assert.equal(configReads, 0, 'refusal happens before any config source read (zero work past the guard)')
   }, 'fast')
 
     await run(parseTierArg())
