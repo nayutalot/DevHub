@@ -99,6 +99,16 @@
  * 面，原子 upsert）；绝不入任何日志/审计/错误文案。
  *
  * electron-free；spawn 经 core/exec spawnManaged/run（约束 #7）；一切 SQL 参数绑定（约束 #11）。
+ *
+ * B2 批（docs/briefs/b2-desktop-robust.md 审查+最小修复，本批四处）：
+ * 1. handleManagedEvent 的 sink 回调截断（stdout 'data' 链上的 L3 落库异常不再穿透成
+ *    uncaughtException 主进程崩溃；计数 sinkErrors，终态 finalize 照常）；
+ * 2. getCapabilities doctor 瞬断防抖（managedProbeHysteresisMs，锚点 = lastManagedOkAt
+ *    真实成功时刻，retained 判定不刷新锚点；配置未就绪绝不防抖）；
+ * 3. 容忍计数出诊断面（managedStats 全量进 describeDiagnostics.dataSource.detail，纯计数零凭据）；
+ * 4. dispose 后拒绝新托管 spawn（disposed 标志，防关停竞态孤儿进程）。
+ * 其余审查结论（pending 表无泄漏/close-killTree 竞态有界/ensureZcodeCliConfig 同步体
+ * 事件循环天然串行化/ApiHub 半写态全防御/路径形态防御）= 注记级，零改动。
  */
 
 import { mkdirSync, rmSync, statSync, copyFileSync, existsSync } from 'node:fs'
@@ -192,6 +202,13 @@ export interface ZcodeProviderOptions {
   managedConfigSource?: () => Promise<ZcodeManagedConfigSnapshot>
   /** doctor 探针注入（默认 run(node,[cjs,'doctor']) 真探；smoke 注入 fake）。 */
   managedDoctorProbe?: () => Promise<{ alive: boolean; version?: string; detail: string }>
+  /**
+   * B2 批（docs/briefs/b2-desktop-robust.md 审查矩阵 #5）：doctor 探针瞬断防抖窗口
+   * 毫秒（默认 300_000；0 = 关闭防抖）。单次探针失败（负载超时/AV 扫描等瞬态）在
+   * 窗口内保留最近一次真实 ok 的 managed 判定（evidence 如实记载瞬断与保留依据，
+   * 绝不伪装成新验证）；窗口过期如实回 observed。配置未就绪是持久事实，绝不享受防抖。
+   */
+  managedProbeHysteresisMs?: number
 }
 
 const DEFAULT_POLL_MS = 8_000
@@ -205,6 +222,12 @@ const DEFAULT_MANAGED_IDLE_MS = 120_000
 const DEFAULT_MANAGED_LIFETIME_MS = 3_600_000
 const DEFAULT_MANAGED_REQUEST_MS = 30_000
 const DEFAULT_MANAGED_DOCTOR_MS = 10_000
+/**
+ * doctor 探针瞬断防抖窗口默认值（B2 审查矩阵 #5；agentControlService 的能力重验
+ * 节流为 240s——窗口 ≥240s 恰好桥接一次失败的重验，300s 留余量；真死透的 zcode
+ * 在最后一次真实 ok 后 ≤300s+一个重验周期内如实回 observed）。
+ */
+const DEFAULT_MANAGED_PROBE_HYSTERESIS_MS = 300_000
 /** 默认 zcode.cjs 束路径（Z1 Q4：固定文件名，更新原位替换 → 路径稳定）。 */
 export const ZCODE_DEFAULT_CJS_PATH = join(
   process.env['LOCALAPPDATA'] ?? join(homedir(), 'AppData', 'Local'),
@@ -558,6 +581,7 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
   const managedLifetimeTimeoutMs = options.managedLifetimeTimeoutMs ?? DEFAULT_MANAGED_LIFETIME_MS
   const managedRequestTimeoutMs = options.managedRequestTimeoutMs ?? DEFAULT_MANAGED_REQUEST_MS
   const managedDoctorTimeoutMs = options.managedDoctorTimeoutMs ?? DEFAULT_MANAGED_DOCTOR_MS
+  const managedProbeHysteresisMs = options.managedProbeHysteresisMs ?? DEFAULT_MANAGED_PROBE_HYSTERESIS_MS
   const managedConfigSource = options.managedConfigSource ?? readZcodeManagedConfig
 
   const stats = { parseFailures: 0, snapshotOpens: 0, directOpens: 0, lastSchemaProblems: [] as string[] }
@@ -582,14 +606,22 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
   >()
   /** DevHub 亲自发起过的托管会话全集（终态后保留）：listSessions 扫描投影据此标 managed。 */
   const managedSessionIds = new Set<string>()
+  /** B2（审查矩阵 #1 dispose 重入）：dispose 后拒绝新的托管 spawn（防关停竞态孤儿进程）。 */
+  let disposed = false
   /** 协议容忍计数 + 最近一次 caps 探测证据（诊断面）。 */
   const managedStats = {
     serverRequestsAnswered: 0,
     unknownFrames: 0,
     unknownNotifications: 0,
     turnsCompleted: 0,
+    /** 终态收尾后迟到事件丢弃计数（B2 审查矩阵 #3：容忍 + 可观测）。 */
+    lateEvents: 0,
+    /** sink（L3 落库）投影异常截断计数（B2 崩溃面修复配对计数）。 */
+    sinkErrors: 0,
   }
   let lastManagedProbe: { at: number; ok: boolean; evidence: string } | null = null
+  /** 最近一次 doctor 真实成功时刻（秒；防抖窗口锚点——retained 判定绝不刷新它，防窗口无限自延）。 */
+  let lastManagedOkAt: number | null = null
 
   /** 托管 cjs 路径解析（显式注入 > 默认束路径；存在性实测）。 */
   function resolveManagedCjsPath(): string | null {
@@ -774,7 +806,10 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
   /** session/event 投影（主控定案 #7：状态沿走 sink；内容事件零额外工作——同库转录面可见）。 */
   function handleManagedEvent(sink: EventSink, ev: ZcodeSessionEventParams): void {
     const handle = managedSessions.get(ev.sessionId)
-    if (handle === undefined) return // 已收尾会话的迟到事件：容忍丢弃
+    if (handle === undefined) {
+      managedStats.lateEvents += 1 // 已收尾会话的迟到事件：容忍丢弃 + 计数（B2 审查矩阵 #3）
+      return
+    }
     const next = evalZcodeEventStatus(ev.type, ev.resultType)
     if (next !== null && next !== handle.lastStatus) {
       const from = handle.lastStatus ?? undefined
@@ -783,7 +818,16 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
         ev.type === 'turn.completed' && ev.resultType !== null
           ? `turn completed (resultType: ${ev.resultType})`
           : `zcode event: ${ev.type}`
-      sink.onStatusChanged?.({ providerId: 'zcode', nativeId: ev.sessionId }, from, next, detail)
+      // B2 崩溃面修复：sink 回调（L3 buildMonitorSink → applySessionStatus →
+      // node:sqlite）在本进程 stdout 'data' 事件链上同步执行——任何 L3 落库异常
+      // （SQLITE_BUSY/磁盘满/库损坏）穿透即 uncaughtException 主进程崩溃。此处
+      // 结构性截断 + 计数（丢一次状态沿投影，监控轮询侧 lastStatus 独立对账），
+      // 后续终态 finalize 照常执行，绝不因投影失败泄漏连接或崩溃进程。
+      try {
+        sink.onStatusChanged?.({ providerId: 'zcode', nativeId: ev.sessionId }, from, next, detail)
+      } catch {
+        managedStats.sinkErrors += 1
+      }
     }
     if (ev.type === 'turn.completed' || ev.type === 'turn.failed') managedStats.turnsCompleted += 1
     if (isTurnTerminalEvent(ev.type)) finalizeManagedSession(ev.sessionId)
@@ -1175,8 +1219,10 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
   /**
    * 九方法 4：getCapabilities（T2 托管判定，数据驱动）：
    * - 配置未就绪（settings 键空或档案缺失）→ observed + 结构化 reason（默认态；
-   *   llm_review「默认空 = 停用绝不半开」先例；零子进程零开销）；
-   * - 配置就绪但 doctor 不 alive → observed + 探测失败原因；
+   *   llm_review「默认空 = 停用绝不半开」先例；零子进程零开销；持久事实，不防抖）；
+   * - 配置就绪但 doctor 不 alive → 防抖判定（B2 审查矩阵 #5）：最近一次真实 ok
+   *   探测在防抖窗口内 → 保留 managed（evidence 如实记载瞬断与窗口依据）；窗口
+   *   过期/从未 ok → observed + 探测失败原因；
    * - 全部就绪 → managed + granted ['reply','pause']（session/send、session/stop；
    *   resume 无已验证协议方法——Z1 方法表无 resume 语义，绝不猜）。
    * 探测零凭据：evidence 只含「就绪」事实，绝不含 baseUrl/key。
@@ -1191,12 +1237,26 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
     }
     const doctor = await doctorProbe()
     if (!doctor.alive) {
+      // 瞬断防抖：单次 doctor 失败（负载超时/AV 扫描等）不立即 managed→observed 翻转
+      //（否则 L3 spawn 门随之闭合一个重验周期，managed 卡翻转）。锚点 = lastManagedOkAt
+      //（真实成功时刻），retained 判定不刷新锚点——真死透的 zcode 最迟在最后真实 ok
+      // 后 窗口期+一个重验周期 内如实降级 observed。
+      const lastOkAgeMs =
+        lastManagedOkAt !== null ? Date.now() - lastManagedOkAt * 1000 : Number.POSITIVE_INFINITY
+      if (Number.isFinite(lastOkAgeMs) && lastOkAgeMs >= 0 && lastOkAgeMs <= managedProbeHysteresisMs) {
+        const evidence =
+          `zcode doctor probe failed transiently (managed verdict retained from real ok probe ` +
+          `${Math.round(lastOkAgeMs / 1000)}s ago, within ${Math.round(managedProbeHysteresisMs / 1000)}s hysteresis): ${doctor.detail}`
+        lastManagedProbe = { at: nowSec(), ok: true, evidence }
+        return { mode: 'managed', granted: ['reply', 'pause'], verifiedAt: nowSec(), evidence }
+      }
       const evidence = `managed face configured but zcode doctor probe failed: ${doctor.detail}`
       lastManagedProbe = { at: nowSec(), ok: false, evidence }
       return { mode: 'observed', granted: [], verifiedAt: nowSec(), evidence }
     }
     const evidence = `zcode managed probe ok: ${doctor.detail} + ApiHub zcode active profile ready + ${ZCODE_MANAGED_MODEL_SETTING_KEY} set`
     lastManagedProbe = { at: nowSec(), ok: true, evidence }
+    lastManagedOkAt = Date.now() / 1000
     return { mode: 'managed', granted: ['reply', 'pause'], verifiedAt: nowSec(), evidence }
   }
 
@@ -1206,6 +1266,12 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
   // -------------------------------------------------------------------------
 
   async function startManagedSession(task: string, sink: EventSink): Promise<{ ok: boolean; nativeId?: string; detail?: string }> {
+    // B2（审查矩阵 #1 dispose 重入）：dispose 后拒绝新托管 spawn——否则「手机侧
+    // 触发 spawn × 托盘退出 dispose」竞态会赶在收尾之后 spawn 出孤儿子进程。
+    // 结构化拒绝（零 config 读取、零子进程），绝不半开。
+    if (disposed) {
+      return { ok: false, detail: 'zcode provider disposed (runtime teardown in progress); managed session spawn refused' }
+    }
     const snapshot = await managedConfigSource()
     if (!snapshot.ready) {
       return { ok: false, detail: `zcode managed face unconfigured: ${snapshot.reason ?? 'unknown'}` }
@@ -1789,6 +1855,7 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
   // -------------------------------------------------------------------------
 
   async function dispose(): Promise<void> {
+    disposed = true
     if (residentSnapshot !== null) {
       try {
         residentSnapshot.close()
@@ -1818,7 +1885,15 @@ export function createZcodeProvider(options: ZcodeProviderOptions = {}): AgentPr
         detail:
           stats.lastSchemaProblems.length > 0
             ? `schema/open problems: ${stats.lastSchemaProblems.slice(0, 4).join('; ').slice(0, 200)}`
-            : `direct opens: ${stats.directOpens}, snapshot opens: ${stats.snapshotOpens}, parse failures: ${stats.parseFailures}`,
+            : `direct opens: ${stats.directOpens}, snapshot opens: ${stats.snapshotOpens}, parse failures: ${stats.parseFailures}`
+              // B2（审查矩阵 #3）：容忍计数出诊断面——「丢弃+计数」纪律必须可观测
+              //（此前 managedStats 只写不读；纯计数零凭据）。
+              + `; managed face: server requests answered ${managedStats.serverRequestsAnswered}`
+              + `, unknown frames ${managedStats.unknownFrames}`
+              + `, unknown notifications ${managedStats.unknownNotifications}`
+              + `, late events dropped ${managedStats.lateEvents}`
+              + `, sink projection errors ${managedStats.sinkErrors}`
+              + `, turns completed ${managedStats.turnsCompleted}`,
       },
       control: {
         ...(lastManagedProbe !== null ? { appServer: lastManagedProbe.ok } : {}),
