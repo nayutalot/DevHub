@@ -391,23 +391,30 @@ fun SessionDetailScreen(
                         scope.launch {
                             submitStatus = null
                             submitError = null
-                            submitStatus = when (val r = ConnectionManager.submitReply(sessionId, text)) {
-                                is SubmitResult.Accepted -> {
-                                    // R5.1 端侧打点：reply 提交→回流往返样本的起点标记
-                                    android.util.Log.i(
-                                        UX_LOG_TAG,
-                                        "reply_sent sessionId=$sessionId commandId=${r.commandId} atMs=${System.currentTimeMillis()}",
-                                    )
-                                    "已接受（commandId=${r.commandId}）"
+                            try {
+                                submitStatus = when (val r = ConnectionManager.submitReply(sessionId, text)) {
+                                    is SubmitResult.Accepted -> {
+                                        // R5.1 端侧打点：reply 提交→回流往返样本的起点标记
+                                        android.util.Log.i(
+                                            UX_LOG_TAG,
+                                            "reply_sent sessionId=$sessionId commandId=${r.commandId} atMs=${System.currentTimeMillis()}",
+                                        )
+                                        "已接受（commandId=${r.commandId}）"
+                                    }
+                                    SubmitResult.QueuedOffline -> "当前离线：已入离线队列，重连后自动补发（幂等）"
+                                    is SubmitResult.Rejected -> {
+                                        submitError = com.devhub.mobile.core.ErrorPresent.api(
+                                            r.code, r.message,
+                                            com.devhub.mobile.core.ErrorPresent.Surface.COMMAND,
+                                        )
+                                        null
+                                    }
                                 }
-                                SubmitResult.QueuedOffline -> "当前离线：已入离线队列，重连后自动补发（幂等）"
-                                is SubmitResult.Rejected -> {
-                                    submitError = com.devhub.mobile.core.ErrorPresent.api(
-                                        r.code, r.message,
-                                        com.devhub.mobile.core.ErrorPresent.Surface.COMMAND,
-                                    )
-                                    null
-                                }
+                            } catch (err: Exception) {
+                                // B1 泛化热修（P0 先例）：提交协程跑在 rememberCoroutineScope（主线程
+                                // 无异常处理器）——未预期 Throwable 绝不容其崩进程；诚实态上屏，
+                                // 原异常收 technical 不吞码。
+                                submitError = com.devhub.mobile.core.ErrorPresent.io(err)
                             }
                             replyText = ""
                         }
@@ -422,16 +429,21 @@ fun SessionDetailScreen(
                     scope.launch {
                             submitStatus = null
                             submitError = null
-                            submitStatus = when (val r = ConnectionManager.submitAction(sessionId, "pause")) {
-                                is SubmitResult.Accepted -> "pause 已接受（commandId=${r.commandId}）"
-                                SubmitResult.QueuedOffline -> "当前离线：pause 已入离线队列"
-                                is SubmitResult.Rejected -> {
-                                    submitError = com.devhub.mobile.core.ErrorPresent.api(
-                                        r.code, r.message,
-                                        com.devhub.mobile.core.ErrorPresent.Surface.COMMAND,
-                                    )
-                                    null
+                            try {
+                                submitStatus = when (val r = ConnectionManager.submitAction(sessionId, "pause")) {
+                                    is SubmitResult.Accepted -> "pause 已接受（commandId=${r.commandId}）"
+                                    SubmitResult.QueuedOffline -> "当前离线：pause 已入离线队列"
+                                    is SubmitResult.Rejected -> {
+                                        submitError = com.devhub.mobile.core.ErrorPresent.api(
+                                            r.code, r.message,
+                                            com.devhub.mobile.core.ErrorPresent.Surface.COMMAND,
+                                        )
+                                        null
+                                    }
                                 }
+                            } catch (err: Exception) {
+                                // B1 泛化热修（P0 先例）：同 reply——未预期异常绝不崩 UI 进程。
+                                submitError = com.devhub.mobile.core.ErrorPresent.io(err)
                             }
                     }
                 }) { Text("暂停") }
@@ -441,16 +453,21 @@ fun SessionDetailScreen(
                     scope.launch {
                             submitStatus = null
                             submitError = null
-                            submitStatus = when (val r = ConnectionManager.submitAction(sessionId, "resume")) {
-                                is SubmitResult.Accepted -> "resume 已接受（commandId=${r.commandId}）"
-                                SubmitResult.QueuedOffline -> "当前离线：resume 已入离线队列"
-                                is SubmitResult.Rejected -> {
-                                    submitError = com.devhub.mobile.core.ErrorPresent.api(
-                                        r.code, r.message,
-                                        com.devhub.mobile.core.ErrorPresent.Surface.COMMAND,
-                                    )
-                                    null
+                            try {
+                                submitStatus = when (val r = ConnectionManager.submitAction(sessionId, "resume")) {
+                                    is SubmitResult.Accepted -> "resume 已接受（commandId=${r.commandId}）"
+                                    SubmitResult.QueuedOffline -> "当前离线：resume 已入离线队列"
+                                    is SubmitResult.Rejected -> {
+                                        submitError = com.devhub.mobile.core.ErrorPresent.api(
+                                            r.code, r.message,
+                                            com.devhub.mobile.core.ErrorPresent.Surface.COMMAND,
+                                        )
+                                        null
+                                    }
                                 }
+                            } catch (err: Exception) {
+                                // B1 泛化热修（P0 先例）：同 reply——未预期异常绝不崩 UI 进程。
+                                submitError = com.devhub.mobile.core.ErrorPresent.io(err)
                             }
                     }
                 }) { Text("恢复") }
@@ -463,16 +480,21 @@ fun SessionDetailScreen(
                     scope.launch {
                             submitStatus = null
                             submitError = null
-                            submitStatus = when (val r = ConnectionManager.submitAction(sessionId, "approve")) {
-                                is SubmitResult.Accepted -> "approve 已接受（commandId=${r.commandId}）"
-                                SubmitResult.QueuedOffline -> "当前离线：approve 已入离线队列"
-                                is SubmitResult.Rejected -> {
-                                    submitError = com.devhub.mobile.core.ErrorPresent.api(
-                                        r.code, r.message,
-                                        com.devhub.mobile.core.ErrorPresent.Surface.COMMAND,
-                                    )
-                                    null
+                            try {
+                                submitStatus = when (val r = ConnectionManager.submitAction(sessionId, "approve")) {
+                                    is SubmitResult.Accepted -> "approve 已接受（commandId=${r.commandId}）"
+                                    SubmitResult.QueuedOffline -> "当前离线：approve 已入离线队列"
+                                    is SubmitResult.Rejected -> {
+                                        submitError = com.devhub.mobile.core.ErrorPresent.api(
+                                            r.code, r.message,
+                                            com.devhub.mobile.core.ErrorPresent.Surface.COMMAND,
+                                        )
+                                        null
+                                    }
                                 }
+                            } catch (err: Exception) {
+                                // B1 泛化热修（P0 先例）：同 reply——未预期异常绝不崩 UI 进程。
+                                submitError = com.devhub.mobile.core.ErrorPresent.io(err)
                             }
                     }
                 }) { Text("批准") }
@@ -482,16 +504,21 @@ fun SessionDetailScreen(
                     scope.launch {
                             submitStatus = null
                             submitError = null
-                            submitStatus = when (val r = ConnectionManager.submitAction(sessionId, "interrupt")) {
-                                is SubmitResult.Accepted -> "interrupt 已接受（commandId=${r.commandId}）"
-                                SubmitResult.QueuedOffline -> "当前离线：interrupt 已入离线队列"
-                                is SubmitResult.Rejected -> {
-                                    submitError = com.devhub.mobile.core.ErrorPresent.api(
-                                        r.code, r.message,
-                                        com.devhub.mobile.core.ErrorPresent.Surface.COMMAND,
-                                    )
-                                    null
+                            try {
+                                submitStatus = when (val r = ConnectionManager.submitAction(sessionId, "interrupt")) {
+                                    is SubmitResult.Accepted -> "interrupt 已接受（commandId=${r.commandId}）"
+                                    SubmitResult.QueuedOffline -> "当前离线：interrupt 已入离线队列"
+                                    is SubmitResult.Rejected -> {
+                                        submitError = com.devhub.mobile.core.ErrorPresent.api(
+                                            r.code, r.message,
+                                            com.devhub.mobile.core.ErrorPresent.Surface.COMMAND,
+                                        )
+                                        null
+                                    }
                                 }
+                            } catch (err: Exception) {
+                                // B1 泛化热修（P0 先例）：同 reply——未预期异常绝不崩 UI 进程。
+                                submitError = com.devhub.mobile.core.ErrorPresent.io(err)
                             }
                     }
                 }) { Text("中断") }

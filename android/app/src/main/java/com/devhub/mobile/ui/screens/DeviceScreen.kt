@@ -164,23 +164,31 @@ fun DeviceScreen() {
                             // M3-E1（docs/18 §5.3/§10 通道迁移）：relay 模式自撤销走 WS command
                             // revoke_device——成功收口 = disconnect(revoked) 到达（onAuthFatal 清
                             // 凭据 + 停重连，UI 经 Unpaired 状态回配对页）；绝不自动重连（§3.15）。
-                            when (val r = ConnectionManager.submitSelfRevokeRelay()) {
-                                is SelfRevokeSubmit.Revoked -> Unit // 收口完成：状态机已接管 UI 导航
+                            try {
+                                when (val r = ConnectionManager.submitSelfRevokeRelay()) {
+                                    is SelfRevokeSubmit.Revoked -> Unit // 收口完成：状态机已接管 UI 导航
 
-                                is SelfRevokeSubmit.Queued -> {
-                                    error = com.devhub.mobile.core.ErrorPresent.Presentable(
-                                        "撤销已排队（电脑离线）：连接恢复后自动执行",
-                                    )
-                                    revoking = false
-                                }
+                                    is SelfRevokeSubmit.Queued -> {
+                                        error = com.devhub.mobile.core.ErrorPresent.Presentable(
+                                            "撤销已排队（电脑离线）：连接恢复后自动执行",
+                                        )
+                                        revoking = false
+                                    }
 
-                                is SelfRevokeSubmit.Rejected -> {
-                                    error = com.devhub.mobile.core.ErrorPresent.api(
-                                        r.code, r.message,
-                                        com.devhub.mobile.core.ErrorPresent.Surface.COMMAND,
-                                    )
-                                    revoking = false
+                                    is SelfRevokeSubmit.Rejected -> {
+                                        error = com.devhub.mobile.core.ErrorPresent.api(
+                                            r.code, r.message,
+                                            com.devhub.mobile.core.ErrorPresent.Surface.COMMAND,
+                                        )
+                                        revoking = false
+                                    }
                                 }
+                            } catch (err: Exception) {
+                                // B1 泛化热修（P0 先例）：撤销协程跑在 rememberCoroutineScope（主线程
+                                // 无异常处理器）——未预期异常绝不崩进程；revoking 复位按钮可重试，
+                                // 原异常收 technical 不吞码（撤销是否已生效以凭据/连接态为准，绝不伪报）。
+                                error = com.devhub.mobile.core.ErrorPresent.io(err)
+                                revoking = false
                             }
                             return@launch
                         }
