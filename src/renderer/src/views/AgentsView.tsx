@@ -22,6 +22,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Badge, stateTone } from '../components/Badge.tsx'
 import type { BadgeTone } from '../components/Badge.tsx'
+import { ExpandableText } from '../components/ExpandableText.tsx'
 import { EmptyState, ErrorState, InlineState, Loading, Spinner, Toast, useToast } from '../components/StateViews.tsx'
 import { relativeTime, toMs } from '../lib/format.ts'
 import { call } from '../lib/ipc.ts'
@@ -400,7 +401,12 @@ function ProvidersPanel({ providers, monitorEnabled, loading, error, onRefresh }
               {p.version !== undefined ? `v${p.version}` : 'version unknown'}
               {p.exePath !== undefined ? ` · ${p.exePath}` : ''}
             </div>
-            {p.healthDetail !== undefined && <div className="degraded-banner">{p.healthDetail}</div>}
+            {p.healthDetail !== undefined && (
+              <div className="degraded-banner">
+                {/* AUDIT D-Aud A3：内部探测日志默认折叠（ExpandableText），不整块铺用户面 */}
+                <ExpandableText text={p.healthDetail} collapsedLines={2} />
+              </div>
+            )}
             <CapabilityBlock caps={p.capabilities} />
             <div className="agents-card-line">
               <Badge tone={p.enabled ? 'ok' : 'dim'} title="agent_providers.enabled（每 provider 监控开关，docs/11 D10）">
@@ -584,7 +590,7 @@ function SessionDetailPanel({ sessionId, providerNames, projectNames }: {
         <span className="td-dim mono">counts: {counts.messages} messages · {counts.events} events</span>
       </div>
 
-      <h4 className="panel-title">Messages (redacted projection, docs/15 §6 — after-cursor pagination)</h4>
+      <h4 className="panel-title">Messages (redacted projection — after-cursor pagination)</h4>
       <InlineState
         loading={messages.loading}
         error={messages.error}
@@ -1176,7 +1182,7 @@ export function AgentsView() {
         onChanged={refreshAllPanels}
       />
 
-      <h3 className="panel-title">Providers（D1/D2/D7 — 健康四值 / 版本 / 能力集）</h3>
+      <h3 className="panel-title">Providers（健康四值 / 版本 / 能力集）</h3>
       <ProvidersPanel
         providers={providers.data?.providers ?? null}
         monitorEnabled={monitorEnabled}
@@ -1185,7 +1191,7 @@ export function AgentsView() {
         onRefresh={providers.refresh}
       />
 
-      <h3 className="panel-title">Sessions（D3 — 9 值状态 · waiting_input / approval_required 高亮区分 · stale 标注）</h3>
+      <h3 className="panel-title">Sessions（9 值状态 · waiting_input / approval_required 高亮区分 · stale 标注）</h3>
       <div className="panel">
         <SessionsPanel
           sessions={sessions.data?.sessions ?? null}
@@ -1207,14 +1213,14 @@ export function AgentsView() {
 
       {selectedSessionId !== null && (
         <>
-          <h3 className="panel-title">Session #{selectedSessionId} detail（D4/D6 — capabilities · counts · 脱敏消息 · 会话事件）</h3>
+          <h3 className="panel-title">Session #{selectedSessionId} detail（capabilities · counts · 脱敏消息 · 会话事件）</h3>
           <div className="panel">
             <SessionDetailPanel sessionId={selectedSessionId} providerNames={providerNames} projectNames={projectNames} />
           </div>
         </>
       )}
 
-      <h3 className="panel-title">Recent events（D5 — after=sequence 游标轮询 · deliveryState 徽标）</h3>
+      <h3 className="panel-title">Recent events（after=sequence 游标轮询 · deliveryState 徽标）</h3>
       <div className="panel">
         {events.loading ? (
           <Loading label="Polling event stream…" />
@@ -1230,7 +1236,7 @@ export function AgentsView() {
         )}
       </div>
 
-      <h3 className="panel-title">Devices（D13 — 已配对设备 · 撤销两段式 · 绝无 token 字段）</h3>
+      <h3 className="panel-title">Devices（已配对设备 · 撤销两段式 · 绝无 token 字段）</h3>
       <div className="panel">
         <DevicesPanel
           devices={devices.data?.devices ?? null}
@@ -1241,7 +1247,7 @@ export function AgentsView() {
         />
       </div>
 
-      <h3 className="panel-title">Gateway &amp; pairing（D8/D9 — 回环默认关 · 隧道提示 · 一次性配对码）</h3>
+      <h3 className="panel-title">Gateway &amp; pairing（回环默认关 · 隧道提示 · 一次性配对码）</h3>
       <div className="panel">
         <GatewayPanel
           status={gateway.data ?? null}
@@ -1252,12 +1258,12 @@ export function AgentsView() {
         />
       </div>
 
-      <h3 className="panel-title">远程中继（Relay）— M3-C1b 设置驱动面（relay_enabled · wss endpoint · TLS 指纹，docs/19 §4.7/§10）</h3>
+      <h3 className="panel-title">远程中继（Relay）— 设置驱动面（relay_enabled · wss endpoint · TLS 指纹）</h3>
       <div className="panel">
         <RelayPanel relay={gateway.data?.relay ?? null} onChanged={refreshAllPanels} />
       </div>
 
-      <h3 className="panel-title">Diagnostics（D12 — 数据源可读性 / 控制通道 / Gateway / 托盘 / 自启）</h3>
+      <h3 className="panel-title">Diagnostics（数据源可读性 / 控制通道 / Gateway / 托盘 / 自启）</h3>
       <div className="panel">
         <DiagnosticsPanel diag={diagnostics.data ?? null} loading={diagnostics.loading} error={diagnostics.error} onRetry={diagnostics.refresh} />
       </div>

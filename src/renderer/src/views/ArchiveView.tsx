@@ -411,8 +411,8 @@ export function ArchiveView() {
         </div>
       )}
 
-      {/* 历史区 */}
-      <h3 className="panel-title">History (archive_runs, latest 100 — includes imported legacy records)</h3>
+      {/* 历史区（AUDIT D-Aud A3：内部表名 archive_runs 不出用户面，只留规则语义） */}
+      <h3 className="panel-title">History (latest 100 — includes imported legacy records)</h3>
       <div className="panel">
         {history.loading ? (
           <Loading label="Loading archive history…" />

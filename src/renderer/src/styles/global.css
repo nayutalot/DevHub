@@ -524,11 +524,19 @@ table.table {
   background: var(--bg-elevated);
 }
 
-.table tr.row-hit {
+/* 可点击行的 hover 提示（AUDIT D-Aud A2：原 .row-hit 无条件常驻蓝底、
+   压掉选中态对比度——着色只留给 hover，选中态走专用类） */
+.table tr.row-hit:hover {
   background: rgba(0, 122, 204, 0.18);
 }
 
-.table tr.row-hit:hover {
+/* 选中态专用（agents 会话表）：蓝底 + 左侧 2px accent 边线 */
+.table tr.agents-row-selected {
+  background: rgba(0, 122, 204, 0.18);
+  box-shadow: inset 2px 0 0 var(--accent-bright);
+}
+
+.table tr.agents-row-selected:hover {
   background: rgba(0, 122, 204, 0.28);
 }
 
@@ -1976,7 +1984,7 @@ table.table {
   flex-direction: column;
   gap: 4px;
   font-size: 12px;
-  color: var(--text-dim, #9aa4b2);
+  color: var(--fg-dim);
 }
 
 .review-settings-card .review-settings-row .input {
@@ -1984,7 +1992,7 @@ table.table {
 }
 
 .review-advisory-bar {
-  border: 1px dashed var(--border, #2c3440);
+  border: 1px dashed var(--border);
   border-radius: 6px;
   padding: 8px 10px;
   margin: 8px 0;
@@ -1996,7 +2004,7 @@ table.table {
 .review-advisory-label {
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-dim, #9aa4b2);
+  color: var(--fg-dim);
 }
 
 .review-advisory-body {
