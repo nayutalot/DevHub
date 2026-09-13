@@ -82,7 +82,7 @@ export function VersionsView() {
   }
 
   function handleCheckAll(): void {
-    void runAction('Check All', async () => {
+    void runAction('全部检测', async () => {
       setChecking(true)
       try {
         const r = await call('versions:check', {})
@@ -95,7 +95,7 @@ export function VersionsView() {
   }
 
   function handleUpdate(target: VersionStatus): void {
-    void runAction('Update', async () => {
+    void runAction('更新', async () => {
       // 第一段：confirmRequired（github 条目一律 blocked；winget 条目可带进程预检结果）
       const first = await call('versions:update', { id: target.id })
       if (first.confirmRequired !== true) return
@@ -125,15 +125,15 @@ export function VersionsView() {
         <span className="view-sub">8 目标检测与更新（检测 90s / 更新 20min / 源码重建 30min 超时）</span>
         <div className="view-actions">
           <button type="button" className="btn" onClick={data.refresh} disabled={data.loading || checking}>
-            Refresh
+            刷新
           </button>
           <button type="button" className="btn btn-primary" onClick={handleCheckAll} disabled={checking || busy !== null}>
-            {checking ? '检测中…' : 'Check All'}
+            {checking ? '检测中…' : '全部检测'}
           </button>
         </div>
       </div>
 
-      {data.loading && <Loading label="Loading version targets…" />}
+      {data.loading && <Loading label="正在加载版本目标…" />}
       {data.error !== null && <ErrorState error={data.error} onRetry={data.refresh} />}
 
       {data.data !== null && (
@@ -182,7 +182,7 @@ export function VersionsView() {
                         title={t.state === 'detect-only' ? '该目标无自动升级通道' : undefined}
                         onClick={() => handleUpdate(t)}
                       >
-                        Update
+                        更新
                       </button>
                     </td>
                   </tr>
@@ -203,7 +203,7 @@ export function VersionsView() {
                 <Badge tone={j.status === 'running' ? 'accent' : j.status === 'done' ? 'ok' : 'err'}>{j.status}</Badge>
                 {j.after !== undefined && (
                   <span className="dim">
-                    重查：installed {j.after.installed ?? '—'} · latest {j.after.latest ?? '—'} · {STATE_LABEL[j.after.state]}
+                    复查：已装 {j.after.installed ?? '—'} · 最新 {j.after.latest ?? '—'} · {STATE_LABEL[j.after.state]}
                   </span>
                 )}
               </div>
