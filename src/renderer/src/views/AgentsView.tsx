@@ -84,6 +84,38 @@ function sessionStatusTone(status: SessionStatus): BadgeTone {
   }
 }
 
+/* D2（AUDIT A1）：状态/健康/模式/投递值的用户面中文投影（契约原值保留在数据与过滤器，仅展示层投影）。 */
+const SESSION_STATUS_LABEL: Record<SessionStatus, string> = {
+  running: '运行中',
+  completed: '已完成',
+  failed: '失败',
+  waiting_input: '等待输入',
+  approval_required: '待批准',
+  paused: '已暂停',
+  connection_lost: '连接丢失',
+  stopped: '已停止',
+  unknown: '未知',
+}
+
+const HEALTH_LABEL: Record<AgentHealth, string> = {
+  ok: '正常',
+  degraded: '降级',
+  unavailable: '不可用',
+  unknown: '未知',
+}
+
+const MODE_LABEL: Record<SessionMode, string> = {
+  managed: '托管',
+  attached: '附加',
+  observed: '观察',
+}
+
+const DELIVERY_LABEL: Record<AgentEventView['deliveryState'], string> = {
+  acked: '已签收',
+  delivered: '已投递',
+  pending: '待投递',
+}
+
 /** 状态语义提示（D3 显式标注：等文本输入 vs 等工具批准 vs 监控源失联）。 */
 function sessionStatusHint(status: SessionStatus): string {
   switch (status) {
@@ -315,7 +347,7 @@ function ControlBar({ monitorEnabled, autostartEnabled, onChanged }: {
 function CapabilityBlock({ caps }: { caps: AgentCapabilitySet }) {
   return (
     <div className="agents-caps">
-      <Badge tone={modeTone(caps.mode)} title={`接入深度三态（docs/12 §5）：${caps.mode}`}>{caps.mode}</Badge>
+      <Badge tone={modeTone(caps.mode)} title={`接入深度三态（docs/12 §5）：${caps.mode}`}>{MODE_LABEL[caps.mode]}</Badge>
       {caps.granted.length > 0 ? (
         caps.granted.map((g) => (
           <Badge key={g} tone="ok" title="此刻真实验证存在的能力（能力验证门，docs/12 §5）">
@@ -324,11 +356,11 @@ function CapabilityBlock({ caps }: { caps: AgentCapabilitySet }) {
         ))
       ) : (
         <Badge tone="dim" title="无已验证控制能力（observed 或验证失败，服务端能力门拒绝）">
-          no verified capability
+          无已验证能力
         </Badge>
       )}
       <Badge tone={capabilityTone(caps)} title={caps.evidence || 'no evidence'}>
-        {caps.verifiedAt > 0 ? `verified ${relativeTime(caps.verifiedAt)}` : 'never verified'}
+        {caps.verifiedAt > 0 ? `验证于 ${relativeTime(caps.verifiedAt)}` : '从未验证'}
       </Badge>
     </div>
   )
@@ -363,23 +395,23 @@ function ProvidersPanel({ providers, monitorEnabled, loading, error, onRefresh }
     try {
       const r = await call('agents:probeProvider', { providerId })
       show(
-        `${displayName}: re-probe done — health ${r.provider.health}${r.healthChanged ? ` (changed, event recorded)` : ' (unchanged)'}`,
+        `${displayName}：重新探测完成—健康 ${HEALTH_LABEL[r.provider.health]}${r.healthChanged ? '（有变化，已记录事件）' : '（无变化）'}`,
       )
       onRefresh()
     } catch (err) {
       const code = (err as { code?: string } | null)?.code
-      show(`${displayName}: re-probe failed${code !== undefined ? ` [${code}]` : ''} — ${err instanceof Error ? err.message : String(err)}`, 'err')
+      show(`${displayName}：重新探测失败${code !== undefined ? ` [${code}]` : ''} — ${err instanceof Error ? err.message : String(err)}`, 'err')
     } finally {
       setProbingId(null)
     }
   }
 
-  if (state.phase === 'loading') return <Loading label="Probing agent providers (real filesystem / process detection)…" />
+  if (state.phase === 'loading') return <Loading label="正在探测 Agent provider（真实文件系统 / 进程检测）…" />
   if (state.phase === 'error') return <ErrorState error={error as AsyncError} onRetry={onRefresh} />
   if (state.phase === 'empty') {
     return (
       <EmptyState
-        title="No agent providers registered"
+        title="尚未注册 Agent provider"
         hint="agent_providers 目录为空——正常情况不会出现（catalog 五家 ensure）；重试或检查数据库。"
       />
     )
@@ -390,11 +422,11 @@ function ProvidersPanel({ providers, monitorEnabled, loading, error, onRefresh }
       <div className="agents-poll-line">
         <span className="td-dim">
           {monitorEnabled === true
-            ? 'monitoring on — probes throttled server-side (60s); sessions stream from monitor pipeline'
-            : 'monitoring off — zero probing, cached projections only (docs/14 §A.1 #1)'}
+            ? '监控已开启—探测由服务端节流（60s）；会话经监控管线流入'
+            : '监控已关闭—零探测，仅展示缓存投影（docs/14 §A.1 #1）'}
         </span>
         <button type="button" className="btn btn-small" onClick={onRefresh}>
-          Refresh probes
+          刷新探测
         </button>
       </div>
       {error !== null && <div className="degraded-banner">providers 轮询异常（显示为最后成功快照）: {error.code} — {error.message}</div>}
@@ -403,23 +435,23 @@ function ProvidersPanel({ providers, monitorEnabled, loading, error, onRefresh }
           <div key={p.id} className="panel agents-card">
             <div className="agents-card-head">
               <span className="agents-card-name">{p.displayName}</span>
-              <Badge tone={p.installed ? 'ok' : 'err'}>{p.installed ? 'installed' : 'not installed'}</Badge>
-              <Badge tone={healthTone(p.health)} title={p.healthDetail ?? p.health}>{p.health}</Badge>
+              <Badge tone={p.installed ? 'ok' : 'err'}>{p.installed ? '已安装' : '未安装'}</Badge>
+              <Badge tone={healthTone(p.health)} title={p.healthDetail ?? p.health}>{HEALTH_LABEL[p.health]}</Badge>
               <button
                 type="button"
                 className="btn btn-small"
                 disabled={probingId !== null}
-                title={`re-probe ${p.displayName} now (bypasses the 60s throttle; refreshes this provider's sessions)`}
+                title={`立即重新探测 ${p.displayName}（绕过 60s 节流；同时刷新该 provider 的会话）`}
                 onClick={() => {
                   void reprobe(p.id, p.displayName)
                 }}
               >
                 {probingId === p.id ? <Spinner /> : null}
-                re-probe
+                重新探测
               </button>
             </div>
             <div className="agents-card-line mono" title={p.exePath ?? ''}>
-              {p.version !== undefined ? `v${p.version}` : 'version unknown'}
+              {p.version !== undefined ? `v${p.version}` : '版本未知'}
               {p.exePath !== undefined ? ` · ${p.exePath}` : ''}
             </div>
             {p.healthDetail !== undefined && (
@@ -431,9 +463,9 @@ function ProvidersPanel({ providers, monitorEnabled, loading, error, onRefresh }
             <CapabilityBlock caps={p.capabilities} />
             <div className="agents-card-line">
               <Badge tone={p.enabled ? 'ok' : 'dim'} title="agent_providers.enabled（每 provider 监控开关，docs/11 D10）">
-                {p.enabled ? 'enabled' : 'disabled'}
+                {p.enabled ? '已启用' : '已停用'}
               </Badge>
-              <span className="td-dim">last probe: {p.lastProbeAt !== null ? relativeTime(p.lastProbeAt) : '—'}</span>
+              <span className="td-dim">上次探测：{p.lastProbeAt !== null ? relativeTime(p.lastProbeAt) : '—'}</span>
             </div>
           </div>
         ))}
@@ -472,16 +504,16 @@ const SessionRow = memo(
         <td className="td-dim" title={s.title ?? ''}>{s.title ?? '—'}</td>
         <td className="td-dim">{s.projectId !== undefined ? `#${s.projectId} ${projectName}`.trim() : '—'}</td>
         <td>
-          <Badge tone={sessionStatusTone(s.status)} title={sessionStatusHint(s.status)}>{s.status}</Badge>
+          <Badge tone={sessionStatusTone(s.status)} title={sessionStatusHint(s.status)}>{SESSION_STATUS_LABEL[s.status]}</Badge>
           {s.stale && (
             <Badge tone="dim" title="数据源过期标注——绝不猜实时态（docs/14 §A.1 #2）">
-              stale
+              过期
             </Badge>
           )}
         </td>
         <td>
           <Badge tone={modeTone(s.sessionMode)} title="接入深度（managed/attached/observed，docs/12 §5）">
-            {s.sessionMode}
+            {MODE_LABEL[s.sessionMode]}
           </Badge>
         </td>
         <td className="td-dim">{s.lastActivityAt !== undefined ? relativeTime(s.lastActivityAt) : '—'}</td>
@@ -525,12 +557,12 @@ function SessionsPanel({ sessions, loading, error, onRetry, providerNames, proje
 }) {
   const state = resolvePanelState(sessions, loading, error)
 
-  if (state.phase === 'loading') return <Loading label="Loading agent sessions…" />
+  if (state.phase === 'loading') return <Loading label="正在加载 Agent 会话…" />
   if (state.phase === 'error') return <ErrorState error={error as AsyncError} onRetry={onRetry} />
   if (state.phase === 'empty') {
     return (
       <EmptyState
-        title="No agent sessions observed"
+        title="尚未观察到 Agent 会话"
         hint="监控管线发现会话后落库展示（Codex rollout / Claude 转录 / Kimi sessionIndex / ZCode 快照）；当前无任何会话记录。"
       />
     )
@@ -541,22 +573,22 @@ function SessionsPanel({ sessions, loading, error, onRetry, providerNames, proje
   return (
     <>
       <div className="toolbar">
-        <select className="input" value={providerFilter} onChange={(e) => onProviderFilter(e.target.value)} aria-label="Filter by provider">
-          <option value="">all providers</option>
+        <select className="input" value={providerFilter} onChange={(e) => onProviderFilter(e.target.value)} aria-label="按 provider 筛选">
+          <option value="">全部 Provider</option>
           {[...providerNames.entries()].map(([id, name]) => (
             <option key={id} value={String(id)}>{name}</option>
           ))}
         </select>
-        <select className="input" value={statusFilter} onChange={(e) => onStatusFilter(e.target.value)} aria-label="Filter by status">
-          <option value="">all statuses (9 值)</option>
+        <select className="input" value={statusFilter} onChange={(e) => onStatusFilter(e.target.value)} aria-label="按状态筛选">
+          <option value="">全部状态（9 值）</option>
           {SESSION_STATUSES.map((s) => (
-            <option key={s} value={s}>{s}</option>
+            <option key={s} value={s}>{SESSION_STATUS_LABEL[s]}</option>
           ))}
         </select>
-        <span className="td-dim">{list.length} sessions (server-side filter, limit {limit}, newest first)</span>
+        <span className="td-dim">{list.length} 个会话（服务端过滤，limit {limit}，最新在前）</span>
         {list.length >= limit && limit < 200 && (
           <button type="button" className="btn btn-small" onClick={onLoadMore}>
-            Load more (limit {limit} → {Math.min(200, limit + 100)})
+            加载更多（limit {limit} → {Math.min(200, limit + 100)}）
           </button>
         )}
       </div>
@@ -567,12 +599,12 @@ function SessionsPanel({ sessions, loading, error, onRetry, providerNames, proje
             <tr>
               <th>#</th>
               <th>Provider</th>
-              <th>Native ID</th>
-              <th>Title</th>
-              <th>Project</th>
-              <th>Status</th>
-              <th>Mode</th>
-              <th>Last activity</th>
+              <th>原生 ID</th>
+              <th>标题</th>
+              <th>项目</th>
+              <th>状态</th>
+              <th>模式</th>
+              <th>最近活动</th>
             </tr>
           </thead>
           <tbody>
@@ -611,7 +643,7 @@ const MessageRow = memo(
       <tr>
         <td className="td-dim">{m.id}</td>
         <td>
-          <Badge tone={m.role === 'user' ? 'accent' : m.role === 'assistant' ? 'ok' : 'dim'}>{m.role}</Badge>
+          <Badge tone={m.role === 'user' ? 'accent' : m.role === 'assistant' ? 'ok' : 'dim'}>{m.role === 'user' ? '用户' : m.role === 'assistant' ? '助手' : m.role}</Badge>
         </td>
         <td className="td-mono agents-msg-cell" title={m.contentRedacted}>{m.contentRedacted}</td>
         <td className="td-dim">{m.occurredAt !== undefined ? relativeTime(m.occurredAt) : '—'}</td>
@@ -647,7 +679,7 @@ function SessionDetailPanel({ sessionId, providerNames, projectNames }: {
   )
 
   const state = resolvePanelState(detail.data, detail.loading, detail.error)
-  if (state.phase === 'loading') return <Loading label="Loading session detail…" />
+  if (state.phase === 'loading') return <Loading label="正在加载会话详情…" />
   if (state.phase === 'error') return <ErrorState error={detail.error as AsyncError} onRetry={detail.refresh} />
   if (state.phase !== 'data') return null
   const data = state.data as {
@@ -664,28 +696,28 @@ function SessionDetailPanel({ sessionId, providerNames, projectNames }: {
       {detail.error !== null && <div className="degraded-banner">detail 轮询异常（显示为最后成功快照）: {detail.error.code} — {detail.error.message}</div>}
       <div className="agents-detail-meta">
         <span className="agents-card-name">{providerNames.get(session.providerId) ?? `#${session.providerId}`}</span>
-        <Badge tone={sessionStatusTone(session.status)} title={sessionStatusHint(session.status)}>{session.status}</Badge>
-        <Badge tone={modeTone(session.sessionMode)}>{session.sessionMode}</Badge>
-        {session.stale && <Badge tone="dim" title="数据源过期标注（绝不猜实时态）">stale</Badge>}
+        <Badge tone={sessionStatusTone(session.status)} title={sessionStatusHint(session.status)}>{SESSION_STATUS_LABEL[session.status]}</Badge>
+        <Badge tone={modeTone(session.sessionMode)}>{MODE_LABEL[session.sessionMode]}</Badge>
+        {session.stale && <Badge tone="dim" title="数据源过期标注（绝不猜实时态）">过期</Badge>}
         <span className="td-dim mono" title={session.nativeId}>native: {session.nativeId}</span>
-        {session.projectId !== undefined && <span className="td-dim">project #{session.projectId} {projectNames.get(session.projectId) ?? ''}</span>}
-        <span className="td-dim">started: {session.startedAt !== undefined ? relativeTime(session.startedAt) : '—'}</span>
-        <span className="td-dim">last: {session.lastActivityAt !== undefined ? relativeTime(session.lastActivityAt) : '—'}</span>
-        {session.endedAt !== undefined && <span className="td-dim">ended: {relativeTime(session.endedAt)}</span>}
+        {session.projectId !== undefined && <span className="td-dim">项目 #{session.projectId} {projectNames.get(session.projectId) ?? ''}</span>}
+        <span className="td-dim">开始：{session.startedAt !== undefined ? relativeTime(session.startedAt) : '—'}</span>
+        <span className="td-dim">最近：{session.lastActivityAt !== undefined ? relativeTime(session.lastActivityAt) : '—'}</span>
+        {session.endedAt !== undefined && <span className="td-dim">结束：{relativeTime(session.endedAt)}</span>}
         {session.statusDetail !== undefined && <span className="td-dim">· {session.statusDetail}</span>}
       </div>
       <div className="agents-detail-meta">
         <CapabilityBlock caps={capabilities} />
-        <span className="td-dim mono">counts: {counts.messages} messages · {counts.events} events</span>
+        <span className="td-dim mono">计数：{counts.messages} 条消息 · {counts.events} 条事件</span>
       </div>
 
-      <h4 className="panel-title">Messages (redacted projection — after-cursor pagination)</h4>
+      <h4 className="panel-title">消息（脱敏投影 — after 游标分页）</h4>
       <InlineState
         loading={messages.loading}
         error={messages.error}
         onRetry={messages.refresh}
         empty={messages.list.length === 0}
-        loadingLabel="Loading messages…"
+        loadingLabel="正在加载消息…"
       />
       {messages.list.length > 0 && (
         <div className="table-wrap">
@@ -693,9 +725,9 @@ function SessionDetailPanel({ sessionId, providerNames, projectNames }: {
             <thead>
               <tr>
                 <th>#</th>
-                <th>Role</th>
-                <th>Content (redacted)</th>
-                <th>Occurred</th>
+                <th>角色</th>
+                <th>内容（脱敏）</th>
+                <th>时间</th>
               </tr>
             </thead>
             <tbody>
@@ -708,17 +740,17 @@ function SessionDetailPanel({ sessionId, providerNames, projectNames }: {
       )}
       {messages.hasMore && (
         <button type="button" className="btn btn-small" onClick={messages.loadMore}>
-          Load more messages (after cursor {messages.list.length > 0 ? messages.list[messages.list.length - 1].id : '—'})
+          加载更多消息（after 游标 {messages.list.length > 0 ? messages.list[messages.list.length - 1].id : '—'}）
         </button>
       )}
 
-      <h4 className="panel-title">Session events (after=sequence cursor)</h4>
+      <h4 className="panel-title">会话事件（after=sequence 游标）</h4>
       <InlineState
         loading={events.loading}
         error={events.error}
         onRetry={events.refresh}
         empty={events.list.length === 0}
-        loadingLabel="Loading session events…"
+        loadingLabel="正在加载会话事件…"
       />
       {events.list.length > 0 && <EventRows events={[...events.list].reverse()} />}
     </div>
@@ -755,7 +787,7 @@ const EventRow = memo(
         </td>
         <td>
           <Badge tone={deliveryTone(e.deliveryState)} title="投递状态机只前进不回退（docs/12 §6）">
-            {e.deliveryState}
+            {DELIVERY_LABEL[e.deliveryState]}
           </Badge>
         </td>
       </tr>
@@ -778,12 +810,12 @@ function EventRows({ events }: { events: AgentEventView[] }) {
       <table className="table">
         <thead>
           <tr>
-            <th>Seq</th>
-            <th>Time</th>
-            <th>Type</th>
-            <th>Refs</th>
-            <th>Summary (redacted)</th>
-            <th>Delivery</th>
+            <th>序号</th>
+            <th>时间</th>
+            <th>类型</th>
+            <th>引用</th>
+            <th>摘要（脱敏）</th>
+            <th>投递</th>
           </tr>
         </thead>
         <tbody>
@@ -818,14 +850,14 @@ const DeviceRow = memo(
         <td className="td-mono">{d.deviceName}</td>
         <td>{d.platform}</td>
         <td>
-          <Badge tone={stateTone(d.status === 'active' ? 'running' : 'dim')}>{d.status}</Badge>
+          <Badge tone={stateTone(d.status === 'active' ? 'running' : 'dim')}>{d.status === 'active' ? '生效中' : '已撤销'}</Badge>
         </td>
         <td className="td-dim">{relativeTime(d.pairedAt)}</td>
         <td className="td-dim">{d.lastSeenAt !== undefined ? relativeTime(d.lastSeenAt) : '—'}</td>
         <td className="td-dim">{d.tokenVersion}</td>
         <td>
           <button type="button" className="btn btn-small btn-danger" disabled={busyId !== null} onClick={() => revoke(d)}>
-            {busyId === d.id && <Spinner />} Revoke
+            {busyId === d.id && <Spinner />} 撤销
           </button>
         </td>
       </tr>
@@ -860,18 +892,18 @@ function DevicesPanel({ devices, loading, error, onRetry, onChanged }: {
       if (first.confirmRequired === true) {
         // 两段式（docs/14 §A.1 #9）：impacts 全部展示后才 confirmed
         const lines = [
-          `Revoke device "${first.impacts.deviceName}" (#${first.impacts.deviceId})?`,
+          `撤销设备「${first.impacts.deviceName}」（#${first.impacts.deviceId}）？`,
           `last seen: ${first.impacts.lastSeenAt !== undefined ? relativeTime(first.impacts.lastSeenAt) : '—'}`,
           first.impacts.note,
         ]
         if (window.confirm(lines.join('\n'))) {
           const done = await call('agents:deviceRevoke', { deviceId: device.id, confirmed: true })
           if (done.confirmRequired === true) return
-          show(`device #${device.id} revoked (token 即拒 + 审计落库)`)
+          show(`设备 #${device.id} 已撤销（token 即拒 + 审计落库）`)
           onChanged()
         }
       } else {
-        show(`device #${device.id} revoked`)
+        show(`设备 #${device.id} 已撤销`)
         onChanged()
       }
     } catch (err) {
@@ -882,12 +914,12 @@ function DevicesPanel({ devices, loading, error, onRetry, onChanged }: {
   }
 
   const state = resolvePanelState(devices, loading, error)
-  if (state.phase === 'loading') return <Loading label="Loading paired devices…" />
+  if (state.phase === 'loading') return <Loading label="正在加载已配对设备…" />
   if (state.phase === 'error') return <ErrorState error={error as AsyncError} onRetry={onRetry} />
   if (state.phase === 'empty') {
     return (
       <EmptyState
-        title="No paired devices"
+        title="暂无已配对设备"
         hint="Gateway 启用后经「配对新设备」签发一次性码；设备 Token 哈希永不投影到本列表（docs/14 §A.1 #8）。"
       />
     )
@@ -902,12 +934,12 @@ function DevicesPanel({ devices, loading, error, onRetry, onChanged }: {
         <thead>
           <tr>
             <th>#</th>
-            <th>Name</th>
-            <th>Platform</th>
-            <th>Status</th>
-            <th>Paired</th>
-            <th>Last seen</th>
-            <th>Token ver</th>
+            <th>名称</th>
+            <th>平台</th>
+            <th>状态</th>
+            <th>配对时间</th>
+            <th>最近在线</th>
+            <th>Token 版本</th>
             <th></th>
           </tr>
         </thead>
@@ -952,11 +984,11 @@ function GatewayPanel({ status, loading, error, onRetry, onChanged }: {
     try {
       const first = await call('agents:gatewayRestart', {})
       if (first.confirmRequired === true) {
-        const lines = ['Restart the remote gateway?', `active connections: ${first.impacts.activeConnections}`, first.impacts.note]
+        const lines = ['重启远程网关？', `活跃连接：${first.impacts.activeConnections}`, first.impacts.note]
         if (window.confirm(lines.join('\n'))) {
           const done = await call('agents:gatewayRestart', { confirmed: true })
           if (done.confirmRequired === true) return
-          show(`gateway restarted: port ${done.port} running=${done.running}`)
+          show(`网关已重启：端口 ${done.port} running=${done.running}`)
           onChanged()
         }
       }
@@ -985,9 +1017,9 @@ function GatewayPanel({ status, loading, error, onRetry, onChanged }: {
   }
 
   const state = resolvePanelState(status, loading, error)
-  if (state.phase === 'loading') return <Loading label="Loading gateway status…" />
+  if (state.phase === 'loading') return <Loading label="正在加载 Gateway 状态…" />
   if (state.phase === 'error') return <ErrorState error={error as AsyncError} onRetry={onRetry} />
-  if (state.phase === 'empty') return <div className="inline-note">No gateway status available.</div>
+  if (state.phase === 'empty') return <div className="inline-note">暂无 Gateway 状态。</div>
   const st = state.data as GatewayStatusView
   const remaining = pairing !== null ? Math.max(0, pairing.expiresAt - nowSec) : 0
 
@@ -998,12 +1030,12 @@ function GatewayPanel({ status, loading, error, onRetry, onChanged }: {
         <Badge tone={st.enabled ? 'ok' : 'dim'}>enabled: {String(st.enabled)}</Badge>
         <Badge tone={st.running ? 'ok' : 'dim'}>running: {String(st.running)}</Badge>
         <span className="td-dim mono">port: {st.port}{st.actualPort !== undefined && st.actualPort !== st.port ? ` (actual ${st.actualPort})` : ''}</span>
-        <span className="td-dim">active devices: {st.activeDevices}</span>
-        <span className="td-dim">natpierce: {st.natpierce.configured ? (st.natpierce.reachable === true ? 'configured, reachable' : 'configured') : 'not configured（用户自备隧道，docs/15 §8）'}</span>
+        <span className="td-dim">活跃设备：{st.activeDevices}</span>
+        <span className="td-dim">natpierce: {st.natpierce.configured ? (st.natpierce.reachable === true ? '已配置，可达' : '已配置') : '未配置（用户自备隧道，docs/15 §8）'}</span>
         {st.natpierce.hint !== undefined && <span className="td-dim">· {st.natpierce.hint}</span>}
         {st.lastError !== undefined && <span className="degraded-banner">last error: {st.lastError}</span>}
         <button type="button" className="btn btn-small" disabled={busy} onClick={() => void restart()}>
-          {busy && <Spinner />} Restart gateway
+          {busy && <Spinner />} 重启网关
         </button>
       </div>
       <div className="agents-detail-meta">
@@ -1178,9 +1210,9 @@ function DiagnosticsPanel({ diag, loading, error, onRetry }: {
   onRetry: () => void
 }) {
   const state = resolvePanelState(diag, loading, error)
-  if (state.phase === 'loading') return <Loading label="Collecting diagnostics…" />
+  if (state.phase === 'loading') return <Loading label="正在收集诊断信息…" />
   if (state.phase === 'error') return <ErrorState error={error as AsyncError} onRetry={onRetry} />
-  if (state.phase === 'empty') return <div className="inline-note">No diagnostics available.</div>
+  if (state.phase === 'empty') return <div className="inline-note">暂无诊断信息。</div>
   const d = state.data as AgentDiagnosticsResult
   return (
     <div>
@@ -1196,10 +1228,10 @@ function DiagnosticsPanel({ diag, loading, error, onRetry }: {
           <thead>
             <tr>
               <th>Provider</th>
-              <th>Installed</th>
+              <th>已安装</th>
               <th>exe</th>
-              <th>Data source</th>
-              <th>Control channel</th>
+              <th>数据源</th>
+              <th>控制通道</th>
             </tr>
           </thead>
           <tbody>
@@ -1207,10 +1239,10 @@ function DiagnosticsPanel({ diag, loading, error, onRetry }: {
               <tr key={p.id}>
                 <td className="td-mono">{p.id}</td>
                 <td>
-                  <Badge tone={p.installed ? 'ok' : 'dim'}>{p.installed ? 'yes' : 'no'}</Badge>
+                  <Badge tone={p.installed ? 'ok' : 'dim'}>{p.installed ? '是' : '否'}</Badge>
                 </td>
                 <td>
-                  <Badge tone={p.exeFound ? 'ok' : 'dim'}>{p.exeFound ? 'found' : 'missing'}</Badge>
+                  <Badge tone={p.exeFound ? 'ok' : 'dim'}>{p.exeFound ? '已找到' : '未找到'}</Badge>
                 </td>
                 <td className="td-dim" title={p.dataSource.detail ?? ''}>
                   <Badge tone={p.dataSource.readable ? 'ok' : 'warn'}>{p.dataSource.kind}</Badge>
@@ -1320,7 +1352,7 @@ export function AgentsView() {
         onChanged={refreshAllPanels}
       />
 
-      <h3 className="panel-title">Providers（健康四值 / 版本 / 能力集）</h3>
+      <h3 className="panel-title">Provider（健康四值 / 版本 / 能力集）</h3>
       <ProvidersPanel
         providers={providers.data?.providers ?? null}
         monitorEnabled={monitorEnabled}
@@ -1329,7 +1361,7 @@ export function AgentsView() {
         onRefresh={providers.refresh}
       />
 
-      <h3 className="panel-title">Sessions（9 值状态 · waiting_input / approval_required 高亮区分 · stale 标注）</h3>
+      <h3 className="panel-title">会话（9 值状态 · waiting_input / approval_required 高亮区分 · stale 标注）</h3>
       <div className="panel">
         <SessionsPanel
           sessions={sessions.data?.sessions ?? null}
@@ -1351,19 +1383,19 @@ export function AgentsView() {
 
       {selectedSessionId !== null && (
         <>
-          <h3 className="panel-title">Session #{selectedSessionId} detail（capabilities · counts · 脱敏消息 · 会话事件）</h3>
+          <h3 className="panel-title">会话 #{selectedSessionId} 详情（capabilities · counts · 脱敏消息 · 会话事件）</h3>
           <div className="panel">
             <SessionDetailPanel sessionId={selectedSessionId} providerNames={providerNames} projectNames={projectNames} />
           </div>
         </>
       )}
 
-      <h3 className="panel-title">Recent events（after=sequence 游标轮询 · deliveryState 徽标）</h3>
+      <h3 className="panel-title">最近事件（after=sequence 游标轮询 · deliveryState 徽标）</h3>
       <div className="panel">
         {events.loading ? (
-          <Loading label="Polling event stream…" />
+          <Loading label="正在轮询事件流…" />
         ) : events.list.length === 0 && events.error === null ? (
-          <EmptyState title="No agent events yet" hint="会话发现 / 状态变化 / 消息追加 / 健康变化事件先落库后投递（docs/12 §6）。" />
+          <EmptyState title="还没有 Agent 事件" hint="会话发现 / 状态变化 / 消息追加 / 健康变化事件先落库后投递（docs/12 §6）。" />
         ) : events.list.length === 0 && events.error !== null ? (
           <ErrorState error={events.error} onRetry={events.refresh} />
         ) : (
@@ -1374,7 +1406,7 @@ export function AgentsView() {
         )}
       </div>
 
-      <h3 className="panel-title">Devices（已配对设备 · 撤销两段式 · 绝无 token 字段）</h3>
+      <h3 className="panel-title">设备（已配对 · 撤销两段式 · 绝无 token 字段）</h3>
       <div className="panel">
         <DevicesPanel
           devices={devices.data?.devices ?? null}
@@ -1385,7 +1417,7 @@ export function AgentsView() {
         />
       </div>
 
-      <h3 className="panel-title">Gateway &amp; pairing（回环默认关 · 隧道提示 · 一次性配对码）</h3>
+      <h3 className="panel-title">Gateway 与配对（回环默认关 · 隧道提示 · 一次性配对码）</h3>
       <div className="panel">
         <GatewayPanel
           status={gateway.data ?? null}
@@ -1401,7 +1433,7 @@ export function AgentsView() {
         <RelayPanel relay={gateway.data?.relay ?? null} onChanged={refreshAllPanels} />
       </div>
 
-      <h3 className="panel-title">Diagnostics（数据源可读性 / 控制通道 / Gateway / 托盘 / 自启）</h3>
+      <h3 className="panel-title">诊断（数据源可读性 / 控制通道 / Gateway / 托盘 / 自启）</h3>
       <div className="panel">
         <DiagnosticsPanel diag={diagnostics.data ?? null} loading={diagnostics.loading} error={diagnostics.error} onRetry={diagnostics.refresh} />
       </div>
