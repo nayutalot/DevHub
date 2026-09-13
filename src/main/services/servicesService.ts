@@ -16,6 +16,11 @@
  * last_seen_at 与可变属性（pid/process/commandLine/归因），不存在插入；本次未见的
  * 旧记录保留 last_seen_at 原值（UI 按 last_seen 排序）。pid 是可变属性列，漂移走
  * UPDATE 不 INSERT（B3 止增）。
+ *
+ * 读取面（B3）：services:list 默认只返回 last_seen_at 在 SERVICE_RECENCY_SECONDS
+ * 窗口内的行（与 dashboard.serviceCount 同口径），陈旧行不再淹没视图。
+ * 存量裁剪（B3）：首次使用 + 每日定时 DELETE last_seen_at 超过 SERVICE_RETENTION_SECONDS
+ * （7 天）的行；只动 services 表自身（观测缓存非账本），零 migration。
  */
 
 import type { DatabaseSync } from 'node:sqlite'
@@ -40,8 +45,11 @@ const LOCAL_LISTEN_ADDRESSES: ReadonlySet<string> = new Set([
   'localhost',
 ])
 
-/** dashboard.serviceCount 的“近期仍在”窗口。 */
+/** dashboard.serviceCount 的“近期仍在”窗口；services:list 读取面同口径（B3）。 */
 export const SERVICE_RECENCY_SECONDS = 15 * 60
+
+/** services 存量裁剪窗口：last_seen_at 超过 7 天的行视为历史残留（7 天 = 主控裁决值）。 */
+export const SERVICE_RETENTION_SECONDS = 7 * 24 * 60 * 60
 
 // ---------------------------------------------------------------------------
 // 三源采集
@@ -288,12 +296,54 @@ function upsertService(db: DatabaseSync, pending: PendingService, projects: read
 }
 
 // ---------------------------------------------------------------------------
+// 存量裁剪（B3：无界累积治理的存量面）
+// ---------------------------------------------------------------------------
+
+// 全静态语句字面量（约束 #11：SQL 文本零拼接/零插值，全部取值走 ? 绑定）
+const PRUNE_STALE_SERVICES_SQL = 'DELETE FROM services WHERE last_seen_at < ?'
+const RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1000
+
+/** 只 DELETE services 表自身（观测缓存非账本）；绝不触及其他表。 */
+function pruneStaleServices(db: DatabaseSync): number {
+  const result = db.prepare(PRUNE_STALE_SERVICES_SQL).run(nowSec() - SERVICE_RETENTION_SECONDS)
+  return Number(result.changes)
+}
+
+let retentionScheduled = false
+
+/**
+ * 启动时 + 每日定时的存量裁剪。本模块无法独占 app 启动钩子（B3 红线：只动本文件），
+ * 以「本模块首次被使用」为启动时点（首次 services:list/refresh 即触发），随后
+ * unref 定时器每日重剪；进程退出不因本定时器延迟。
+ */
+function ensureServicesRetention(db: DatabaseSync): void {
+  if (retentionScheduled) return
+  retentionScheduled = true
+  try {
+    const pruned = pruneStaleServices(db)
+    if (pruned > 0) logger.info(`services: retention pruned ${pruned} stale row(s) on startup`)
+  } catch (err) {
+    logger.warn(`services: retention prune failed: ${errorMessage(err)}`)
+  }
+  const timer = setInterval(() => {
+    try {
+      const pruned = pruneStaleServices(getDatabase())
+      if (pruned > 0) logger.info(`services: retention pruned ${pruned} stale row(s)`)
+    } catch (err) {
+      logger.warn(`services: retention prune failed: ${errorMessage(err)}`)
+    }
+  }, RETENTION_INTERVAL_MS)
+  timer.unref()
+}
+
+// ---------------------------------------------------------------------------
 // 对外 API（对应 services:refresh / services:list）
 // ---------------------------------------------------------------------------
 
 /** 三源采集 + 归因落库；返回本轮写入/更新的记录。同时写一条 kind='services' 的扫描行。 */
 export async function refreshServices(): Promise<ServiceRecord[]> {
   const db = getDatabase()
+  ensureServicesRetention(db)
   const pending: PendingService[] = []
   const seen = new Set<string>()
   await Promise.all([collectWindowsServices(pending, seen), collectWslServices(pending, seen)])
@@ -341,30 +391,38 @@ export interface ServicesFilter {
   projectId?: number
 }
 
-// 全静态语句字面量（约束 #11：SQL 文本零拼接/零插值，全部取值走 ? 绑定）
+// 全静态语句字面量（约束 #11：SQL 文本零拼接/零插值，全部取值走 ? 绑定）。
+// B3：读取面默认 recency 过滤（last_seen_at >= ?），与 dashboard.serviceCount 同口径。
 const LIST_SERVICES_ALL_SQL =
-  'SELECT s.*, p.name AS project_name FROM services s LEFT JOIN projects p ON p.id = s.project_id ORDER BY s.last_seen_at DESC, s.id DESC'
+  'SELECT s.*, p.name AS project_name FROM services s LEFT JOIN projects p ON p.id = s.project_id WHERE s.last_seen_at >= ? ORDER BY s.last_seen_at DESC, s.id DESC'
 const LIST_SERVICES_BY_PORT_SQL =
-  'SELECT s.*, p.name AS project_name FROM services s LEFT JOIN projects p ON p.id = s.project_id WHERE s.port = ? ORDER BY s.last_seen_at DESC, s.id DESC'
+  'SELECT s.*, p.name AS project_name FROM services s LEFT JOIN projects p ON p.id = s.project_id WHERE s.port = ? AND s.last_seen_at >= ? ORDER BY s.last_seen_at DESC, s.id DESC'
 const LIST_SERVICES_BY_PROJECT_SQL =
-  'SELECT s.*, p.name AS project_name FROM services s LEFT JOIN projects p ON p.id = s.project_id WHERE s.project_id = ? ORDER BY s.last_seen_at DESC, s.id DESC'
+  'SELECT s.*, p.name AS project_name FROM services s LEFT JOIN projects p ON p.id = s.project_id WHERE s.project_id = ? AND s.last_seen_at >= ? ORDER BY s.last_seen_at DESC, s.id DESC'
 const LIST_SERVICES_BY_PORT_AND_PROJECT_SQL =
-  'SELECT s.*, p.name AS project_name FROM services s LEFT JOIN projects p ON p.id = s.project_id WHERE s.port = ? AND s.project_id = ? ORDER BY s.last_seen_at DESC, s.id DESC'
+  'SELECT s.*, p.name AS project_name FROM services s LEFT JOIN projects p ON p.id = s.project_id WHERE s.port = ? AND s.project_id = ? AND s.last_seen_at >= ? ORDER BY s.last_seen_at DESC, s.id DESC'
 
-/** 从 DB 读取（含 project 联查 name），按 last_seen 倒序。 */
+/**
+ * 从 DB 读取（含 project 联查 name），按 last_seen 倒序；默认仅返回
+ * SERVICE_RECENCY_SECONDS（15 分钟）窗口内的「新鲜服务」行（B3）。
+ * 调用方盘点（B3）：IPC services:list / MCP devhub.services.list·inspect /
+ * devhub://services / projects:get 服务面板——全部是「最近快照」语义，无需全量通道。
+ */
 export function listServices(filter?: ServicesFilter): ServiceRow[] {
   const db = getDatabase()
+  ensureServicesRetention(db)
   const port = filter?.port
   const projectId = filter?.projectId
+  const minLastSeenAt = nowSec() - SERVICE_RECENCY_SECONDS
   let rows: (ServiceDbRow & { project_name: string | null })[]
   if (port !== undefined && projectId !== undefined) {
-    rows = db.prepare(LIST_SERVICES_BY_PORT_AND_PROJECT_SQL).all(port, projectId) as unknown as typeof rows
+    rows = db.prepare(LIST_SERVICES_BY_PORT_AND_PROJECT_SQL).all(port, projectId, minLastSeenAt) as unknown as typeof rows
   } else if (port !== undefined) {
-    rows = db.prepare(LIST_SERVICES_BY_PORT_SQL).all(port) as unknown as typeof rows
+    rows = db.prepare(LIST_SERVICES_BY_PORT_SQL).all(port, minLastSeenAt) as unknown as typeof rows
   } else if (projectId !== undefined) {
-    rows = db.prepare(LIST_SERVICES_BY_PROJECT_SQL).all(projectId) as unknown as typeof rows
+    rows = db.prepare(LIST_SERVICES_BY_PROJECT_SQL).all(projectId, minLastSeenAt) as unknown as typeof rows
   } else {
-    rows = db.prepare(LIST_SERVICES_ALL_SQL).all() as unknown as typeof rows
+    rows = db.prepare(LIST_SERVICES_ALL_SQL).all(minLastSeenAt) as unknown as typeof rows
   }
   return rows.map((row) => rowToServiceRow(row, row.project_name))
 }
@@ -374,6 +432,8 @@ export function listServices(filter?: ServicesFilter): ServiceRow[] {
  * 归因铁律：project_id 为 NULL 的行 → projectId/projectName 为 undefined，
  * MCP 投影层规整为字面量 'unknown'，Service 层绝不就近挑一个项目填充。
  * snapshotAt 口径 = 命中行 max(lastSeenAt)（ServiceRow.lastSeenAt，M2 增补）。
+ * B3：仅返回 SERVICE_RECENCY_SECONDS 窗口内的行（与 services:list 同口径），
+ * 窗口外陈旧行视为不在最近快照中。
  */
 export function findByPort(port: number): ServiceRow[] {
   return listServices({ port })

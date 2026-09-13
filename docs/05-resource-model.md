@@ -38,6 +38,21 @@ Service 层在写入具体表的同时负责维护 resources / relationships（�
 归因链：**port → process → environment → project**。Services 视图"谁占用了 8080"的回答 =
 services 表行 + 上述关系边展开出的项目归属。
 
+### 3.1 services 表生命周期语义（B3）
+
+services 表是**扫描观测缓存，不是账本**——行可裁剪，无界保留没有语义：
+
+- **upsert 业务键 `(port, origin)`**：同端口同来源 = 同一逻辑服务；pid / process_name /
+  command_line / project_id 是可变属性，随每轮扫描原位 UPDATE（pid 漂移——进程重启换
+  pid——不再 INSERT 新行，止增）。
+- **读取面 recency 过滤**：`services:list`（IPC/MCP 全通道）默认只返回 `last_seen_at` 距今
+  ≤ `SERVICE_RECENCY_SECONDS`（15 分钟，`servicesService.ts`）的行，与
+  `dashboard.serviceCount` 同口径；陈旧行不再淹没 Services 视图。
+- **存量裁剪**：Service 层启动（首次使用）+ 每日定时执行
+  `DELETE FROM services WHERE last_seen_at < now - 7d`（`SERVICE_RETENTION_SECONDS`，
+  7 天为可回看历史窗口，主控裁决值）；只动 services 表自身，不涉审计/会话等其他表，
+  零 migration（不加列不改表）。
+
 ## 4. 未来 Resource Graph 扩展方式
 
 - 新资源类型 = 新具体表 + `resource_type` 新增枚举值，resources/relationships 结构不变。
