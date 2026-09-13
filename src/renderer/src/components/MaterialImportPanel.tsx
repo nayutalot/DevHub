@@ -368,7 +368,7 @@ function MaterialImportPanelOpen({ onClose }: { onClose: () => void }) {
       </div>
 
       {materials.loading ? (
-        <Loading label="Loading materials…" />
+        <Loading label="正在加载材料…" />
       ) : materials.error !== null ? (
         <ErrorState error={materials.error} onRetry={materials.refresh} />
       ) : materialList.length === 0 ? (
@@ -451,7 +451,7 @@ function MaterialImportPanelOpen({ onClose }: { onClose: () => void }) {
             <span className="field">
               <label htmlFor="cp-imp-provider">自动 Provider</label>
               {providers.loading ? (
-                <Loading label="Loading providers…" />
+                <Loading label="正在加载 Provider…" />
               ) : providers.error !== null ? (
                 <ErrorState error={providers.error} onRetry={providers.refresh} />
               ) : providerRows.length === 0 ? (
@@ -542,7 +542,7 @@ function MaterialImportPanelOpen({ onClose }: { onClose: () => void }) {
           <span className="dim">进度轮询 · 失败可按阶段重试 · 取消后晚到结果自动丢弃</span>
         </div>
         {jobs.loading && jobList.length === 0 ? (
-          <Loading label="Loading jobs…" />
+          <Loading label="正在加载任务…" />
         ) : jobs.error !== null ? (
           <ErrorState error={jobs.error} onRetry={jobs.refresh} />
         ) : jobList.length === 0 ? (

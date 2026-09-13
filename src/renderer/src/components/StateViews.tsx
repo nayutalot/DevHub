@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AsyncError } from '../lib/useAsync.ts'
 
 export function Spinner() {
-  return <span className="spinner" aria-label="loading" />
+  return <span className="spinner" aria-label="加载中" />
 }
 
 export function Loading({ label }: { label: string }) {
@@ -53,13 +53,13 @@ export function EmptyState({
 export function ErrorState({ error, onRetry }: { error: AsyncError; onRetry: () => void }) {
   return (
     <div className="error-box" role="alert">
-      <span className="error-title">Failed to load</span>
+      <span className="error-title">加载失败</span>
       <span>
         <span className="error-code">{error.code}</span>
       </span>
       <span className="error-msg">{error.message}</span>
       <button type="button" className="btn" onClick={onRetry}>
-        Retry
+        重试
       </button>
     </div>
   )
@@ -114,6 +114,6 @@ export function InlineState({
 }) {
   if (loading) return <Loading label={loadingLabel} />
   if (error !== null) return <ErrorState error={error} onRetry={onRetry} />
-  if (empty) return <div className="inline-note">Nothing to show.</div>
+  if (empty) return <div className="inline-note">暂无可展示的内容。</div>
   return null
 }

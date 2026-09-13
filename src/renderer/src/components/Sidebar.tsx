@@ -10,17 +10,17 @@ import type { ReactElement } from 'react'
 import type { ViewTarget } from '../lib/appContext.ts'
 
 const NAV_ITEMS: { target: ViewTarget; label: string; icon: ReactElement }[] = [
-  { target: { view: 'dashboard' }, label: 'Dashboard', icon: <IconDashboard /> },
-  { target: { view: 'projects' }, label: 'Projects', icon: <IconProjects /> },
-  { target: { view: 'environment' }, label: 'Environment', icon: <IconEnvironment /> },
-  { target: { view: 'services' }, label: 'Services', icon: <IconServices /> },
-  { target: { view: 'skills' }, label: 'Skills', icon: <IconSkills /> },
+  { target: { view: 'dashboard' }, label: '仪表盘', icon: <IconDashboard /> },
+  { target: { view: 'projects' }, label: '项目', icon: <IconProjects /> },
+  { target: { view: 'environment' }, label: '环境', icon: <IconEnvironment /> },
+  { target: { view: 'services' }, label: '服务', icon: <IconServices /> },
+  { target: { view: 'skills' }, label: '技能', icon: <IconSkills /> },
   { target: { view: 'apihub' }, label: 'ApiHub', icon: <IconApiHub /> },
-  { target: { view: 'versions' }, label: 'Versions', icon: <IconVersions /> },
+  { target: { view: 'versions' }, label: '版本', icon: <IconVersions /> },
   { target: { view: 'docker' }, label: 'Docker', icon: <IconDocker /> },
-  { target: { view: 'archive' }, label: 'Archive', icon: <IconArchive /> },
+  { target: { view: 'archive' }, label: '归档', icon: <IconArchive /> },
   { target: { view: 'agents' }, label: 'Agents', icon: <IconAgents /> },
-  { target: { view: 'contest' }, label: 'Contests', icon: <IconContests /> },
+  { target: { view: 'contest' }, label: '比赛', icon: <IconContests /> },
 ]
 
 function iconProps() {
@@ -168,7 +168,7 @@ function IconContests() {
 
 export function Sidebar({ current, onNavigate }: { current: string; onNavigate: (t: ViewTarget) => void }) {
   return (
-    <nav className="nav" aria-label="Main navigation">
+    <nav className="nav" aria-label="主导航">
       {NAV_ITEMS.map((item) => {
         const active = item.target.view === current
         return (

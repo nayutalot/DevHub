@@ -82,18 +82,18 @@ export function ZcodeManagedSettingsCard() {
           />
         </label>
         <button type="button" className="btn" disabled={!loaded || saving} onClick={() => void save()}>
-          {saving && <Spinner />} Save
+          {saving && <Spinner />} 保存
         </button>
       </div>
       {message !== null && (
         <div className="inline-note td-dim">
           {message.ok ? (
             <>
-              <Badge tone="ok">saved</Badge> {message.text}
+              <Badge tone="ok">已保存</Badge> {message.text}
             </>
           ) : (
             <>
-              <Badge tone="err">failed</Badge> {message.text}
+              <Badge tone="err">失败</Badge> {message.text}
             </>
           )}
         </div>

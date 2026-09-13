@@ -118,7 +118,7 @@ export function OverlayApp() {
       <div className="ovl-list">
         {items.length === 0 ? (
           <div className="ovl-empty">
-            <EmptyState title="暂无进行中的比赛" hint="在主窗口 Contests 页新建比赛并添加时间节点。" />
+            <EmptyState title="暂无进行中的比赛" hint="在主窗口「比赛」页新建比赛并添加时间节点。" />
           </div>
         ) : (
           items.map((c) => <OverlayCard key={c.id} c={c} busy={busyId === c.id} onOpen={() => void openInMain(c.id)} onLink={(url, e) => void openLink(c.id, url, e)} />)

@@ -30,7 +30,7 @@ export function StatCard({
     return <div className="stat-card">{body}</div>
   }
   return (
-    <button type="button" className="stat-card" onClick={onClick} title="View details">
+    <button type="button" className="stat-card" onClick={onClick} title="查看详情">
       {body}
     </button>
   )

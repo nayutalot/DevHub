@@ -366,10 +366,10 @@ function ReminderEditor({
       {error !== null && <p className="form-error">{error}</p>}
       <div className="form-row">
         <button type="submit" className="btn btn-primary" disabled={submitting}>
-          {submitting && <Spinner />}Save Reminder
+          {submitting && <Spinner />}保存提醒
         </button>
         <button type="button" className="btn" onClick={onCancel}>
-          Cancel
+          取消
         </button>
       </div>
     </form>
@@ -422,7 +422,7 @@ function ReminderLogPanelOpen({
         </button>
       </div>
       {list.loading ? (
-        <Loading label="Loading reminder log…" />
+        <Loading label="正在加载触发记录…" />
       ) : list.error !== null ? (
         <ErrorState error={list.error} onRetry={list.refresh} />
       ) : entries.length === 0 ? (

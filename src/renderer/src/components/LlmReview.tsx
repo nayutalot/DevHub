@@ -142,7 +142,7 @@ export function LlmReviewSettingsCard() {
           />
         </label>
         <button type="button" className="btn" disabled={!loaded || saving || testing} onClick={() => void save()}>
-          {saving && <Spinner />} Save
+          {saving && <Spinner />} 保存
         </button>
         <button
           type="button"
@@ -151,18 +151,18 @@ export function LlmReviewSettingsCard() {
           title={configured ? '向端点发一次连通性探测（不落库）' : '双键同设后才可测试'}
           onClick={() => void test()}
         >
-          {testing && <Spinner />} Test endpoint
+          {testing && <Spinner />} 测试端点
         </button>
       </div>
       {testResult !== null && (
         <div className="inline-note">
           {testResult.ok ? (
             <>
-              <Badge tone="ok">ok</Badge> 端点可达 · {testResult.latencyMs}ms
+              <Badge tone="ok">通过</Badge> 端点可达 · {testResult.latencyMs}ms
             </>
           ) : (
             <>
-              <Badge tone="err">failed</Badge> {testResult.error ?? 'endpoint unreachable'} · {testResult.latencyMs}ms
+              <Badge tone="err">失败</Badge> {testResult.error ?? '端点不可达'} · {testResult.latencyMs}ms
             </>
           )}
         </div>
@@ -214,7 +214,7 @@ export function ReviewAdvisoryBar({ plan }: { plan: ArchiveReviewPrePayload['pla
         <span className="inline-note td-dim">LLM 复核不可用（advisory，已跳过）</span>
       ) : envelope.status === 'ok' ? (
         <div className="review-advisory-body">
-          <Badge tone={riskTone(envelope.risk ?? 'low')}>risk: {envelope.risk}</Badge>
+          <Badge tone={riskTone(envelope.risk ?? 'low')}>风险：{RISK_LABEL[envelope.risk ?? 'low']}</Badge>
           <span className="td-dim">
             {envelope.model} · {envelope.latencyMs}ms
           </span>
@@ -229,7 +229,7 @@ export function ReviewAdvisoryBar({ plan }: { plan: ArchiveReviewPrePayload['pla
         </div>
       ) : (
         <span className="inline-note td-dim">
-          <Badge tone={reviewStatusTone(envelope.status)}>{envelope.status}</Badge> {envelope.note ?? '复核未返回结果（不影响归档）'}
+          <Badge tone={reviewStatusTone(envelope.status)}>{STATUS_LABEL[envelope.status]}</Badge> {envelope.note ?? '复核未返回结果（不影响归档）'}
         </span>
       )}
     </div>
@@ -264,8 +264,8 @@ export function ReviewPostButton({ runId }: { runId: number }) {
         <div className="review-advisory-body">
           {envelope.status === 'ok' ? (
             <>
-              <Badge tone={riskTone(envelope.risk ?? 'low')}>risk: {envelope.risk}</Badge>
-              {envelope.cached === true && <Badge tone="dim">cached</Badge>}
+              <Badge tone={riskTone(envelope.risk ?? 'low')}>风险：{RISK_LABEL[envelope.risk ?? 'low']}</Badge>
+              {envelope.cached === true && <Badge tone="dim">已缓存</Badge>}
               <span className="td-dim">
                 {envelope.model} · {envelope.latencyMs}ms
               </span>
@@ -280,7 +280,7 @@ export function ReviewPostButton({ runId }: { runId: number }) {
             </>
           ) : (
             <span className="inline-note td-dim">
-              <Badge tone={reviewStatusTone(envelope.status)}>{envelope.status}</Badge> {envelope.note ?? ''}
+              <Badge tone={reviewStatusTone(envelope.status)}>{STATUS_LABEL[envelope.status]}</Badge> {envelope.note ?? ''}
             </span>
           )}
         </div>
@@ -292,6 +292,21 @@ export function ReviewPostButton({ runId }: { runId: number }) {
 // ---------------------------------------------------------------------------
 // Skills 元数据体检结果展示（flags 三类；只读咨询不落库）
 // ---------------------------------------------------------------------------
+
+/** ReviewStatus → 用户面中文（值保留原样，仅展示层投影）。 */
+const STATUS_LABEL: Record<ReviewStatus, string> = {
+  ok: '成功',
+  skipped: '已跳过',
+  unparseable: '无法解析',
+  failed: '失败',
+}
+
+/** 风险三档 → 中文。 */
+const RISK_LABEL: Record<'low' | 'medium' | 'high', string> = {
+  low: '低',
+  medium: '中',
+  high: '高',
+}
 
 const FLAG_LABEL: Record<SkillMetaFlagKind, string> = {
   short_description: '描述过短',
