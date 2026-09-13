@@ -1,4 +1,9 @@
-# DevHub 会话交接文档（2026-09-13 21:1x——P0 闪退热修收官：HTML 劫持实锤复现→四层防御根治，APK 33d882ea 待装）
+# DevHub 会话交接文档（2026-09-13 22:0x——B1/B2 bug 扫查双批收官合 main；X6 换装执行中）
+
+> **✅ B1+B2 bug 扫查双批（09-13 深夜，「自主推进 bug 检查并修复」令）**：
+> 1. **B1 Android 崩溃面全量扫查已合 main**：必修 5（**GatewayApi parseContract=P0 非 JSON 修复的补集**：契约违约 2xx 体〔合法 JSON 错形状/缺字段/错型〕11 端点结构化 BAD_PAYLOAD；SessionDetail 五处交互提交裸协程 catch 兜底；Agents spawn/wake catch+busy 卡死面；Device 撤销 catch）；P2 注记全量上报（!!族多在 runCatching 内/require 族 fail-fast 有护栏/帧解析两腿有 try）；新增 7 单测 :app **134**/:core **301**；模拟器畸形 202 实测不闪退。
+> 2. **B2 桌面 T2 托管面健壮性审查已合 main（7bf9f13）**：必修 4（**F1 真崩溃面**=handleManagedEvent 的 L3 sink 回调 stdout 事件链零防护〔SQLITE_BUSY 即主进程崩〕→结构性截断+计数；F2 doctor 瞬断防抖 300s 锚定真实成功时刻；F3 容忍计数出诊断面〔只写不读修复〕；F4 dispose 后拒绝 spawn 防孤儿进程）；8 注记（pending 表无泄漏/ensure 同步体串行化安全等）+3 可疑留档（terminal-after-terminal 语义与 codex 差异等）；fast **115/115**（+t2z-112/113）+full **209/209**。
+> 3. **X6 重打包换装执行中**（B2 桌面改动进常驻；**APK 6fcd774f=最新待装件**）。推送墙期中（B1 合并 commit 后台循环重推）。
 
 > **✅ P0 闪退热修（09-13，用户真机报告「没连上电脑就闪退」）**：
 > 1. **根因（模拟器 HTML 劫持端点实锤复现，非推理）**：`GatewayApi.execute` 对非 JSON 2xx 体抛 JSONException（RuntimeException 族）→ 六屏加载循环只捕 ApiError/IOException → 连接作用域（SupervisorJob）无 CoroutineExceptionHandler → 进程死。纯连接拒绝（IOException）四场景全不闪——所以是「某些网络形态（captive portal/坏代理/劫持错误页）才闪」，冷启动首轮轮询=「冷启动就闪」、120s 轮询+refresh=「连不上就闪」，与用户双时机吻合。
