@@ -17,9 +17,15 @@
  * channel）；每个面板四态强制（D14，约束 #24）+ 结构化降级文案（约束 #26）；
  * React 19 StrictMode 双挂载防抖走 promise 模式（R6：effect cleanup + 游标幂等，
  * 模块级禁 boolean 标记，HANDOFF §6）。
+ *
+ * D3-F1（AUDIT D-Aud F1，行为不变纪律）：devices / diagnostics 慢变面降频 10s
+ * （AGENTS_SLOW_POLL_MS；新鲜度面 providers/sessions/events/detail/messages 保持
+ * 2s）；会话/消息/事件/设备行组件 memo 化——IPC 每轮新引用故按展示值比较，配
+ * 30s 时效桶（timeBucket30s）保 relativeTime 文案时效；Names Map 以解析字符串
+ * 下传防 memo 击穿。
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { Badge, stateTone } from '../components/Badge.tsx'
 import type { BadgeTone } from '../components/Badge.tsx'
 import { ExpandableText } from '../components/ExpandableText.tsx'
@@ -27,7 +33,7 @@ import { EmptyState, ErrorState, InlineState, Loading, Spinner, Toast, useToast 
 import { relativeTime, toMs } from '../lib/format.ts'
 import { call } from '../lib/ipc.ts'
 import { useAsync } from '../lib/useAsync.ts'
-import { AGENTS_POLL_MS, usePolling } from '../lib/usePolling.ts'
+import { AGENTS_POLL_MS, AGENTS_SLOW_POLL_MS, usePolling } from '../lib/usePolling.ts'
 import type { AsyncError } from '../lib/useAsync.ts'
 import type {
   AgentCapabilitySet,
@@ -230,6 +236,21 @@ function toAsyncErrorLocal(err: unknown): AsyncError {
 }
 
 // ---------------------------------------------------------------------------
+// D3-F1：长列表行组件 memo 化（AUDIT D-Aud F1——100→200 行 × 2s 轮询新数组
+// 全表 reconciliation；运行时帧率本就流畅，成本在渲染面 CPU 空转）
+// ---------------------------------------------------------------------------
+
+/**
+ * relativeTime 时效桶（30s 粒度）：行 memo 的值比较含 timeBucket——数据未变的行
+ * 在父组件（2s 轮询重渲染）到达新桶时才刷新一次 relativeTime 文案（最大滞后
+ * ~30s；relativeTime 本身分钟级粒度、该文案语义本就容忍分钟级滞后），其余
+ * 轮询 tick 整行跳过 reconciliation。
+ */
+function timeBucket30s(): number {
+  return Math.floor(Date.now() / 30_000)
+}
+
+// ---------------------------------------------------------------------------
 // 面板 0：控制条（D10 监控总开关 + D11 自启开关）
 // ---------------------------------------------------------------------------
 
@@ -426,6 +447,64 @@ function ProvidersPanel({ providers, monitorEnabled, loading, error, onRefresh }
 // 面板 2：会话列表（D3）
 // ---------------------------------------------------------------------------
 
+/** 会话表行（D3）：memo 化。IPC 每轮轮询产生全新对象/数组引用，引用比较无效，
+ *  比较器按「实际展示值」逐字段比较（含 timeBucket 时效桶）。providerName/
+ *  projectName 以解析好的字符串下传——Names Map 引用每轮都在变，直接下传会击穿 memo。 */
+interface SessionRowProps {
+  s: AgentSessionView
+  providerName: string
+  projectName: string
+  selected: boolean
+  timeBucket: number
+  onSelect: (id: number) => void
+}
+
+const SessionRow = memo(
+  function SessionRow({ s, providerName, projectName, selected, onSelect }: SessionRowProps) {
+    return (
+      <tr
+        className={`row-hit${selected ? ' agents-row-selected' : ''}`}
+        onClick={() => onSelect(s.id)}
+      >
+        <td className="td-dim">{s.id}</td>
+        <td>{providerName}</td>
+        <td className="td-mono td-dim" title={s.nativeId}>{s.nativeId.length > 24 ? `${s.nativeId.slice(0, 24)}…` : s.nativeId}</td>
+        <td className="td-dim" title={s.title ?? ''}>{s.title ?? '—'}</td>
+        <td className="td-dim">{s.projectId !== undefined ? `#${s.projectId} ${projectName}`.trim() : '—'}</td>
+        <td>
+          <Badge tone={sessionStatusTone(s.status)} title={sessionStatusHint(s.status)}>{s.status}</Badge>
+          {s.stale && (
+            <Badge tone="dim" title="数据源过期标注——绝不猜实时态（docs/14 §A.1 #2）">
+              stale
+            </Badge>
+          )}
+        </td>
+        <td>
+          <Badge tone={modeTone(s.sessionMode)} title="接入深度（managed/attached/observed，docs/12 §5）">
+            {s.sessionMode}
+          </Badge>
+        </td>
+        <td className="td-dim">{s.lastActivityAt !== undefined ? relativeTime(s.lastActivityAt) : '—'}</td>
+      </tr>
+    )
+  },
+  (a, b) =>
+    a.s.id === b.s.id &&
+    a.s.providerId === b.s.providerId &&
+    a.s.nativeId === b.s.nativeId &&
+    a.s.title === b.s.title &&
+    a.s.projectId === b.s.projectId &&
+    a.s.status === b.s.status &&
+    a.s.stale === b.s.stale &&
+    a.s.sessionMode === b.s.sessionMode &&
+    a.s.lastActivityAt === b.s.lastActivityAt &&
+    a.providerName === b.providerName &&
+    a.projectName === b.projectName &&
+    a.selected === b.selected &&
+    a.timeBucket === b.timeBucket &&
+    a.onSelect === b.onSelect,
+)
+
 function SessionsPanel({ sessions, loading, error, onRetry, providerNames, projectNames, selectedId, onSelect, providerFilter, onProviderFilter, statusFilter, onStatusFilter, limit, onLoadMore }: {
   sessions: AgentSessionView[] | null
   loading: boolean
@@ -457,6 +536,8 @@ function SessionsPanel({ sessions, loading, error, onRetry, providerNames, proje
     )
   }
   const list = (state.data as AgentSessionView[]) ?? []
+  // D3-F1：relativeTime 时效桶（30s）——本组件每 2s 随轮询重渲染，桶值下传行 memo。
+  const timeBucket = timeBucket30s()
   return (
     <>
       <div className="toolbar">
@@ -497,31 +578,15 @@ function SessionsPanel({ sessions, loading, error, onRetry, providerNames, proje
           <tbody>
             {list
               .map((s) => (
-                <tr
+                <SessionRow
                   key={s.id}
-                  className={`row-hit${selectedId === s.id ? ' agents-row-selected' : ''}`}
-                  onClick={() => onSelect(s.id)}
-                >
-                  <td className="td-dim">{s.id}</td>
-                  <td>{providerNames.get(s.providerId) ?? `#${s.providerId}`}</td>
-                  <td className="td-mono td-dim" title={s.nativeId}>{s.nativeId.length > 24 ? `${s.nativeId.slice(0, 24)}…` : s.nativeId}</td>
-                  <td className="td-dim" title={s.title ?? ''}>{s.title ?? '—'}</td>
-                  <td className="td-dim">{s.projectId !== undefined ? `#${s.projectId} ${projectNames.get(s.projectId) ?? ''}`.trim() : '—'}</td>
-                  <td>
-                    <Badge tone={sessionStatusTone(s.status)} title={sessionStatusHint(s.status)}>{s.status}</Badge>
-                    {s.stale && (
-                      <Badge tone="dim" title="数据源过期标注——绝不猜实时态（docs/14 §A.1 #2）">
-                        stale
-                      </Badge>
-                    )}
-                  </td>
-                  <td>
-                    <Badge tone={modeTone(s.sessionMode)} title="接入深度（managed/attached/observed，docs/12 §5）">
-                      {s.sessionMode}
-                    </Badge>
-                  </td>
-                  <td className="td-dim">{s.lastActivityAt !== undefined ? relativeTime(s.lastActivityAt) : '—'}</td>
-                </tr>
+                  s={s}
+                  providerName={providerNames.get(s.providerId) ?? `#${s.providerId}`}
+                  projectName={s.projectId !== undefined ? (projectNames.get(s.projectId) ?? '') : ''}
+                  selected={selectedId === s.id}
+                  timeBucket={timeBucket}
+                  onSelect={onSelect}
+                />
               ))}
           </tbody>
         </table>
@@ -533,6 +598,28 @@ function SessionsPanel({ sessions, loading, error, onRetry, providerNames, proje
 // ---------------------------------------------------------------------------
 // 面板 3：会话详情（D4/D6）+ 消息脱敏分页 + 会话事件
 // ---------------------------------------------------------------------------
+
+/** 消息表行：memo 化（值比较 + 30s 时效桶；消息 100 行/页，detail 每 2s 重渲染）。 */
+interface MessageRowProps {
+  m: AgentMessageView
+  timeBucket: number
+}
+
+const MessageRow = memo(
+  function MessageRow({ m }: MessageRowProps) {
+    return (
+      <tr>
+        <td className="td-dim">{m.id}</td>
+        <td>
+          <Badge tone={m.role === 'user' ? 'accent' : m.role === 'assistant' ? 'ok' : 'dim'}>{m.role}</Badge>
+        </td>
+        <td className="td-mono agents-msg-cell" title={m.contentRedacted}>{m.contentRedacted}</td>
+        <td className="td-dim">{m.occurredAt !== undefined ? relativeTime(m.occurredAt) : '—'}</td>
+      </tr>
+    )
+  },
+  (a, b) => a.m.id === b.m.id && a.m.role === b.m.role && a.m.contentRedacted === b.m.contentRedacted && a.m.occurredAt === b.m.occurredAt && a.timeBucket === b.timeBucket,
+)
 
 function SessionDetailPanel({ sessionId, providerNames, projectNames }: {
   sessionId: number
@@ -569,6 +656,8 @@ function SessionDetailPanel({ sessionId, providerNames, projectNames }: {
     counts: { messages: number; events: number }
   }
   const { session, capabilities, counts } = data
+  // D3-F1：时效桶下传 memo 行（detail 每 2s 重渲染面：meta 徽章 + 消息表 + 事件表）。
+  const timeBucket = timeBucket30s()
 
   return (
     <div className="agents-detail">
@@ -611,14 +700,7 @@ function SessionDetailPanel({ sessionId, providerNames, projectNames }: {
             </thead>
             <tbody>
               {messages.list.map((m) => (
-                <tr key={m.id}>
-                  <td className="td-dim">{m.id}</td>
-                  <td>
-                    <Badge tone={m.role === 'user' ? 'accent' : m.role === 'assistant' ? 'ok' : 'dim'}>{m.role}</Badge>
-                  </td>
-                  <td className="td-mono agents-msg-cell" title={m.contentRedacted}>{m.contentRedacted}</td>
-                  <td className="td-dim">{m.occurredAt !== undefined ? relativeTime(m.occurredAt) : '—'}</td>
-                </tr>
+                <MessageRow key={m.id} m={m} timeBucket={timeBucket} />
               ))}
             </tbody>
           </table>
@@ -647,6 +729,49 @@ function SessionDetailPanel({ sessionId, providerNames, projectNames }: {
 // 面板 4：最近事件流（D5，全局 after=sequence 游标轮询）
 // ---------------------------------------------------------------------------
 
+/** 事件表行：memo 化（全局事件流 cap 200 + 会话事件流，每 2s 重渲染面）。
+ *  payload 按引用比较：summary 在位时 payload 不参与渲染（跳过安全）；
+ *  summary 缺失时回退渲染 JSON.stringify(payload)，引用不同即保守重渲染。 */
+interface EventRowProps {
+  e: AgentEventView
+}
+
+const EventRow = memo(
+  function EventRow({ e }: EventRowProps) {
+    return (
+      <tr>
+        <td className="td-dim">{e.id}</td>
+        <td className="td-dim">{new Date(toMs(e.createdAt)).toLocaleTimeString()}</td>
+        <td>
+          <Badge tone={e.eventType === 'session.waiting_input' ? 'warn' : e.eventType === 'command.result' ? 'accent' : 'dim'} title={e.eventId}>
+            {e.eventType}
+          </Badge>
+        </td>
+        <td className="td-dim mono">
+          {e.providerId !== undefined ? `p#${e.providerId}` : ''} {e.sessionId !== undefined ? `s#${e.sessionId}` : ''}
+        </td>
+        <td className="td-mono td-dim agents-msg-cell" title={e.summary ?? ''}>
+          {e.summary ?? JSON.stringify(e.payload)}
+        </td>
+        <td>
+          <Badge tone={deliveryTone(e.deliveryState)} title="投递状态机只前进不回退（docs/12 §6）">
+            {e.deliveryState}
+          </Badge>
+        </td>
+      </tr>
+    )
+  },
+  (a, b) =>
+    a.e.id === b.e.id &&
+    a.e.createdAt === b.e.createdAt &&
+    a.e.eventType === b.e.eventType &&
+    a.e.providerId === b.e.providerId &&
+    a.e.sessionId === b.e.sessionId &&
+    a.e.summary === b.e.summary &&
+    a.e.deliveryState === b.e.deliveryState &&
+    a.e.payload === b.e.payload,
+)
+
 function EventRows({ events }: { events: AgentEventView[] }) {
   return (
     <div className="table-wrap">
@@ -663,26 +788,7 @@ function EventRows({ events }: { events: AgentEventView[] }) {
         </thead>
         <tbody>
           {events.map((e) => (
-            <tr key={e.id}>
-              <td className="td-dim">{e.id}</td>
-              <td className="td-dim">{new Date(toMs(e.createdAt)).toLocaleTimeString()}</td>
-              <td>
-                <Badge tone={e.eventType === 'session.waiting_input' ? 'warn' : e.eventType === 'command.result' ? 'accent' : 'dim'} title={e.eventId}>
-                  {e.eventType}
-                </Badge>
-              </td>
-              <td className="td-dim mono">
-                {e.providerId !== undefined ? `p#${e.providerId}` : ''} {e.sessionId !== undefined ? `s#${e.sessionId}` : ''}
-              </td>
-              <td className="td-mono td-dim agents-msg-cell" title={e.summary ?? ''}>
-                {e.summary ?? JSON.stringify(e.payload)}
-              </td>
-              <td>
-                <Badge tone={deliveryTone(e.deliveryState)} title="投递状态机只前进不回退（docs/12 §6）">
-                  {e.deliveryState}
-                </Badge>
-              </td>
-            </tr>
+            <EventRow key={e.id} e={e} />
           ))}
         </tbody>
       </table>
@@ -693,6 +799,49 @@ function EventRows({ events }: { events: AgentEventView[] }) {
 // ---------------------------------------------------------------------------
 // 面板 5：设备列表 + 撤销（D13，两段式）
 // ---------------------------------------------------------------------------
+
+/** 设备表行：memo 化（值比较 + 30s 时效桶）。revoke 闭包每轮新建、故意不参与
+ *  比较——busyId 入比较（撤销态变化必重渲染换新闭包），disabled 语义同原实现
+ *  （任一撤销在途即全表按钮禁用）。 */
+interface DeviceRowProps {
+  d: AgentDeviceView
+  busyId: number | null
+  timeBucket: number
+  revoke: (d: AgentDeviceView) => void
+}
+
+const DeviceRow = memo(
+  function DeviceRow({ d, busyId, revoke }: DeviceRowProps) {
+    return (
+      <tr>
+        <td className="td-dim">{d.id}</td>
+        <td className="td-mono">{d.deviceName}</td>
+        <td>{d.platform}</td>
+        <td>
+          <Badge tone={stateTone(d.status === 'active' ? 'running' : 'dim')}>{d.status}</Badge>
+        </td>
+        <td className="td-dim">{relativeTime(d.pairedAt)}</td>
+        <td className="td-dim">{d.lastSeenAt !== undefined ? relativeTime(d.lastSeenAt) : '—'}</td>
+        <td className="td-dim">{d.tokenVersion}</td>
+        <td>
+          <button type="button" className="btn btn-small btn-danger" disabled={busyId !== null} onClick={() => revoke(d)}>
+            {busyId === d.id && <Spinner />} Revoke
+          </button>
+        </td>
+      </tr>
+    )
+  },
+  (a, b) =>
+    a.d.id === b.d.id &&
+    a.d.deviceName === b.d.deviceName &&
+    a.d.platform === b.d.platform &&
+    a.d.status === b.d.status &&
+    a.d.pairedAt === b.d.pairedAt &&
+    a.d.lastSeenAt === b.d.lastSeenAt &&
+    a.d.tokenVersion === b.d.tokenVersion &&
+    a.busyId === b.busyId &&
+    a.timeBucket === b.timeBucket,
+)
 
 function DevicesPanel({ devices, loading, error, onRetry, onChanged }: {
   devices: AgentDeviceView[] | null
@@ -744,6 +893,7 @@ function DevicesPanel({ devices, loading, error, onRetry, onChanged }: {
     )
   }
   const list = (state.data as AgentDeviceView[]) ?? []
+  const timeBucket = timeBucket30s()
   return (
     <div>
       {error !== null && <div className="degraded-banner">devices 轮询异常（显示为最后成功快照）: {error.code} — {error.message}</div>}
@@ -763,22 +913,7 @@ function DevicesPanel({ devices, loading, error, onRetry, onChanged }: {
         </thead>
         <tbody>
           {list.map((d) => (
-            <tr key={d.id}>
-              <td className="td-dim">{d.id}</td>
-              <td className="td-mono">{d.deviceName}</td>
-              <td>{d.platform}</td>
-              <td>
-                <Badge tone={stateTone(d.status === 'active' ? 'running' : 'dim')}>{d.status}</Badge>
-              </td>
-              <td className="td-dim">{relativeTime(d.pairedAt)}</td>
-              <td className="td-dim">{d.lastSeenAt !== undefined ? relativeTime(d.lastSeenAt) : '—'}</td>
-              <td className="td-dim">{d.tokenVersion}</td>
-              <td>
-                <button type="button" className="btn btn-small btn-danger" disabled={busyId !== null} onClick={() => void revoke(d)}>
-                  {busyId === d.id && <Spinner />} Revoke
-                </button>
-              </td>
-            </tr>
+            <DeviceRow key={d.id} d={d} busyId={busyId} timeBucket={timeBucket} revoke={(row) => void revoke(row)} />
           ))}
         </tbody>
       </table>
@@ -1129,10 +1264,13 @@ export function AgentsView() {
     [],
     { cap: 200 },
   )
-  // devices / gateway / diagnostics 轮询
-  const devices = usePolling(() => call('agents:devices', {}), [], AGENTS_POLL_MS)
+  // devices / gateway / diagnostics 轮询。D3-F1（AUDIT D-Aud F1 修法）：devices /
+  // diagnostics 属慢变面降频 10s（配对/撤销/设置变更仍有 onChanged→refresh 即时
+  // 重拉兜底）；gatewayStatus 保持 2s（relay connected 态新鲜度）；providers /
+  // sessions / events 新鲜度契约面全部不动（docs/14 §A.3）。
+  const devices = usePolling(() => call('agents:devices', {}), [], AGENTS_SLOW_POLL_MS)
   const gateway = usePolling(() => call('agents:gatewayStatus', {}), [], AGENTS_POLL_MS)
-  const diagnostics = usePolling(() => call('agents:diagnostics', {}), [], AGENTS_POLL_MS)
+  const diagnostics = usePolling(() => call('agents:diagnostics', {}), [], AGENTS_SLOW_POLL_MS)
   // project 关联显示（projects:list 一次挂载拉取，与 Services 归因列同模式）
   const projects = useAsync(() => call('projects:list', {}), [])
 
