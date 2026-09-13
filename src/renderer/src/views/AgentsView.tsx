@@ -135,7 +135,10 @@ function deliveryTone(state: AgentEventView['deliveryState']): BadgeTone {
   }
 }
 
-/** 会话/详情/事件流共用的游标流 hook：after 游标自动增量 + 按 id 去重（R6 幂等）。 */
+/** 会话/详情/事件流共用的游标流 hook：after 游标自动增量 + 按 id 去重（R6 幂等）。
+ *  loadMore = 手动追加路径（保留既有列表 + 游标推进，append 分支生效，防重入）；
+ *  refresh = 世代重置语义不变（tick 重跑 effect → 游标与列表清零重拉第一页）
+ *  （AUDIT D-Aud I2：原 loadMore 与 refresh 同为 setTick，实为重载第一页）。 */
 interface CursorPage<T> {
   list: T[]
   nextAfter?: number
@@ -157,6 +160,10 @@ function useCursorStream<T extends { id: number }>(
   const cursorRef = useRef<number | undefined>(undefined)
   const fetchRef = useRef(fetchPage)
   fetchRef.current = fetchPage
+  /** loadMore 防重入：手动追加请求在途时再点直接忽略。 */
+  const appendingRef = useRef(false)
+  /** 当前活跃世代注册的 loadMore 触发器（cleanup 置 null 防跨世代误触）。 */
+  const appendRef = useRef<(() => void) | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -165,6 +172,7 @@ function useCursorStream<T extends { id: number }>(
     setList([])
     setLoading(true)
     setLastPageFull(false)
+    appendingRef.current = false
     let timer: number | undefined
 
     const once = async (manual: boolean): Promise<void> => {
@@ -186,22 +194,29 @@ function useCursorStream<T extends { id: number }>(
         setError(err instanceof Error && 'code' in err ? { code: String((err as { code: unknown }).code), message: err.message } : { code: 'INTERNAL', message: err instanceof Error ? err.message : String(err) })
         setLoading(false)
       } finally {
+        if (manual) appendingRef.current = false
         if (!cancelled && seqRef.current === id && !manual) {
           timer = window.setTimeout(() => void once(false), pollMs)
         }
       }
     }
 
+    appendRef.current = () => {
+      if (appendingRef.current) return
+      appendingRef.current = true
+      void once(true)
+    }
     void once(false)
     return () => {
       cancelled = true
       if (timer !== undefined) window.clearTimeout(timer)
       seqRef.current += 1
+      appendRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- deps 由调用方显式给定
   }, [...deps, tick, pollMs])
 
-  const loadMore = () => void setTick((t) => t + 1)
+  const loadMore = () => appendRef.current?.()
   const refresh = () => setTick((t) => t + 1)
   return { list, loading, error, loadMore, hasMore: lastPageFull, refresh }
 }
