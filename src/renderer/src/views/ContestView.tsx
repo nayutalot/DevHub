@@ -69,14 +69,14 @@ export function ContestView({ initialContestId }: { initialContestId?: number })
     <section className="view">
       <header className="view-header">
         <div>
-          <h2 className="view-title">Contests</h2>
+          <h2 className="view-title">比赛</h2>
           <p className="view-sub">赛程钉 — 比赛、时间节点与悬浮窗提醒源</p>
         </div>
         <div className="view-actions">
           {/* CP4：顶栏小铃铛（近 24h 已触发/待办聚合，60s 轮询 reminderLogList summary） */}
           <ReminderBell />
           <button type="button" className="btn btn-primary" onClick={() => setCreateOpen((v) => !v)}>
-            New Contest
+            新建比赛
           </button>
         </div>
       </header>
@@ -164,7 +164,7 @@ export function ContestView({ initialContestId }: { initialContestId?: number })
       <div className="projects-split">
         <div>
           {list.loading ? (
-            <Loading label="Loading contests…" />
+            <Loading label="正在加载比赛…" />
           ) : list.error !== null ? (
             <ErrorState error={list.error} onRetry={list.refresh} />
           ) : items.length === 0 ? (
@@ -173,7 +173,7 @@ export function ContestView({ initialContestId }: { initialContestId?: number })
                 <EmptyState
                   title="还没有比赛"
                   hint="手动新建比赛并维护报名/截止节点，悬浮窗将展示临近节点。"
-                  action={{ label: 'New Contest', onClick: () => setCreateOpen(true) }}
+                  action={{ label: '新建比赛', onClick: () => setCreateOpen(true) }}
                 />
               ) : (
                 <EmptyState title="无匹配结果" hint="调整搜索词、状态筛选或归档开关后重试。" />
@@ -327,10 +327,10 @@ function CreateContestForm({
       </div>
       <div className="form-row">
         <button type="submit" className="btn btn-primary" disabled={submitting}>
-          {submitting && <Spinner />}Create
+          {submitting && <Spinner />}创建
         </button>
         <button type="button" className="btn" onClick={onCancel}>
-          Cancel
+          取消
         </button>
       </div>
       {error !== null && <p className="form-error">{error}</p>}

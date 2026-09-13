@@ -71,7 +71,7 @@ export function ContestDetailView({
   if (detail.loading) {
     return (
       <div className="detail-pane">
-        <Loading label="Loading contest…" />
+        <Loading label="正在加载比赛…" />
       </div>
     )
   }
@@ -188,7 +188,7 @@ export function ContestDetailView({
 
       <div className="actions-row" style={{ marginBottom: 12 }}>
         <button type="button" className="btn" onClick={() => setEditing((v) => !v)}>
-          {editing ? '取消编辑' : 'Edit'}
+          {editing ? '取消编辑' : '编辑'}
         </button>
         {c.officialSite !== undefined && (
           <button type="button" className="btn" disabled={busy} onClick={() => void openLink(c.officialSite, '官网')}>
@@ -209,7 +209,7 @@ export function ContestDetailView({
           {c.archived ? '取消归档' : '归档'}
         </button>
         <button type="button" className="btn btn-danger" disabled={busy} onClick={() => void startDelete()}>
-          Delete
+          删除
         </button>
       </div>
 
@@ -441,7 +441,7 @@ function EditContestForm({ contest, onDone }: { contest: ContestDetailData; onDo
       </div>
       <div className="form-row">
         <button type="submit" className="btn btn-primary" disabled={submitting}>
-          {submitting && <Spinner />}Save
+          {submitting && <Spinner />}保存
         </button>
       </div>
       {error !== null && <p className="form-error">{error}</p>}
@@ -593,10 +593,10 @@ function NodeForm({
           已完成
         </label>
         <button type="submit" className="btn btn-primary" disabled={submitting}>
-          {submitting && <Spinner />}Save Node
+          {submitting && <Spinner />}保存节点
         </button>
         <button type="button" className="btn" onClick={onCancel}>
-          Cancel
+          取消
         </button>
       </div>
       {error !== null && <p className="form-error">{error}</p>}
