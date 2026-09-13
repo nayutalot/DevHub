@@ -1,4 +1,9 @@
-# DevHub 会话交接文档（2026-09-13 00:2x——U4 回归+Z3 侦察+U5 本地诚实文案收官：审计清单全消费+真机验收两件待用户）
+# DevHub 会话交接文档（2026-09-13 21:1x——P0 闪退热修收官：HTML 劫持实锤复现→四层防御根治，APK 33d882ea 待装）
+
+> **✅ P0 闪退热修（09-13，用户真机报告「没连上电脑就闪退」）**：
+> 1. **根因（模拟器 HTML 劫持端点实锤复现，非推理）**：`GatewayApi.execute` 对非 JSON 2xx 体抛 JSONException（RuntimeException 族）→ 六屏加载循环只捕 ApiError/IOException → 连接作用域（SupervisorJob）无 CoroutineExceptionHandler → 进程死。纯连接拒绝（IOException）四场景全不闪——所以是「某些网络形态（captive portal/坏代理/劫持错误页）才闪」，冷启动首轮轮询=「冷启动就闪」、120s 轮询+refresh=「连不上就闪」，与用户双时机吻合。
+> 2. **防御四层（e3ec1a4，12 文件+282/−30 最小修复）**：execute 非JSON→结构化 BAD_PAYLOAD；三作用域挂 CoroutineExceptionHandler（闪退绝不再发生）；六屏加载循环 catch(Exception)→ErrorPresent 兜底（原异常收 technical 不吞码）；!!断言族硬化（flush/submitLocalCommand/openLocalWebSocket/onAuthFatal）。
+> 3. 门禁 :app **127**（+6 回归锁）/:core **301** 主控独立复跑过；同场景复验零闪退+错误如实上屏；**APK 33d882ea=最新待装件**（20:50）。常驻 X5 在役未动。
 
 > **✅ U4 回归+Z3+U5（09-12 深夜~09-13 凌晨，「继续」令第三段）**：
 > 1. **主仓完整深扫封印 0 finding**（03ea203a）——Mimosa「覆盖不完整」警告闭环。
