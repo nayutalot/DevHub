@@ -135,7 +135,7 @@ export function DashboardView() {
     return (
       <section className="view">
         <ViewHeader />
-        <Loading label="Loading dashboard summary…" />
+        <Loading label="正在加载仪表盘摘要…" />
       </section>
     )
   }
@@ -154,9 +154,9 @@ export function DashboardView() {
   const dockerOffline = s.dockerRunning === 0 && s.dockerTotal === 0 && s.warnings.some((w) => /docker/i.test(w.title) && w.severity !== 'info')
   const wslSub = s.wslStatus.available
     ? s.wslStatus.distros.length > 0
-      ? `${s.wslStatus.distros.length} distro${s.wslStatus.distros.length === 1 ? '' : 's'}: ${s.wslStatus.distros.join(', ')}`
-      : (s.wslStatus.detail ?? 'installed, no distros')
-    : (s.wslStatus.detail ?? 'not available')
+      ? `${s.wslStatus.distros.length} 个发行版：${s.wslStatus.distros.join(', ')}`
+      : (s.wslStatus.detail ?? '已安装，无发行版')
+    : (s.wslStatus.detail ?? '不可用')
   const recent = s.recentProjects
 
   return (
@@ -167,42 +167,42 @@ export function DashboardView() {
         <div className={`scan-line${scanLine.running ? '' : scanLine.terminalNote !== undefined ? ' failed' : ' done'}`}>
           {scanLine.running && <Spinner />}
           {scanLine.running
-            ? `Scanning projects… found ${scanLine.foundCount}`
+            ? `正在扫描项目…已发现 ${scanLine.foundCount} 个`
             : scanLine.terminalNote !== undefined
-              ? `Scan finished with a problem — ${scanLine.terminalNote}`
-              : `Scan finished — ${scanLine.foundCount} project(s)`}
+              ? `扫描结束但出现问题 — ${scanLine.terminalNote}`
+              : `扫描完成 — 共 ${scanLine.foundCount} 个项目`}
         </div>
       )}
 
       <div className="stat-grid">
         <StatCard
-          label="Projects"
+          label="项目"
           value={s.projectCount}
-          sub="click to open Projects"
+          sub="点击打开项目列表"
           onClick={() => navigate({ view: 'projects' })}
         />
         <StatCard
-          label="Dirty Repos"
+          label="有改动的仓库"
           value={s.dirtyRepoCount}
           valueTone={s.dirtyRepoCount > 0 ? 'warn' : undefined}
-          sub="uncommitted changes"
+          sub="存在未提交改动"
           onClick={() => navigate({ view: 'projects' })}
         />
         <StatCard
           label="Docker"
           value={`${s.dockerRunning}/${s.dockerTotal}`}
-          sub={dockerOffline ? 'daemon offline' : 'containers running/total'}
+          sub={dockerOffline ? 'daemon 离线' : '容器 运行中/总数'}
         />
         <StatCard
           label="WSL"
-          value={s.wslStatus.available ? 'available' : 'offline'}
+          value={s.wslStatus.available ? '可用' : '离线'}
           valueTone={s.wslStatus.available ? 'ok' : 'err'}
           sub={wslSub}
         />
         <StatCard
-          label="Services"
+          label="服务"
           value={s.serviceCount}
-          sub={servicesScanning ? 'scanning ports…' : 'listening ports'}
+          sub={servicesScanning ? '正在扫描端口…' : '监听端口'}
           onClick={() => navigate({ view: 'services' })}
         />
       </div>
@@ -210,18 +210,18 @@ export function DashboardView() {
       {s.projectCount === 0 && scanLine === null && (
         <div className="panel">
           <EmptyState
-            title="No projects yet"
-            hint="Run a scan to discover projects under the configured scan root, or add one manually in Projects."
-            action={{ label: 'Go to Projects', onClick: () => navigate({ view: 'projects' }) }}
+            title="还没有项目"
+            hint="运行一次扫描以发现配置扫描根目录下的项目，或到「项目」页手动添加。"
+            action={{ label: '前往项目页', onClick: () => navigate({ view: 'projects' }) }}
           />
         </div>
       )}
 
       <div className="dash-columns">
         <div className="panel">
-          <h3 className="panel-title">Recent Projects</h3>
+          <h3 className="panel-title">最近项目</h3>
           {recent.length === 0 ? (
-            <div className="inline-note">No recent activity.</div>
+            <div className="inline-note">暂无近期活动。</div>
           ) : (
             recent.map((p) => (
               <button
@@ -231,8 +231,8 @@ export function DashboardView() {
                 onClick={() => navigate({ view: 'projects', projectId: p.id })}
               >
                 <span className="recent-name">{p.name}</span>
-                {p.hasGit && <Badge tone={stateTone(p.dirtyCount > 0 ? 'dirty' : 'clean')}>{p.dirtyCount > 0 ? `dirty ×${p.dirtyCount}` : 'clean'}</Badge>}
-                <span className="recent-time" title="recent activity (last opened, falling back to last updated)">
+                {p.hasGit && <Badge tone={stateTone(p.dirtyCount > 0 ? 'dirty' : 'clean')}>{p.dirtyCount > 0 ? `有改动 ×${p.dirtyCount}` : '干净'}</Badge>}
+                <span className="recent-time" title="近期活动（取最近打开，缺省回落到最近更新）">
                   {relativeTime(p.lastOpenedAt)}
                 </span>
               </button>
@@ -241,9 +241,9 @@ export function DashboardView() {
         </div>
 
         <div className="panel">
-          <h3 className="panel-title">Warnings</h3>
+          <h3 className="panel-title">警告</h3>
           {s.warnings.length === 0 ? (
-            <div className="inline-note">No warnings.</div>
+            <div className="inline-note">暂无警告。</div>
           ) : (
             s.warnings.map((w, i) => (
               <div key={`${w.title}-${i}`} className={`warn-item ${severityClass(w.severity)}`}>
@@ -273,13 +273,13 @@ function ViewHeader({ onRefresh }: { onRefresh?: () => void }) {
   return (
     <header className="view-header">
       <div>
-        <h2 className="view-title">Dashboard</h2>
-        <p className="view-sub">Projects, WSL, Docker and services at a glance</p>
+        <h2 className="view-title">仪表盘</h2>
+        <p className="view-sub">项目、WSL、Docker 与服务一览</p>
       </div>
       <div className="view-actions">
         {onRefresh !== undefined && (
           <button type="button" className="btn" onClick={onRefresh}>
-            Refresh
+            刷新
           </button>
         )}
       </div>
