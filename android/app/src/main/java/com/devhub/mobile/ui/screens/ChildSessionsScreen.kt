@@ -83,6 +83,9 @@ fun ChildSessionsScreen(
                 )
             } catch (err: IOException) {
                 error = com.devhub.mobile.core.ErrorPresent.io(err)
+            } catch (err: Exception) {
+                // P0 热修：未预期异常绝不容 UI 协程崩进程（通用人话+technical 保留）
+                error = com.devhub.mobile.core.ErrorPresent.io(err)
             }
             delay(ConnectionManager.FALLBACK_POLL_MS)
         }

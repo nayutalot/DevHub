@@ -35,6 +35,7 @@ import com.devhub.mobile.data.remote.RelayTlsTrust
 import com.devhub.mobile.ws.WsFrames
 import com.devhub.mobile.ws.WsServerFrame
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -158,7 +159,20 @@ object ConnectionManager {
     /** R5.3 事件驱动为主后，轮询兜底周期（仅连接健康与补偿；原 2s/3s 全部退役）。 */
     const val FALLBACK_POLL_MS = 120_000L
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    /**
+     * P0 热修（2026-09-13 用户真机「连接失败即闪退」）：SupervisorJob 只隔离**取消**
+     * 传播，不拦异常——子协程未捕获 Throwable 会直达进程默认处理器=进程闪退。
+     * 连接作用域统一挂 [scopeGuard] 兜底：任何未捕获异常（Keystore 供应商缺口 /
+     * 非契约响应解析 / ROM 缺口等）降级为结构化 [_lastWsError]（+scrub 后日志），
+     * **永不闪退**；失败协程（如 loopJob）自然终止，用户经「立即重试」（reconnectNow）
+     * 可恢复——诚实且可恢复，绝不伪报连接正常。
+     */
+    private val scopeGuard = CoroutineExceptionHandler { _, err ->
+        Log.e(TAG, "connection scope uncaught: ${LogRedactor.scrub(err.message ?: err.javaClass.simpleName)}")
+        _lastWsError.value = "连接内部错误（${err.javaClass.simpleName}）：请稍后重试"
+    }
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + scopeGuard)
     private var loopJob: Job? = null
     private var appContext: Context? = null
 
@@ -333,14 +347,17 @@ object ConnectionManager {
             val c = runCatching { db?.gatewayConfigDao()?.get() }.getOrNull()
             if (c != null) {
                 cachedBase = c.host to c.port
-                cachedConfig = ConnConfig(
+                // P0 热修：局部 val 传递（原 cachedConfig!! 断言族退役）——同值语义，
+                // 断言面清零。
+                val cfg = ConnConfig(
                     mode = c.mode,
                     host = c.host,
                     port = c.port,
                     relayUrl = c.relayUrl?.trim()?.takeIf { it.isNotEmpty() },
                     pinFingerprints = c.pinFingerprints?.trim()?.takeIf { it.isNotEmpty() },
                 )
-                rebuildRelayClients(cachedConfig!!)
+                cachedConfig = cfg
+                rebuildRelayClients(cfg)
             }
         }
     }
@@ -472,7 +489,9 @@ object ConnectionManager {
                 delay(200)
                 continue
             }
-            val cfg = cachedConfig!!
+            // P0 热修：null 安全读取（此处 cachedConfig 理论非空；断言面清零，竞态下
+            // 也绝不 KNPE 闪退——下轮循环 refreshCachedConfig 重试）。
+            val cfg = cachedConfig ?: continue
             val token = appContext?.let { SecureStore.loadToken(it) }
             if (token == null) {
                 _activeMode.value = null
@@ -487,7 +506,6 @@ object ConnectionManager {
                 connectRelay(token, opened, closed)
             } else {
                 openLocalWebSocket(token, opened, closed)
-                true
             }
             if (launched && opened.await()) {
                 attempt = 0
@@ -514,13 +532,21 @@ object ConnectionManager {
     /**
      * local 模式 WS（docs/14 §B.2：升级鉴权 = Authorization Bearer 头）。
      * onOpen → opened；onFailure/onClosed → closed（含 401 升级拒绝 → onAuthFatal）。
+     * P0 热修：契约对齐 connectRelay（Boolean）——wsClient 未就绪（init 未完成竞态）
+     * 时诚实 fail-close（opened=false + closed），绝不 `!!` KNPE 闪退。
      */
-    private fun openLocalWebSocket(token: String, opened: CompletableDeferred<Boolean>, closed: CompletableDeferred<Unit>): WebSocket {
+    private fun openLocalWebSocket(token: String, opened: CompletableDeferred<Boolean>, closed: CompletableDeferred<Unit>): Boolean {
+        val client = wsClient ?: run {
+            _lastWsError.value = "本地 WS 客户端未初始化（连接依赖未就绪）"
+            opened.complete(false)
+            closed.complete(Unit)
+            return false
+        }
         val request: Request = Request.Builder()
             .url("ws://${baseUrl()}/v1/events")
             .header("Authorization", "Bearer $token")
             .build()
-        return wsClient!!.newWebSocket(
+        client.newWebSocket(
             request,
             object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
@@ -546,6 +572,7 @@ object ConnectionManager {
                 }
             },
         )
+        return true
     }
 
     /**
@@ -972,8 +999,10 @@ object ConnectionManager {
             ackBuffer.addLast(seq)
             if (ackBuffer.size >= ACK_BATCH_MAX) overflow = drainAckLocked()
         }
-        if (overflow != null) {
-            sendAck(overflow!!)
+        // P0 热修：局部快照判空（原 overflow!! 断言退役）——语义等价（overflow 非空 ⇔ 已满排空）。
+        val flushed = overflow
+        if (flushed != null) {
+            sendAck(flushed)
         } else {
             scheduleAckFlush()
         }
@@ -1047,11 +1076,16 @@ object ConnectionManager {
                 "$kind 仅 Relay 命令面可用（docs/18 §5.1）；当前为本地模式",
             )
         }
+        // P0 热修：api 未就绪（init 未完成竞态）→ 结构化拒绝（诚实），绝不 `!!` KNPE 闪退。
+        val api = this.api ?: return SubmitResult.Rejected(
+            "GATEWAY_NOT_READY",
+            "本地通道未就绪：连接初始化未完成，请稍后重试",
+        )
         try {
             val accept = when (kind) {
-                QueueReplayPlanner.KIND_REPLY -> api!!.reply(sessionId, text ?: "", idempotencyKey)
-                QueueReplayPlanner.KIND_PAUSE -> api!!.action(sessionId, "pause", idempotencyKey)
-                QueueReplayPlanner.KIND_RESUME -> api!!.action(sessionId, "resume", idempotencyKey)
+                QueueReplayPlanner.KIND_REPLY -> api.reply(sessionId, text ?: "", idempotencyKey)
+                QueueReplayPlanner.KIND_PAUSE -> api.action(sessionId, "pause", idempotencyKey)
+                QueueReplayPlanner.KIND_RESUME -> api.action(sessionId, "resume", idempotencyKey)
                 else -> return SubmitResult.Rejected("BAD_PAYLOAD", "unknown kind $kind")
             }
             return SubmitResult.Accepted(accept.commandId)
@@ -1372,9 +1406,13 @@ object ConnectionManager {
     }
 
     private suspend fun flushPendingCommandsLocal() {
+        // P0 热修：依赖未就绪（init 未完成/进程冷启动竞态）→ 诚实跳过本轮（下轮连接
+        // 建立后重试），绝不 `!!` KNPE 闪退。（路径零 android.util.Log：单元测试可直锁。）
+        val db = this.db ?: return
+        val api = this.api ?: return
         while (true) {
             val batch = QueueReplayPlanner.nextBatch(
-                db!!.pendingCommandDao().listPending().map { cmd ->
+                db.pendingCommandDao().listPending().map { cmd ->
                     QueuedCommand(
                         id = cmd.id,
                         kind = cmd.kind,
@@ -1386,15 +1424,15 @@ object ConnectionManager {
             )
             if (batch.isEmpty()) return
             for (queued in batch) {
-                val row = db!!.pendingCommandDao().listPending().firstOrNull { it.id == queued.id } ?: continue
+                val row = db.pendingCommandDao().listPending().firstOrNull { it.id == queued.id } ?: continue
                 val httpCode: Int? = try {
                     when (queued.kind) {
-                        QueueReplayPlanner.KIND_REPLY -> api!!.reply(queued.sessionId, row.text ?: "", queued.idempotencyKey)
-                        QueueReplayPlanner.KIND_PAUSE -> api!!.action(queued.sessionId, "pause", queued.idempotencyKey)
-                        QueueReplayPlanner.KIND_RESUME -> api!!.action(queued.sessionId, "resume", queued.idempotencyKey)
+                        QueueReplayPlanner.KIND_REPLY -> api.reply(queued.sessionId, row.text ?: "", queued.idempotencyKey)
+                        QueueReplayPlanner.KIND_PAUSE -> api.action(queued.sessionId, "pause", queued.idempotencyKey)
+                        QueueReplayPlanner.KIND_RESUME -> api.action(queued.sessionId, "resume", queued.idempotencyKey)
                         QueueReplayPlanner.KIND_APPROVE, QueueReplayPlanner.KIND_INTERRUPT -> {
                             // local REST 无 approve/interrupt（docs/18 §5.1）：结构化落败，绝不伪装 202
-                            db!!.pendingCommandDao().update(
+                            db.pendingCommandDao().update(
                                 row.copy(status = "failed", lastError = "COMMAND_NOT_EXECUTABLE (local face)"),
                             )
                             continue
@@ -1403,7 +1441,7 @@ object ConnectionManager {
                         QueueReplayPlanner.KIND_SPAWN_SESSION, QueueReplayPlanner.KIND_REVOKE_DEVICE, QueueReplayPlanner.KIND_WORKSPACE_LINK -> {
                             // M3-E1/S 批：三值仅 relay 命令面存在（docs/18 §5.3/§7.2）；
                             // relay 源队列行漏入 local 面（模式切换残留）→ 结构化落败，绝不伪装
-                            db!!.pendingCommandDao().update(
+                            db.pendingCommandDao().update(
                                 row.copy(status = "failed", lastError = "COMMAND_NOT_EXECUTABLE (local face)"),
                             )
                             continue
@@ -1418,9 +1456,9 @@ object ConnectionManager {
                     null
                 }
                 when (QueueReplayPlanner.classify(httpCode)) {
-                    ReplayVerdict.SENT -> db!!.pendingCommandDao().delete(queued.id)
+                    ReplayVerdict.SENT -> db.pendingCommandDao().delete(queued.id)
 
-                    ReplayVerdict.DROP_FAILED -> db!!.pendingCommandDao().update(
+                    ReplayVerdict.DROP_FAILED -> db.pendingCommandDao().update(
                         row.copy(status = "failed", lastError = "HTTP $httpCode"),
                     )
 
@@ -1448,9 +1486,11 @@ object ConnectionManager {
             return
         }
         val ws = webSocket ?: return
+        // P0 热修：依赖未就绪 → 诚实跳过本轮，绝不 `!!` KNPE 闪退（同 local 面）。
+        val db = this.db ?: return
         while (true) {
             val batch = QueueReplayPlanner.nextBatch(
-                db!!.pendingCommandDao().listPending().map { cmd ->
+                db.pendingCommandDao().listPending().map { cmd ->
                     QueuedCommand(
                         id = cmd.id,
                         kind = cmd.kind,
@@ -1462,7 +1502,7 @@ object ConnectionManager {
             )
             if (batch.isEmpty()) return
             for (queued in batch) {
-                val row = db!!.pendingCommandDao().listPending().firstOrNull { it.id == queued.id } ?: continue
+                val row = db.pendingCommandDao().listPending().firstOrNull { it.id == queued.id } ?: continue
                 // M3-E1（docs/18 §5.3）：spawn_session/revoke_device 的 sessionId 缺省合法 → 帧面不带；
                 // S 批 workspace_link 查询同样无会话语义 → 帧面不带；
                 // spawn 补发的 providerId 从队列行 providerId 列还原（Room v4）
@@ -1471,14 +1511,14 @@ object ConnectionManager {
                     is CommandSendOutcome.Ack -> when (
                         RelayCommandClassifier.classifyAck(outcome.ack.status, outcome.ack.queued)
                     ) {
-                        RelayAckVerdict.ACCEPTED -> db!!.pendingCommandDao().delete(queued.id)
+                        RelayAckVerdict.ACCEPTED -> db.pendingCommandDao().delete(queued.id)
 
                         RelayAckVerdict.QUEUED_HOLD -> {
                             Log.i(TAG, "relay queued ack → hold row ${queued.id}, suspend retry until upstream recovers")
                             return // 偏离⑤：挂起重试（保留队列行）
                         }
 
-                        RelayAckVerdict.REJECTED_DROP -> db!!.pendingCommandDao().update(
+                        RelayAckVerdict.REJECTED_DROP -> db.pendingCommandDao().update(
                             row.copy(status = "failed", lastError = outcome.ack.errorCode ?: "COMMAND_REJECTED"),
                         )
 
@@ -1492,7 +1532,7 @@ object ConnectionManager {
 
                     is CommandSendOutcome.UnknownKind -> {
                         // action 五值之外的 kind（不该发生）：落败标记
-                        db!!.pendingCommandDao().update(row.copy(status = "failed", lastError = "BAD_KIND ${queued.kind}"))
+                        db.pendingCommandDao().update(row.copy(status = "failed", lastError = "BAD_KIND ${queued.kind}"))
                         continue
                     }
                 }
@@ -1523,7 +1563,9 @@ object ConnectionManager {
         val context = appContext
         if (context != null) {
             SecureStore.clear(context)
-            db!!.deviceDao().clear()
+            // P0 热修：db 未就绪（init 未完成竞态）→ 跳过设备行清理（Keystore 凭据已清，
+            // 主目标达成），绝不 `!!` KNPE 闪退。
+            db?.deviceDao()?.clear()
             GatewayConnectionService.stop(context)
         }
         _state.value = ConnState.Unpaired(code, message)

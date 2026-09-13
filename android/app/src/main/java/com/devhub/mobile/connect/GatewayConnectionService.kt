@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.IBinder
 import androidx.core.app.ServiceCompat
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -17,7 +18,15 @@ import kotlinx.coroutines.launch
  */
 class GatewayConnectionService : Service() {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    /**
+     * P0 热修（2026-09-13）：通知刷新循环异常兜底——collect/notify 链的未捕获异常绝不
+     * 崩进程（前台服务崩溃对用户表现即「闪退」）。降级为日志（通知面保持上一帧文本）。
+     */
+    private val scopeGuard = CoroutineExceptionHandler { _, err ->
+        android.util.Log.w("GatewayConnSvc", "notification collect uncaught: ${err.message ?: err.javaClass.simpleName}")
+    }
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + scopeGuard)
 
     override fun onCreate() {
         super.onCreate()

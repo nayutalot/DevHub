@@ -7,6 +7,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import org.json.JSONException
 import org.json.JSONObject
 import java.io.IOException
 import java.util.UUID
@@ -148,7 +149,21 @@ class GatewayApi(
         response.use { resp ->
             val body = resp.body?.string() ?: ""
             if (resp.isSuccessful) {
-                return if (body.isEmpty()) JSONObject() else JSONObject(body)
+                if (body.isEmpty()) return JSONObject()
+                // P0 热修（2026-09-13 用户真机「连接失败闪退」）：非 JSON 成功响应体
+                //（网关被中间盒/ captive portal 劫持回 HTML、坏代理注入等——「连不上」
+                // 面的真实形态之一）绝不抛 JSONException：RuntimeException 不在调用方
+                // catch（ApiError/IOException）面内，会穿透 UI/连接协程致进程闪退。
+                // 结构化 ApiError（BAD_PAYLOAD）如实上屏（ErrorPresent 已有人话映射）。
+                return try {
+                    JSONObject(body)
+                } catch (err: JSONException) {
+                    throw ApiError(
+                        code = "BAD_PAYLOAD",
+                        message = "gateway: response body is not valid JSON (http ${resp.code})",
+                        httpCode = resp.code,
+                    )
+                }
             }
             val (code, message) = Dtos.parseError(body) ?: ("INTERNAL" to "gateway: unexpected error body")
             val retryAfter = resp.header("Retry-After")?.toIntOrNull()

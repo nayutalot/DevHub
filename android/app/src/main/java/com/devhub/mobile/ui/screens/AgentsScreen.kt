@@ -103,6 +103,9 @@ fun AgentsScreen(
                 error = "[${err.code}] ${err.message}"
             } catch (err: IOException) {
                 error = "网络不可达"
+            } catch (err: Exception) {
+                // P0 热修：未预期异常绝不容 UI 协程崩进程（诚实人话，不直出栈）
+                error = "发生未知错误：请重试（${err.javaClass.simpleName}）"
             }
             delay(ConnectionManager.FALLBACK_POLL_MS)
         }
