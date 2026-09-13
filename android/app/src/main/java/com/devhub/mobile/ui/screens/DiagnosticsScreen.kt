@@ -62,6 +62,9 @@ fun DiagnosticsScreen() {
                 error = com.devhub.mobile.core.ErrorPresent.api(err.code, err.message)
             } catch (err: IOException) {
                 error = com.devhub.mobile.core.ErrorPresent.io(err)
+            } catch (err: Exception) {
+                // P0 热修：未预期异常绝不容 UI 协程崩进程（通用人话+technical 保留）
+                error = com.devhub.mobile.core.ErrorPresent.io(err)
             }
             runCatching { withContext(Dispatchers.IO) { ApiProvider.projection(context).agents() } }
                 .onSuccess { list -> agentsById = list.associateBy { it.id } }

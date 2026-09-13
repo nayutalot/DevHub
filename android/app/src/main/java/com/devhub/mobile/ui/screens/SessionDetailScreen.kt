@@ -192,6 +192,9 @@ fun SessionDetailScreen(
                 )
             } catch (err: IOException) {
                 detailError = com.devhub.mobile.core.ErrorPresent.io(err)
+            } catch (err: Exception) {
+                // P0 热修：未预期异常绝不容 UI 协程崩进程（通用人话+technical 保留）
+                detailError = com.devhub.mobile.core.ErrorPresent.io(err)
             }
             // 新消息增量回流（after 正向游标；消息指纹去重语义在服务端，Room upsert 幂等）。
             // 批次 C 缺陷修复：新启动的托管会话首屏常为空（消息在 spawn 后才产生），

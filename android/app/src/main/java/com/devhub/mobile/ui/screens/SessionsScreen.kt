@@ -156,6 +156,10 @@ fun SessionsScreen(
                     // 离线时列表仍显示 Room 缓存（既有语义），人话点明
                     it.copy(headline = "网络不可达（离线显示缓存）")
                 }
+            } catch (err: Exception) {
+                // P0 热修：非 IO/非 ApiError 的未预期异常（坏响应解析等）绝不崩 UI 协程
+                //（进程闪退）——ErrorPresent.io else 分支=通用人话+原异常收进 technical。
+                error = com.devhub.mobile.core.ErrorPresent.io(err)
             }
             loading = false
             delay(ConnectionManager.FALLBACK_POLL_MS)

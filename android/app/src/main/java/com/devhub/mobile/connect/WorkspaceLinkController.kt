@@ -5,6 +5,7 @@ import com.devhub.mobile.core.LogRedactor
 import com.devhub.mobile.data.RemoteWorkspaceUrl
 import com.devhub.mobile.data.db.DevHubDb
 import com.devhub.mobile.data.db.RemoteWorkspaceEntryEntity
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -103,7 +104,21 @@ object WorkspaceLinkCard {
  */
 object WorkspaceLinkController {
     private const val TAG = "WsLinkCtl"
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * P0 热修（2026-09-13）：作用域异常兜底——SupervisorJob 不拦异常，未捕获 Throwable
+     * 会直达进程默认处理器=闪退。取链失败面（连接未就绪/解析异常等）降级为结构化
+     * Unavailable（code=INTERNAL_ERROR，scrub 后 message）如实落卡，**永不闪退**。
+     */
+    private val scopeGuard = CoroutineExceptionHandler { _, err ->
+        android.util.Log.w(TAG, "workspace link scope uncaught: ${LogRedactor.scrub(err.message ?: err.javaClass.simpleName)}")
+        _state.value = WorkspaceLinkCard.State.Unavailable(
+            "INTERNAL_ERROR",
+            "取链请求内部错误（${err.javaClass.simpleName}）",
+        )
+    }
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + scopeGuard)
     private var appContext: Context? = null
     private var db: DevHubDb? = null
 
