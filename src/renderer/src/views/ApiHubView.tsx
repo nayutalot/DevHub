@@ -129,12 +129,12 @@ export function ApiHubView() {
         <span className="view-sub">API 档案管理与一键切换（key 全程脱敏，仅展示尾 4 位）</span>
         <div className="view-actions">
           <button type="button" className="btn" onClick={data.refresh} disabled={data.loading}>
-            Refresh
+            刷新
           </button>
         </div>
       </div>
 
-      {data.loading && <Loading label="Loading adapters…" />}
+      {data.loading && <Loading label="正在加载适配器…" />}
       {data.error !== null && <ErrorState error={data.error} onRetry={data.refresh} />}
 
       {data.data !== null && providers.length === 0 && (
@@ -293,9 +293,9 @@ function AdapterCard({
                   </span>
                 </span>
                 <span className="agent-counts">
-                  {profiles.activeId === p.id && <Badge tone="ok">active</Badge>}
-                  {p.needsRekey && <Badge tone="err" title="密钥待重加密/重录，禁止切换">needs rekey</Badge>}
-                  {p.plainStore && <Badge tone="warn" title="密钥为明文降级形态（base64），建议重新保存以启用加密">plain</Badge>}
+                  {profiles.activeId === p.id && <Badge tone="ok">生效中</Badge>}
+                  {p.needsRekey && <Badge tone="err" title="密钥待重加密/重录，禁止切换">待重录密钥</Badge>}
+                  {p.plainStore && <Badge tone="warn" title="密钥为明文降级形态（base64），建议重新保存以启用加密">明文</Badge>}
                   <button
                     type="button"
                     className="btn btn-link"
@@ -303,7 +303,7 @@ function AdapterCard({
                     title={p.needsRekey ? 'needs_rekey 档案禁止切换，请编辑重新录入 key' : undefined}
                     onClick={() => onSwitch(p.id)}
                   >
-                    Switch
+                    切换
                   </button>
                   <button
                     type="button"

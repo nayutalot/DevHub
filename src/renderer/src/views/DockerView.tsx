@@ -26,6 +26,14 @@ import type {
 
 const LOG_TAIL_OPTIONS = [100, 200, 500] as const
 
+/** docker 动作名 → 用户面动词（契约值保留在 payload，仅展示层投影）。 */
+const ACTION_LABEL: Record<DockerActionName, string> = {
+  start: '启动',
+  stop: '停止',
+  restart: '重启',
+  remove: '删除',
+}
+
 function formatPorts(ports: ContainerPortMapping[]): string {
   return ports.map((p) => `${p.host}->${p.container}/${p.proto}`).join(', ')
 }
@@ -69,10 +77,10 @@ export function DockerView() {
         return
       }
       if (first.ok) {
-        show(`${first.name}: ${first.action} ok`)
+        show(`${first.name}：${ACTION_LABEL[first.action]}成功`)
         overview.refresh()
       } else {
-        show(`${first.name}: ${first.action} failed — ${first.error ?? 'unknown error'}`, 'err')
+        show(`${first.name}：${ACTION_LABEL[first.action]}失败 — ${first.error ?? '原因未知'}`, 'err')
       }
     } catch (err) {
       show(err instanceof Error ? err.message : String(err), 'err')
@@ -88,10 +96,10 @@ export function DockerView() {
       const done = await call('docker:action', { name, action, confirmed: true })
       if (done.confirmRequired === true) return
       if (done.ok) {
-        show(`${done.name}: ${done.action === 'remove' ? 'removed' : `${done.action}ed`}${done.detail !== undefined ? ` — ${done.detail}` : ''}`)
+        show(`${done.name}：${done.action === 'remove' ? '已删除' : `${ACTION_LABEL[done.action]}成功`}${done.detail !== undefined ? ` — ${done.detail}` : ''}`)
         overview.refresh()
       } else {
-        show(`${done.name}: ${done.action} failed — ${done.error ?? 'unknown error'}`, 'err')
+        show(`${done.name}：${ACTION_LABEL[done.action]}失败 — ${done.error ?? '原因未知'}`, 'err')
       }
     } catch (err) {
       show(err instanceof Error ? err.message : String(err), 'err')
@@ -104,7 +112,7 @@ export function DockerView() {
   async function confirmRemove(): Promise<void> {
     if (removeConfirm === null) return
     if (removeInput.trim() !== removeConfirm.name) {
-      show('remove cancelled — name did not match', 'err')
+      show('已取消删除 — 名称不匹配', 'err')
       return
     }
     const name = removeConfirm.name
@@ -120,17 +128,17 @@ export function DockerView() {
       <header className="view-header">
         <div>
           <h2 className="view-title">Docker</h2>
-          <p className="view-sub">Containers, images and engine status — daemon unreachable is a normal state</p>
+          <p className="view-sub">容器、镜像与引擎状态 — daemon 不可达属正常态</p>
         </div>
         <div className="view-actions">
           <button type="button" className="btn" disabled={overview.loading} onClick={overview.refresh}>
-            {overview.loading && <Spinner />} Refresh
+            {overview.loading && <Spinner />} 刷新
           </button>
         </div>
       </header>
 
       {overview.loading ? (
-        <Loading label="Probing Docker CLI and daemon…" />
+        <Loading label="正在探测 Docker CLI 与 daemon…" />
       ) : overview.error !== null ? (
         <ErrorState error={overview.error} onRetry={overview.refresh} />
       ) : data === null ? null : (
@@ -139,22 +147,22 @@ export function DockerView() {
 
           {daemonUp ? (
             <>
-              <h3 className="panel-title">Containers</h3>
+              <h3 className="panel-title">容器</h3>
               {data.containers.length === 0 ? (
                 <div className="panel">
-                  <EmptyState title="No containers" hint="docker ps -a returned no rows." />
+                  <EmptyState title="没有容器" hint="docker ps -a 未返回任何行。" />
                 </div>
               ) : (
                 <div className="table-wrap">
                   <table className="table">
                     <thead>
                       <tr>
-                        <th>Name</th>
-                        <th>Image</th>
-                        <th>State</th>
-                        <th>Ports</th>
-                        <th>Project</th>
-                        <th>Actions</th>
+                        <th>名称</th>
+                        <th>镜像</th>
+                        <th>状态</th>
+                        <th>端口</th>
+                        <th>项目</th>
+                        <th>操作</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -167,11 +175,11 @@ export function DockerView() {
                             {c.image ?? '—'}
                           </td>
                           <td>
-                            <Badge tone={stateTone(c.state)}>{c.state ?? 'unknown'}</Badge>
+                            <Badge tone={stateTone(c.state)}>{c.state ?? '未知'}</Badge>
                           </td>
                           <td className="td-mono td-dim">{c.ports.length > 0 ? formatPorts(c.ports) : '—'}</td>
                           <td>
-                            {c.project === 'unknown' ? <span className="td-dim">unknown</span> : <span className="mono">{c.project}</span>}
+                            {c.project === 'unknown' ? <span className="td-dim">未知</span> : <span className="mono">{c.project}</span>}
                           </td>
                           <td>
                             <div className="action-cell">
@@ -181,35 +189,35 @@ export function DockerView() {
                                   type="button"
                                   className={`btn btn-small${action === 'stop' ? ' btn-danger' : ''}`}
                                   disabled={busy !== null}
-                                  title={`${action} ${c.name} (asks for confirmation)`}
+                                  title={`${ACTION_LABEL[action]} ${c.name}（需确认）`}
                                   onClick={() => {
                                     void runAction(c.name, action)
                                   }}
                                 >
                                   {busy === `${c.name}:${action}` ? <Spinner /> : null}
-                                  {action}
+                                  {ACTION_LABEL[action]}
                                 </button>
                               ))}
                               <button
                                 type="button"
                                 className="btn btn-small btn-danger"
                                 disabled={busy !== null}
-                                title={`remove ${c.name} (double confirm: type the container name)`}
+                                title={`删除 ${c.name}（双重确认：输入容器名）`}
                                 onClick={() => {
                                   void runAction(c.name, 'remove')
                                 }}
                               >
                                 {busy === `${c.name}:remove` ? <Spinner /> : null}
-                                remove
+                                删除
                               </button>
                               <button
                                 type="button"
                                 className="btn btn-small"
                                 disabled={busy !== null}
-                                title={`logs of ${c.name}`}
+                                title={`${c.name} 的日志`}
                                 onClick={() => setLogsName((cur) => (cur === c.name ? null : c.name))}
                               >
-                                logs
+                                日志
                               </button>
                             </div>
                           </td>
@@ -231,24 +239,24 @@ export function DockerView() {
               )}
 
               <h3 className="panel-title">
-                Images{data.images.available ? ` — ${data.images.count} (dangling ${data.images.danglingCount})` : ''}
+                镜像{data.images.available ? ` — 共 ${data.images.count}（悬空 ${data.images.danglingCount}）` : ''}
               </h3>
               {!data.images.available ? (
-                <div className="degraded-banner">DEGRADED: image list unavailable — {data.images.reason ?? 'unknown reason'}</div>
+                <div className="degraded-banner">降级：镜像列表不可用 — {data.images.reason ?? '原因未知'}</div>
               ) : data.images.images.length === 0 ? (
                 <div className="panel">
-                  <EmptyState title="No images" hint="docker images returned no rows." />
+                  <EmptyState title="没有镜像" hint="docker images 未返回任何行。" />
                 </div>
               ) : (
                 <div className="table-wrap">
                   <table className="table">
                     <thead>
                       <tr>
-                        <th>Repository</th>
-                        <th>Tag</th>
+                        <th>仓库</th>
+                        <th>标签</th>
                         <th>ID</th>
-                        <th>Size</th>
-                        <th>Created</th>
+                        <th>大小</th>
+                        <th>创建时间</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -271,9 +279,9 @@ export function DockerView() {
           ) : (
             <div className="panel">
               <EmptyState
-                title="Docker daemon unreachable"
-                hint="Containers and images stay unavailable until the engine runs. The structured reason is in the banner above; start Docker Desktop, then hit Refresh."
-                action={{ label: 'Refresh', onClick: overview.refresh }}
+                title="Docker daemon 不可达"
+                hint="引擎未运行期间容器与镜像不可用。结构化原因见上方横幅；启动 Docker Desktop 后点击「刷新」。"
+                action={{ label: '刷新', onClick: overview.refresh }}
               />
             </div>
           )}
@@ -283,10 +291,10 @@ export function DockerView() {
       {removeConfirm !== null && (
         <div className="cp-modal-overlay" role="dialog" aria-modal="true">
           <div className="cp-modal">
-            <h3 className="section-title">Confirm REMOVE of container &quot;{removeConfirm.name}&quot;?</h3>
+            <h3 className="section-title">确认删除容器「{removeConfirm.name}」？</h3>
             <pre className="mono docker-confirm-impacts">{buildConfirmText('remove', removeConfirm)}</pre>
             <label className="docker-confirm-input-label">
-              Type the container name to confirm removal (mismatch or empty = no removal):
+              输入容器名以确认删除（不匹配或留空 = 不删除）：
               <input
                 type="text"
                 className="input mono"
@@ -301,19 +309,19 @@ export function DockerView() {
                 type="button"
                 className="btn btn-danger"
                 disabled={removeInput.trim() !== removeConfirm.name}
-                title="Remove container (enabled only when the typed name matches exactly)"
+                title="删除容器（输入名称精确匹配后才可点）"
                 onClick={() => {
                   void confirmRemove()
                 }}
               >
-                Remove
+                删除
               </button>
               <button
                 type="button"
                 className="btn"
                 onClick={() => setRemoveConfirm(null)}
               >
-                Cancel
+                取消
               </button>
             </div>
           </div>
@@ -330,17 +338,17 @@ function DaemonBanner({ status }: { status: { available: boolean; clientVersion?
   if (status.available) {
     return (
       <div className="inline-note docker-online">
-        daemon online · client {status.clientVersion ?? '?'} · server {status.serverVersion ?? '?'}
+        daemon 在线 · client {status.clientVersion ?? '?'} · server {status.serverVersion ?? '?'}
       </div>
     )
   }
   return (
     <div className="degraded-banner">
-      Docker: daemon unreachable (engine-down){' — '}
+      Docker：daemon 不可达（引擎未运行）{' — '}
       {status.reason !== undefined && status.reason.length > 0 ? (
         <ExpandableText text={status.reason} className="repo-meta" collapsedLines={1} />
       ) : (
-        'unknown reason'
+        '原因未知'
       )}
     </div>
   )
@@ -351,13 +359,13 @@ function buildConfirmText(action: DockerActionName, impacts: DockerActionImpacts
   const lines =
     action === 'remove'
       ? [
-          `Confirm REMOVE of container "${impacts.name}"?`,
-          `image: ${impacts.image ?? '—'} · state: ${impacts.state ?? '?'} · project: ${impacts.project ?? 'unknown'}`,
+          `确认删除容器「${impacts.name}」？`,
+          `镜像：${impacts.image ?? '—'} · 状态：${impacts.state ?? '?'} · 项目：${impacts.project ?? '未知'}`,
         ]
       : [
-          `Confirm "${action}" on container "${impacts.name}"?`,
-          `image: ${impacts.image ?? '—'} · state: ${impacts.state ?? '?'} · project: ${impacts.project ?? 'unknown'}`,
-          `published ports: ${ports}`,
+          `确认对容器「${impacts.name}」执行「${ACTION_LABEL[action]}」？`,
+          `镜像：${impacts.image ?? '—'} · 状态：${impacts.state ?? '?'} · 项目：${impacts.project ?? '未知'}`,
+          `发布端口：${ports}`,
         ]
   if (impacts.note !== undefined) lines.push(impacts.note)
   return lines.join('\n')
@@ -389,7 +397,7 @@ function LogsPanel({
   return (
     <div className="panel logs-panel">
       <div className="repo-line">
-        <span className="mono">logs · {name}</span>
+        <span className="mono">日志 · {name}</span>
         <label className="logs-tail-label">
           tail{' '}
           <select value={tail} onChange={(e) => onTail(Number(e.target.value))}>
@@ -401,24 +409,24 @@ function LogsPanel({
           </select>
         </label>
         <button type="button" className="btn btn-small" disabled={logs.loading} onClick={logs.refresh}>
-          {logs.loading && <Spinner />} Reload
+          {logs.loading && <Spinner />} 重新加载
         </button>
         <button type="button" className="btn btn-small" onClick={onClose}>
-          Close
+          关闭
         </button>
       </div>
       {logs.loading ? (
-        <Loading label={`Fetching logs (tail ${tail})…`} />
+        <Loading label={`正在拉取日志（tail ${tail}）…`} />
       ) : logs.error !== null ? (
         <ErrorState error={logs.error} onRetry={logs.refresh} />
       ) : logs.data === null ? null : logs.data.ok === false ? (
-        <div className="inline-note">logs unavailable — {logs.data.error ?? 'unknown error'}</div>
+        <div className="inline-note">日志不可用 — {logs.data.error ?? '原因未知'}</div>
       ) : (
         <>
           {logs.data.truncated === true && (
-            <div className="inline-note">output truncated to 64KB — lower the tail or use --since to see more</div>
+            <div className="inline-note">输出已截断至 64KB — 可调低 tail 或用 --since 查看更多</div>
           )}
-          <pre className="logs-text mono">{logs.data.text.length > 0 ? logs.data.text : '(no log output for this tail)'}</pre>
+          <pre className="logs-text mono">{logs.data.text.length > 0 ? logs.data.text : '（该 tail 范围内无日志输出）'}</pre>
         </>
       )}
     </div>
