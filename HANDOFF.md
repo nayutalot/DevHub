@@ -1,4 +1,7 @@
-# DevHub 会话交接文档（2026-09-13 21:5x——B1/B2 bug 扫查+X6 换装全收官：9 真 bug 修复，常驻 X6 版在役，APK 6fcd774f 待装）
+# DevHub 会话交接文档（2026-09-13 23:4x——桌面端优化线：D-Aud 审计收官（P0 零/P1×3/P2×13/P3×10）+D1 实现批执行中）
+
+> **✅ D-Aud 桌面端三向审计（09-13 深夜，「优化桌面端」令）**：美观/交互/性能三桶×四级，**P0 零/P1×3/P2×13/P3×10**（清单=acceptance/desktop-audit-20260913/AUDIT.md+15 截图）。P1：I1 Docker Remove 用 window.prompt（Electron 必抛）=删除功能整体失效/I2 「加载更多」实为重载第一页（useCursorStream loadMore=refresh 游标重置）/I3 hash 路由仅 2/11 视图且不回写。性能基线：启动 health200 中位 **1321ms**、内存 465→575MB、Agents 滚动 169fps、bundle 931KB 无代码分割。走查护栏实证：锁屏检测→CDP 零注入完成 11 视图+悬浮窗（未对锁屏注入）。
+> **D1 实现批执行中**（P1×3+快赢 A2/A3/A4；A1 文案语言统一涉全量 smoke 断言另批、性能 F1/F2/F3 留 D3）。
 
 > **✅ B1+B2 bug 扫查双批（09-13 深夜，「自主推进 bug 检查并修复」令）**：
 > 1. **B1 Android 崩溃面全量扫查已合 main**：必修 5（**GatewayApi parseContract=P0 非 JSON 修复的补集**：契约违约 2xx 体〔合法 JSON 错形状/缺字段/错型〕11 端点结构化 BAD_PAYLOAD；SessionDetail 五处交互提交裸协程 catch 兜底；Agents spawn/wake catch+busy 卡死面；Device 撤销 catch）；P2 注记全量上报（!!族多在 runCatching 内/require 族 fail-fast 有护栏/帧解析两腿有 try）；新增 7 单测 :app **134**/:core **301**；模拟器畸形 202 实测不闪退。
