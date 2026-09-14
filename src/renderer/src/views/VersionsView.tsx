@@ -10,7 +10,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Badge } from '../components/Badge.tsx'
 import type { BadgeTone } from '../components/Badge.tsx'
-import { ErrorState, Loading, Toast, useToast } from '../components/StateViews.tsx'
+import {ErrorState, Loading,} from '../components/StateViews.tsx'
+import { useToast } from '../components/ToastProvider.tsx'
 import { useApp } from '../lib/appContext.ts'
 import { relativeTime } from '../lib/format.ts'
 import { call, sleep } from '../lib/ipc.ts'
@@ -40,7 +41,7 @@ const STATE_LABEL: Record<VersionStatus['state'], string> = {
 
 export function VersionsView() {
   const { refreshKey } = useApp()
-  const { toast, show } = useToast()
+  const { show } = useToast()
   const data = useAsync<{ targets: VersionStatus[] }>(async () => call('versions:list', {}), [refreshKey])
 
   const [busy, setBusy] = useState<string | null>(null)
@@ -218,7 +219,6 @@ export function VersionsView() {
         </div>
       )}
 
-      <Toast toast={toast} />
     </div>
   )
 }

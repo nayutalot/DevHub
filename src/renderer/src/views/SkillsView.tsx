@@ -17,7 +17,8 @@ import type { FormEvent } from 'react'
 import { Badge } from '../components/Badge.tsx'
 import type { BadgeTone } from '../components/Badge.tsx'
 import { SkillMetaFlags, reviewStatusTone } from '../components/LlmReview.tsx'
-import { EmptyState, ErrorState, Loading, Spinner, Toast, useToast } from '../components/StateViews.tsx'
+import {EmptyState, ErrorState, Loading, Spinner,} from '../components/StateViews.tsx'
+import { useToast } from '../components/ToastProvider.tsx'
 import { useApp } from '../lib/appContext.ts'
 import { relativeTime } from '../lib/format.ts'
 import { call } from '../lib/ipc.ts'
@@ -68,7 +69,7 @@ interface LoadData {
 
 export function SkillsView() {
   const { refreshKey } = useApp()
-  const { toast, show } = useToast()
+  const { show } = useToast()
   const data = useAsync<LoadData>(async () => {
     const [agentsResult, listResult, vault, lastSync] = await Promise.all([
       call('skills:agents', {}),
@@ -531,7 +532,6 @@ export function SkillsView() {
         />
       )}
 
-      <Toast toast={toast} />
     </section>
   )
 }

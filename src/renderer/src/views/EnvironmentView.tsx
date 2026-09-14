@@ -15,7 +15,8 @@
 import { useState } from 'react'
 import { Badge, type BadgeTone, stateTone } from '../components/Badge.tsx'
 import { ExpandableText } from '../components/ExpandableText.tsx'
-import { EmptyState, ErrorState, Loading, Spinner, Toast, useToast } from '../components/StateViews.tsx'
+import {EmptyState, ErrorState, Loading, Spinner,} from '../components/StateViews.tsx'
+import { useToast } from '../components/ToastProvider.tsx'
 import { useApp } from '../lib/appContext.ts'
 import { normalizeSeverity, oneLine, severityClass, severityGlyph } from '../lib/format.ts'
 import { call } from '../lib/ipc.ts'
@@ -323,7 +324,7 @@ function formatMem(stats: WslDistroStats): string {
 function WslDistroCards() {
   const { refreshKey } = useApp()
   const stats = useAsync(() => call('wsl:distroStats', {}), [refreshKey])
-  const { toast, show } = useToast()
+  const { show } = useToast()
   const [busy, setBusy] = useState<string | null>(null)
 
   async function terminate(distro: string): Promise<void> {
@@ -506,7 +507,6 @@ function WslDistroCards() {
           })}
         </div>
       )}
-      <Toast toast={toast} />
     </div>
   )
 }

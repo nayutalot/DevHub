@@ -16,7 +16,8 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Badge } from './Badge.tsx'
-import { EmptyState, ErrorState, Loading, Spinner, Toast, useToast } from './StateViews.tsx'
+import {EmptyState, ErrorState, Loading, Spinner,} from './StateViews.tsx'
+import { useToast } from './ToastProvider.tsx'
 import { call } from '../lib/ipc.ts'
 import { useAsync } from '../lib/useAsync.ts'
 import type {
@@ -66,7 +67,7 @@ export function RecognitionSettingsPanel() {
 }
 
 function RecognitionSettingsPanelOpen({ onClose }: { onClose: () => void }) {
-  const { toast, show } = useToast()
+  const { show } = useToast()
   const list = useAsync(() => call('contestpin:configList', {}), [])
   const defaultMode = useAsync(() => call('settings:get', { key: 'contestpin_default_mode' }), [])
   const [formState, setFormState] = useState<{ open: boolean; config: RecognitionConfigView | null }>({ open: false, config: null })
@@ -91,7 +92,6 @@ function RecognitionSettingsPanelOpen({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="panel">
-      {toast !== null && <Toast toast={toast} />}
       <div className="recog-head">
         <h3 className="panel-title">识别设置</h3>
         <div className="recog-head-actions">

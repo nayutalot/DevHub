@@ -1036,12 +1036,22 @@ table.table {
 }
 
 /* ----------------------------------------------------------------- toast */
+/* D5-M3（AUDIT D-Aud I12）：App 级唯一队列承载——.toast 不再自带 fixed 定位
+   （旧同坐标覆盖根因），改由唯一 .toast-stack 容器统一 bottom-right 纵向堆叠 */
 
-.toast {
+.toast-stack {
   position: fixed;
   right: 18px;
   bottom: 18px;
   z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
   padding: 9px 16px;
   border-radius: 4px;
   border: 1px solid var(--border);

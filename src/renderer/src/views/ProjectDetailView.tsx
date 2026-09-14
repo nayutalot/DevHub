@@ -10,7 +10,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { Badge, originTone, stateTone } from '../components/Badge.tsx'
-import { ErrorState, Loading, Toast, useToast } from '../components/StateViews.tsx'
+import {ErrorState, Loading,} from '../components/StateViews.tsx'
+import { useToast } from '../components/ToastProvider.tsx'
 import { useApp } from '../lib/appContext.ts'
 import { formatCommandLine, relativeTime, truncate } from '../lib/format.ts'
 import { call, sleep } from '../lib/ipc.ts'
@@ -31,7 +32,7 @@ export function ProjectDetailView({
 }) {
   const { refreshKey } = useApp()
   const detail = useAsync(() => call('projects:get', { id }), [id, refreshKey])
-  const { toast, show } = useToast()
+  const { show } = useToast()
   const [busyAction, setBusyAction] = useState<string | null>(null)
   // D4-M4（AUDIT D-Aud I9）：rescanGit 轮询循环的卸载取消标志——组件卸载（切换
   // 选中项目 / 离开视图）后不再空转 sleep+scan:status（setup 内复位兼容 StrictMode）
@@ -253,7 +254,6 @@ export function ProjectDetailView({
         )}
       </div>
 
-      <Toast toast={toast} />
     </div>
   )
 }

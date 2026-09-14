@@ -18,7 +18,8 @@ import { useEffect, useState } from 'react'
 import { Badge, stateTone } from '../components/Badge.tsx'
 import { LlmReviewSettingsCard, ReviewAdvisoryBar, ReviewPostButton } from '../components/LlmReview.tsx'
 import { ZcodeManagedSettingsCard } from '../components/ZcodeManaged.tsx'
-import { EmptyState, ErrorState, Loading, Spinner, Toast, useToast } from '../components/StateViews.tsx'
+import {EmptyState, ErrorState, Loading, Spinner,} from '../components/StateViews.tsx'
+import { useToast } from '../components/ToastProvider.tsx'
 import { useApp } from '../lib/appContext.ts'
 import { call, sleep } from '../lib/ipc.ts'
 import { pickPath } from '../lib/pickPath.ts'
@@ -53,7 +54,7 @@ const PHASE_LABELS: Record<ArchivePhase, string> = {
 
 export function ArchiveView() {
   const { refreshKey, refreshAll } = useApp()
-  const { toast, show } = useToast()
+  const { show } = useToast()
 
   // --- 归档设置条：archive_dest_root（settings:get/set，003 种子键） ---
   const destSetting = useAsync(() => call('settings:get', { key: 'archive_dest_root' }), [refreshKey])
@@ -500,7 +501,6 @@ export function ArchiveView() {
         )}
       </div>
 
-      <Toast toast={toast} />
     </section>
   )
 }

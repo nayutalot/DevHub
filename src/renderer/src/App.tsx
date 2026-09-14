@@ -25,6 +25,7 @@
 import { Component, Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
 import type { ComponentType, ReactNode } from 'react'
 import { Sidebar } from './components/Sidebar.tsx'
+import { ToastHost, ToastProvider } from './components/ToastProvider.tsx'
 import { AppContext, type ViewTarget } from './lib/appContext.ts'
 import { call } from './lib/ipc.ts'
 import { useAsync } from './lib/useAsync.ts'
@@ -226,29 +227,34 @@ function MainApp() {
 
   return (
     <AppContext.Provider value={appState}>
-      <div className="app">
-        <Topbar view={target.view} />
-        <aside className="sidebar">
-          <Sidebar current={target.view} onNavigate={navigate} />
-        </aside>
-        <main className="content">
-          {target.view === 'dashboard' && <LazyView load={loadDashboard} label="仪表盘" render={(V) => <V />} />}
-          {target.view === 'projects' && (
-            <LazyView load={loadProjects} label="项目" render={(V) => <V initialProjectId={target.projectId} />} />
-          )}
-          {target.view === 'environment' && <LazyView load={loadEnvironment} label="环境" render={(V) => <V />} />}
-          {target.view === 'services' && <LazyView load={loadServices} label="服务" render={(V) => <V />} />}
-          {target.view === 'skills' && <LazyView load={loadSkills} label="技能" render={(V) => <V />} />}
-          {target.view === 'apihub' && <LazyView load={loadApiHub} label="ApiHub" render={(V) => <V />} />}
-          {target.view === 'versions' && <LazyView load={loadVersions} label="版本" render={(V) => <V />} />}
-          {target.view === 'docker' && <LazyView load={loadDocker} label="Docker" render={(V) => <V />} />}
-          {target.view === 'archive' && <LazyView load={loadArchive} label="归档" render={(V) => <V />} />}
-          {target.view === 'agents' && <LazyView load={loadAgents} label="Agents" render={(V) => <V />} />}
-          {target.view === 'contest' && (
-            <LazyView load={loadContest} label="比赛" render={(V) => <V initialContestId={target.contestId} />} />
-          )}
-        </main>
-      </div>
+      {/* App 级唯一 toast 队列（AUDIT D-Aud I12，D5-M3）：主窗口全部视图共享，
+          bottom-right 堆叠不再相互覆盖；OverlayApp 独立窗口不经此处（保持不动） */}
+      <ToastProvider>
+        <div className="app">
+          <Topbar view={target.view} />
+          <aside className="sidebar">
+            <Sidebar current={target.view} onNavigate={navigate} />
+          </aside>
+          <main className="content">
+            {target.view === 'dashboard' && <LazyView load={loadDashboard} label="仪表盘" render={(V) => <V />} />}
+            {target.view === 'projects' && (
+              <LazyView load={loadProjects} label="项目" render={(V) => <V initialProjectId={target.projectId} />} />
+            )}
+            {target.view === 'environment' && <LazyView load={loadEnvironment} label="环境" render={(V) => <V />} />}
+            {target.view === 'services' && <LazyView load={loadServices} label="服务" render={(V) => <V />} />}
+            {target.view === 'skills' && <LazyView load={loadSkills} label="技能" render={(V) => <V />} />}
+            {target.view === 'apihub' && <LazyView load={loadApiHub} label="ApiHub" render={(V) => <V />} />}
+            {target.view === 'versions' && <LazyView load={loadVersions} label="版本" render={(V) => <V />} />}
+            {target.view === 'docker' && <LazyView load={loadDocker} label="Docker" render={(V) => <V />} />}
+            {target.view === 'archive' && <LazyView load={loadArchive} label="归档" render={(V) => <V />} />}
+            {target.view === 'agents' && <LazyView load={loadAgents} label="Agents" render={(V) => <V />} />}
+            {target.view === 'contest' && (
+              <LazyView load={loadContest} label="比赛" render={(V) => <V initialContestId={target.contestId} />} />
+            )}
+          </main>
+          <ToastHost />
+        </div>
+      </ToastProvider>
     </AppContext.Provider>
   )
 }

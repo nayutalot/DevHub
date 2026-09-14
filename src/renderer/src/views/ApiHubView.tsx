@@ -15,7 +15,8 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Badge } from '../components/Badge.tsx'
 import type { BadgeTone } from '../components/Badge.tsx'
-import { EmptyState, ErrorState, Loading, Toast, useToast } from '../components/StateViews.tsx'
+import {EmptyState, ErrorState, Loading,} from '../components/StateViews.tsx'
+import { useToast } from '../components/ToastProvider.tsx'
 import { useApp } from '../lib/appContext.ts'
 import { call } from '../lib/ipc.ts'
 import { useAsync } from '../lib/useAsync.ts'
@@ -52,7 +53,7 @@ function availabilityTone(available: boolean): BadgeTone {
 
 export function ApiHubView() {
   const { refreshKey } = useApp()
-  const { toast, show } = useToast()
+  const { show } = useToast()
   const data = useAsync<LoadData>(async () => {
     const adaptersResult = await call('apihub:adapters', {})
     const providers = await Promise.all(
@@ -229,7 +230,6 @@ export function ApiHubView() {
         </div>
       )}
 
-      <Toast toast={toast} />
     </div>
   )
 }

@@ -13,7 +13,8 @@
 import { useState } from 'react'
 import { Badge, stateTone } from '../components/Badge.tsx'
 import { ExpandableText } from '../components/ExpandableText.tsx'
-import { EmptyState, ErrorState, Loading, Spinner, Toast, useToast } from '../components/StateViews.tsx'
+import {EmptyState, ErrorState, Loading, Spinner,} from '../components/StateViews.tsx'
+import { useToast } from '../components/ToastProvider.tsx'
 import { useApp } from '../lib/appContext.ts'
 import { call } from '../lib/ipc.ts'
 import { useAsync } from '../lib/useAsync.ts'
@@ -41,7 +42,7 @@ function formatPorts(ports: ContainerPortMapping[]): string {
 export function DockerView() {
   const { refreshKey } = useApp()
   const overview = useAsync(() => call('docker:overview', {}), [refreshKey])
-  const { toast, show } = useToast()
+  const { show } = useToast()
 
   /** 当前展开日志面板的容器名（null = 关闭）。 */
   const [logsName, setLogsName] = useState<string | null>(null)
@@ -328,7 +329,6 @@ export function DockerView() {
         </div>
       )}
 
-      <Toast toast={toast} />
     </section>
   )
 }

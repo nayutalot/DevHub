@@ -25,7 +25,8 @@
 import { useState } from 'react'
 import type { ChangeEvent, DragEvent } from 'react'
 import { Badge } from './Badge.tsx'
-import { EmptyState, ErrorState, Loading, Spinner, Toast, useToast } from './StateViews.tsx'
+import {EmptyState, ErrorState, Loading, Spinner,} from './StateViews.tsx'
+import { useToast } from './ToastProvider.tsx'
 import { call } from '../lib/ipc.ts'
 import { pickPath } from '../lib/pickPath.ts'
 import { useAsync } from '../lib/useAsync.ts'
@@ -96,7 +97,7 @@ export function MaterialImportPanel() {
 }
 
 function MaterialImportPanelOpen({ onClose }: { onClose: () => void }) {
-  const { toast, show } = useToast()
+  const { show } = useToast()
   const materials = useAsync(() => call('contestpin:materialsList', {}), [])
   const configs = useAsync(() => call('contestpin:configList', {}), [])
   const defaultMode = useAsync(() => call('settings:get', { key: 'contestpin_default_mode' }), [])
@@ -327,7 +328,6 @@ function MaterialImportPanelOpen({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="panel">
-      {toast !== null && <Toast toast={toast} />}
       <div className="recog-head">
         <h3 className="panel-title">材料导入与识别</h3>
         <div className="recog-head-actions">

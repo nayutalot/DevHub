@@ -16,7 +16,8 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Badge, stateTone } from '../components/Badge.tsx'
-import { ErrorState, Loading, Spinner, Toast, useToast } from '../components/StateViews.tsx'
+import {ErrorState, Loading, Spinner,} from '../components/StateViews.tsx'
+import { useToast } from '../components/ToastProvider.tsx'
 import { NodeReminders, ReminderLogPanel } from '../components/ReminderPanels.tsx'
 import { useApp } from '../lib/appContext.ts'
 import {
@@ -62,7 +63,7 @@ export function ContestDetailView({
 }) {
   const { refreshKey } = useApp()
   const detail = useAsync(() => call('contestpin:get', { id } as ContestGetPayload), [id, refreshKey])
-  const { toast, show } = useToast()
+  const { show } = useToast()
   const [editing, setEditing] = useState(false)
   const [nodeForm, setNodeForm] = useState<{ open: boolean; node: ContestNodeView | null }>({ open: false, node: null })
   const [deleteImpacts, setDeleteImpacts] = useState<{ nodes: number; materials: number; reminders: number } | null>(null)
@@ -332,7 +333,6 @@ export function ContestDetailView({
         </div>
       )}
 
-      <Toast toast={toast} />
     </div>
   )
 }
