@@ -2903,6 +2903,70 @@ export interface PickPathResult {
 export type PickPathApplier = (payload: PickPathPayload) => Promise<PickPathResult>
 
 // ---------------------------------------------------------------------------
+// 6c. App 自更新（X-U 批，docs/briefs/xu-updater.md：electron-updater 启用，
+// ECS generic feed `/updates/`。updates:status 为 READ_ONLY 轮询投影；check /
+// download / install 为动作通道（下载与安装的确认前置在 renderer UI），
+// main 侧控制器经 updateRegistry 单例注入，纯 Node/测试环境缺省 = NOT_AVAILABLE）
+// ---------------------------------------------------------------------------
+
+/** 更新状态机阶段（三态呈现的底层：检查中/最新/发现新版/下载中/就绪/失败）。 */
+export type UpdatePhase =
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'not-available'
+  | 'downloading'
+  | 'downloaded'
+  | 'installing'
+  | 'error'
+
+/** 下载进度投影（download-progress 事件原样裁剪，percent 0–100）。 */
+export interface UpdateDownloadProgress {
+  percent: number
+  transferredBytes: number
+  totalBytes: number
+}
+
+/** updates:status result：设置卡「检查更新」的状态快照（全字段可渲染，无抛异常面）。 */
+export interface UpdateStatusView {
+  /** false = 开发模式（app.isPackaged=false）全链禁用（设置卡显示禁用说明）。 */
+  supported: boolean
+  /** 当前运行版本（app.getVersion() 原样，如 0.1.0）。 */
+  currentVersion: string
+  phase: UpdatePhase
+  /** 发现的新版本号（无 = null）。 */
+  availableVersion: string | null
+  /** 人话更新说明位（releaseNotes 投影；无 = null）。 */
+  releaseNotes: string | null
+  /** 下载进度（仅 phase=downloading 有值）。 */
+  downloadProgress: UpdateDownloadProgress | null
+  /** 结构化失败（检查/下载；设置卡内联呈现绝不弹窗）。 */
+  error: { code: string; message: string } | null
+  /** 启动后延迟静默检查发现了新版（renderer 全局 toast 一次的依据）。 */
+  silentAnnounced: boolean
+  /** 最近一次检查完成时刻（unix 秒；从未检查 = null）。 */
+  lastCheckedAt: number | null
+}
+
+/** updates:status / updates:check / updates:download / updates:install 的 payload（全空对象）。 */
+export type UpdatesActionPayload = Record<string, never>
+
+/** updates:check result：受理即 started=true（进行中重复受理 = started=false）。 */
+export interface UpdatesCheckResult {
+  started: boolean
+}
+
+/** updates:download result：受理即 started=true（非 available 态结构化拒绝）。 */
+export interface UpdatesDownloadResult {
+  started: boolean
+}
+
+/** updates:install result：受理即 installing=true（非 downloaded 态结构化拒绝）。 */
+export interface UpdatesInstallResult {
+  installing: boolean
+}
+
+// ---------------------------------------------------------------------------
 // 7. Gateway request & channel contract table (constraint #17)
 // ---------------------------------------------------------------------------
 
@@ -3064,6 +3128,13 @@ export interface ChannelContract {
   'contestpin:backupImport': [ContestBackupImportPayload, ContestBackupImportResult]
   // --- dialog (D5 batch, docs/09 §9 注记 + AUDIT D-Aud I8：原生目录/文件选择器) ---
   'dialog:pickPath': [PickPathPayload, PickPathResult]
+  // --- updates (X-U batch, docs/briefs/xu-updater.md：App 自更新；status 为
+  //     READ_ONLY 轮询快照，check/download/install 为动作通道——下载与安装的
+  //     用户确认前置在 renderer UI，绝不自动下载绝不静默重启) ---
+  'updates:status': [UpdatesActionPayload, UpdateStatusView]
+  'updates:check': [UpdatesActionPayload, UpdatesCheckResult]
+  'updates:download': [UpdatesActionPayload, UpdatesDownloadResult]
+  'updates:install': [UpdatesActionPayload, UpdatesInstallResult]
 }
 
 /** Compile-time assertion that ChannelContract covers exactly the whitelist. */

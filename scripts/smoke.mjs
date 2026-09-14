@@ -146,8 +146,14 @@ if (isEntrypoint()) {
   // 更新）：dialog:pickPath 1 条并入，110 → 111（原生目录/文件选择器——electron
   // dialog.showOpenDialog 的结构化投影；electron 面经 HandlerDeps.pickPath 注入
   // （smoke 注 fake），取消/未选 = canceled:true + path:null）。
+  // X-U 批次 note（App 自更新，docs/briefs/xu-updater.md + docs/09 §9 注记授权的
+  // 同一模式就地更新）：updates 4 条并入，111 → 115（updates:status READ_ONLY
+  // 状态快照 / updates:check 手动检查受理 / updates:download 下载受理（用户确认
+  // 钮前置，绝不自动下载）/ updates:install 安装受理（确认弹窗前置 →
+  // quitAndInstall，绝不静默重启）；全部轮询模式无广播；控制器经 updateRegistry
+  // 单例注入，纯 Node 环境缺省 NOT_AVAILABLE）。
   // ------------------------------------------------------------------
-  registerCase('step1: channels whitelist has exactly 111 entries (D5 就地更新 110→111) and IPC_GATEWAY', async () => {
+  registerCase('step1: channels whitelist has exactly 115 entries (X-U 就地更新 111→115) and IPC_GATEWAY', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     assert.equal(channels.IPC_GATEWAY, 'devhub:invoke', 'gateway channel')
     const expected = [
@@ -280,10 +286,15 @@ if (isEntrypoint()) {
       'contestpin:backupImport',
       // D5 dialog group (docs/09 §9 注记 + AUDIT D-Aud I8：原生目录/文件选择器)
       'dialog:pickPath',
+      // X-U updates group (docs/briefs/xu-updater.md + docs/09 §9 注记：App 自更新)
+      'updates:status',
+      'updates:check',
+      'updates:download',
+      'updates:install',
     ]
-    assert.equal(channels.IPC_CHANNELS.length, 111, `expected 111 channels, got ${channels.IPC_CHANNELS.length}`)
-    assert.deepEqual([...channels.IPC_CHANNELS], expected, 'whitelist must match docs/04 + docs/09 §9 + docs/10 §11 + docs/14 §A.1 + docs/04 ContestPin 追加节 + docs/22 §4/§5/§6/§7/§8/§9 + docs/04 LR1 追加节 + docs/09 §9 D5 注记 exactly')
-    assert.equal(new Set(channels.IPC_CHANNELS).size, 111, 'no duplicate channels')
+    assert.equal(channels.IPC_CHANNELS.length, 115, `expected 115 channels, got ${channels.IPC_CHANNELS.length}`)
+    assert.deepEqual([...channels.IPC_CHANNELS], expected, 'whitelist must match docs/04 + docs/09 §9 + docs/10 §11 + docs/14 §A.1 + docs/04 ContestPin 追加节 + docs/22 §4/§5/§6/§7/§8/§9 + docs/04 LR1 追加节 + docs/09 §9 D5/X-U 注记 exactly')
+    assert.equal(new Set(channels.IPC_CHANNELS).size, 115, 'no duplicate channels')
   }, 'fast')
 
   // ------------------------------------------------------------------
@@ -1071,14 +1082,14 @@ if (isEntrypoint()) {
   // CHANNEL_NOT_ALLOWED（文档权威原则，约束 #6）。
   // ------------------------------------------------------------------
   registerCase(
-    'step6: handler registry keys equal the 111-channel whitelist (D5 就地更新 110→111); app:version returns injected value; unknown channel folds to CHANNEL_NOT_ALLOWED envelope',
+    'step6: handler registry keys equal the 115-channel whitelist (X-U 就地更新 111→115); app:version returns injected value; unknown channel folds to CHANNEL_NOT_ALLOWED envelope',
     async () => {
       const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
       const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
       const registry = handlers.createHandlerRegistry({ appVersion: '0.1.0-smoke' })
       const keys = Object.keys(registry).sort()
-      assert.equal(keys.length, 111, `registry must hold exactly 111 handlers, got ${keys.length}`)
+      assert.equal(keys.length, 115, `registry must hold exactly 115 handlers, got ${keys.length}`)
       assert.deepEqual(keys, [...channels.IPC_CHANNELS].sort(), 'registry keys must equal IPC_CHANNELS (no more, no less)')
 
       const version = await registry['app:version']({})
@@ -3577,12 +3588,12 @@ if (isEntrypoint()) {
   //  识别配置 4 条；CP3b 就地更新 88→97，CP4 就地更新 97→100；LR1 并入 main
   //  100→104，docs/04「LR1 追加」节 LLM 复核层 4 条）：
   //  registry 键集 = 白名单 = 契约覆盖
-  registerCase('s4-68: whitelist 45→50 (S5 就地更新为 55，AC2 就地更新 55→68，夜间#1 就地更新 68→70，CP1 就地更新 70→79，CP2 就地更新 79→84，CP3a 就地更新 84→88，CP3b 就地更新 88→97，CP4 就地更新 97→100，LR1 并入 main 100→104，CP5 就地更新 104→108，CP6 就地更新 108→110，D5 就地更新 110→111) — registry keys equal the whitelist and the compile-time contract assertion holds', async () => {
+  registerCase('s4-68: whitelist 45→50 (S5 就地更新为 55，AC2 就地更新 55→68，夜间#1 就地更新 68→70，CP1 就地更新 70→79，CP2 就地更新 79→84，CP3a 就地更新 84→88，CP3b 就地更新 88→97，CP4 就地更新 97→100，LR1 并入 main 100→104，CP5 就地更新 104→108，CP6 就地更新 108→110，D5 就地更新 110→111，X-U 就地更新 111→115) — registry keys equal the whitelist and the compile-time contract assertion holds', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
-    assert.equal(channels.IPC_CHANNELS.length, 111, 'whitelist extended 45 → 50 (S4), 50 → 55 (S5 archive), 55 → 68 (AC2 agents), 68 → 70 (夜间#1), 70 → 79 (CP1 contestpin 9 条), 79 → 84 (CP2 contestpin 悬浮窗 5 条), 84 → 88 (CP3a contestpin 识别配置 4 条), 88 → 97 (CP3b contestpin 材料导入/识别管线/核对界面 9 条), 97 → 100 (CP4 contestpin 提醒 3 条), 100 → 104 (LR1 LLM 复核层 4 条), 104 → 108 (CP5 contestpin Agent 模式 4 条), 108 → 110 (CP6 contestpin 备份恢复 2 条), 110 → 111 (D5 dialog:pickPath 1 条)')
-    assert.equal(new Set(channels.IPC_CHANNELS).size, 111, 'no duplicates after extension')
+    assert.equal(channels.IPC_CHANNELS.length, 115, 'whitelist extended 45 → 50 (S4), 50 → 55 (S5 archive), 55 → 68 (AC2 agents), 68 → 70 (夜间#1), 70 → 79 (CP1 contestpin 9 条), 79 → 84 (CP2 contestpin 悬浮窗 5 条), 84 → 88 (CP3a contestpin 识别配置 4 条), 88 → 97 (CP3b contestpin 材料导入/识别管线/核对界面 9 条), 97 → 100 (CP4 contestpin 提醒 3 条), 100 → 104 (LR1 LLM 复核层 4 条), 104 → 108 (CP5 contestpin Agent 模式 4 条), 108 → 110 (CP6 contestpin 备份恢复 2 条), 110 → 111 (D5 dialog:pickPath 1 条), 111 → 115 (X-U updates 4 条)')
+    assert.equal(new Set(channels.IPC_CHANNELS).size, 115, 'no duplicates after extension')
     // 编译期断言 AssertContractCoversWhitelist 的解析产物（ChannelContract 恰好覆盖白名单）
     assert.equal(handlers.contractCoversWhitelist, true, 'ChannelContract covers exactly the whitelist (compile-time, observed at runtime)')
 
@@ -4723,7 +4734,7 @@ if (isEntrypoint()) {
   }, 'fast')
 
   // 84. agents 13 条 channel：白名单尾部按 docs/14 §A.1 顺序逐字存在 + 注册表覆盖
-  registerCase('ac2-84: agents channels (14, 夜间#1 就地更新 13→14) — whitelist tail in docs/14 §A.1 order, registry handlers, compile-time contract assertion holds（LR1 并入 main 100→104：LLM 复核层尾窗；CP5 就地更新 104→108：Agent 模式尾窗；CP6 就地更新 108→110：备份恢复 2 条尾窗；D5 就地更新 110→111：dialog:pickPath 尾窗，其余尾窗再前移）', async () => {
+  registerCase('ac2-84: agents channels (14, 夜间#1 就地更新 13→14) — whitelist tail in docs/14 §A.1 order, registry handlers, compile-time contract assertion holds（LR1 并入 main 100→104：LLM 复核层尾窗；CP5 就地更新 104→108：Agent 模式尾窗；CP6 就地更新 108→110：备份恢复 2 条尾窗；D5 就地更新 110→111：dialog:pickPath 尾窗；X-U 就地更新 111→115：updates 4 条尾窗，其余尾窗再前移）', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
@@ -4743,11 +4754,11 @@ if (isEntrypoint()) {
       'agents:diagnostics',
       'agents:probeProvider',
     ]
-    assert.equal(channels.IPC_CHANNELS.length, 111, 'whitelist 55 → 70 (docs/14 §A.2; 夜间#1 就地更新 68→70), 70 → 79 (CP1 就地更新，docs/04 ContestPin 追加节), 79 → 84 (CP2 就地更新，docs/22 §4 悬浮窗 5 条), 84 → 88 (CP3a 就地更新，docs/22 §6 识别配置 4 条), 88 → 97 (CP3b 就地更新，docs/22 §5 材料导入/识别管线 9 条), 97 → 100 (CP4 就地更新，docs/22 §7 提醒 3 条), 100 → 104 (LR1 并入 main，docs/04 LR1 追加节 LLM 复核层 4 条), 104 → 108 (CP5 就地更新，docs/22 §8 Agent 模式 4 条), 108 → 110 (CP6 就地更新，docs/22 §9 备份恢复 2 条), 110 → 111 (D5 就地更新，docs/09 §9 注记 dialog:pickPath 1 条)')
-    // D5 就地更新 1 条（dialog:pickPath）并入后——agents 尾窗再前移为 slice(-55, -41)
-    assert.deepEqual([...channels.IPC_CHANNELS.slice(-55, -41)], expectedAgents, '14 agents channels appended verbatim in docs/14 §A.1 order (夜间#1 就地更新 13→14)')
+    assert.equal(channels.IPC_CHANNELS.length, 115, 'whitelist 55 → 70 (docs/14 §A.2; 夜间#1 就地更新 68→70), 70 → 79 (CP1 就地更新，docs/04 ContestPin 追加节), 79 → 84 (CP2 就地更新，docs/22 §4 悬浮窗 5 条), 84 → 88 (CP3a 就地更新，docs/22 §6 识别配置 4 条), 88 → 97 (CP3b 就地更新，docs/22 §5 材料导入/识别管线 9 条), 97 → 100 (CP4 就地更新，docs/22 §7 提醒 3 条), 100 → 104 (LR1 并入 main，docs/04 LR1 追加节 LLM 复核层 4 条), 104 → 108 (CP5 就地更新，docs/22 §8 Agent 模式 4 条), 108 → 110 (CP6 就地更新，docs/22 §9 备份恢复 2 条), 110 → 111 (D5 就地更新，docs/09 §9 注记 dialog:pickPath 1 条), 111 → 115 (X-U 就地更新，docs/briefs/xu-updater.md updates 4 条)')
+    // D5 就地更新 1 条（dialog:pickPath）并入后——X-U 就地更新 4 条（updates）并入后——agents 尾窗再前移为 slice(-59, -45)
+    assert.deepEqual([...channels.IPC_CHANNELS.slice(-59, -45)], expectedAgents, '14 agents channels appended verbatim in docs/14 §A.1 order (夜间#1 就地更新 13→14)')
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-41, -32)],
+      [...channels.IPC_CHANNELS.slice(-45, -36)],
       [
         'contestpin:list',
         'contestpin:get',
@@ -4762,7 +4773,7 @@ if (isEntrypoint()) {
       '9 contestpin channels appended verbatim in docs/04 ContestPin 追加节 order (CP1 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-32, -27)],
+      [...channels.IPC_CHANNELS.slice(-36, -31)],
       [
         'contestpin:overlayState',
         'contestpin:overlaySetEnabled',
@@ -4773,7 +4784,7 @@ if (isEntrypoint()) {
       '5 contestpin overlay channels appended verbatim in docs/22 §4 order (CP2 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-27, -23)],
+      [...channels.IPC_CHANNELS.slice(-31, -27)],
       [
         'contestpin:configList',
         'contestpin:configSave',
@@ -4783,7 +4794,7 @@ if (isEntrypoint()) {
       '4 contestpin recognition-config channels appended verbatim in docs/22 §6 order (CP3a 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-23, -14)],
+      [...channels.IPC_CHANNELS.slice(-27, -18)],
       [
         'contestpin:materialsList',
         'contestpin:importMaterials',
@@ -4798,7 +4809,7 @@ if (isEntrypoint()) {
       '9 contestpin materials/import/draft channels appended verbatim in docs/22 §5 order (CP3b 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-14, -11)],
+      [...channels.IPC_CHANNELS.slice(-18, -15)],
       [
         'contestpin:reminderUpsert',
         'contestpin:reminderDelete',
@@ -4807,7 +4818,7 @@ if (isEntrypoint()) {
       '3 contestpin reminder channels appended verbatim in docs/22 §7 order (CP4 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-11, -7)],
+      [...channels.IPC_CHANNELS.slice(-15, -11)],
       [
         'review:testEndpoint',
         'archive:reviewPre',
@@ -4817,7 +4828,7 @@ if (isEntrypoint()) {
       '4 LLM review channels appended verbatim in docs/04 LR1 追加节 order (LR1 批次；全 READ_ONLY advisory)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-7, -3)],
+      [...channels.IPC_CHANNELS.slice(-11, -7)],
       [
         'contestpin:agentStatus',
         'contestpin:agentSubmit',
@@ -4827,7 +4838,7 @@ if (isEntrypoint()) {
       '4 contestpin Agent channels appended verbatim in docs/22 §8 order (CP5 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-3, -1)],
+      [...channels.IPC_CHANNELS.slice(-7, -5)],
       [
         'contestpin:backupExport',
         'contestpin:backupImport',
@@ -15205,5 +15216,258 @@ if (isEntrypoint()) {
     assert.equal(applierCalls, 0, 'applier never reached on BAD_PAYLOAD')
   }, 'fast')
 
+  // ==================================================================
+  // X-U 批次（docs/briefs/xu-updater.md §1 #5）：App 自更新单测（fast 档，
+  // fake feed 零网络）——版本比较 / updateInfo（latest.yml）解析 / path 字段
+  // 连字符与点形态兼容 / dev 禁用门 / 控制器状态机全流程 / updates:* IPC 面。
+  // ==================================================================
+  registerCase('xu: updateFeed — compareVersions 三态与降级防护 + parseLatestYml 解析（真实 latest.yml 形状）', async () => {
+    const feed = await import(new URL('../src/main/services/updateCenter/updateFeed.ts', import.meta.url).href)
+
+    // A) 版本比较：三态 + 多位段 + 平版/降级一律 false（绝不降级）
+    assert.equal(feed.compareVersions('0.1.0', '0.1.0'), 0, 'equal versions')
+    assert.equal(feed.compareVersions('0.1.0', '0.2.0'), -1, 'patch-low vs patch-high')
+    assert.equal(feed.compareVersions('0.10.0', '0.9.0'), 1, 'numeric (not lexical) segment compare')
+    assert.equal(feed.compareVersions('1.0', '1.0.0'), 0, 'missing segment = 0')
+    assert.equal(feed.isNewerVersion('0.1.0', '0.1.1'), true, 'newer patch accepted')
+    assert.equal(feed.isNewerVersion('0.1.0', '0.1.0'), false, 'same version never newer')
+    assert.equal(feed.isNewerVersion('0.2.0', '0.1.9'), false, 'downgrade never newer (feed 脏数据防护)')
+    assert.equal(feed.isNewerVersion('0.1.0', 'not-a-version'), false, 'malformed candidate folds to false (never throw)')
+
+    // B) latest.yml 解析（main 仓 dist/latest.yml 2026-09-14 真实形状：连字符形态
+    //    path/files.url + 引号 releaseDate + 顶层/files 双 sha512）
+    const yml = [
+      'version: 0.2.0',
+      'files:',
+      '  - url: DevHub-Setup-0.2.0.exe',
+      '    sha512: ABC+def==',
+      '    size: 129850578',
+      'path: DevHub-Setup-0.2.0.exe',
+      'sha512: ABC+def==',
+      "releaseDate: '2026-09-14T01:06:05.355Z'",
+    ].join('\n')
+    const info = feed.parseLatestYml(yml)
+    assert.equal(info.version, '0.2.0', 'version parsed')
+    assert.equal(info.path, 'DevHub-Setup-0.2.0.exe', 'path parsed (hyphen form)')
+    assert.equal(info.sha512, 'ABC+def==', 'top-level sha512 parsed')
+    assert.equal(info.releaseDate, '2026-09-14T01:06:05.355Z', 'quoted releaseDate unquoted')
+    assert.equal(info.files.length, 1, 'one file entry')
+    assert.equal(info.files[0]?.url, 'DevHub-Setup-0.2.0.exe', 'files[].url parsed')
+    assert.equal(info.files[0]?.size, 129850578, 'files[].size parsed')
+    assert.equal(info.files[0]?.sha512, 'ABC+def==', 'files[].sha512 parsed')
+
+    // C) 残缺 latest.yml → throw（装配脚本据此报错退出，绝不带病装配）
+    assert.throws(() => feed.parseLatestYml('version: 0.3.0\n'), /path/, 'missing path throws')
+
+    // D) releaseNotes 投影：string / ReleaseNoteInfo[] / null / 空串
+    assert.equal(feed.projectReleaseNotes('修复若干问题'), '修复若干问题', 'string passthrough')
+    assert.equal(feed.projectReleaseNotes('   '), null, 'blank string folds to null')
+    assert.equal(
+      feed.projectReleaseNotes([{ version: '0.2.0', note: '新增更新功能' }, { version: '0.2.1' }]),
+      '新增更新功能\n0.2.1',
+      'array joined (missing note falls back to version)',
+    )
+    assert.equal(feed.projectReleaseNotes(null), null, 'null passthrough')
+  }, 'fast')
+
+  registerCase('xu: updateFeed — path 字段连字符与点形态兼容（resolveAssetFileName；各一例）+ 无匹配 null + 撞名拒绝', async () => {
+    const feed = await import(new URL('../src/main/services/updateCenter/updateFeed.ts', import.meta.url).href)
+    // HANDOFF 注记（main 仓 dist 实证，2026-09-14）：electron-builder 把产物名中
+    // 的空格改写为连字符——实际 "DevHub Setup 0.1.0.exe" vs path "DevHub-Setup-0.1.0.exe"。
+    const distFiles = ['DevHub Setup 0.1.0.exe', 'DevHub Setup 0.1.0.exe.blockmap', 'DevHub 0.1.0.exe', 'latest.yml']
+
+    // A) 连字符形态（本项目 electron-builder 实测固有形态）
+    assert.equal(
+      feed.resolveAssetFileName('DevHub-Setup-0.1.0.exe', distFiles),
+      'DevHub Setup 0.1.0.exe',
+      'hyphen-form reference resolves to space-form actual file',
+    )
+    // B) 点形态（部分 electron-builder 版本的产物名形态）
+    assert.equal(
+      feed.resolveAssetFileName('DevHub.Setup.0.1.0.exe', ['DevHub Setup 0.1.0.exe']),
+      'DevHub Setup 0.1.0.exe',
+      'dot-form reference resolves via normalized matching',
+    )
+    // C) 精确同名优先
+    assert.equal(
+      feed.resolveAssetFileName('latest.yml', distFiles),
+      'latest.yml',
+      'exact match wins without normalization',
+    )
+    // D) 无匹配 → null（装配脚本必须报错退出）
+    assert.equal(feed.resolveAssetFileName('DevHub-Setup-9.9.9.exe', distFiles), null, 'no match folds to null')
+    // E) 归一化撞名多份 → 拒绝猜（宁报错不装配错文件）
+    assert.equal(
+      feed.resolveAssetFileName('devhub-setup-010.exe', ['devhub setup 010.exe', 'devhub.setup.010.exe']),
+      null,
+      'ambiguous normalized matches refuse to guess',
+    )
+  }, 'fast')
+
+  registerCase('xu: updateController — dev 禁用门（零触达）+ fake feed 全流程（静默/手动检查三态、下载进度、安装门、失败结构化幂等）', async () => {
+    const mod = await import(new URL('../src/main/services/updateCenter/updateController.ts', import.meta.url).href)
+    let tick = 1_000
+    const nowSec = () => ++tick
+
+    // A) dev 禁用门：isPackaged=false → supported=false，全部动作结构化拒绝且
+    //    门面零触达（零网络零副作用），状态恒 idle
+    let calls = 0
+    const dev = mod.createUpdateController({
+      isPackaged: false,
+      currentVersion: '0.1.0',
+      actions: { check: () => { calls += 1 }, download: () => { calls += 1 }, install: () => { calls += 1 } },
+      nowSec,
+    })
+    assert.equal(dev.supported, false, 'dev gate: unsupported')
+    const devStatus = dev.getStatus()
+    assert.equal(devStatus.supported, false, 'status carries supported=false')
+    assert.equal(devStatus.phase, 'idle', 'dev status stays idle')
+    assert.equal(dev.startManualCheck().ok, false, 'manual check refused in dev')
+    assert.equal(dev.startSilentCheck().ok, false, 'silent check refused in dev')
+    assert.equal(dev.startDownload().ok, false, 'download refused in dev')
+    assert.equal(dev.installConfirmed().ok, false, 'install refused in dev')
+    assert.equal(calls, 0, 'facade never reached in dev (全链禁用)')
+    assert.equal(dev.startManualCheck().code, 'UPDATE_UNSUPPORTED', 'stable refusal code')
+
+    // B) 打包态全流程（fake feed 零网络）
+    const log = []
+    const packed = mod.createUpdateController({
+      isPackaged: true,
+      currentVersion: '0.1.0',
+      actions: {
+        check: () => { log.push('check') },
+        download: () => { log.push('download') },
+        install: () => { log.push('install') },
+      },
+      nowSec,
+      log: (m) => { log.push(m) },
+    })
+    // B1) 静默检查发现新版 → silentAnnounced=true（renderer toast 依据）+ 人话说明
+    assert.equal(packed.startSilentCheck().ok, true, 'silent check accepted')
+    assert.equal(packed.getStatus().phase, 'checking', 'phase=checking after check start')
+    packed.checkSucceeded({ version: '0.2.0', releaseNotes: [{ version: '0.2.0', note: '新增自动更新' }] })
+    let s = packed.getStatus()
+    assert.equal(s.phase, 'available', 'newer version → available')
+    assert.equal(s.availableVersion, '0.2.0', 'available version recorded')
+    assert.equal(s.releaseNotes, '新增自动更新', 'release notes projected')
+    assert.equal(s.silentAnnounced, true, 'silent check that finds a version sets silentAnnounced')
+    assert.ok(s.lastCheckedAt !== null, 'lastCheckedAt stamped')
+    // B2) 下载：进度回填 → downloaded；安装门仅 downloaded 态
+    assert.equal(packed.startDownload().ok, true, 'download accepted from available')
+    packed.progressChanged({ percent: 42.5, transferredBytes: 100, totalBytes: 200 })
+    assert.equal(packed.getStatus().downloadProgress?.percent, 42.5, 'progress recorded')
+    assert.equal(packed.installConfirmed().ok, false, 'install refused while downloading (状态门)')
+    assert.equal(packed.installConfirmed().code, 'UPDATE_NOT_INSTALLED_READY', 'stable install-gate code')
+    packed.downloadSucceeded()
+    assert.equal(packed.getStatus().phase, 'downloaded', 'phase=downloaded after success')
+    assert.equal(packed.installConfirmed().ok, true, 'install accepted only after download')
+    assert.equal(packed.getStatus().phase, 'installing', 'phase=installing after install accepted')
+    assert.deepEqual(log.filter((l) => l === 'check' || l === 'download' || l === 'install'), ['check', 'download', 'install'], 'facade call order')
+    // B3) 手动检查「最新」分支：降级候选一律按最新（绝不降级）
+    const manual = mod.createUpdateController({
+      isPackaged: true, currentVersion: '0.2.0',
+      actions: { check: () => {}, download: () => {}, install: () => {} }, nowSec,
+    })
+    assert.equal(manual.startManualCheck().ok, true)
+    manual.checkSucceeded({ version: '0.1.0', releaseNotes: null })
+    const ms = manual.getStatus()
+    assert.equal(ms.phase, 'not-available', 'downgrade candidate folds to not-available (最新)')
+    assert.equal(ms.silentAnnounced, false, 'manual check never sets silentAnnounced')
+    // B4) 失败结构化（不弹窗由 renderer 保证）+ 双路/迟到回填幂等（首错保留）
+    const failing = mod.createUpdateController({
+      isPackaged: true, currentVersion: '0.1.0',
+      actions: { check: () => {}, download: () => {}, install: () => {} }, nowSec,
+    })
+    failing.startManualCheck()
+    failing.operationFailed('UPDATE_CHECK_FAILED', 'feed unreachable')
+    failing.operationFailed('UPDATE_CHECK_FAILED', 'duplicate late report')
+    const failed = failing.getStatus()
+    assert.equal(failed.phase, 'error', 'check failure → error phase')
+    assert.deepEqual(failed.error, { code: 'UPDATE_CHECK_FAILED', message: 'feed unreachable' }, 'first structured error kept')
+    // 下载失败路径
+    const failingDl = mod.createUpdateController({
+      isPackaged: true, currentVersion: '0.1.0',
+      actions: { check: () => {}, download: () => {}, install: () => {} }, nowSec,
+    })
+    failingDl.startManualCheck()
+    failingDl.checkSucceeded({ version: '0.2.0', releaseNotes: null })
+    failingDl.startDownload()
+    failingDl.operationFailed('UPDATE_DOWNLOAD_FAILED', 'connection reset')
+    const failedDl = failingDl.getStatus()
+    assert.equal(failedDl.phase, 'error', 'download failure → error phase')
+    assert.equal(failedDl.error?.code, 'UPDATE_DOWNLOAD_FAILED', 'download failure code')
+    assert.equal(failedDl.availableVersion, '0.2.0', 'available info retained for retry')
+    // B5) 静默检查至多一次（宣布过不再重复发起）
+    let onceCalls = 0
+    const once = mod.createUpdateController({
+      isPackaged: true, currentVersion: '0.1.0',
+      actions: { check: () => { onceCalls += 1 }, download: () => {}, install: () => {} }, nowSec,
+    })
+    assert.equal(once.startSilentCheck().ok, true)
+    once.checkSucceeded(null)
+    assert.equal(once.startSilentCheck().ok, false, 'second silent check refused (零打扰)')
+    assert.equal(onceCalls, 1, 'facade called once for silent check')
+  }, 'fast')
+
+  registerCase('xu: updates:* IPC — 未注入控制器 NOT_AVAILABLE；注入 fake 控制器后 status/check/download/install 全链 + 非法受理折叠 ServiceError envelope', async () => {
+    const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
+    const registryMod = await import(new URL('../src/main/services/updateCenter/updateRegistry.ts', import.meta.url).href)
+    const mod = await import(new URL('../src/main/services/updateCenter/updateController.ts', import.meta.url).href)
+    const registry = handlers.createHandlerRegistry({ appVersion: 'xu-smoke' })
+
+    // A) 未注入（纯 Node/测试环境）→ NOT_AVAILABLE 结构化错误，绝不触 electron
+    const na = await handlers.dispatchGatewayRequest(registry, { channel: 'updates:status', payload: {} })
+    assert.equal(na.ok, false, 'updates:status without controller must not resolve')
+    assert.equal(na.error.code, 'NOT_AVAILABLE', 'stable NOT_AVAILABLE code')
+    const naCheck = await handlers.dispatchGatewayRequest(registry, { channel: 'updates:check', payload: {} })
+    assert.equal(naCheck.error.code, 'NOT_AVAILABLE', 'updates:check folds NOT_AVAILABLE')
+
+    // B) 注入 fake 控制器（supported，直接驱动状态机）后全链可用
+    let fakeCtl = null
+    const fake = mod.createUpdateController({
+      isPackaged: true,
+      currentVersion: '0.1.0',
+      actions: {
+        check: () => fakeCtl?.checkSucceeded({ version: '0.9.0', releaseNotes: 'X' }),
+        download: () => fakeCtl?.downloadSucceeded(),
+        install: () => {},
+      },
+      nowSec: () => 12345,
+    })
+    fakeCtl = fake
+    registryMod.setUpdateController(fake)
+    try {
+      // check 受理 → 门面同步回填（fake 内联）→ status 立即可见 available
+      const checked = await handlers.dispatchGatewayRequest(registry, { channel: 'updates:check', payload: {} })
+      assert.equal(checked.ok, true, 'updates:check resolves')
+      assert.deepEqual(checked.data, { started: true }, 'check result shape')
+      let st = await handlers.dispatchGatewayRequest(registry, { channel: 'updates:status', payload: {} })
+      assert.equal(st.ok, true, 'updates:status resolves')
+      assert.equal(st.data.phase, 'available', 'status reflects check outcome')
+      assert.equal(st.data.availableVersion, '0.9.0', 'status carries version')
+      assert.equal(st.data.supported, true, 'status carries supported')
+      // download 受理 → fake 内联 downloadSucceeded → downloaded
+      const dl = await handlers.dispatchGatewayRequest(registry, { channel: 'updates:download', payload: {} })
+      assert.equal(dl.ok, true, 'updates:download resolves')
+      assert.deepEqual(dl.data, { started: true }, 'download result shape')
+      st = await handlers.dispatchGatewayRequest(registry, { channel: 'updates:status', payload: {} })
+      assert.equal(st.data.phase, 'downloaded', 'status reflects download outcome')
+      // install 受理
+      const inst = await handlers.dispatchGatewayRequest(registry, { channel: 'updates:install', payload: {} })
+      assert.equal(inst.ok, true, 'updates:install resolves')
+      assert.deepEqual(inst.data, { installing: true }, 'install result shape')
+      // 非法受理：installing 态再 download → UPDATE_NOT_DOWNLOADABLE envelope
+      const dlAgain = await handlers.dispatchGatewayRequest(registry, { channel: 'updates:download', payload: {} })
+      assert.equal(dlAgain.ok, false, 'download in installing phase must not resolve')
+      assert.equal(dlAgain.error.code, 'UPDATE_NOT_DOWNLOADABLE', 'stable state-gate code')
+    } finally {
+      registryMod.resetUpdateController()
+    }
+    // C) 重置后回到 NOT_AVAILABLE（用例间隔离）
+    const naAfter = await handlers.dispatchGatewayRequest(registry, { channel: 'updates:status', payload: {} })
+    assert.equal(naAfter.error.code, 'NOT_AVAILABLE', 'reset restores NOT_AVAILABLE')
+  }, 'fast')
+
     await run(parseTierArg())
 }
+

@@ -359,6 +359,20 @@ electron 面经 HandlerDeps 注入，取消/未选 = canceled:true + path:null�
 维持原值不报错；接入 BackupPanel destDir / Skills importDialog sourceDir /
 Archive destRoot / MaterialImport manual_pack destDir 四处，手输保留）。
 
+X-U 批追加 4 条（docs/briefs/xu-updater.md，就地注记）：`updates:status`
+（READ_ONLY 状态快照：supported/currentVersion/phase/availableVersion/
+releaseNotes 人话投影/downloadProgress/error 结构化/silentAnnounced/
+lastCheckedAt）、`updates:check`（手动检查受理 → `{ started }`）、
+`updates:download`（仅 available 态受理，用户「下载并安装」确认钮前置，
+绝不自动下载）、`updates:install`（仅 downloaded 态受理，确认弹窗前置 →
+quitAndInstall，绝不静默重启）。electron-updater 生产接线在
+`src/main/updaterWire.ts`（dev/`app.isPackaged=false` 全链禁用；启动后延迟 60s
+静默检查一次，仅发现新版 toast）；feed=编译期常量（既有 relay 基址 + `/updates/`
+静态 generic feed，零凭据）；控制器经 updateRegistry 单例注入 handlers，纯 Node
+环境缺省 NOT_AVAILABLE；whitelist 就地更新 111 → 115。装配脚本
+`scripts/build-updates-feed.mjs`（latest.yml path 字段与实际文件一致性断言——
+electron-builder 连字符形态差异在此对齐，X11 收官批直接消费）。
+
 ## 10. MCP 只读扩展（变更动作不进 MCP）
 
 新增 4 个 READ_ONLY tool（docs/08 机制不变：zod schema + structuredContent + 只读落库快照）：

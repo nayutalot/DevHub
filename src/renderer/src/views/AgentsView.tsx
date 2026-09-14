@@ -30,6 +30,7 @@ import { Badge, stateTone } from '../components/Badge.tsx'
 import type { BadgeTone } from '../components/Badge.tsx'
 import { ExpandableText } from '../components/ExpandableText.tsx'
 import {EmptyState, ErrorState, InlineState, Loading, Spinner,} from '../components/StateViews.tsx'
+import { UpdatesCard } from '../components/UpdatesCard.tsx'
 import { useConfirm } from '../components/ConfirmDialog.tsx'
 import { useToast } from '../components/ToastProvider.tsx'
 import { relativeTime, toMs } from '../lib/format.ts'
@@ -1440,6 +1441,14 @@ export function AgentsView() {
       <h3 className="panel-title">远程中继（Relay）— 设置驱动面（relay_enabled · wss endpoint · TLS 指纹）</h3>
       <div className="panel">
         <RelayPanel relay={gateway.data?.relay ?? null} onChanged={refreshAllPanels} />
+      </div>
+
+      {/* X-U 批（docs/briefs/xu-updater.md）：应用自更新「检查更新」卡——当前版本
+          + 三态（最新 / 发现新版→「下载并安装」确认钮 / 失败结构化内联不弹窗）+
+          下载进度 + 下载完成确认弹窗后 quitAndInstall（绝不自动下载绝不静默重启） */}
+      <h3 className="panel-title">检查更新（DevHub 版本 · 启动后 60s 静默检查 · 绝不自动下载）</h3>
+      <div className="panel">
+        <UpdatesCard />
       </div>
 
       <h3 className="panel-title">诊断（数据源可读性 / 控制通道 / Gateway / 托盘 / 自启）</h3>
