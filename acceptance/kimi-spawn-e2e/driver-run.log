@@ -1,0 +1,20 @@
+(node:7716) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///F:/Active_Project/DevHub/worktrees/kc-kimi-spawn/src/main/services/settingsService.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to F:\Active_Project\DevHub\worktrees\kc-kimi-spawn\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[kc-driver] S0 probeHealth: {"installed":true,"version":"0.42.0","exePath":"C:\\Users\\sakuya\\.kimi-code\\bin\\kimi.exe","health":"ok"}
+[kc-driver] S1 gate-off spawn refusal: false | kimi managed gate disabled (kimi_managed_enabled!=1): real kimi launch would write ~/.kimi-code and consume inference (red line); managed spawn refused
+[kc-driver] S1 caps off: observed []
+[kc-driver] S2 caps on: managed ["reply"] | kimi managed face enabled (kimi_managed_enabled=1): kimi --version ok (0.42.0); config.toml readable; reply = one-shot "kimi -S <id> -p <text>" with session-file terminal confirmation; spawn = one-shot "kimi -p <task>" with session_index discovery (KC)
+[kc-driver] S3 startManagedSession: ok=true nativeId=session_951ccde4-78f7-4993-9b2d-de2f1fe08c6f 1s | detail=kimi session materialized (one-shot -p run in flight; stream-json feeds managed heartbeat; terminal state converges via monitor)
+[kc-driver] S3 managed snapshot delivered: [{"nativeId":"session_951ccde4-78f7-4993-9b2d-de2f1fe08c6f","mode":"managed","lastActivityAt":1789394951,"workdir":"C:\\tmp\\kc-e2e"}]
+[kc-driver] S3b session_index entry: C:/Users/sakuya/.kimi-code/sessions/wd_kc-e2e_ab1ad8958e5f/session_951ccde4-78f7-4993-9b2d-de2f1fe08c6f
+[kc-driver] S3b files: {"agents/main/wire.jsonl":{"bytes":97404,"sha256_16":"8d77788d72e00100"},"state.json":{"bytes":354,"sha256_16":"20fcd47e4ff3d5de"},"lastTurnReason":null,"cwd":"C:\\tmp\\kc-e2e"}
+[kc-driver] S4 sendReply: ok=true status=executed 13s | detail=kimi session file terminal state: state.json lastTurnReason=completed
+[kc-driver] S4b files: {"agents/main/wire.jsonl":{"bytes":175014,"sha256_16":"c85f7f60fc7d900d"},"state.json":{"bytes":383,"sha256_16":"31d5ae4647ff46ac"},"lastTurnReason":"completed","cwd":"C:\\tmp\\kc-e2e"}
+[kc-driver] S5 gate-off spawn refusal again: false | kimi managed gate disabled (kimi_managed_enabled!=1): real kimi launch would write ~/.kimi-code and consume inference (red line); managed spawn refused
+[kc-driver] S5 caps revert: observed []
+[kc-driver] DIAG: {"note":"managed stdin channel not configured (real kimi launch would write ~/.kimi-code; red line) — observed only"}
+[kc-driver] DONE
+[kc-verify] readMessages projection re-check (after driver run):
+[kc-verify] messages: 7 | assistant SEED token present: true | assistant OK token present: true
