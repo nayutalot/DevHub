@@ -1,0 +1,32 @@
+[
+  {
+    "at": "2026-09-14T23:43:19.658Z",
+    "health": {
+      "ok": true,
+      "name": "devhub",
+      "version": "0.1.0",
+      "uptimeSec": 5746
+    }
+  },
+  {
+    "at": "2026-09-14T23:43:21.674Z",
+    "health": {
+      "ok": true,
+      "name": "devhub",
+      "version": "0.1.0",
+      "uptimeSec": 5748
+    }
+  },
+  {
+    "at": "2026-09-14T23:43:23.689Z",
+    "health": {
+      "ok": true,
+      "name": "devhub",
+      "version": "0.1.0",
+      "uptimeSec": 5750
+    }
+  },
+  {
+    "verdict": "PASS (resident instance untouched; uptime monotonic)"
+  }
+]

@@ -1,0 +1,10 @@
+{
+  "dataSource": {
+    "kind": "session-jsonl-zstd",
+    "readable": true,
+    "detail": "root present: D:/Apps/deepseek-harness, package.json @deepseek-ai/dsh-root, version 0.1.0-rc.5, AGENTS.md present, CLAUDE.md present, apps present, packages present; session data home verified at C:\\Users\\sakuya\\.dsh (sessions dir readable)"
+  },
+  "control": {
+    "note": "observed session projection wired; managed face (SDK jsonrpc direct) implemented but gated off by default (settings key deepseek_managed_enabled must be exactly '1')"
+  }
+}

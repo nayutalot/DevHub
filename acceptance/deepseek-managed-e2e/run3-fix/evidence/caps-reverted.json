@@ -1,0 +1,6 @@
+{
+  "mode": "observed",
+  "granted": [],
+  "verifiedAt": 1789429399,
+  "evidence": "observed session projection wired; managed face (SDK jsonrpc direct) implemented but gated off by default (settings key deepseek_managed_enabled must be exactly '1')"
+}

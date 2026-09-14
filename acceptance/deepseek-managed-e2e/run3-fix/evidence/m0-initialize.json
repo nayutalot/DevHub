@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "spawnToResponseMs": 587,
+  "writeToResponseMs": 77,
+  "run3TimeoutBudgetMs": 30000,
+  "serverInfo": {
+    "name": "deepseek-harness-sdk-runtime",
+    "version": "0.0.1"
+  },
+  "sentinel": {
+    "ok": true,
+    "name": "deepseek-harness-sdk-runtime",
+    "version": "0.0.1"
+  },
+  "stderrTail": []
+}
