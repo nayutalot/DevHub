@@ -59,20 +59,27 @@
 - **解除路径**：Claude Code 官方提供输入注入 API 后重评 attached 能力门；
   hooks 注册入口接线（IPC/UI 暴露 writeClaudeHooks）属产品决策，需用户发令。
 
-### 1.5 Kimi：managed 通道夹具全验证，真机端到端未验证；api_key 只展示尾 4 位
+### 1.5 Kimi：真机 managed 端到端已落地（KM 批 09-14 授权）；发现型会话仍只读；api_key 只展示尾 4 位
 
-- **现状**：真机边界明确写在 `kimiProvider.ts`——「kimi 真实托管启动必然写入
-  ~/.kimi-code（sessions/logs）且无法保证不触发推理 → 真机 managed 探测跳过
-  （getCapabilities 保持 observed + 空集）；managed 通道全部由夹具假进程验证，
-  真机端到端 reply 留 AC8」；AC8 实际端到端走 Codex（见
-  `acceptance/agents-mobile/ac8-blocked.md` §2），Kimi 真机托管仍未验证。
-  `~/.kimi-code/config.toml` 明文 api_key 的任何投影只经 maskKey（尾 4 位 +
-  长度），smoke 用假 key 断言投影不含全值（docs/15 §6 Kimi 红线）。
-- **影响面**：Kimi 会话目前只读观察；手机回复链路对 Kimi 未验证（实现已就位，
-  差真机验证）；用户在 UI 只能看到 api_key 尾 4 位（设计如此，非缺陷）。
-- **解除路径**：用户授权一个可写入 `~/.kimi-code` 的验证场景（愿意消耗少量
-  真实推理）后按 codex AC8 同法补真机 e2e；api_key 展示策略如需放宽属红线
-  变更，需用户明确裁决（不建议）。
+- **已解除（KM 批，docs/briefs/km-kimi-managed.md）**：用户 09-14「推进 kimicode
+  适配」令 = 写入 `~/.kimi-code` + 少量真实推理的授权。settings 键
+  `kimi_managed_enabled`（默认 0=停用绝不半开，ALLOWED_KEYS 19→20）授权后：
+  真机 E2E 全链实测——caps observed→managed（evidence 带真实
+  `kimi --version ok (0.42.0)`）→ 真实 sendReply executed（一次性
+  `kimi -S <id> -p <text> --output-format stream-json`，spawn cwd 对齐
+  state.json.cwd；0.42 TUI+管道 stdin 有 workspace 信任门不可托管，Phase A
+  复核见 `acceptance/kimi-managed-e2e/phase-a-0.42-review.md`）→
+  wire.jsonl/state.json 终态确认 + 消息投影回流 → 键=0 回归 observed（可撤销）。
+  证据：`acceptance/kimi-managed-e2e/`（driver-run.log / app-level.log /
+  e2e-report.md；推理消耗 2 次最小 prompt 如实入册）。
+- **仍如实（边界不变）**：能力是 provider 级授权门 + 会话级门双层——monitor
+  发现的 Kimi 会话 `session_mode=observed`，REST/IPC reply 仍被既有
+  `resolveCommandGate` 拒（COMMAND_NOT_EXECUTABLE，docs/12 §5 既有语义）；
+  「发现型会话提升 managed」是产品语义决策，留主控裁决（codex 同款边界）。
+  App 启动按钮由 `capabilities.mode==managed` 数据驱动（§8.1 结论不变，Kimi
+  授权后自动出现，无需改 App）。
+- api_key 展示策略不变：任何投影只经 maskKey（尾 4 位 + 长度）；本批零 config
+  内容读取（DevHub 零凭据注入，kimi CLI 用自己的 config.toml）。
 
 ### 1.6 Codex：observed 状态判定依赖 rollout 内容；app-server 为 experimental 协议
 
@@ -219,8 +226,10 @@
   用户外部自启的 Codex 会话依旧 observed 只读。App 文案已诚实化（
   「托管会话可交互；外部会话只读」），observed 四家零控件现状保持，
   per-provider 原因卡产品化（文案 = 本清单 §1 摘取，`:core` InteractionHonesty 单测锁定）。
-- §1.5 Kimi 条目不受影响：managed 通道真机端到端仍未验证（App 的启动按钮由
-  `capabilities.mode==managed` 数据驱动，Kimi 授权后自动出现，无需改 App）。
+- §1.5 Kimi 条目已更新（KM 批 09-14）：真机 managed 端到端已落地（授权门 +
+  provider 级真实 reply 全链验证）；发现型会话仍只读（会话级门语义不变）。App
+  的启动按钮由 `capabilities.mode==managed` 数据驱动，Kimi 授权后自动出现，
+  无需改 App。
 
 ### 8.2 R5 延迟现状（实测数字）
 
