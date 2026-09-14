@@ -546,7 +546,11 @@ object ConnectionManager {
             .url("ws://${baseUrl()}/v1/events")
             .header("Authorization", "Bearer $token")
             .build()
-        client.newWebSocket(
+        // X-L 批（docs/18 §5.3.2）：local 连接句柄入 webSocket 字段——本地命令面
+        // （commandWorkspaceLink）与既有 sync/ack 出帧都需要该句柄（旧实现直构丢弃
+        // 返回值，local 面出帧路径结构性失活；relay 面零变化）。重连循环每轮重赋值，
+        // stop()/onAuthFatal() 置空语义与 relay 连接同轨。
+        webSocket = client.newWebSocket(
             request,
             object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
@@ -631,7 +635,10 @@ object ConnectionManager {
         return true
     }
 
-    /** local 帧处理：hello（记 sequence + 必发 sync）/ event / token_rotation（预留）/ unknown（静默）。 */
+    /**
+     * local 帧处理：hello（记 sequence + 必发 sync）/ event / token_rotation（预留）/
+     * command_ack + command_result（X-L 本地命令结算，docs/18 §5.3.2）/ unknown（静默）。
+     */
     private fun handleLocalFrame(text: String) {
         val frame = try {
             WsFrames.parse(text)
@@ -660,6 +667,40 @@ object ConnectionManager {
                 if (context != null && deviceId != null) {
                     SecureStore.savePairing(context, deviceId, frame.newToken)
                 }
+            }
+
+            is WsServerFrame.CommandAck -> {
+                // X-L（docs/18 §5.3.2）：本地命令受理回执。v1 本地面以 command_result
+                // 为结算权威（受理→终态同一同步回程）；复用 relay settle 管道消费
+                // （无挂起请求的迟到 ack 按 ACCEPTED 兜底清理——local 面不入队故为 no-op）。
+                settleCommandAck(
+                    RelayFrame.CommandAck(
+                        requestId = frame.requestId,
+                        idempotencyKey = frame.idempotencyKey ?: "",
+                        commandId = frame.commandId,
+                        status = frame.status,
+                        errorCode = frame.errorCode,
+                        queued = false, // 本地面无 ECS 排队面（docs/18 §5.3.2 超时语义）
+                    ),
+                )
+            }
+
+            is WsServerFrame.CommandResult -> {
+                // X-L（docs/18 §5.3.2）：本地命令终态 → pendingResults[key] 结算 →
+                // WorkspaceLinkController 卡流（T1 结构性 Queued 根治）。与 relay 同一
+                // settle 路径（commandId 去重 + 幂等键路由；local 面零队列行，删除为 no-op）。
+                settleCommandResult(
+                    RelayFrame.CommandResult(
+                        commandId = frame.commandId ?: "",
+                        idempotencyKey = frame.idempotencyKey,
+                        sessionId = null,
+                        action = frame.action,
+                        status = frame.status,
+                        errorCode = frame.errorCode,
+                        timestampSec = frame.timestampSec,
+                        result = frame.result,
+                    ),
+                )
             }
 
             is WsServerFrame.Unknown -> Unit // 未知类型静默（与对端语义对称）
@@ -1204,13 +1245,22 @@ object ConnectionManager {
         }
 
     /**
-     * S 批 relay 模式 ZCode 工作区链接查询（docs/18 §5.3 注记）：WS command
+     * S 批 ZCode 工作区链接查询（docs/18 §5.3 注记 + X-L §5.3.2 反转）：**模式感知路由**——
+     * local（非 fixture 演示）→ 经本地网关 WS 命令面（[submitWorkspaceLinkLocal]，U5 否定门
+     * 反转）；relay / fixture / 未知模式 → 既有 relay WS 命令面（**逐字节不变**）：WS command
      * `workspace_link`（payload {}，sessionId 缺省）→ ack(accepted) → 等 command_result
      * (executed) 取 result{provider,url,deviceName}（帧面内存过境）；queued:true/离线/
      * 超时 → 行入队同 key 补发（Queued——UI 排队提示照 relay 语义）；failed →
      * ZCODE_LINK_UNAVAILABLE 结构化上抛。URL 零日志（LogRedactor 面外零打印）。
      */
     suspend fun submitWorkspaceLink(): WorkspaceLinkSubmit = withContext(Dispatchers.IO) {
+        // X-L 传输面判定（单一决策点 = WorkspaceLinkModePolicy，:app 单测直锁）：
+        // local → 本地网关；其余（relay/fixture/null/未知）→ relay 面现状零变化。
+        val useLocalGateway = WorkspaceLinkModePolicy.usesLocalGateway(
+            connectionMode = cachedConfig?.mode,
+            fixtureMode = appContext?.let { com.devhub.mobile.data.FixtureMode.enabled(it) } ?: false,
+        )
+        if (useLocalGateway) return@withContext submitWorkspaceLinkLocal()
         val ws = webSocket
         if (ws == null || _state.value !is ConnState.Connected) {
             enqueuePending(0L, QueueReplayPlanner.KIND_WORKSPACE_LINK, null, IdempotencyKeys.newKey())
@@ -1252,6 +1302,44 @@ object ConnectionManager {
         }.also {
             // 终态已结算（成功/拒绝）→ 清挂起；Queued 路径的挂起在终态帧到达时结算
             if (it !is WorkspaceLinkSubmit.Queued) pendingResults.remove(idempotencyKey)
+        }
+    }
+
+    /**
+     * X-L 本地命令面（docs/18 §5.3.2，U5 反转落地）：经本地网关 WS 取 ZCode 工作区链接。
+     * 本地帧形（docs/14 §B.2 ndjson 最小扩展）：{ type:'command', requestId,
+     * idempotencyKey, action:'workspace_link', payload:{} }（零 auth 块——upgrade 已
+     * Bearer 鉴权）→ command_result 结算（pendingResults 复用 relay 结算管道）。
+     * **本地零排队面**：未连接/发送失败/10s 终态未回 → 结构化 Failed 如实落卡
+     * （绝不入离线队列——本地 REST 补发面对该 action 本就 COMMAND_NOT_EXECUTABLE，
+     * 入队即假承诺；「结构性恒 Queued」失败类整体消灭）。
+     * URL 零日志（LogRedactor 面外零打印）。
+     */
+    private suspend fun submitWorkspaceLinkLocal(): WorkspaceLinkSubmit = withContext(Dispatchers.IO) {
+        val ws = webSocket
+        if (ws == null || _state.value !is ConnState.Connected) {
+            return@withContext WorkspaceLinkOutcome.localNotConnected()
+        }
+        val idempotencyKey = IdempotencyKeys.newKey()
+        val resultDeferred = CompletableDeferred<RelayFrame.CommandResult>()
+        pendingResults[idempotencyKey] = resultDeferred
+        val requestId = UUID.randomUUID().toString()
+        val sent = ws.send(WsFrames.commandWorkspaceLink(requestId, idempotencyKey))
+        if (!sent) {
+            pendingResults.remove(idempotencyKey)
+            return@withContext WorkspaceLinkOutcome.localNotConnected()
+        }
+        val result: RelayFrame.CommandResult? = try {
+            withTimeout(COMMAND_ACK_TIMEOUT_MS) { resultDeferred.await() }
+        } catch (err: TimeoutCancellationException) {
+            null
+        }
+        pendingResults.remove(idempotencyKey)
+        if (result == null) {
+            // 终态未回（连接中断/网关侧异常）：本地无补发面 → 结构化超时，绝不假成功
+            WorkspaceLinkOutcome.localTimeout()
+        } else {
+            WorkspaceLinkOutcome.fromResult(result.status, result.result, result.errorCode)
         }
     }
 

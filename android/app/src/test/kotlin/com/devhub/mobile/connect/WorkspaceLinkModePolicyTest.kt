@@ -1,13 +1,15 @@
 package com.devhub.mobile.connect
 
-import com.devhub.mobile.core.InteractionHonesty
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * U5 批（Z3 结论 B 方案①）：T1 遥控卡「连接模式 → 呈现策略」纯判定单测
- * （docs/briefs/u5-local-honest.md §1 #1 三分口径）。
+ * U5 批（Z3 结论 B 方案①）→ **X-L 批反转**（方案②落地，docs/18 §5.3.2）：
+ * T1 遥控卡「连接模式 → 呈现策略」纯判定单测。语义反转有据——本地网关 `command`
+ * 帧路由（桌面 ws.ts/localCommand.ts）+ App 本地帧结算（WsFrames/ConnectionManager）
+ * 传输面就位后，local 否定门反转为「经本地网关取链」（LocalGatewayFlow 全流转）。
  * 断言只对纯决策，不触网络/DB/连接面。relay 行为逐字节不变的锚点：
  * 非 local 输入（含 null/未知）一律 FullFlow（现状），绝不误伤。
  */
@@ -60,14 +62,29 @@ class WorkspaceLinkModePolicyTest {
         )
     }
 
-    // ---- local → NotAvailableInLocal 诚实态 ----
+    // ---- local → LocalGatewayFlow（X-L 反转：经本地网关取链，docs/18 §5.3.2）----
 
     @Test
-    fun `local mode resolves to not-available-in-local`() {
+    fun `local mode resolves to the local gateway flow (X-L reversal)`() {
+        // 反转锚点：U5 时代的 NotAvailableInLocal 否定门随传输面就位退役，
+        // local（非 fixture）= 经本地网关命令面取链全流转
         assertEquals(
-            WorkspaceLinkModePolicy.Presentation.NotAvailableInLocal,
+            WorkspaceLinkModePolicy.Presentation.LocalGatewayFlow,
             WorkspaceLinkModePolicy.presentation(connectionMode = "local", fixtureMode = false),
         )
+    }
+
+    // ---- 传输面判定（ConnectionManager.submitWorkspaceLink 单一决策点）----
+
+    @Test
+    fun `uses local gateway is true only for unfictured local mode`() {
+        assertTrue(WorkspaceLinkModePolicy.usesLocalGateway("local", fixtureMode = false))
+        // relay 面 / fixture / 未知模式一律走 relay 现状（relay 路径零变化锁）
+        assertFalse(WorkspaceLinkModePolicy.usesLocalGateway("relay", fixtureMode = false))
+        assertFalse(WorkspaceLinkModePolicy.usesLocalGateway("local", fixtureMode = true))
+        assertFalse(WorkspaceLinkModePolicy.usesLocalGateway(null, fixtureMode = false))
+        assertFalse(WorkspaceLinkModePolicy.usesLocalGateway("", fixtureMode = false))
+        assertFalse(WorkspaceLinkModePolicy.usesLocalGateway("LOC AL", fixtureMode = false))
     }
 
     // ---- 模式字面量冻结（GatewayConfigEntity.mode 值域锚点，防误改判定键）----
@@ -78,57 +95,35 @@ class WorkspaceLinkModePolicyTest {
         assertEquals("local", WorkspaceLinkModePolicy.MODE_LOCAL)
     }
 
-    // ---- 诚实文案：三入口统一、不提供+出路双要素、绝不伪装等待/失败 ----
+    // ---- 反转记录：U5 否定文案退役（三入口不再出现「本地模式不提供」否定语义）----
 
     @Test
-    fun `honest copy states non-provision with the relay way out`() {
-        val copy = InteractionHonesty.ZCODE_REMOTE_LOCAL_UNAVAILABLE
-        assertEquals(WorkspaceLinkModePolicy.LOCAL_UNAVAILABLE_COPY, copy)
-        // 不提供
-        assertTrue(copy.contains("本地模式不提供"))
-        assertTrue(copy.contains("ZCode 遥控取链"))
-        // 出路（Relay 接入）
-        assertTrue(copy.contains("Relay"))
-        // 绝不渲染成假等待/假失败语义
-        assertTrue(!copy.contains("排队") && !copy.contains("重试") && !copy.contains("失败"))
+    fun `u5 negative gate stays retired after the X-L reversal`() {
+        // 反转有据（docs/18 §5.3.2）：local 呈现 = 取链流转，与 relay 呈现同为
+        // 「取链」语义面——两者差异只在传输面（本地网关 vs relay WS），
+        // 任何模式都不再落入「不提供取链」的否定呈现。
+        val localPresentation = WorkspaceLinkModePolicy.presentation("local", fixtureMode = false)
+        val relayPresentation = WorkspaceLinkModePolicy.presentation("relay", fixtureMode = false)
+        assertTrue(localPresentation is WorkspaceLinkModePolicy.Presentation.LocalGatewayFlow)
+        assertTrue(relayPresentation is WorkspaceLinkModePolicy.Presentation.FullFlow)
+        // 二值呈现均为流转态：呈现层没有（也不该再有）不可用否定分支
+        assertTrue(
+            localPresentation == WorkspaceLinkModePolicy.Presentation.LocalGatewayFlow ||
+                localPresentation == WorkspaceLinkModePolicy.Presentation.FullFlow,
+        )
     }
 
-    // ---- 卡面状态投影（displayState；U5-M2）----
+    // ---- 呈现域封闭（旧 NotAvailableInLocal 分支退役回归锁）----
 
     @Test
-    fun `display state passes the controller state through untouched on full flow`() {
-        // relay 现状零改写锚点：全状态透传（含 Queued——relay 排队语义原样保留）
-        val states = listOf<WorkspaceLinkCard.State>(
-            WorkspaceLinkCard.State.Idle,
-            WorkspaceLinkCard.State.Requesting,
-            WorkspaceLinkCard.State.Ready(entryId = 3, deviceName = "desk-1"),
-            WorkspaceLinkCard.State.Queued,
-            WorkspaceLinkCard.State.Unavailable("ZCODE_LINK_UNAVAILABLE", "x"),
+    fun `presentation domain is the closed two-value reversal set`() {
+        val domain = setOf(
+            WorkspaceLinkModePolicy.presentation("relay", fixtureMode = false),
+            WorkspaceLinkModePolicy.presentation("local", fixtureMode = false),
+            WorkspaceLinkModePolicy.presentation(null, fixtureMode = true),
         )
-        for (state in states) {
-            assertEquals(
-                state,
-                WorkspaceLinkModePolicy.displayState(state, WorkspaceLinkModePolicy.Presentation.FullFlow),
-            )
-        }
-    }
-
-    @Test
-    fun `display state forces the honest local state regardless of underlying state`() {
-        // 本地模式绝不渲染排队/等待承诺：含既往 relay 期遗留的 Queued/Ready 一律强制诚实态
-        val states = listOf<WorkspaceLinkCard.State>(
-            WorkspaceLinkCard.State.Idle,
-            WorkspaceLinkCard.State.Requesting,
-            WorkspaceLinkCard.State.Ready(entryId = 3, deviceName = null),
-            WorkspaceLinkCard.State.Queued,
-            WorkspaceLinkCard.State.Unavailable("X", "m"),
-            WorkspaceLinkCard.State.NotAvailableInLocal,
-        )
-        for (state in states) {
-            assertEquals(
-                WorkspaceLinkCard.State.NotAvailableInLocal,
-                WorkspaceLinkModePolicy.displayState(state, WorkspaceLinkModePolicy.Presentation.NotAvailableInLocal),
-            )
-        }
+        assertEquals(2, domain.size)
+        assertTrue(domain.contains(WorkspaceLinkModePolicy.Presentation.FullFlow))
+        assertTrue(domain.contains(WorkspaceLinkModePolicy.Presentation.LocalGatewayFlow))
     }
 }

@@ -1189,11 +1189,19 @@ export interface WorkspaceLinkBegin {
 }
 
 /**
- * 受理段（commandDownlink workspace_link 分支第一步）：幂等键查重 → 落 accepted 行 +
+ * 受理段（workspace_link 命令面第一步；调用方 = commandDownlink relay 腿 / gateway
+ * localCommand 本地腿，docs/18 §5.3.1/§5.3.2）：幂等键查重 → 落 accepted 行 +
  * 审计（detail 只记 commandId/action/source，零 URL）。同 key 异 action →
  * COMMAND_KEY_CONFLICT（docs/14 §B.5 语义，revoke_device 同款）。
+ * X-L 批：input.source 审计通道位——缺省 'relay-command'（relay 面审计原文零变化），
+ * 本地网关腿传 'local-gateway'（通道如实入册，同一台账）。
  */
-export function beginWorkspaceLink(input: { deviceId: number; idempotencyKey: string }): WorkspaceLinkBegin {
+export function beginWorkspaceLink(input: {
+  deviceId: number
+  idempotencyKey: string
+  /** 审计 source 字段（通道如实）；缺省 'relay-command'。 */
+  source?: string
+}): WorkspaceLinkBegin {
   const db = getDatabase()
   const now = nowSec()
   const existing = db.prepare('SELECT * FROM remote_commands WHERE idempotency_key = ?').get(input.idempotencyKey) as
@@ -1216,7 +1224,7 @@ export function beginWorkspaceLink(input: { deviceId: number; idempotencyKey: st
     'command_accepted',
     input.deviceId,
     'success',
-    JSON.stringify({ commandId, action: 'workspace_link', source: 'relay-command' }),
+    JSON.stringify({ commandId, action: 'workspace_link', source: input.source ?? 'relay-command' }),
   )
   return { commandId, replayed: false }
 }

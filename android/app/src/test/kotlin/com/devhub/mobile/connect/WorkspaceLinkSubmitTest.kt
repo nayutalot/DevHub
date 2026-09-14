@@ -43,6 +43,26 @@ class WorkspaceLinkSubmitTest {
         assertEquals(WorkspaceLinkSubmit.Queued, WorkspaceLinkOutcome.timeout())
     }
 
+    // ---- X-L 本地面（docs/18 §5.3.2）：零排队面，失败一律结构化 Failed ----
+
+    @Test
+    fun `local terminal timeout resolves to structured Failed (never queued)`() {
+        val r = WorkspaceLinkOutcome.localTimeout()
+        assertTrue(r is WorkspaceLinkSubmit.Failed)
+        val f = r as WorkspaceLinkSubmit.Failed
+        assertEquals("TIMEOUT", f.code)
+        assertTrue(f.message.contains("本地网关") && f.message.contains("时限"))
+    }
+
+    @Test
+    fun `local not-connected resolves to structured Failed (never queued)`() {
+        val r = WorkspaceLinkOutcome.localNotConnected()
+        assertTrue(r is WorkspaceLinkSubmit.Failed)
+        val f = r as WorkspaceLinkSubmit.Failed
+        assertEquals("NOT_CONNECTED", f.code)
+        assertTrue(f.message.contains("本地网关未连接"))
+    }
+
     // ---- command_result 终态投影 ----
 
     @Test

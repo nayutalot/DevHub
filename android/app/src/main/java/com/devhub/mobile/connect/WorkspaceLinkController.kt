@@ -62,16 +62,14 @@ object WorkspaceLinkCard {
         /** 离线桌面/queued:true（行已入队同 key 补发）→ 排队提示照 relay 语义。 */
         data object Queued : State
 
-        /** 结构化不可用：桌面 ZCODE_LINK_UNAVAILABLE / 链接白名单复检拒绝 / 拒绝码。 */
+        /**
+         * 结构化不可用：桌面 ZCODE_LINK_UNAVAILABLE / 链接白名单复检拒绝 / 拒绝码 /
+         * X-L 本地面 TIMEOUT / NOT_CONNECTED（docs/18 §5.3.2 本地零排队面——失败如实落卡）。
+         */
         data class Unavailable(val code: String, val message: String) : State
 
-        /**
-         * U5 批（Z3 结论 B 方案①）：本地模式诚实态——本地帧协议无 workspace_link
-         * 结算回程（结构性恒 Queued），App 侧不发起取链；卡显三入口统一诚实文案
-         * （InteractionHonesty.ZCODE_REMOTE_LOCAL_UNAVAILABLE），绝不渲染排队/重试。
-         * 判定源 = WorkspaceLinkModePolicy（纯函数，:app 单测直锁）。
-         */
-        data object NotAvailableInLocal : State
+        // U5 批曾有的 NotAvailableInLocal 本地诚实态随 X-L 反转（docs/18 §5.3.2）
+        // 移除：本地网关命令面就位后 local 模式全流转，失败统一走 Unavailable 结构化投影。
     }
 
     /**
@@ -96,8 +94,10 @@ object WorkspaceLinkCard {
 
 /**
  * S 批「ZCode 工作区」智能条目控制器（应用内单例，DevHubApp.onCreate init）：
- * - `request()`：submitWorkspaceLink（relay 面）→ Executed 时自动建/更新置顶条目
- *   （固定标题定位；已有行 = 更新 URL 与时间戳，绝不堆积重复行）→ Ready(entryId)；
+ * - `request()`：submitWorkspaceLink（模式感知：local=本地网关命令面 / relay=relay 面，
+ *   路由在 ConnectionManager，单一决策点 = WorkspaceLinkModePolicy.usesLocalGateway）→
+ *   Executed 时自动建/更新置顶条目（固定标题定位；已有行 = 更新 URL 与时间戳，
+ *   绝不堆积重复行）→ Ready(entryId)；
  * - tab 打开自动请求（RemoteWorkspaceScreen LaunchedEffect）；幂等：Requesting 中
  *   重复请求直接忽略（避免风暴）；Queued/Unavailable 后再请求允许重试；
  * - 令牌红线：URL 只在 Room 条目（本机私有）与内存流转，零日志零外发。
@@ -134,25 +134,15 @@ object WorkspaceLinkController {
 
     /**
      * 发起一次链接查询（tab 打开自动 / 卡片点击重试）。Requesting 中幂等忽略。
-     * local 模式：submitWorkspaceLink 走 relay 帧面——未连接（含 local 无 relay WS）
-     * 一律 Queued 排队语义，绝不伪造成功。
      *
-     * U5 批模式门（Z3 结论 B 方案①；docs/briefs/u5-local-honest.md §1 #2）：
-     * local 模式（非 fixture 演示）**不发出 workspace_link 帧**——本地帧协议无
-     * command 结算回程，帧必然 10s 超时后入队（幂等键垃圾行），诚实态直接落卡，
-     * 零请求零入队零超时等待。relay/fixture/未知模式走现状路径（逐字节不变）。
+     * U5 批模式门已随 **X-L 反转**（docs/18 §5.3.2，docs/briefs/xl-local-cmd.md）移除：
+     * 本地网关 `command` 帧路由 + App 本地帧结算就位后，local 模式同样发起取链
+     * （经本地网关命令面，失败结构化如实投影、零排队面）；relay/fixture/未知模式
+     * 走现状路径（逐字节不变）。传输面判定收口在 ConnectionManager.submitWorkspaceLink。
      */
     fun request() {
         if (_state.value is WorkspaceLinkCard.State.Requesting) return
-        val ctx = appContext ?: return
-        if (WorkspaceLinkModePolicy.presentation(
-                connectionMode = ConnectionManager.configuredMode(),
-                fixtureMode = com.devhub.mobile.data.FixtureMode.enabled(ctx),
-            ) is WorkspaceLinkModePolicy.Presentation.NotAvailableInLocal
-        ) {
-            _state.value = WorkspaceLinkCard.State.NotAvailableInLocal
-            return
-        }
+        if (appContext == null) return
         _state.value = WorkspaceLinkCard.State.Requesting
         scope.launch {
             val submit = ConnectionManager.submitWorkspaceLink()

@@ -73,13 +73,10 @@ object InteractionHonesty {
     const val ZCODE_REMOTE_AGENTS_NOTE = "控制经 ZCode 遥控页（ZCode 自家认证）"
     const val ZCODE_REMOTE_FETCHING = "正在获取 ZCode 遥控链接…"
 
-    /**
-     * U5 批（Z3 结论 B 方案①）：本地模式 T1 遥控卡诚实态统一文案（三入口同文）。
-     * 本地模式（模拟器/同机专用，真机物理不可达 127.0.0.1；本地 WS 协议无 workspace_link
-     * 结算回程）结构性不提供遥控取链——如实说明「不提供 + 出路（Relay 接入）」，
-     * 绝不渲染成假等待（Queued）/假失败/假重试。
-     */
-    const val ZCODE_REMOTE_LOCAL_UNAVAILABLE = "本地模式不提供 ZCode 遥控取链 · 请使用 Relay 接入"
+    // U5 批的 ZCODE_REMOTE_LOCAL_UNAVAILABLE（「本地模式不提供 ZCode 遥控取链 ·
+    // 请使用 Relay 接入」）随 X-L 反转（docs/18 §5.3.2，2026-09-14）退役：本地网关
+    // 命令面就位后 local 模式同样取链（失败经 Unavailable 结构化文案如实投影，
+    // 不再使用「不提供」类否定文案）。
 
     /** R6 判定：服务端 CapabilitySet.mode == managed（数据驱动，绝不硬编码 provider 名）。 */
     const val MODE_MANAGED = "managed"

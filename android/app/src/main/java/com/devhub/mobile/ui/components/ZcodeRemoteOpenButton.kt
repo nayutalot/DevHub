@@ -80,10 +80,8 @@ internal object ZCodeRemoteEntryOp {
             // 排队真因是桌面侧 ZCode 工作区链路未就绪，文案如实区分（不写「电脑离线」）
             PendingSettle.GiveUp("桌面 ZCode 链路未就绪：链接请求已排队，就绪后再试")
         is WorkspaceLinkCard.State.Unavailable -> PendingSettle.GiveUp(state.message)
-        // U5 批（Z3 结论 B 方案①）：本地模式诚实态收口（请求门在控制器已拦帧，此态
-        // 仅模式切换瞬窗可达）——统一文案如实收口，绝不伪导航、绝不排队语义
-        is WorkspaceLinkCard.State.NotAvailableInLocal ->
-            PendingSettle.GiveUp(com.devhub.mobile.core.InteractionHonesty.ZCODE_REMOTE_LOCAL_UNAVAILABLE)
+        // U5 批的 NotAvailableInLocal 本地分支随 X-L 反转（docs/18 §5.3.2）移除：
+        // 本地模式全流转，失败统一 Unavailable 结构化收口（含本地 TIMEOUT/NOT_CONNECTED）
         WorkspaceLinkCard.State.Idle, WorkspaceLinkCard.State.Requesting -> PendingSettle.KeepWaiting
     }
 }
@@ -155,28 +153,8 @@ fun ZcodeRemoteOpenButton(
     }
 
     Column(modifier) {
-        // U5 批（Z3 结论 B 方案①）：本地模式诚实态——不渲染按钮（不可用能力绝不显示
-        // 为可用，无假可供性）、不排队不重试；noteText（转录只读语义）+ 统一诚实文案
-        // （不提供 + 出路 Relay 接入）。判定 = WorkspaceLinkModePolicy（activeMode +
-        // fixture 演示开关；纯函数单测直锁）。
-        val presentation = com.devhub.mobile.connect.WorkspaceLinkModePolicy.presentation(
-            connectionMode = com.devhub.mobile.connect.ConnectionManager.activeMode.collectAsState().value,
-            fixtureMode = com.devhub.mobile.data.FixtureMode.enabled(
-                androidx.compose.ui.platform.LocalContext.current,
-            ),
-        )
-        if (presentation is com.devhub.mobile.connect.WorkspaceLinkModePolicy.Presentation.NotAvailableInLocal) {
-            noteText?.let {
-                Text(it, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(2.dp))
-            }
-            Text(
-                com.devhub.mobile.core.InteractionHonesty.ZCODE_REMOTE_LOCAL_UNAVAILABLE,
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            return@Column
-        }
+        // U5 批的本地否定门随 X-L 反转（docs/18 §5.3.2）移除：本地模式同样渲染按钮
+        // 与全流转（取链经本地网关命令面，失败 Unavailable 结构化收口）。
         noteText?.let {
             Text(it, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(2.dp))

@@ -1,20 +1,18 @@
 package com.devhub.mobile.connect
 
 /**
- * U5 批（Z3 结论 B 主控裁决方案①；docs/briefs/u5-local-honest.md §1 #1）：
- * T1「ZCode 工作区」遥控卡「连接模式 → 呈现策略」纯判定（:app 单测直锁）。
+ * U5 批（Z3 结论 B 方案①）→ **X-L 批反转**（方案②落地，docs/18 §5.3.2；docs/briefs/
+ * xl-local-cmd.md）：T1「ZCode 工作区」遥控卡「连接模式 → 呈现策略」纯判定（:app 单测直锁）。
  *
- * 事实基线（Z3 侦察 REPORT.md 项2）：本地模式结构性永远 Queued——App 本地帧解析器
- * 无 command 结算概念（ConnectionManager.kt :486/:531/:584、WsFrames.kt:35-58）+
- * 本地网关 ws.ts 对 workspace_link 帧静默忽略，取链帧永无 command_ack/command_result
- * 回程 → 10s 超时 → 幂等键入队 → 恒 Queued。闭环需双端成对改 + docs/14 协议扩展，
- * 为纯开发场景（本地模式=模拟器/同机专用，真机物理不可达 127.0.0.1）不值当。
- * 裁决 = App 侧诚实文案：本地模式不发起取链、卡显「本地模式不提供 ZCode 遥控取链」。
+ * 反转依据（docs/18 §5.3.2 传输面就位）：本地网关 ws.ts 已路由 `command` 帧（U4 实证的
+ * 静默忽略消除）→ App 本地帧解析器结算 command_ack/command_result → 本地模式经本地网关
+ * 取链全流转。原「本地模式不提供 ZCode 遥控取链」否定门随真实传输面就位而**反转**：
+ * local → LocalGatewayFlow（经本地网关取链；失败结构化如实投影，本地零排队面）。
  *
  * **relay 模式逐字节不变**：FullFlow 分支 = 现状全流转（自动取链/Queued→Ready 流转/
  * U1-M4 分层文案/U2-M2 重试全保持，既有单测锁定处逐一核对）；fixture 演示模式同样
- * 走现状（任务书 §1 #1 三分口径）。未知/未配置（null，含启动瞬窗）→ 现状（默认开门），
- * 绝不因模式未知而改变既有 relay 行为。
+ * 走现状（任务书三分口径；fixture 恒 FullFlow——演示数据语义保持）。未知/未配置
+ * （null，含启动瞬窗）→ 现状（默认开门），绝不因模式未知而改变既有 relay 行为。
  */
 object WorkspaceLinkModePolicy {
 
@@ -22,36 +20,33 @@ object WorkspaceLinkModePolicy {
     const val MODE_RELAY = "relay"
     const val MODE_LOCAL = "local"
 
-    /** 三入口统一诚实文案（:core InteractionHonesty 文案族同源，此处别名引用）。 */
-    val LOCAL_UNAVAILABLE_COPY: String = com.devhub.mobile.core.InteractionHonesty.ZCODE_REMOTE_LOCAL_UNAVAILABLE
-
-    /** T1 卡呈现策略（二值：现状全流转 / 本地诚实态）。 */
+    /** T1 卡呈现策略（二值：现状全流转 / 本地网关全流转——X-L 反转后均为「取链」）。 */
     sealed interface Presentation {
-        /** relay / fixture 演示 / 未配置 → 现状全流转（取链、Queued→Ready、重试全保持）。 */
+        /** relay / fixture 演示 / 未配置 → 现状全流转（relay WS 命令面，逐字节不变）。 */
         data object FullFlow : Presentation
 
-        /** local → NotAvailableInLocal 态（不自动取链、点击不发起请求、不渲染排队/重试）。 */
-        data object NotAvailableInLocal : Presentation
+        /**
+         * local → 经本地网关取链（X-L 反转，docs/18 §5.3.2）：本地 WS command 命令面
+         * 全流转；失败 = 结构化如实投影（TIMEOUT/NOT_CONNECTED/ZCODE_LINK_UNAVAILABLE），
+         * 本地零排队面——绝不渲染排队/等待承诺。
+         */
+        data object LocalGatewayFlow : Presentation
     }
 
     /**
      * 模式判定（纯函数）：fixture 演示优先（现状，任务书三分口径第三支）；
-     * local → NotAvailableInLocal；relay/null/未知 → 现状全流转。
+     * local → LocalGatewayFlow（X-L 反转）；relay/null/未知 → 现状全流转。
      */
     fun presentation(connectionMode: String?, fixtureMode: Boolean): Presentation = when {
         fixtureMode -> Presentation.FullFlow
-        connectionMode == MODE_LOCAL -> Presentation.NotAvailableInLocal
+        connectionMode == MODE_LOCAL -> Presentation.LocalGatewayFlow
         else -> Presentation.FullFlow
     }
 
     /**
-     * 卡面状态投影（纯函数）：FullFlow → 控制器原状态透传（relay 现状零改写）；
-     * NotAvailableInLocal → 无论控制器现状态为何（含既往 relay 期遗留的 Queued/Ready）
-     * 一律强制诚实态——本地模式绝不渲染排队/等待承诺。
+     * 传输面判定（纯函数；ConnectionManager.submitWorkspaceLink 的单一决策点）：
+     * 仅「非 fixture 演示的 local」走本地网关命令面；其余一律 relay 面现状（逐字节不变）。
      */
-    fun displayState(state: WorkspaceLinkCard.State, presentation: Presentation): WorkspaceLinkCard.State =
-        when (presentation) {
-            is Presentation.FullFlow -> state
-            is Presentation.NotAvailableInLocal -> WorkspaceLinkCard.State.NotAvailableInLocal
-        }
+    fun usesLocalGateway(connectionMode: String?, fixtureMode: Boolean): Boolean =
+        presentation(connectionMode, fixtureMode) is Presentation.LocalGatewayFlow
 }

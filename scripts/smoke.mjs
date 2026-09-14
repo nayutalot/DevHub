@@ -15205,5 +15205,259 @@ if (isEntrypoint()) {
     assert.equal(applierCalls, 0, 'applier never reached on BAD_PAYLOAD')
   }, 'fast')
 
+  // ====================================================================
+  // X-L 批次（本地命令协议方案②——本地网关 workspace_link 请求面，docs/18 §5.3.2
+  // + 任务书）：xl-local-ws 一条追加。T1 本地模式结构性 Queued 根治的服务端半边：
+  // 真实 upgrade 鉴权（Bearer 设备 Token）→ attachWebSocketServer 协议路由 →
+  // 裸 socket 掩码客户端帧直驱（临时回环 ephemeral 端口，fast 档）。
+  // 令牌三零铁律同 S 批：sid/hash/mid/URL 全程 fake 值（运行时随机生成）；断言只对
+  // 形状/长度/前缀；审计/result_json 面断言零 URL 子串。
+  // ====================================================================
+
+  // 212. 本地网关 command 帧路由全链：workspace_link → ack(accepted, cmd-*) →
+  //      command_result(executed, result{provider,url,deviceName} 帧面回流)；
+  //      remote_commands.result_json + security_audit_logs + command.result 事件
+  //      三面零 URL 子串；审计 source='local-gateway'（通道如实）且缺省 source
+  //      仍 'relay-command'（relay 审计原文零变化锁）；缺文件 → failed
+  //      ZCODE_LINK_UNAVAILABLE 绝不 partial URL；同 key 重试原 commandId 重新拉取；
+  //      非法 action/缺幂等键/坏 sessionId → command_ack rejected BAD_PAYLOAD
+  //      （绝不再静默——U4 根因反例）；未知 type 帧静默忽略现状回归锁。
+  registerCase('xl-local-ws: gateway ws command routing — workspace_link command frame acks accepted then command_result executed carries result{provider,url,deviceName} in-frame with {provider}-only persistence and audit source local-gateway (relay default source stays relay-command), missing sources fold to failed ZCODE_LINK_UNAVAILABLE without partial URL, same-key retry re-pulls on the original row, malformed commands get structured rejected acks instead of silence, unknown frame types stay silently ignored', async () => {
+    const { createCipheriv, createHash, randomBytes } = await import('node:crypto')
+    const { createServer } = await import('node:http')
+    const { connect } = await import('node:net')
+    const zl = await import(new URL('../src/main/services/agentControl/zcodeLinkProvider.ts', import.meta.url).href)
+    const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+    const wsMod = await import(new URL('../src/main/services/agentControl/gateway/ws.ts', import.meta.url).href)
+    const acs = await import(new URL('../src/main/services/agentControl/agentControlService.ts', import.meta.url).href)
+
+    await makeTempHome('devhub-xl-local-ws-')
+    const db = dbModule.getDatabase()
+    // fake zcode 三文件（运行时随机 fake 值；信封用同源 fake 密钥真实加密——provider
+    // 的 GCM 校验是真实执行面；绝不触真实 ~/.zcode）
+    const fakeSid = `d_${randomBytes(10).toString('base64url')}`
+    const fakeMid = randomBytes(16).toString('hex')
+    const fakeHash = randomBytes(24).toString('base64url')
+    const envSecret = `smoke-env-secret-${randomBytes(8).toString('hex')}`
+    const iv = randomBytes(12)
+    const cipher = createCipheriv('aes-256-gcm', createHash('sha256').update(envSecret, 'utf8').digest(), iv)
+    const ct = Buffer.concat([cipher.update(fakeHash, 'utf8'), cipher.final()])
+    const fakeEnvelope = `enc:v1:${iv.toString('base64url')}.${cipher.getAuthTag().toString('base64url')}.${ct.toString('base64url')}`
+    let fakeFiles = {
+      'setting.json': JSON.stringify({ webRemoteControlExternalRelayDevice: { deviceSid: fakeSid } }),
+      'credentials.json': JSON.stringify({ [zl.ZCODE_PASS_HASH_CREDENTIAL_KEY]: fakeEnvelope }),
+      'telemetry-state.json': JSON.stringify({ deviceMid: fakeMid }),
+    }
+    zl.setZcodeLinkDepsForSmoke({
+      readFile: (p) => {
+        const name = p.split(/[\\/]/).pop()
+        if (!(name in fakeFiles)) throw new Error(`ENOENT: ${name}`)
+        return fakeFiles[name]
+      },
+      env: { ZCODE_CREDENTIAL_SECRET: envSecret },
+      deviceName: () => 'xl-local-host',
+    })
+
+    // 掩码客户端帧构造（RFC6455 §5.1 客户端帧必带掩码）
+    const maskClientFrame = (obj) => {
+      const payload = Buffer.from(JSON.stringify(obj), 'utf8')
+      const maskKey = randomBytes(4)
+      const masked = Buffer.from(payload)
+      for (let i = 0; i < masked.length; i += 1) masked[i] ^= maskKey[i % 4]
+      const header = payload.length < 126
+        ? Buffer.from([0x81, 0x80 | payload.length])
+        : Buffer.concat([Buffer.from([0x81, 0x80 | 126]), (() => { const b = Buffer.alloc(2); b.writeUInt16BE(payload.length, 0); return b })()])
+      return Buffer.concat([header, maskKey, masked])
+    }
+
+    // WS 端点起停（ephemeral 回环端口；heartbeat 关闭窗内即清，绝不触 8746-8755 门禁段）
+    const server = createServer(() => {})
+    const wsHandle = wsMod.attachWebSocketServer(server)
+    await new Promise((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(0, '127.0.0.1', resolve)
+    })
+    const port = server.address().port
+
+    // 设备行（token_hash = sha256(token)——真实 upgrade 鉴权面；FK 需要真实设备）
+    const now = Math.floor(Date.now() / 1000)
+    const deviceToken = `xl-local-dev-token-${randomBytes(16).toString('hex')}`
+    const tokenHash = createHash('sha256').update(deviceToken, 'utf8').digest('hex')
+    const devInfo = db
+      .prepare(
+        "INSERT INTO remote_devices (device_name, platform, token_hash, token_version, status, paired_at, created_at, updated_at) VALUES ('xl-local-phone', 'android', ?, 1, 'active', ?, ?, ?)",
+      )
+      .run(tokenHash, now, now, now)
+    const deviceId = Number(devInfo.lastInsertRowid)
+
+    // 裸 socket WS 客户端（upgrade 握手 → 服务端帧增量解析）
+    let serverBuf = Buffer.alloc(0)
+    let handshakeDone = false
+    const allFrames = []
+    const client = connect(port, '127.0.0.1')
+    client.on('data', (d) => {
+      serverBuf = Buffer.concat([serverBuf, d])
+      if (!handshakeDone) {
+        const sep = serverBuf.indexOf('\r\n\r\n')
+        if (sep >= 0) {
+          serverBuf = serverBuf.subarray(sep + 4) // 剥离 HTTP/1.1 101 握手响应
+          handshakeDone = true
+        }
+      }
+    })
+    const opened = new Promise((resolve, reject) => {
+      client.once('connect', () => {
+        client.write(
+          'GET /v1/events HTTP/1.1\r\n' +
+          `Host: 127.0.0.1:${port}\r\n` +
+          'Upgrade: websocket\r\n' +
+          'Connection: Upgrade\r\n' +
+          `Sec-WebSocket-Key: ${randomBytes(16).toString('base64')}\r\n` +
+          'Sec-WebSocket-Version: 13\r\n' +
+          `Authorization: Bearer ${deviceToken}\r\n` +
+          '\r\n',
+        )
+        resolve()
+      })
+      client.once('error', reject)
+    })
+    /** 从 serverBuf 增量提取一帧（服务端发帧不掩码：FIN+opcode + 7/16bit 长度 + JSON）。 */
+    const tryExtractFrame = () => {
+      const buf = serverBuf
+      if (buf.length < 2) return null
+      const opcode = buf[0] & 0x0f
+      let len = buf[1] & 0x7f
+      let headerLen = 2
+      if (len === 126) {
+        if (buf.length < 4) return null
+        len = buf.readUInt16BE(2)
+        headerLen = 4
+      }
+      if (buf.length < headerLen + len) return null
+      serverBuf = buf.subarray(headerLen + len)
+      return { opcode, json: JSON.parse(buf.subarray(headerLen, headerLen + len).toString('utf8')) }
+    }
+    const waitFrame = async (pred, timeoutMs = 4000) => {
+      const deadline = Date.now() + timeoutMs
+      for (;;) {
+        if (handshakeDone) {
+          for (;;) {
+            const f = tryExtractFrame()
+            if (f === null) break
+            allFrames.push(f)
+          }
+        }
+        const hit = allFrames.find(pred)
+        if (hit !== undefined) return hit
+        if (Date.now() > deadline) throw new Error(`waitFrame timeout (got types: ${allFrames.map((f) => f.json.type).join(',') || 'none'})`)
+        await new Promise((r) => setTimeout(r, 20))
+      }
+    }
+    const sendCommand = (obj) => client.write(maskClientFrame(obj))
+
+    try {
+      await opened
+      const hello = await waitFrame((f) => f.json.type === 'hello')
+      assert.equal(hello.json.device, deviceId, 'hello binds the authenticated device (upgrade auth through the real path)')
+
+      // A) 正路：command workspace_link → ack accepted + result executed
+      sendCommand({ type: 'command', requestId: 'xl-req-1', idempotencyKey: 'xl-key-1', action: 'workspace_link', payload: {} })
+      const ack = await waitFrame((f) => f.json.type === 'command_ack' && f.json.idempotencyKey === 'xl-key-1')
+      const result = await waitFrame((f) => f.json.type === 'command_result' && f.json.idempotencyKey === 'xl-key-1')
+      assert.equal(ack.json.requestId, 'xl-req-1', 'requestId echoed')
+      assert.equal(ack.json.status, 'accepted')
+      assert.match(ack.json.commandId, /^cmd-/, 'ack carries the L3 commandId')
+      assert.equal(result.json.requestId, 'xl-req-1', 'result echoes requestId')
+      assert.equal(result.json.action, 'workspace_link')
+      assert.equal(result.json.status, 'executed')
+      assert.equal(result.json.errorCode, null)
+      assert.equal(result.json.result?.provider, 'zcode', 'result carries provider zcode')
+      assert.equal(typeof result.json.result?.url, 'string', 'result carries an in-frame url')
+      assert.ok(result.json.result.url.startsWith('https://zcode.z.ai/remote/v4?'), 'url v4 prefix (shape only)')
+      assert.ok(result.json.result.url.length < 400, 'url length sane')
+      assert.equal(result.json.result.deviceName, 'xl-local-host', 'result carries deviceName')
+      assert.equal(typeof result.json.timestamp, 'number', 'result carries timestamp')
+      // 令牌三零（帧面之外三处台账零 URL 子串）：result_json / 审计 / command.result 事件
+      const cmdRow = db.prepare('SELECT action, status, result_json, error_code FROM remote_commands WHERE command_id = ?').get(ack.json.commandId)
+      assert.equal(cmdRow.action, 'workspace_link')
+      assert.equal(cmdRow.status, 'executed')
+      assert.ok(!cmdRow.result_json.includes('http') && !cmdRow.result_json.includes('sid=') && !cmdRow.result_json.includes('remote/v4'), 'result_json has zero URL substrings')
+      assert.ok(cmdRow.result_json.includes('"provider":"zcode"'), 'result_json records {provider} only')
+      const audits = db.prepare("SELECT action, detail_json FROM security_audit_logs WHERE category = 'command' AND detail_json LIKE ?").all(`%${ack.json.commandId}%`)
+      assert.ok(audits.length >= 2, 'accept + execute audits recorded')
+      for (const a of audits) {
+        assert.ok(!a.detail_json.includes('http') && !a.detail_json.includes('sid='), `audit ${a.action} stays URL-free`)
+      }
+      const acceptAudit = audits.find((a) => a.action === 'command_accepted')
+      assert.ok(acceptAudit !== undefined && acceptAudit.detail_json.includes('"source":"local-gateway"'), 'accept audit marks the local-gateway channel')
+      const ev = db.prepare("SELECT payload_json FROM agent_events WHERE event_type = 'command.result' ORDER BY id DESC LIMIT 1").get()
+      assert.ok(ev !== undefined, 'command.result event recorded')
+      assert.ok(!ev.payload_json.includes('http') && !ev.payload_json.includes('sid='), 'event payload stays URL-free ({provider}-shaped)')
+
+      // B) 审计通道缺省锁：直调 beginWorkspaceLink 不带 source → relay-command 原文
+      const begunDefault = acs.beginWorkspaceLink({ deviceId, idempotencyKey: 'xl-default-src-key' })
+      const defaultSrcAudit = db.prepare("SELECT detail_json FROM security_audit_logs WHERE detail_json LIKE ? AND action = 'command_accepted'").all(`%${begunDefault.commandId}%`)[0]
+      assert.ok(defaultSrcAudit !== undefined, 'default-source audit row present')
+      assert.ok(defaultSrcAudit.detail_json.includes('"source":"relay-command"'), 'default audit source stays relay-command (relay path byte-identical lock)')
+
+      // C) 同 key 重试：原 commandId 原行 + 重新拉取
+      sendCommand({ type: 'command', requestId: 'xl-req-1r', idempotencyKey: 'xl-key-1', action: 'workspace_link', payload: {} })
+      const replayAck = await waitFrame((f) => f.json.type === 'command_ack' && f.json.idempotencyKey === 'xl-key-1' && f.json.requestId === 'xl-req-1r')
+      const replayResult = await waitFrame((f) => f.json.type === 'command_result' && f.json.idempotencyKey === 'xl-key-1' && f.json.commandId === ack.json.commandId)
+      assert.equal(replayAck.json.commandId, ack.json.commandId, 'retry replays the original commandId')
+      assert.equal(replayResult.json.status, 'executed', 'retry re-pulls as a fresh query')
+      assert.equal(db.prepare('SELECT COUNT(*) c FROM remote_commands WHERE idempotency_key = ?').get('xl-key-1').c, 1, 'still exactly one command row')
+
+      // D) 失败面：三文件缺失 → failed ZCODE_LINK_UNAVAILABLE（绝不 partial URL）
+      fakeFiles = {}
+      sendCommand({ type: 'command', requestId: 'xl-req-2', idempotencyKey: 'xl-key-2', action: 'workspace_link', payload: {} })
+      const failAck = await waitFrame((f) => f.json.type === 'command_ack' && f.json.idempotencyKey === 'xl-key-2')
+      const failResult = await waitFrame((f) => f.json.type === 'command_result' && f.json.idempotencyKey === 'xl-key-2')
+      assert.equal(failAck.json.status, 'accepted', 'accept happens before the rebuild (honest sequencing)')
+      assert.equal(failResult.json.status, 'failed')
+      assert.equal(failResult.json.errorCode, 'ZCODE_LINK_UNAVAILABLE')
+      assert.equal(failResult.json.result, undefined, 'failure carries no result object (never a partial URL)')
+      const failRow = db.prepare('SELECT status, error_code, result_json FROM remote_commands WHERE idempotency_key = ?').get('xl-key-2')
+      assert.equal(failRow.status, 'failed')
+      assert.equal(failRow.error_code, 'ZCODE_LINK_UNAVAILABLE')
+      assert.ok(!failRow.result_json.includes('http'), 'failed row result_json stays URL-free')
+
+      // E) 结构化拒绝（U4 反例收口）：非法 action / 缺幂等键 / 坏 sessionId → rejected
+      sendCommand({ type: 'command', requestId: 'xl-req-3', idempotencyKey: 'xl-key-3', action: 'reply', payload: { text: 'nope' } })
+      sendCommand({ type: 'command', requestId: 'xl-req-4', action: 'workspace_link' })
+      sendCommand({ type: 'command', requestId: 'xl-req-5', idempotencyKey: 'xl-key-5', action: 'workspace_link', sessionId: -3 })
+      const rej3 = await waitFrame((f) => f.json.type === 'command_ack' && f.json.requestId === 'xl-req-3')
+      const rej4 = await waitFrame((f) => f.json.type === 'command_ack' && f.json.requestId === 'xl-req-4')
+      const rej5 = await waitFrame((f) => f.json.type === 'command_ack' && f.json.requestId === 'xl-req-5')
+      for (const r of [rej3, rej4, rej5]) {
+        assert.equal(r.json.status, 'rejected', `request ${r.json.requestId} gets a structured rejection (never silence)`)
+        assert.equal(r.json.errorCode, 'BAD_PAYLOAD', 'rejection carries BAD_PAYLOAD')
+      }
+      assert.equal(rej3.json.idempotencyKey, 'xl-key-3', 'keyed rejection echoes the idempotency key')
+      assert.equal(rej4.json.idempotencyKey, undefined, 'keyless rejection omits the key (never fabricates one)')
+      assert.equal(db.prepare("SELECT COUNT(*) c FROM remote_commands WHERE idempotency_key LIKE 'xl-key-%'").get().c, 2, 'only the two valid keys hit the ledger')
+
+      // F) 未知 type 帧静默忽略现状回归锁（v1 语义保持；sync 仍走事件补发面）
+      const before = allFrames.length
+      sendCommand({ type: 'totally-unknown-frame', x: 1 })
+      await new Promise((r) => setTimeout(r, 150))
+      if (handshakeDone) {
+        for (;;) {
+          const f = tryExtractFrame()
+          if (f === null) break
+          allFrames.push(f)
+        }
+      }
+      const tail = allFrames.slice(before)
+      assert.equal(tail.filter((f) => f.json.type === 'command_ack' || f.json.type === 'command_result').length, 0, 'unknown types stay command-silent (v1 semantics preserved)')
+    } finally {
+      client.destroy()
+      wsHandle.closeAll('smoke end')
+      await new Promise((resolve) => { server.close(() => resolve()); server.closeAllConnections?.() })
+      zl.setZcodeLinkDepsForSmoke(null)
+      dbModule.closeDatabase()
+    }
+  }, 'fast')
+
     await run(parseTierArg())
 }
