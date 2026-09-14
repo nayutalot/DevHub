@@ -388,6 +388,44 @@ host 曾离线且事件未回填/已被淘汰）→ 事件缺口的权威补齐�
   越窗），三路合计轮换投递两腿闭环。实现锚点：`ecs-relay/src/forwarder.ts`（M3-C7a 修①/修②）；
   自检覆盖：`ecs-relay/src/selfcheck.mjs` §11（token 轮换宽限三态 + disconnect 单一语义）。
 
+#### 3.14.1 token_rotation 离线补投（W3 批正式入册，2026-09-14；裁决=甲档全收，编码不立项）
+
+> 依据：`docs/token-rotation-replay-proposal.md`（W3 批产出）+ 主控终裁（2026-09-14）：
+> D1=内存 Map（不建新表）/ D2=接受重启缺口（重配对为契约恢复路径）/ D3=单设备单槽 /
+> D4=绝不越窗 300s / D5=寿命单源 / D6=不适用 / D7=三防线零新认证材料。本节为**契约化
+> 现状**（零编码、零帧形改动、零新认证材料）。
+
+**三路投递语义**（本节为 §3.14 M3-C7a 增补段的契约定装）：
+
+1. **直投**：轮换受理时设备存在活跃 device-leg 连接 → 原帧直投（`forwarder.ts:1066-1071`）；
+   成功即撤销补偿登记（`:1076`）。
+2. **pair 冲刷窗**：`pair_accepted` 发出后裸连接保留 5s 短窗（`RELAY_PAIR_ROTATION_FLUSH_SEC`，
+   缺省 5）等待同秒轮换帧，窗内冲刷后按原语义关闭引导 Bearer 重连（`forwarder.ts:192-208,
+   1078-1082`）。
+3. **内存补偿**：两路皆不可达 → 完整帧（含明文 Token，仅内存，绝不落盘/落日志/落审计）登记
+   `pendingRotations`（`forwarder.ts:101,1084`）；设备在 grace 窗内以旧凭据重连（viaGrace 准入，
+   `auth.ts:91-100`）即补投当前 token（`forwarder.ts:216-226`）。
+
+**契约红线（甲档五条）**：
+
+- **单槽覆盖**：每设备至多一帧待补投，新轮换覆盖旧登记（`forwarder.ts:1084` 直接 set）——设备
+  只需当前版本（tokenVersion 绝对值语义 + App 端单调门 `Stale` 零写入，重复/乱序补投天然幂等）。
+- **绝不越窗**：补投条目寿命与 `grace_expires_at` **同源**（登记时 `nowSec + rotationGraceSec`，
+  `sql/0002_rotation_grace.sql:15` 同一权威值；补投前复查 `forwarder.ts:219-223`，窗过期清扫即清
+  `:606-610`，窗外旧凭据 auth 层 401 收口 `auth.ts:97-103`）——补投绝不延长旧凭据有效面。
+- **寿命单源时钟**：登记/补投/清退只认 `grace_expires_at` 一源；撤销即清（`forwarder.ts:1109`）、
+  新凭据准入即清（`:167`）、窗过期清扫即清（`:608-610`）——绝不引入第二时钟或第二清退规则。
+- **三防线（安全边界）**：①补投只经已鉴权连接发送（viaGrace 准入本身即认证事实），零新认证
+  握手/材料；②重放防线 = App 端 tokenVersion 单调门 + ECS 端单槽只持当前版本 + 窗界清扫；
+  ③帧形零扩展——补投帧与首发帧逐字节同形（`forwarder.ts:1056-1062` 同一构造）。
+- **重启缺口为已知边界（接受）**：`pendingRotations` 为进程内存，relay 重启即失；窗内重连的
+  设备经 viaGrace 准入但补投不发生，滞留旧版至窗过 401 → **重配对路径**（§3.14「401 → 走
+  重配对路径」明文语义，App 端 `onAuthFatal` 清凭据回配对页）。不为其扩展持久层（明文 Token
+  绝不落盘红线，docs/19 §3.2）或新帧（帧形零扩展优先）。
+
+明确不做：把 token_rotation 纳入 sync 补发（§3.12 sync 仅承载 event 帧）；多设备广播式轮换
+（帧为 per-device 路由语义，deviceId 必填，偏离单 #2）；持久化待投帧（明文红线）。
+
 ### 3.15 disconnect（优雅关闭）
 
 ```json

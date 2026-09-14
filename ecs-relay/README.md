@@ -157,10 +157,16 @@ curl --cacert ca.crt https://59.110.149.11/v1/health   # 200 {ok,name,version,up
     宽限三态：新凭据恒 200；旧凭据窗内 200（`viaGrace` 准入，审计 `token_rotation_grace_admitted`）；
     窗外 401 `RELAY_DEVICE_UNKNOWN`（审计 `token_rotation_grace_expired`，设备走重配对路径）。
     窗口过期时仍存活的宽限连接由清扫先发 `disconnect{superseded}`（§3.15 E→D 合法 reason）再关闭
-    （审计 `token_rotation_grace_closed`）——「300s 后失效」对热连接同样成立。**离线设备不补投
-    rotation 帧**：契约（docs/18 §3.0 帧表 #14 重发列「—」；§3.12 sync 仅承载 event 帧）未定义
-    补发信道，错过帧的设备 = 宽限窗内重连可继续用、窗外 401 → 重配对（契约明文路径）；若需
-    「重连补投」须先修订 docs/18。
+    （审计 `token_rotation_grace_closed`）——「300s 后失效」对热连接同样成立。
+    **离线设备补投（M3-C7a 修②后更正，2026-09-14）**：本条旧文「离线设备不补投 rotation 帧」
+    **作废**——C7a 修②已实现窗内补投两腿：轮换发生时设备无任何可投连接 → 完整帧（明文仅内存，
+    绝不落盘/落日志/落审计）登记 `pendingRotations`（`src/forwarder.ts:101,1084`），设备在 grace
+    300s 窗内以旧凭据重连（viaGrace 准入）即补投当前 token（`src/forwarder.ts:216-226`）；pair
+    受理同秒轮换另有 5s 冲刷窗（`pairRotationFlushMs`，修①，`src/forwarder.ts:192-208`）。契约
+    语义见 docs/18 §3.14.1（W3 批正式入册）。**已知边界（甲档接受，2026-09-14 主控裁）**：
+    补投表为进程内存，relay 重启即失——窗内重连的设备经 viaGrace 准入但补投不发生，滞留旧版
+    至窗过 401 → 重配对（契约明文恢复路径，docs/18 §3.14「401 → 走重配对路径」）；补投绝不越
+    300s 窗（`src/forwarder.ts:219-223,608-610` + auth 层收口 `src/auth.ts:97-103`）。
 12. **disconnect/token_rotation deviceId 单一语义（M3-C3b 修2，docs/18 §3.15）**：两帧的
     `deviceId` 一律 = Windows 侧 `remote_devices.id`（即 `relay_devices.win_device_id`）——
     仅 win_device_id 命中才路由；未命中（含与 `relay_devices.id` 撞号）→ 丢弃 + 审计
