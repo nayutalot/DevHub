@@ -46,6 +46,7 @@ import {
   setOverlayEnabled,
 } from './overlayWire.ts'
 import { shutdownAgentControlRuntime } from './services/agentControl/agentControlService.ts'
+import { initUpdaterWire } from './updaterWire.ts'
 
 /** Windows 通知/托盘归属前置（AC0 审计：现缺，docs/12 §10）。 */
 const APP_USER_MODEL_ID = 'com.devhub.app'
@@ -376,6 +377,12 @@ function bootstrapMainProcess(): void {
       void import('./services/agentControl/relayClient/index.ts')
         .then((relay) => relay.applyRelaySettings())
         .catch((err) => logger.error(`relay client startup failed: ${errorMessage(err)}`))
+
+      // X-U 批 App 自更新接线（docs/briefs/xu-updater.md）：独立 wire 薄挂——
+      // app.isPackaged=false 全链禁用；打包态启动后延迟 60s 静默检查一次（仅
+      // 发现新版 toast，绝不自动下载）；失败结构化日志零打扰；退出链零触碰
+      // （不挂 before-quit 不改 quitTransition，静默定时器 unref 不阻塞退出）
+      initUpdaterWire({ isQuitting: () => isQuitting })
 
       mainWindow = createWindow()
 

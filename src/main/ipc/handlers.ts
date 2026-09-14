@@ -93,6 +93,7 @@ import {
 } from '../services/skillService.ts'
 import { findByPort, listServices, refreshServices } from '../services/servicesService.ts'
 import { getSetting, setSetting } from '../services/settingsService.ts'
+import { getUpdateController } from '../services/updateCenter/updateRegistry.ts'
 import {
   containerAction,
   containerLogs,
@@ -390,7 +391,9 @@ export const contractCoversWhitelist: AssertContractCoversWhitelist = true
   * + CP4 contestpin 提醒 3 条 = 100
   * + LR1 LLM 复核层 4 条 = 104
   * + CP5 contestpin Agent 模式 4 条 = 108
-  * + CP6 contestpin 备份恢复 2 条 = 110）。
+  * + CP6 contestpin 备份恢复 2 条 = 110
+  * + D5 dialog 1 条 = 111
+  * + X-U updates 4 条 = 115）。
  */
 export type HandlerRegistry = Record<IpcChannel, ChannelHandler>
 
@@ -1310,6 +1313,60 @@ export function createHandlerRegistry(deps: HandlerDeps): HandlerRegistry {
         ...(defaultPath !== undefined ? { defaultPath } : {}),
         ...(title !== undefined ? { title } : {}),
       })
+    },
+
+    // --- updates（X-U 批次，docs/briefs/xu-updater.md + docs/09 §9 注记：App
+    // 自更新 4 条——status READ_ONLY 状态快照 / check / download / install 动作
+    // 受理。控制器经 updateRegistry 单例注入（updaterWire 生产接线，keyStore
+    // setKeyCrypto 同款先例，本模块保持零 electron import）；未注入（纯 Node/
+    // 测试环境）= NOT_AVAILABLE 结构化错误；download/install 的用户确认前置在
+    // renderer UI，控制器再按状态机拒绝（available/downloaded 门），绝不自动
+    // 下载绝不静默重启） ---
+    'updates:status': async () => {
+      const controller = getUpdateController()
+      if (controller === null) {
+        throw new ServiceError(
+          'NOT_AVAILABLE',
+          'updates:status requires the update controller (unavailable outside the main process)',
+        )
+      }
+      return controller.getStatus()
+    },
+    'updates:check': async () => {
+      const controller = getUpdateController()
+      if (controller === null) {
+        throw new ServiceError(
+          'NOT_AVAILABLE',
+          'updates:check requires the update controller (unavailable outside the main process)',
+        )
+      }
+      const result = controller.startManualCheck()
+      if (!result.ok) throw new ServiceError(result.code, result.message)
+      return { started: true }
+    },
+    'updates:download': async () => {
+      const controller = getUpdateController()
+      if (controller === null) {
+        throw new ServiceError(
+          'NOT_AVAILABLE',
+          'updates:download requires the update controller (unavailable outside the main process)',
+        )
+      }
+      const result = controller.startDownload()
+      if (!result.ok) throw new ServiceError(result.code, result.message)
+      return { started: true }
+    },
+    'updates:install': async () => {
+      const controller = getUpdateController()
+      if (controller === null) {
+        throw new ServiceError(
+          'NOT_AVAILABLE',
+          'updates:install requires the update controller (unavailable outside the main process)',
+        )
+      }
+      const result = controller.installConfirmed()
+      if (!result.ok) throw new ServiceError(result.code, result.message)
+      return { installing: true }
     },
 
     // --- LLM 复核层（LR1 批次，docs/04「LR1 追加」节；4 条全 READ_ONLY。

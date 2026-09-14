@@ -22,11 +22,11 @@
  * 只加 keydown 监听，useState 路由与 hash 映射机制原样。
  */
 
-import { Component, Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
+import { Component, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ComponentType, ReactNode } from 'react'
 import { Sidebar } from './components/Sidebar.tsx'
 import { ConfirmProvider } from './components/ConfirmDialog.tsx'
-import { ToastHost, ToastProvider } from './components/ToastProvider.tsx'
+import { ToastHost, ToastProvider, useToast } from './components/ToastProvider.tsx'
 import { AppContext, type ViewTarget } from './lib/appContext.ts'
 import { call } from './lib/ipc.ts'
 import { useAsync } from './lib/useAsync.ts'
@@ -163,6 +163,56 @@ export default function App() {
   return <MainApp />
 }
 
+/**
+ * 静默检查新版的全局 toast 宣布（X-U 批，docs/briefs/xu-updater.md §1 #2）：
+ * main 侧启动后延迟 60s 静默检查（绝不自动下载），发现新版置 silentAnnounced；
+ * 本 hook 以 30s 低频轮询 updates:status（READ_ONLY 进程内快照，无广播 channel
+ * 的既有轮询纪律，docs/14 §A.3 同款）观察该标志，发现即 toast 一次（按版本号
+ * 去重，同版本会话内只报一次）。dev 模式 NOT_AVAILABLE 静默吞掉（零打扰）。
+ */
+const UPDATES_ANNOUNCE_POLL_MS = 30_000
+
+function useUpdateSilentAnnouncer(): void {
+  const { show } = useToast()
+  const announcedRef = useRef<string | null>(null)
+  const showRef = useRef(show)
+  showRef.current = show
+  useEffect(() => {
+    let cancelled = false
+    let timer: number | undefined
+    const tick = async (): Promise<void> => {
+      try {
+        const s = await call('updates:status', {})
+        if (cancelled) return
+        if (
+          s.supported &&
+          s.silentAnnounced &&
+          typeof s.availableVersion === 'string' &&
+          s.availableVersion.length > 0 &&
+          announcedRef.current !== s.availableVersion
+        ) {
+          announcedRef.current = s.availableVersion
+          showRef.current(`发现新版本 v${s.availableVersion}——到「Agents」页「检查更新」卡可下载安装（不会自动下载）`)
+        }
+      } catch {
+        // dev（app.isPackaged=false）/ 网关异常：静默零打扰（任务书 §1 #2）
+      }
+      if (!cancelled) timer = window.setTimeout(() => void tick(), UPDATES_ANNOUNCE_POLL_MS)
+    }
+    void tick()
+    return () => {
+      cancelled = true
+      if (timer !== undefined) window.clearTimeout(timer)
+    }
+  }, [])
+}
+
+/** 渲染零产出的 announcer 宿主：必须挂在 ToastProvider 内部（toast context 可用）。 */
+function UpdateAnnouncerHost(): null {
+  useUpdateSilentAnnouncer()
+  return null
+}
+
 function MainApp() {
   const [target, setTarget] = useState<ViewTarget>(initialTarget)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -233,6 +283,9 @@ function MainApp() {
       {/* 应用内统一确认弹窗（AUDIT D-Aud A5，D5-M5）：全部 window.confirm 调用点
           迁移为 cp-modal 式 ConfirmProvider（确认时机语义零变化） */}
       <ToastProvider>
+        {/* X-U 批：静默检查新版的 toast 宣布宿主（必须在 ToastProvider 内部，
+            30s 低频轮询 updates:status 进程内快照，按版本号去重只报一次） */}
+        <UpdateAnnouncerHost />
         <ConfirmProvider>
           <div className="app">
             <Topbar view={target.view} />
