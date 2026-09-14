@@ -29,7 +29,9 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { Badge, stateTone } from '../components/Badge.tsx'
 import type { BadgeTone } from '../components/Badge.tsx'
 import { ExpandableText } from '../components/ExpandableText.tsx'
-import { EmptyState, ErrorState, InlineState, Loading, Spinner, Toast, useToast } from '../components/StateViews.tsx'
+import {EmptyState, ErrorState, InlineState, Loading, Spinner,} from '../components/StateViews.tsx'
+import { useConfirm } from '../components/ConfirmDialog.tsx'
+import { useToast } from '../components/ToastProvider.tsx'
 import { relativeTime, toMs } from '../lib/format.ts'
 import { call } from '../lib/ipc.ts'
 import { useAsync } from '../lib/useAsync.ts'
@@ -291,7 +293,7 @@ function ControlBar({ monitorEnabled, autostartEnabled, onChanged }: {
   autostartEnabled: boolean | undefined
   onChanged: () => void
 }) {
-  const { toast, show } = useToast()
+  const { show } = useToast()
   const [busy, setBusy] = useState<string | null>(null)
 
   async function toggle(kind: 'monitor' | 'autostart', next: boolean): Promise<void> {
@@ -335,7 +337,6 @@ function ControlBar({ monitorEnabled, autostartEnabled, onChanged }: {
         {busy === 'autostart' && <Spinner />}
       </label>
       <span className="td-dim">托盘常驻：关窗 = 隐藏窗口，监控持续；退出请走托盘菜单「退出 DevHub」</span>
-      <Toast toast={toast} />
     </div>
   )
 }
@@ -387,7 +388,7 @@ function ProvidersPanel({ providers, monitorEnabled, loading, error, onRefresh }
   const state = resolvePanelState(providers, loading, error)
   // 夜间#1 批次：per-provider 单独重探（agents:probeProvider）。四态：idle →
   // probing（按钮内 spinner）→ ok/err（toast 结构化），错误含 {code,message}。
-  const { toast, show } = useToast()
+  const { show } = useToast()
   const [probingId, setProbingId] = useState<number | null>(null)
 
   async function reprobe(providerId: number, displayName: string): Promise<void> {
@@ -470,7 +471,6 @@ function ProvidersPanel({ providers, monitorEnabled, loading, error, onRefresh }
           </div>
         ))}
       </div>
-      <Toast toast={toast} />
     </>
   )
 }
@@ -892,7 +892,8 @@ function DevicesPanel({ devices, loading, error, onRetry, onChanged }: {
   onRetry: () => void
   onChanged: () => void
 }) {
-  const { toast, show } = useToast()
+  const { show } = useToast()
+  const confirm = useConfirm()
   const [busyId, setBusyId] = useState<number | null>(null)
 
   async function revoke(device: AgentDeviceView): Promise<void> {
@@ -906,7 +907,7 @@ function DevicesPanel({ devices, loading, error, onRetry, onChanged }: {
           `last seen: ${first.impacts.lastSeenAt !== undefined ? relativeTime(first.impacts.lastSeenAt) : '—'}`,
           first.impacts.note,
         ]
-        if (window.confirm(lines.join('\n'))) {
+        if (await confirm({ body: lines.join('\n'), danger: true })) {
           const done = await call('agents:deviceRevoke', { deviceId: device.id, confirmed: true })
           if (done.confirmRequired === true) return
           show(`设备 #${device.id} 已撤销（token 即拒 + 审计落库）`)
@@ -960,7 +961,6 @@ function DevicesPanel({ devices, loading, error, onRetry, onChanged }: {
         </tbody>
       </table>
       </div>
-      <Toast toast={toast} />
     </div>
   )
 }
@@ -976,7 +976,8 @@ function GatewayPanel({ status, loading, error, onRetry, onChanged }: {
   onRetry: () => void
   onChanged: () => void
 }) {
-  const { toast, show } = useToast()
+  const { show } = useToast()
+  const confirm = useConfirm()
   const [busy, setBusy] = useState(false)
   const [pairing, setPairing] = useState<{ code: string; expiresAt: number } | null>(null)
   const [pairingBusy, setPairingBusy] = useState(false)
@@ -995,7 +996,7 @@ function GatewayPanel({ status, loading, error, onRetry, onChanged }: {
       const first = await call('agents:gatewayRestart', {})
       if (first.confirmRequired === true) {
         const lines = ['重启远程网关？', `活跃连接：${first.impacts.activeConnections}`, first.impacts.note]
-        if (window.confirm(lines.join('\n'))) {
+        if (await confirm({ body: lines.join('\n'), danger: true })) {
           const done = await call('agents:gatewayRestart', { confirmed: true })
           if (done.confirmRequired === true) return
           show(`网关已重启：端口 ${done.port} running=${done.running}`)
@@ -1061,7 +1062,6 @@ function GatewayPanel({ status, loading, error, onRetry, onChanged }: {
         {pairing !== null && remaining === 0 && <span className="td-dim">配对码已过期（TTL 300s），请重新签发</span>}
         {pairingError !== null && <span className="degraded-banner">配对未签发：{pairingError}——远程面（gateway_enabled）未启用时属预期；启用 Gateway（AC6）后方可配对</span>}
       </div>
-      <Toast toast={toast} />
     </div>
   )
 }
@@ -1093,7 +1093,7 @@ function RelayPanel({ relay, onChanged }: {
   relay: RelayStatusView | null
   onChanged: () => void
 }) {
-  const { toast, show } = useToast()
+  const { show } = useToast()
   // settings 两键读写（settings:get/set 白名单既有，M2-R1 起；零新增 channel，PR12 纪律）
   const enabledSetting = useAsync(() => call('settings:get', { key: 'relay_enabled' }), [])
   const endpointSetting = useAsync(() => call('settings:get', { key: 'relay_endpoint' }), [])
@@ -1204,7 +1204,6 @@ function RelayPanel({ relay, onChanged }: {
           {relay.warning !== undefined && <span className="degraded-banner relay-warning">{relay.warning}</span>}
         </div>
       )}
-      <Toast toast={toast} />
     </div>
   )
 }

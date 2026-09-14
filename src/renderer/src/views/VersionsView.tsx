@@ -3,16 +3,19 @@
  *
  * 布局：8 目标表格（名称 / 通道 / 已装版本 / 最新或目标 / 状态徽章 / 上次检查）+
  * Check All 按钮 + 单项 Update（两段确认：第一段 confirmRequired（可含 blocked 进程
- * 预检结果）→ window.confirm 展示 → confirmed 执行）+ job 进度行（versions:job 轮询
+ * 预检结果）→ 应用内确认弹窗展示（D5-M5 A5）→ confirmed 执行）+ job 进度行（versions:job 轮询
  * 增量日志）；N/A / 检测失败目标显式降级说明（note 列），绝不白屏。
  */
 
 import { useEffect, useRef, useState } from 'react'
 import { Badge } from '../components/Badge.tsx'
 import type { BadgeTone } from '../components/Badge.tsx'
-import { ErrorState, Loading, Toast, useToast } from '../components/StateViews.tsx'
+import {ErrorState, Loading,} from '../components/StateViews.tsx'
+import { useConfirm } from '../components/ConfirmDialog.tsx'
+import { useToast } from '../components/ToastProvider.tsx'
 import { useApp } from '../lib/appContext.ts'
 import { relativeTime } from '../lib/format.ts'
+import { useMinuteTick } from '../lib/useMinuteTick.ts'
 import { call, sleep } from '../lib/ipc.ts'
 import { useAsync } from '../lib/useAsync.ts'
 import type { VersionJobSnapshot, VersionStatus } from '../../../shared/types.ts'
@@ -40,8 +43,12 @@ const STATE_LABEL: Record<VersionStatus['state'], string> = {
 
 export function VersionsView() {
   const { refreshKey } = useApp()
-  const { toast, show } = useToast()
+  const { show } = useToast()
+  const confirm = useConfirm()
   const data = useAsync<{ targets: VersionStatus[] }>(async () => call('versions:list', {}), [refreshKey])
+  // D5-M4（AUDIT D-Aud F6）：订阅全局 1min tick——非轮询视图的 relativeTime 文案
+  // （"刚刚"/"N 分钟前"）每分钟自动重算；format.ts 输出契约零触碰。
+  useMinuteTick()
 
   const [busy, setBusy] = useState<string | null>(null)
   const [checking, setChecking] = useState(false)
@@ -105,7 +112,14 @@ export function VersionsView() {
           : first.blocked === true
             ? '该目标为耗时重建/源码更新。'
             : ''
-      if (!window.confirm(`确认更新「${target.name}」？\n${reason}更新命令超时 20 分钟（源码重建 30 分钟），期间可关闭本页。`)) return
+      if (
+        !(await confirm({
+          body: `确认更新「${target.name}」？\n${reason}更新命令超时 20 分钟（源码重建 30 分钟），期间可关闭本页。`,
+          danger: true,
+          confirmLabel: '更新',
+        }))
+      )
+        return
       // 第二段：confirmed 执行 → job 轮询
       const started = await call('versions:update', { id: target.id, confirmed: true })
       if (started.jobId !== undefined) {
@@ -175,15 +189,29 @@ export function VersionsView() {
                     </td>
                     <td className="td-dim">{t.lastCheckedAt !== null ? relativeTime(t.lastCheckedAt) : '—'}</td>
                     <td>
-                      <button
-                        type="button"
-                        className="btn"
-                        disabled={busy !== null || t.state === 'detect-only'}
-                        title={t.state === 'detect-only' ? '该目标无自动升级通道' : undefined}
-                        onClick={() => handleUpdate(t)}
-                      >
-                        更新
-                      </button>
+                      {(() => {
+                        // A8（AUDIT D-Aud，D5-M5）：从未检测过（state=unknown 且
+                        // lastCheckedAt=null）时禁用 Update 并提示先「全部检测」——
+                        // 「最新/目标」全 "—" 时更新无从谈起。
+                        const neverChecked = t.state === 'unknown' && t.lastCheckedAt === null
+                        return (
+                          <button
+                            type="button"
+                            className="btn"
+                            disabled={busy !== null || t.state === 'detect-only' || neverChecked}
+                            title={
+                              t.state === 'detect-only'
+                                ? '该目标无自动升级通道'
+                                : neverChecked
+                                  ? '尚未检测过——请先点击「全部检测」获取版本状态'
+                                  : undefined
+                            }
+                            onClick={() => handleUpdate(t)}
+                          >
+                            更新
+                          </button>
+                        )
+                      })()}
                     </td>
                   </tr>
                 ))}
@@ -218,7 +246,6 @@ export function VersionsView() {
         </div>
       )}
 
-      <Toast toast={toast} />
     </div>
   )
 }

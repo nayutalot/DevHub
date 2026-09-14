@@ -80,6 +80,12 @@ export const IPC_GATEWAY = 'devhub:invoke' as const
  * backupImport 变更面——manifest 形状/材料 sha256 对账校验（缺文件如实 flag 降级
  * 不带病导入）→ 全部赛事一份 manual_pack 草稿走既有核对界面（name+year 相似检测
  * 既有逻辑），绝不直写生产行绝不静默覆盖）。
+ * D5 批次 note（桌面收官，docs/09 §9 注记 + AUDIT D-Aud I8 授权的同一模式就地
+ * 更新）：dialog:pickPath 1 条并入，110 → 111（原生目录/文件选择器——electron
+ * dialog.showOpenDialog 的结构化投影 { mode, defaultPath?, title? } →
+ * { canceled, path }；electron 面经 HandlerDeps.pickPath 注入（gateway 生产接线），
+ * handlers 保持零 electron import；取消/未选 = canceled:true + path:null，
+ * renderer 维持原值不报错）。
  */
 export const IPC_CHANNELS = [
   // scan
@@ -247,6 +253,10 @@ export const IPC_CHANNELS = [
   // → 全部赛事一份 manual_pack 草稿走既有核对界面，绝不直写生产行绝不静默覆盖）
   'contestpin:backupExport',
   'contestpin:backupImport',
+  // dialog（D5 批次，docs/09 §9 注记 + AUDIT D-Aud I8：目录/文件原生选择器。
+  // READ_ONLY 对话框面——只回用户选中的路径，零 fs 能力暴露；取消/失败 =
+  // canceled:true + path:null，renderer 维持原值不报错）
+  'dialog:pickPath',
 ] as const
 
 /** Compile-time whitelist: a handler map must be keyed by IpcChannel. */

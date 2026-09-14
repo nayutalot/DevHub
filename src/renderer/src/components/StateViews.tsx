@@ -1,10 +1,13 @@
 /**
  * components/StateViews.tsx — 视图三态通用组件（docs/00 约束 #24，docs/06 §4）：
- * Loading / Empty / Error + Toast。error 展示 envelope 的 { code, message } 并提供
+ * Loading / Empty / Error。error 展示 envelope 的 { code, message } 并提供
  * 重试按钮；empty 提供引导文案与可选动作。
+ *
+ * Toast 面（D5-M3，AUDIT D-Aud I12）：迁移至 App 级唯一队列 ToastProvider.tsx
+ * （useToast/show 签名与 <ToastHost/> 渲染均在该模块）；本文件仅保留 ToastData
+ * 形状（队列条目契约），旧 per-panel useToast/Toast 已退役。
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AsyncError } from '../lib/useAsync.ts'
 
 export function Spinner() {
@@ -20,7 +23,10 @@ export function Loading({ label }: { label: string }) {
   )
 }
 
-/** 空态图标：内联 SVG（斜杠圆），无外部资源。 */
+/**
+ * 空态图标：内联 SVG（中性"空盒"——AUDIT D-Aud A6，D5-M5：原"禁止"斜杠圆语义
+ * 错位，空态应为"空"而非"禁"；无外部资源纪律不变）。
+ */
 export function EmptyState({
   title,
   hint,
@@ -34,8 +40,9 @@ export function EmptyState({
     <div className="empty">
       <span className="empty-icon">
         <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4">
-          <circle cx="12" cy="12" r="9" />
-          <line x1="5.6" y1="18.4" x2="18.4" y2="5.6" />
+          <path d="M3.5 8.2 12 4l8.5 4.2v7.6L12 20l-8.5-4.2Z" strokeLinejoin="round" />
+          <path d="M3.5 8.2 12 12.4l8.5-4.2" strokeLinejoin="round" />
+          <path d="M12 12.4V20" />
         </svg>
       </span>
       <span className="empty-title">{title}</span>
@@ -67,35 +74,14 @@ export function ErrorState({ error, onRetry }: { error: AsyncError; onRetry: () 
 
 // ---------------------------------------------------------------------------
 // Toast（轻量提示：打开成功 / 操作失败，自动消失）
+// D5-M3（AUDIT D-Aud I12）：承载面迁移至 App 级唯一队列（components/ToastProvider.tsx
+// 的 ToastProvider/useToast/ToastHost——bottom-right 堆叠不再相互覆盖）；这里只
+// 保留队列条目形状契约。
 // ---------------------------------------------------------------------------
 
 export interface ToastData {
   tone: 'ok' | 'err'
   text: string
-}
-
-export function useToast() {
-  const [toast, setToast] = useState<ToastData | null>(null)
-  const timerRef = useRef<number | undefined>(undefined)
-
-  const show = useCallback((text: string, tone: 'ok' | 'err' = 'ok') => {
-    setToast({ text, tone })
-    if (timerRef.current !== undefined) window.clearTimeout(timerRef.current)
-    timerRef.current = window.setTimeout(() => setToast(null), 3200)
-  }, [])
-
-  useEffect(() => {
-    return () => {
-      if (timerRef.current !== undefined) window.clearTimeout(timerRef.current)
-    }
-  }, [])
-
-  return { toast, show }
-}
-
-export function Toast({ toast }: { toast: ToastData | null }) {
-  if (toast === null) return null
-  return <div className={`toast toast-${toast.tone}`}>{toast.text}</div>
 }
 
 /** 小型区块内三态（loading / empty / error 三行以内），用于详情子区块。 */

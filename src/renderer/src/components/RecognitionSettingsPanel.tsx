@@ -5,7 +5,7 @@
  * 数据源（全部真实 IPC，无 mock——约束 #23）：
  *   contestpin:configList（按角色分组掩码列表）/ contestpin:configSave（新建/编辑，
  *   apiKey 密码框留空 = 不改动，ApiHubView 约定）/ contestpin:configDelete
- *   （CONFIRM_REQUIRED 两段式，window.confirm 展示 impacts.importJobs，
+ *   （CONFIRM_REQUIRED 两段式，应用内确认弹窗展示 impacts.importJobs，
  *   ContestDetailView 先例）/ contestpin:configTest（测试按钮：ok/延迟/实测
  *   usage/分类错误文案）；默认模式经既有 settings:get/set 读写
  *   contestpin_default_mode（two_stage/multimodal，CP1 白名单键，零新通道）。
@@ -16,7 +16,9 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Badge } from './Badge.tsx'
-import { EmptyState, ErrorState, Loading, Spinner, Toast, useToast } from './StateViews.tsx'
+import {EmptyState, ErrorState, Loading, Spinner,} from './StateViews.tsx'
+import { useConfirm } from './ConfirmDialog.tsx'
+import { useToast } from './ToastProvider.tsx'
 import { call } from '../lib/ipc.ts'
 import { useAsync } from '../lib/useAsync.ts'
 import type {
@@ -66,7 +68,7 @@ export function RecognitionSettingsPanel() {
 }
 
 function RecognitionSettingsPanelOpen({ onClose }: { onClose: () => void }) {
-  const { toast, show } = useToast()
+  const { show } = useToast()
   const list = useAsync(() => call('contestpin:configList', {}), [])
   const defaultMode = useAsync(() => call('settings:get', { key: 'contestpin_default_mode' }), [])
   const [formState, setFormState] = useState<{ open: boolean; config: RecognitionConfigView | null }>({ open: false, config: null })
@@ -91,7 +93,6 @@ function RecognitionSettingsPanelOpen({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="panel">
-      {toast !== null && <Toast toast={toast} />}
       <div className="recog-head">
         <h3 className="panel-title">识别设置</h3>
         <div className="recog-head-actions">
@@ -184,6 +185,7 @@ function ConfigRow({
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<RecognitionTestResult | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const confirm = useConfirm()
 
   async function runTest(): Promise<void> {
     if (testing) return
@@ -209,7 +211,7 @@ function ConfigRow({
       const start = await call('contestpin:configDelete', { id: config.id })
       if (start.confirmRequired === true) {
         const hint = start.impacts.importJobs > 0 ? `该配置被 ${start.impacts.importJobs} 个导入任务引用（删除后任务保留、引用置空）。` : ''
-        if (window.confirm(`删除识别配置「${config.name}」（${config.role}）？${hint}`)) {
+        if (await confirm({ body: `删除识别配置「${config.name}」（${config.role}）？${hint}`, danger: true, confirmLabel: "删除" })) {
           await call('contestpin:configDelete', { id: config.id, confirmed: true })
           show(`配置「${config.name}」已删除`)
           onChanged()

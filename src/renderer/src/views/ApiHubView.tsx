@@ -15,7 +15,9 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Badge } from '../components/Badge.tsx'
 import type { BadgeTone } from '../components/Badge.tsx'
-import { EmptyState, ErrorState, Loading, Toast, useToast } from '../components/StateViews.tsx'
+import {EmptyState, ErrorState, Loading,} from '../components/StateViews.tsx'
+import { useConfirm } from '../components/ConfirmDialog.tsx'
+import { useToast } from '../components/ToastProvider.tsx'
 import { useApp } from '../lib/appContext.ts'
 import { call } from '../lib/ipc.ts'
 import { useAsync } from '../lib/useAsync.ts'
@@ -52,7 +54,8 @@ function availabilityTone(available: boolean): BadgeTone {
 
 export function ApiHubView() {
   const { refreshKey } = useApp()
-  const { toast, show } = useToast()
+  const { show } = useToast()
+  const confirm = useConfirm()
   const data = useAsync<LoadData>(async () => {
     const adaptersResult = await call('apihub:adapters', {})
     const providers = await Promise.all(
@@ -83,8 +86,8 @@ export function ApiHubView() {
     }
   }
 
-  function handleDelete(adapterId: ApiHubAdapterId, id: number, name: string): void {
-    if (!window.confirm(`删除档案「${name}」？该操作不可撤销（目标配置文件不受影响）。`)) return
+  async function handleDelete(adapterId: ApiHubAdapterId, id: number, name: string): Promise<void> {
+    if (!(await confirm({ body: `删除档案「${name}」？该操作不可撤销（目标配置文件不受影响）。`, danger: true, confirmLabel: '删除' }))) return
     void runAction('删除档案', async () => {
       await call('apihub:deleteProfile', { adapterId, id })
       show('档案已删除')
@@ -155,7 +158,7 @@ export function ApiHubView() {
               data.refresh()
               show('档案已保存（key 已加密入库）')
             }}
-            onDelete={(id, name) => handleDelete(adapter.id, id, name)}
+            onDelete={(id, name) => void handleDelete(adapter.id, id, name)}
             onSwitch={(id) => handleSwitchStart(adapter.id, id)}
             switchConfirmActive={switchConfirm !== null && switchConfirm.adapterId === adapter.id}
           />
@@ -229,7 +232,6 @@ export function ApiHubView() {
         </div>
       )}
 
-      <Toast toast={toast} />
     </div>
   )
 }

@@ -10,7 +10,9 @@
 
 import { useState } from 'react'
 import { Badge } from './Badge.tsx'
-import { EmptyState, ErrorState, Loading, Spinner, Toast, useToast } from './StateViews.tsx'
+import {EmptyState, ErrorState, Loading, Spinner,} from './StateViews.tsx'
+import { useConfirm } from './ConfirmDialog.tsx'
+import { useToast } from './ToastProvider.tsx'
 import { call } from '../lib/ipc.ts'
 import { useAsync } from '../lib/useAsync.ts'
 import { usePolling } from '../lib/usePolling.ts'
@@ -84,7 +86,8 @@ function DraftReviewPanelOpen({ onClose }: { onClose: () => void }) {
 
 /** 单任务草稿编辑器：本地编辑副本 + 确认/弃用两段式。 */
 function DraftJobEditor({ job, onChanged }: { job: ContestImportJobView; onChanged: () => void }) {
-  const { toast, show } = useToast()
+  const { show } = useToast()
+  const confirm = useConfirm()
   const [draft, setDraft] = useState<ImportDraftView>(() => job.result?.draft ?? { contests: [], flags: [] })
   const [confirming, setConfirming] = useState(false)
   const [confirmFace, setConfirmFace] = useState<ContestImportDraftConfirmStart | null>(null)
@@ -146,7 +149,7 @@ function DraftJobEditor({ job, onChanged }: { job: ContestImportJobView; onChang
     try {
       const start = await call('contestpin:draftDiscard', { jobId: job.id })
       if (start.confirmRequired === true) {
-        if (window.confirm(`弃用草稿 #${start.jobId}（材料：${start.materialName ?? '未知'}）？材料文件会保留。`)) {
+        if (await confirm({ body: `弃用草稿 #${start.jobId}（材料：${start.materialName ?? '未知'}）？材料文件会保留。`, danger: true, confirmLabel: '弃用' })) {
           await call('contestpin:draftDiscard', { jobId: job.id, confirmed: true })
           show('草稿已弃用')
           onChanged()
@@ -161,7 +164,6 @@ function DraftJobEditor({ job, onChanged }: { job: ContestImportJobView; onChang
 
   return (
     <div className="recog-group">
-      {toast !== null && <Toast toast={toast} />}
       <div className="recog-group-head">
         <span className="recog-group-title">
           #{job.id} {job.material?.originalName ?? (job.params?.source === 'backupImport' ? '备份导入（多赛事，材料见 flag）' : '(材料已删除)')}

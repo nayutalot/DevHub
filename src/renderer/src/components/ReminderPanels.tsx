@@ -14,13 +14,14 @@
  *  - ReminderLogPanel：闹钟触发记录面板（近触发账本，按当前比赛过滤展示）。
  *
  * 全部真实 IPC 无 mock（约束 #23）；删除为 CONFIRM_REQUIRED 两段式
- * （window.confirm 展示 impacts.logRows，nodeDelete 先例）。
+ * （应用内确认弹窗展示 impacts.logRows，nodeDelete 先例）。
  */
 
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Badge } from './Badge.tsx'
 import { EmptyState, ErrorState, Loading, Spinner } from './StateViews.tsx'
+import { useConfirm } from './ConfirmDialog.tsx'
 import { useApp } from '../lib/appContext.ts'
 import { formatDateTime, reminderOffsetText } from '../lib/contestFormat.ts'
 import { toMs } from '../lib/format.ts'
@@ -133,6 +134,7 @@ export function NodeReminders({
 }) {
   const [editorOpen, setEditorOpen] = useState(false)
   const [busyId, setBusyId] = useState<number | null>(null)
+  const confirm = useConfirm()
 
   async function toggleEnabled(r: ContestReminderView): Promise<void> {
     if (busyId !== null) return
@@ -151,7 +153,7 @@ export function NodeReminders({
     }
   }
 
-  /** 两段式删除：第一段拿 impacts.logRows → window.confirm → confirmed。 */
+  /** 两段式删除：第一段拿 impacts.logRows → 应用内确认（D5-M5 A5）→ confirmed。 */
   async function remove(r: ContestReminderView): Promise<void> {
     if (busyId !== null) return
     setBusyId(r.id)
@@ -159,10 +161,13 @@ export function NodeReminders({
       const start = await call('contestpin:reminderDelete', { id: r.id })
       const logRows = start.confirmRequired === true ? start.impacts.logRows : 0
       if (
-        window.confirm(
-          `删除提醒「${reminderOffsetText(r.offsetKind, r.offsetValue)} · ${r.channel === 'windows' ? '系统通知' : '应用内记录'}」？` +
+        await confirm({
+          body:
+            `删除提醒「${reminderOffsetText(r.offsetKind, r.offsetValue)} · ${r.channel === 'windows' ? '系统通知' : '应用内记录'}」？` +
             (logRows > 0 ? `其 ${logRows} 条触发记录将一并删除。` : ''),
-        )
+          danger: true,
+          confirmLabel: '删除',
+        })
       ) {
         await call('contestpin:reminderDelete', { id: r.id, confirmed: true })
         onChanged()

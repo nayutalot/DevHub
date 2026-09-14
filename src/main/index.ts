@@ -19,7 +19,7 @@
  */
 
 import { join } from 'node:path'
-import { app, BrowserWindow, Menu, shell } from 'electron'
+import { app, BrowserWindow, Menu, dialog, shell } from 'electron'
 import { logger } from './core/logger.ts'
 import {
   quitTransition,
@@ -33,6 +33,7 @@ import { createSafeStorageKeyCrypto } from './keyStoreWire.ts'
 import { installContestpinWire, shutdownContestpinWire } from './contestpinWire.ts'
 import { initNotifyWire, shutdownNotifyWire } from './notifyWire.ts'
 import { registerGateway } from './ipc/gateway.ts'
+import type { PickPathApplier, PickPathPayload, PickPathResult } from '../shared/types.ts'
 import { setKeyCrypto } from './services/apihub/keyStore.ts'
 import { injectAutoStart } from './autostartWire.ts'
 import { initTray, refreshTraySummary, destroyTray } from './trayWire.ts'
@@ -285,6 +286,26 @@ function requestQuit(event: Electron.Event): void {
     })
 }
 
+/**
+ * dialog:pickPath 生产实现（D5 批次，AUDIT D-Aud I8 目录/文件原生选择器）：
+ * electron dialog.showOpenDialog 的结构化投影——父窗口=主窗口（隐藏态（关窗常驻）
+ * 时退化为无父对话框，绝不 fail）。取消/未选 = { canceled: true, path: null }，
+ * renderer 侧维持原值不报错；本函数只回路径，零 fs 能力暴露。
+ */
+const pickPathProduction: PickPathApplier = async (req: PickPathPayload): Promise<PickPathResult> => {
+  const options: Electron.OpenDialogOptions = {
+    properties: req.mode === 'directory' ? ['openDirectory'] : ['openFile'],
+    ...(req.defaultPath !== undefined ? { defaultPath: req.defaultPath } : {}),
+    ...(req.title !== undefined ? { title: req.title } : {}),
+  }
+  const win = currentMainWindow()
+  const result = win !== null ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
+  return {
+    canceled: result.canceled || result.filePaths.length === 0,
+    path: result.filePaths.length > 0 ? (result.filePaths[0] ?? null) : null,
+  }
+}
+
 function bootstrapMainProcess(): void {
   // 主进程级 catch：记录日志、不崩（Windows 常驻控制台应用语义）
   process.on('uncaughtException', (err) => {
@@ -338,7 +359,7 @@ function bootstrapMainProcess(): void {
       // 自启注入 + 按现值应用一次（docs/12 §10：login_autostart 驱动 setLoginItemSettings）
       injectAutoStart()
 
-      registerGateway({ appVersion: app.getVersion() })
+      registerGateway({ appVersion: app.getVersion(), pickPath: pickPathProduction })
 
       // AC6 Remote Gateway 启动（docs/14 §B / docs/12 §2/§9）：按 settings
       // gateway_enabled 真值收敛监听（默认 0 → 零监听；1 → 绑 127.0.0.1，

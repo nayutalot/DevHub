@@ -14,11 +14,18 @@ import { ipcMain } from 'electron'
 import { IPC_GATEWAY } from '../../shared/channels.ts'
 import { logger } from '../core/logger.ts'
 import { createHandlerRegistry, dispatchGatewayRequest } from './handlers.ts'
+import type { PickPathApplier } from '../../shared/types.ts'
 import type { HandlerRegistry } from './handlers.ts'
 
 export interface GatewayDeps {
   /** 注入的应用版本号（main 入口传 app.getVersion()）。 */
   appVersion: string
+  /**
+   * dialog:pickPath 的生产对话框面（D5 批次，AUDIT D-Aud I8）：main 入口注入
+   * dialog.showOpenDialog 实现（父窗口=主窗口）。生产必填（编译期强制），纯
+   * Node/测试环境经 HandlerDeps 可选缺省。
+   */
+  pickPath: PickPathApplier
 }
 
 function errorMessage(err: unknown): string {

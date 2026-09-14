@@ -21,6 +21,7 @@ import { useState } from 'react'
 import type { ChangeEvent } from 'react'
 import { EmptyState, ErrorState, Loading, Spinner } from './StateViews.tsx'
 import { call } from '../lib/ipc.ts'
+import { pickPath } from '../lib/pickPath.ts'
 import { toAsyncError } from '../lib/useAsync.ts'
 import type { AsyncError } from '../lib/useAsync.ts'
 import type { ContestBackupExportResult } from '../../../shared/types.ts'
@@ -75,6 +76,15 @@ export function BackupPanel() {
     } finally {
       setExporting(false)
     }
+  }
+
+  /** 「浏览…」：原生目录选择器（D5-M1/I8）回填 destDir；取消/失败维持原值不报错。 */
+  async function browseDestDir(): Promise<void> {
+    const picked = await pickPath('directory', {
+      defaultPath: destDir.trim(),
+      title: '选择备份导出目标目录',
+    })
+    if (picked !== null) setDestDir(picked)
   }
 
   async function importBackupManifest(e: ChangeEvent<HTMLInputElement>): Promise<void> {
@@ -133,6 +143,9 @@ export function BackupPanel() {
               onChange={(e) => setDestDir(e.target.value)}
             />
           </span>
+          <button type="button" className="btn btn-small" onClick={() => void browseDestDir()} title="浏览选择目标目录（手输仍可用）">
+            浏览…
+          </button>
           <button type="button" className="btn btn-primary btn-small" disabled={exporting} onClick={() => void exportBackup()}>
             {exporting && <Spinner />}备份导出
           </button>

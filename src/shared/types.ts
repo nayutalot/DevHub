@@ -2879,6 +2879,30 @@ export interface SkillsReviewMetaResult {
 }
 
 // ---------------------------------------------------------------------------
+// 6b. Native path picker（D5 批次，AUDIT D-Aud I8：dialog:pickPath——electron
+// dialog.showOpenDialog 的结构化投影；electron 面经 HandlerDeps.pickPath 注入，
+// 纯 Node/测试环境缺省 = NOT_AVAILABLE 结构化错误）
+// ---------------------------------------------------------------------------
+
+/** dialog:pickPath payload：模式（目录/文件）+ 可选起始路径与标题。 */
+export interface PickPathPayload {
+  mode: 'directory' | 'file'
+  /** 起始路径（上次输入值等），缺省 = 系统记忆位置。 */
+  defaultPath?: string
+  /** 对话框标题（用户面中文，可选）。 */
+  title?: string
+}
+
+/** dialog:pickPath result：取消/未选 = canceled:true + path:null（renderer 维持原值，不报错）。 */
+export interface PickPathResult {
+  canceled: boolean
+  path: string | null
+}
+
+/** 生产 applier 签名（main 入口注入 dialog.showOpenDialog 实现；smoke 注 fake）。 */
+export type PickPathApplier = (payload: PickPathPayload) => Promise<PickPathResult>
+
+// ---------------------------------------------------------------------------
 // 7. Gateway request & channel contract table (constraint #17)
 // ---------------------------------------------------------------------------
 
@@ -3038,6 +3062,8 @@ export interface ChannelContract {
   //     界面，绝不直写生产行绝不静默覆盖) ---
   'contestpin:backupExport': [ContestBackupExportPayload, ContestBackupExportResult]
   'contestpin:backupImport': [ContestBackupImportPayload, ContestBackupImportResult]
+  // --- dialog (D5 batch, docs/09 §9 注记 + AUDIT D-Aud I8：原生目录/文件选择器) ---
+  'dialog:pickPath': [PickPathPayload, PickPathResult]
 }
 
 /** Compile-time assertion that ChannelContract covers exactly the whitelist. */

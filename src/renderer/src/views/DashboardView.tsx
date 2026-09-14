@@ -18,6 +18,7 @@ import { StatCard } from '../components/StatCard.tsx'
 import { EmptyState, ErrorState, Loading, Spinner } from '../components/StateViews.tsx'
 import { useApp } from '../lib/appContext.ts'
 import { relativeTime, severityClass, severityGlyph } from '../lib/format.ts'
+import { useMinuteTick } from '../lib/useMinuteTick.ts'
 import { call, sleep } from '../lib/ipc.ts'
 import { useAsync } from '../lib/useAsync.ts'
 
@@ -48,6 +49,9 @@ interface ScanLine {
 export function DashboardView() {
   const { navigate, refreshAll, refreshKey } = useApp()
   const summary = useAsync(() => call('dashboard:summary', {}), [refreshKey])
+  // D5-M4（AUDIT D-Aud F6）：订阅全局 1min tick——非轮询视图的 relativeTime 文案
+  // （"刚刚"/"N 分钟前"）每分钟自动重算；format.ts 输出契约零触碰。
+  useMinuteTick()
   const [scanLine, setScanLine] = useState<ScanLine | null>(null)
   /** F6：后台端口补扫进行中（仅影响 Services 卡副文本，不阻塞首屏）。 */
   const [servicesScanning, setServicesScanning] = useState(false)
