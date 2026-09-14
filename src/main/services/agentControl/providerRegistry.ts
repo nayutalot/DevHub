@@ -208,6 +208,7 @@ export interface AgentProvider {
 import { createCodexProvider } from './providers/codexProvider.ts'
 import { createClaudeProvider } from './providers/claudeProvider.ts'
 import { createKimiProvider } from './providers/kimiProvider.ts'
+import { readKimiManagedGate } from './providers/kimiManagedConfig.ts'
 import { createZcodeProvider } from './providers/zcodeProvider.ts'
 import { createDeepseekProvider } from './providers/deepseekProvider.ts'
 
@@ -234,7 +235,9 @@ export function getProviderInstance(providerId: AgentProviderId): AgentProvider 
     instances = {
       codex: createCodexProvider(),
       'claude-code': createClaudeProvider(),
-      kimi: createKimiProvider(),
+      // KM 批：kimi 真机 managed 授权门生产接线（每调用读 settings 键
+      // kimi_managed_enabled；缺行/'0' = 停用，行为与未接线逐字节一致）
+      kimi: createKimiProvider({ managedGate: readKimiManagedGate }),
       zcode: createZcodeProvider(),
       deepseek: createDeepseekProvider(),
     }

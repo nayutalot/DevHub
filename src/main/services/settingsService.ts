@@ -59,6 +59,12 @@ const ALLOWED_KEYS: readonly string[] = [
   // 模型键 = 完整 "provider/model" 串；缺行 = 空 = 托管面停用（caps 保持 observed）。
   // 凭据绝不入 settings——apiKey 走 ApiHub zcode 活动档案（safeStorage 封装）。
   'zcode_managed_model',
+  // KM 批（kimi 真机 managed 通道授权门，docs/briefs/km-kimi-managed.md Phase B）：
+  // 值恰为 '1' = 用户显式授权真机 managed（真实推理 + ~/.kimi-code 写入，09-14
+  // 「推进 kimicode 适配」令 = §1.5 等待解除）；缺行/'0' = 停用（caps 保持
+  // observed，provider 行为与未接线逐字节一致）。默认 0 = 停用绝不半开；零凭据
+  // 语义（kimi CLI 用自己的 config.toml，DevHub 零注入）。无种子行零迁移。19→20。
+  'kimi_managed_enabled',
 ]
 
 function assertAllowedKey(key: string): void {
