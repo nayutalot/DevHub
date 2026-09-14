@@ -189,6 +189,17 @@ interface MessageCacheDao {
     @Query("SELECT MAX(messageId) FROM message_cache WHERE sessionId = :sessionId")
     fun maxMessageId(sessionId: Long): Long?
 
+    /**
+     * UX-P2（docs/26 §3.1/§6-P2：列表行最近消息预览）——逐会话尾条一次查齐
+     * （GROUP BY 预聚合，避免 LazyColumn 每行子查询；数据面零新接口，仅查询面）。
+     */
+    @Query(
+        "SELECT m.* FROM message_cache m INNER JOIN " +
+            "(SELECT sessionId, MAX(messageId) AS maxId FROM message_cache GROUP BY sessionId) t " +
+            "ON m.sessionId = t.sessionId AND m.messageId = t.maxId",
+    )
+    fun observeLastMessages(): Flow<List<MessageCacheEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insertAll(messages: List<MessageCacheEntity>)
 
