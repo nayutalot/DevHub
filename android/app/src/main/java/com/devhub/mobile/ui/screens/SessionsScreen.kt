@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -49,6 +50,7 @@ import androidx.compose.ui.unit.sp
 import com.devhub.mobile.core.ProviderPalette
 import com.devhub.mobile.core.SessionListOps
 import com.devhub.mobile.connect.ConnectionManager
+import com.devhub.mobile.connect.ConnState
 import com.devhub.mobile.connect.WorkspaceLinkCard
 import com.devhub.mobile.connect.WorkspaceLinkController
 import com.devhub.mobile.data.ApiProvider
@@ -91,10 +93,18 @@ fun SessionsScreen(
     onOpenSession: (Long) -> Unit,
     onOpenRemoteEntry: (Long) -> Unit = {},
     onManageRemote: () -> Unit = {},
+    onGoAgentsStart: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val db = remember { DevHubDb.get(context) }
     val scope = rememberCoroutineScope()
+
+    // UX-P3 唤醒联动（docs/briefs/uxp3-flows.md §1.4）：对话 tab 电脑不在线态出口接
+    // 共享 WakeHostCard（接线不重写）——relay 已连上云端但电脑不在线时条件渲染
+    val connState by ConnectionManager.state.collectAsState()
+    val activeMode by ConnectionManager.activeMode.collectAsState()
+    val beacon by ConnectionManager.upstreamBeacon.collectAsState()
+    val connected = connState is ConnState.Connected
 
     var fixtureOn by remember { mutableStateOf(FixtureMode.enabled(context)) } // 开关 UX-P2 迁「我的→演示模式」
     var showArchived by rememberSaveable { mutableStateOf(false) }
@@ -228,6 +238,12 @@ fun SessionsScreen(
         )
         Spacer(Modifier.height(2.dp))
 
+        // —— UX-P3 唤醒联动：电脑不在线态显性异常出口（琥珀卡=不伪造正常态，红线 #1）——
+        // 共享 WakeHostCard 原样接线（六态人话/禁用态/冷却不收窄）；relay 全在线自动隐藏
+        if (com.devhub.mobile.ui.components.wakeCardNeeded(activeMode, connected, beacon)) {
+            com.devhub.mobile.ui.components.WakeHostCard()
+        }
+
         // —— R4 provider 过滤 chips（全部 + /v1/agents 名录）——
         // U2-M5（AUDIT P3#8）：横向滚动两端 24dp 渐隐 falloff——截断的 chip 有视觉收口提示，
         // 不再「第 5 枚只露一角」生硬截断（遮罩为纯绘制层，不拦触摸）。
@@ -297,11 +313,16 @@ fun SessionsScreen(
                     headlinePrefix = "加载失败：",
                 )
 
-            // UX-P1 S5：空态 = 一句事实 + 两步动作
-            visible.isEmpty() -> Text(
-                "这里会显示电脑上的 AI 对话。还没有内容——先确认电脑在线（看顶部状态），再到「助手」开始第一个对话",
-                fontSize = 13.sp,
-            )
+            // UX-P1 S5 + UX-P3（docs/26 §4.3）：空态 = 一句事实 + 一步动作 CTA
+            // （「去助手开始第一个对话」→ 切助手 tab + 自动展开第一条消息输入框；
+            // 目的地 tab 真实存在，非伪造入口）
+            visible.isEmpty() -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "这里会显示电脑上的 AI 对话。还没有内容——先确认电脑在线（看顶部状态），再到「助手」开始第一个对话",
+                    fontSize = 13.sp,
+                )
+                Button(onClick = onGoAgentsStart) { Text("去助手开始第一个对话") }
+            }
                 else -> LazyColumn {
                     items(visible, key = { it.sessionId }) { session ->
                         SessionRow(

@@ -91,6 +91,7 @@ internal fun autoSpawnTargetId(agents: List<AgentDto>, fixtureOn: Boolean): Long
 fun AgentsScreen(
     onOpenSession: (Long) -> Unit = {},
     onOpenRemoteEntry: (Long) -> Unit = {},
+    onOpenConnectionStatus: () -> Unit = {},
     autoOpenSpawn: Boolean = false,
     onAutoSpawnConsumed: () -> Unit = {},
 ) {
@@ -149,11 +150,16 @@ fun AgentsScreen(
                 presentable = error!!,
                 headlinePrefix = "加载失败：",
             )
-            // UX-P1 A4：空态 = 一句事实 + 一步动作（本页事件驱动自动刷新，无手工重扫按钮）
-            list.isEmpty() -> Text(
-                "这里会显示电脑上的 AI 助手。还没有内容——请确认电脑在线、DevHub 正在运行，连上后会自动刷新",
-                fontSize = 13.sp,
-            )
+            // UX-P1 A4 + UX-P3（docs/26 §4.3）：空态 = 一句事实 + 一步动作
+            //（诊断出口指向真实存在的「电脑连接状态」页；本页事件驱动自动刷新，
+            // 无手工重扫功能 → 绝不画「重新扫描」假按钮，A4 教训）
+            list.isEmpty() -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "这里会显示电脑上的 AI 助手。还没有内容——请确认电脑在线、DevHub 正在运行，连上后会自动刷新",
+                    fontSize = 13.sp,
+                )
+                Button(onClick = onOpenConnectionStatus) { Text("诊断连接问题") }
+            }
             else -> LazyColumn {
                 items(list, key = { it.id }) { agent ->
                     ProviderCard(
