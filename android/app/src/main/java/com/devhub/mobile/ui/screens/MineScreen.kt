@@ -38,6 +38,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -107,7 +108,8 @@ fun MineScreen(
     val linkState by WorkspaceLinkController.state.collectAsState()
 
     var fixtureOn by remember { mutableStateOf(FixtureMode.enabled(context)) }
-    var devFoldOpen by remember { mutableStateOf(false) } // 开发者选项默认收起（渐进披露）
+    // Q 批先例：折叠面用 rememberSaveable——跳全屏目的地返回后展开态不丢（tab 切换重建同理）
+    var devFoldOpen by rememberSaveable { mutableStateOf(false) } // 开发者选项默认收起（渐进披露）
 
     // 电脑名（docs/24 §3：取 deviceName，无则「我的电脑」）——桌面投影 Ready.deviceName
     val computerName = (linkState as? WorkspaceLinkCard.State.Ready)?.deviceName
@@ -329,7 +331,7 @@ private fun EntryRow(
 private fun NotificationEntry() {
     if (android.os.Build.VERSION.SDK_INT < 33) return
     val context = LocalContext.current
-    var expanded by remember { mutableStateOf(false) }
+    var expanded by rememberSaveable { mutableStateOf(false) }
     var notifGranted by remember { mutableStateOf(checkNotifGranted(context)) }
     // 从系统设置返回（ON_RESUME）即刷新授权状态（U1-M5 语义原样）
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
