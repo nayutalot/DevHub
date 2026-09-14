@@ -24,7 +24,11 @@
  *   REST POST /v1/events/{id}/ack 等效）；
  * - 心跳：服务端每 heartbeatSec（默认 30s）发 ping，pongTimeoutSec（默认 10s）
  *   内无 pong → 服务端关闭；客户端 ping 一律回 pong；
- * - 预留帧 token_rotation：仅类型定义（ServerFrame 联合），v1 绝不发送（docs/15 §3）；
+ * - 命令帧（X-L 批，docs/18 §5.3.2）：客户端 { type:'command', requestId?,
+ *   idempotencyKey, action:'workspace_link', payload:{} } → 本地命令下行
+ *   （localCommand.ts；与 relay 同一 L3 台账，ack/result 结构化回声——绝不静默）；
+ * - 预留帧 token_rotation：仅类型定义（ServerFrame 联合），v1 绝不发送（docs/15 §3；
+ *   与本地命令面零夹带——红线 docs/18 §5.3.2）；
  * - 撤销断连：closeDeviceConnections(deviceId) 由 L3 撤销路径经注入缝触发
  *   （docs/15 §4：已建立连接服务端立即关闭）。
  *
@@ -41,6 +45,7 @@ import type { Duplex } from 'node:stream'
 import { logger } from '../../../core/logger.ts'
 import { ServiceError } from '../../internal.ts'
 import { authenticateBearerToken, readBearerHeaderValue, type AuthenticatedDevice } from './auth.ts'
+import { handleLocalCommand } from './localCommand.ts'
 import {
   currentGlobalSequence,
   eventsSince,
@@ -104,13 +109,25 @@ export function computeAcceptKey(clientKey: string): string {
 // 协议帧类型（docs/14 §B.2）
 // ---------------------------------------------------------------------------
 
-/** 客户端 → 服务端帧（sync / ack；token_rotation 的回 ack 属预留，v1 不出现）。 */
+/** 客户端 → 服务端帧（sync / ack / command；token_rotation 的回 ack 属预留，v1 不出现）。 */
 export type ClientFrame =
   | { type: 'sync'; after: number }
   | { type: 'ack'; seqs: number[] }
+  /**
+   * 本地命令帧（X-L 批，docs/18 §5.3.2）：v1 唯一 action='workspace_link'。
+   * 零 auth 块——连接 upgrade 时已 Bearer 鉴权（本文件头），deviceId 即发起设备。
+   */
+  | {
+      type: 'command'
+      requestId?: string
+      idempotencyKey: string
+      action: string
+      sessionId?: number
+      payload?: Record<string, unknown>
+    }
   | { type: string; [key: string]: unknown }
 
-/** 服务端 → 客户端帧（hello / event / token_rotation 预留）。 */
+/** 服务端 → 客户端帧（hello / event / command_ack / command_result / token_rotation 预留）。 */
 export type ServerFrame =
   | { type: 'hello'; sequence: number; device: number; heartbeatSec: number }
   | {
@@ -122,6 +139,30 @@ export type ServerFrame =
       summary?: string
       payload: Record<string, unknown>
       createdAt: number
+    }
+  /** 本地命令受理回执（docs/18 §5.3.2；§3.9 同域语义本地形态）。 */
+  | {
+      type: 'command_ack'
+      requestId?: string
+      idempotencyKey?: string
+      commandId?: string
+      status: 'accepted' | 'rejected'
+      errorCode?: string
+    }
+  /**
+   * 本地命令终态（docs/18 §5.3.2；§3.10 同域语义本地形态）。result 仅
+   * workspace_link executed 携带——URL 帧面内存过境（零落库零日志红线）。
+   */
+  | {
+      type: 'command_result'
+      requestId?: string
+      commandId: string
+      idempotencyKey: string
+      action: string
+      status: 'executed' | 'failed'
+      errorCode: string | null
+      result?: { provider: string; url: string; deviceName: string }
+      timestamp: number
     }
   /** 协议预留帧（docs/14 §B.2 / docs/15 §3）：v1 绝不发送，仅锁类型形状。 */
   | { type: 'token_rotation'; newToken: string; tokenVersion: number }
@@ -519,6 +560,13 @@ export function attachWebSocketServer(server: HttpServer, options: GatewayWsOpti
           }
         }
         touchDevice(connection.deviceId)
+        return
+      }
+      if (frame.type === 'command') {
+        // 本地命令下行（X-L 批，docs/18 §5.3.2）：结构化受理/拒绝回声绝不再静默忽略
+        // （U4 根因反例——workspace_link 帧无声消失致 App 结构性恒 Queued）。处理与
+        // 回帧全在 localCommand.ts（单帧异常经 onText 逐帧隔离，不杀伤连接）。
+        handleLocalCommand(connection, frame)
         return
       }
       // 未知类型（含 token_rotation 回 ack 等预留）：v1 静默忽略，不断连

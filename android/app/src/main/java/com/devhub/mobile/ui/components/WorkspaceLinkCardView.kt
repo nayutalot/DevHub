@@ -28,13 +28,14 @@ import com.devhub.mobile.connect.WorkspaceLinkCard
  * 新增可选管理入口（onManage，小图标）：独立 tab 撤销后，条目管理屏
  * （RemoteWorkspaceScreen）经此入口可达——手工 URL 条目功能不丢。
  *
- * 状态分五个面（Idle/Requesting/Ready/Queued/Unavailable）：
+ * 状态分四个面（Idle/Requesting/Ready/Queued/Unavailable）：
  * - Ready → 整卡可点，直达全屏 WebView（onOpen(entryId)）；
  * - 非 Ready 但存在既往会话留下的智能条目行（staleEntryId）→ 同样可点打开
  *   （链接成分静态、t 为 nonce——旧条目仍有效；自动请求照常刷新）；
  * - Queued = 桌面侧 ZCode 工作区链路未就绪（relay 排队语义，绝不伪造成功；
  *   U1-M4 文案与 relay 心跳横幅分层——横幅指中继链路，卡片指 ZCode 链路）；
- * - Unavailable = 结构化不可用（ZCODE_LINK_UNAVAILABLE 等）+ 重试按钮。
+ * - Unavailable = 结构化不可用（ZCODE_LINK_UNAVAILABLE / 本地 TIMEOUT / NOT_CONNECTED 等）
+ *   + 重试按钮。
  * 卡片零 URL 展示（点击才进 WebView；WebView 标题栏本就中段省略）。
  */
 @Composable
@@ -85,14 +86,8 @@ fun WorkspaceLinkCardView(
                         // 与心跳横幅同屏自相矛盾（05/12/16 号截图实证），改如实分层表述。
                         Text("桌面 ZCode 链路未就绪：请求已排队，就绪后自动送达", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
-                    // U5 批（Z3 结论 B 方案①）：本地模式诚实态——不提供+出路（Relay 接入），
-                    // 无重试钮、不排队（本地帧协议无 workspace_link 结算回程，请求门在控制器）
-                    WorkspaceLinkCard.State.NotAvailableInLocal ->
-                        Text(
-                            com.devhub.mobile.core.InteractionHonesty.ZCODE_REMOTE_LOCAL_UNAVAILABLE,
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    // U5 批的 NotAvailableInLocal 本地分支随 X-L 反转（docs/18 §5.3.2）移除：
+                    // 本地模式全流转，失败统一 Unavailable 结构化面（原文案 + 重试钮）。
 
                     is WorkspaceLinkCard.State.Unavailable -> {
                         Text(s.message, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)

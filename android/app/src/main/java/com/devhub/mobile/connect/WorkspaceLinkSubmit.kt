@@ -5,7 +5,7 @@ import com.devhub.mobile.core.relay.RelayCommandClassifier
 import org.json.JSONObject
 
 /**
- * S 批 workspace_link 提交结果（docs/18 §5.3 注记；relay 面专用——local 面无此命令）。
+ * S 批 workspace_link 提交结果（docs/18 §5.3 注记；X-L §5.3.2 本地面就位）。
  * 拉取模型：App 需要时取，桌面磁盘实时重建（t=时间戳 nonce），永远新鲜且有效。
  */
 sealed class WorkspaceLinkSubmit {
@@ -23,7 +23,10 @@ sealed class WorkspaceLinkSubmit {
  * S 批 workspace_link 提交判定（docs/18 §3.9/§3.10；纯逻辑，ConnectionManager 消费、
  * :app 单测面——与 ManagedSpawnOutcome 同一命名域，绝不另造语义）：
  * - phase：ack 分类（accepted → 等终态；queued:true/未知 → 排队挂起；rejected → 失败）；
- * - timeout()：终态 10s 未回（docs/18 §3.0 #8 同窗）→ 行入队同 key 补发 → Queued；
+ * - timeout()：终态 10s 未回（docs/18 §3.0 #8 同窗）→ 行入队同 key 补发 → Queued（relay 面）；
+ * - localTimeout()/localNotConnected()：X-L 本地面（docs/18 §5.3.2）——本地**零排队面**，
+ *   超时/未连接一律结构化 Failed 如实落卡（绝不入离线队列、绝不假成功；「结构性恒
+ *   Queued」失败类整体消灭）；
  * - fromResult：command_result 终态 → 提交结果（executed 且 result.url 非空 = Executed；
  *   executed 无 url = 结构化失败不猜；failed → Failed(errorCode)——ZCODE_LINK_UNAVAILABLE
  *   点名桌面链接不可用）。
@@ -40,6 +43,14 @@ object WorkspaceLinkOutcome {
     }
 
     fun timeout(): WorkspaceLinkSubmit = WorkspaceLinkSubmit.Queued
+
+    /** X-L 本地面（docs/18 §5.3.2）：10s 终态未回 → 结构化超时（本地无补发面，绝不排队）。 */
+    fun localTimeout(): WorkspaceLinkSubmit =
+        WorkspaceLinkSubmit.Failed("TIMEOUT", "本地网关未在时限内返回链接（请确认桌面 DevHub 正在运行）")
+
+    /** X-L 本地面（docs/18 §5.3.2）：本地网关未连接 → 结构化不可用（绝不排队、绝不伪成功）。 */
+    fun localNotConnected(): WorkspaceLinkSubmit =
+        WorkspaceLinkSubmit.Failed("NOT_CONNECTED", "本地网关未连接（请确认桌面 DevHub 正在运行且设备已配对）")
 
     fun fromResult(status: String, result: JSONObject?, errorCode: String?): WorkspaceLinkSubmit = when {
         status == "executed" && result != null && !result.optString("url").isBlank() ->

@@ -95,16 +95,9 @@ fun RemoteWorkspaceScreen(onOpenEntry: (Long) -> Unit, onBack: () -> Unit = {}) 
     // Flow initial=null = 加载态；空列表 → 空态引导；非空 → 内容（约束 #24 三态）
     val entriesFlow by db.remoteWorkspaceEntryDao().observeAll().collectAsState(initial = null)
     // S 批智能条目状态（tab 打开自动请求；状态机在 WorkspaceLinkCard，:app 单测锁）
-    // U5 批：本地模式诚实态投影（displayState 纯函数；relay/fixture 原状态透传零改写）
-    val rawLinkState by WorkspaceLinkController.state.collectAsState()
-    val linkState = com.devhub.mobile.connect.WorkspaceLinkModePolicy.displayState(
-        rawLinkState,
-        com.devhub.mobile.connect.WorkspaceLinkModePolicy.presentation(
-            connectionMode = com.devhub.mobile.connect.ConnectionManager.activeMode
-                .collectAsState().value,
-            fixtureMode = com.devhub.mobile.data.FixtureMode.enabled(context),
-        ),
-    )
+    // U5 批的 displayState 投影随 X-L 反转（docs/18 §5.3.2）退役：控制器状态直通卡片
+    //（local 模式全流转，失败走 Unavailable 结构化面；relay/fixture 原状零改写）。
+    val linkState by WorkspaceLinkController.state.collectAsState()
 
     var title by remember { mutableStateOf("") }
     var url by remember { mutableStateOf("") }
