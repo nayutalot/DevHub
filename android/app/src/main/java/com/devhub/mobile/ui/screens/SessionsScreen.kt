@@ -57,10 +57,10 @@ import com.devhub.mobile.data.db.DevHubDb
 import com.devhub.mobile.data.db.SessionCacheEntity
 import com.devhub.mobile.data.remote.AgentDto
 import com.devhub.mobile.data.remote.ApiError
-import com.devhub.mobile.ui.components.ModeBadge
 import com.devhub.mobile.ui.components.ProviderAvatarFor
 import com.devhub.mobile.ui.components.StatusBadge
 import com.devhub.mobile.ui.components.StatusColors
+import com.devhub.mobile.ui.components.TimeFmt
 import com.devhub.mobile.ui.components.WorkspaceLinkCardView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -70,16 +70,21 @@ import kotlinx.coroutines.withContext
 import java.io.IOException
 
 /**
- * 页面 4：会话列表（GET /v1/sessions，docs/14 §B.1；体验整改批 B 增强）。
- * - R4：行首固定色板 + 首字母徽标；`provider #N` → providerLabel；顶部 provider 过滤 chips（数据 /v1/agents）；
+ * 页面 4：对话列表（GET /v1/sessions，docs/14 §B.1；体验整改批 B 增强）。
+ * - R4：行首固定色板 + 首字母徽标；`provider #N` → providerLabel；顶部 provider 过滤 chips（数据 /v1/agents，次级行）；
  * - R3：行**长按**菜单（归档/取消归档/删除 + 二次确认，文案写明"仅移除 DevHub 记录"）；「显示归档」开关（includeArchived=1）；
  * - 9 值状态徽章 / waiting 高亮 / stale 标注 / observed 整行标注（现状保持）；
  * - 夹具模式（显式开关）：数据驱动自本地夹具，显著标注"演示数据"。
  *
- * T1 批（ZCode 遥控合并进会话流）：列表顶部加「ZCode 工作区」智能卡
- * （复用 WorkspaceLinkCardView / WorkspaceLinkController，沿用原 tab 的取链节奏——
- * 进入本屏自动请求一次、Requesting 幂等去抖；点击 → 取/建智能条目 → remote/{entryId}；
- * 卡上管理入口（小图标）→ 条目管理屏，手工 URL 条目功能不丢）。
+ * UX-P2（docs/24 §3 + docs/26 §3.1）：列表行重排为微信聊天列表形态——
+ * 行 1 = 助手头像+标题+时间；行 2 = 最近消息预览（Room 尾条）+9 值状态角标
+ * （waiting/approval 高亮=QQ 待办；U1-M2 observed 锁定语义保留）；X2：session_mode
+ * 徽章列表行隐藏（observed/attached 以副文案诚实降级，详情 ⓘ 保留）；stale/已归档
+ * 降为副文案。演示模式开关迁「我的→演示模式」（琥珀标注不弱化保留）。
+ *
+ * T1 批（ZCode 遥控合并进会话流）：列表顶部加「ZCode 工作区」智能卡（置顶「电脑」卡，
+ * 复用 WorkspaceLinkCardView / WorkspaceLinkController——点击 → 取/建智能条目 →
+ * remote/{entryId}；卡上管理入口（小图标）→ 条目管理屏，手工 URL 条目功能不丢）。
  */
 @Composable
 fun SessionsScreen(
@@ -91,7 +96,7 @@ fun SessionsScreen(
     val db = remember { DevHubDb.get(context) }
     val scope = rememberCoroutineScope()
 
-    var fixtureOn by remember { mutableStateOf(FixtureMode.enabled(context)) }
+    var fixtureOn by remember { mutableStateOf(FixtureMode.enabled(context)) } // 开关 UX-P2 迁「我的→演示模式」
     var showArchived by rememberSaveable { mutableStateOf(false) }
     var selectedProviderId by rememberSaveable { mutableStateOf<Long?>(null) }
     var agents by remember { mutableStateOf<List<AgentDto>>(emptyList()) }
@@ -168,6 +173,12 @@ fun SessionsScreen(
     }
 
     val allSessions by db.sessionCacheDao().observeAll().collectAsState(initial = emptyList())
+    // UX-P2（docs/26 §3.1/§6-P2）：列表行最近消息预览——Room 尾条一次查齐（GROUP BY 预聚合，
+    // 避免每行子查询；数据面零新接口）
+    val lastMessages by db.messageCacheDao().observeLastMessages().collectAsState(initial = emptyList())
+    val previewBySession = remember(lastMessages) {
+        lastMessages.associate { it.sessionId to SessionListOps.rowPreview(it.contentRedacted) }
+    }
     // T1 批：智能条目行（固定保留标题）——卡片 stale 兜底点击的导航键
     val wsEntries by db.remoteWorkspaceEntryDao().observeAll().collectAsState(initial = null)
     val smartEntryId = wsEntries?.firstOrNull { it.title == WorkspaceLinkCard.ENTRY_TITLE }?.id
@@ -187,24 +198,7 @@ fun SessionsScreen(
             Spacer(Modifier.width(8.dp))
             Text("${visible.size}", fontSize = 13.sp)
             Spacer(Modifier.weight(1f))
-            Text(
-                text = if (fixtureOn) "演示模式·开" else "演示模式·关", // UX-P1 S2
-                fontSize = 11.sp,
-                color = if (fixtureOn) Color(0xFF7A4F00) else Color(0xFF757575),
-                modifier = Modifier
-                    .clickable {
-                        val next = !fixtureOn
-                        FixtureMode.setEnabled(context, next)
-                        // 切换数据源：清空缓存，防真实/夹具数据混排
-                        scope.launch { withContext(Dispatchers.IO) {
-                            db.sessionCacheDao().clear()
-                            db.messageCacheDao().clear()
-                        } }
-                        fixtureOn = next
-                        refreshTick++
-                    }
-                    .padding(4.dp),
-            )
+            // UX-P2：演示模式开关迁「我的→演示模式」（入口收敛；下方琥珀标注不弱化保留）
         }
         if (fixtureOn) {
             // UX-P1 S3：演示模式标注不弱化（琥珀底保留；夹具/批次号工程语退役）
@@ -308,11 +302,12 @@ fun SessionsScreen(
                 "这里会显示电脑上的 AI 对话。还没有内容——先确认电脑在线（看顶部状态），再到「助手」开始第一个对话",
                 fontSize = 13.sp,
             )
-            else -> LazyColumn {
-                items(visible, key = { it.sessionId }) { session ->
-                    SessionRow(
-                        session = session,
-                        agents = agents,
+                else -> LazyColumn {
+                    items(visible, key = { it.sessionId }) { session ->
+                        SessionRow(
+                            session = session,
+                            preview = previewBySession[session.sessionId],
+                            agents = agents,
                         onOpenSession = onOpenSession,
                         menuExpanded = menuFor?.sessionId == session.sessionId,
                         onMenuChange = { expanded -> menuFor = if (expanded) session else null },
@@ -379,6 +374,7 @@ fun SessionsScreen(
 @Composable
 private fun SessionRow(
     session: SessionCacheEntity,
+    preview: String?,
     agents: List<AgentDto>,
     onOpenSession: (Long) -> Unit,
     menuExpanded: Boolean,
@@ -388,9 +384,6 @@ private fun SessionRow(
     onRequestDelete: () -> Unit,
 ) {
     val highlight = StatusColors.highlight(session.status)
-    val providerLabel = session.providerLabel
-        ?: agents.firstOrNull { it.id == session.providerId }?.displayName
-        ?: "未知助手" // UX-P1 S6
 
     Box(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -398,7 +391,7 @@ private fun SessionRow(
                 .fillMaxWidth()
                 .padding(vertical = 4.dp)
                 // 打磨批 D：waiting 高亮底改为深色琥珀容器（钉深色主题后原浅黄底与
-                // 主题默认浅色文字对比失效）；边框保持琥珀高亮语义。
+                // 主题默认浅色文字对比失效）；边框保持琥珀高亮语义（QQ 待办高亮，docs/24 §6）。
                 .background(if (highlight) Color(0xFF3B2F00) else Color.Transparent)
                 .border(
                     width = if (highlight) 1.dp else 0.dp,
@@ -411,6 +404,7 @@ private fun SessionRow(
                 .padding(10.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
+            // —— UX-P2 微信聊天列表行形态（docs/26 §3.1）：行 1 = 头像+标题+时间 ——
             Row(verticalAlignment = Alignment.CenterVertically) {
                 // R4 固定色板 + 首字母徽标（替换 provider #N 文案）
                 val resolvedLabel = session.providerLabel
@@ -427,21 +421,33 @@ private fun SessionRow(
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
-                // U1-M2（AUDIT P1#2）：observed 会话 waiting_input 徽章锁定语义（列表面）
-                StatusBadge(session.status, sessionMode = session.sessionMode)
+                Text(
+                    TimeFmt.listTime(session.lastActivityAtSec ?: session.startedAtSec, System.currentTimeMillis()),
+                    fontSize = 11.sp,
+                    color = Color(0xFF757575),
+                )
             }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                ModeBadge(session.sessionMode) // observed 整行标注（左 chip 一处；行尾重复文字已去除）
-                if (session.stale) {
-                    Text("信息可能不是最新", fontSize = 11.sp, color = Color(0xFFC7A008)) // UX-P1 S7
-                }
-                Text(providerLabel, fontSize = 11.sp, color = Color(0xFF757575))
-                if (session.archived) {
-                    Text("已归档", fontSize = 11.sp, color = Color(0xFF757575))
-                }
-                Spacer(Modifier.weight(1f))
-                // 打磨批 D：去掉行尾重复的「observed 只读」文字（与行首 ModeBadge chip 重复）；
-                // 保留左侧 chip 一处（信息密度更好，色板徽章一眼可辨）。
+            // —— 行 2 = 预览（observed/attached 模式副文案降级至此，X2 徽章隐藏）+ 状态角标 ——
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    listOfNotNull(
+                        preview ?: when (session.sessionMode) {
+                            "observed" -> "仅查看" // X2：session_mode 徽章列表行隐藏 → 副文案诚实降级
+                            "attached" -> "电脑上接入"
+                            else -> null
+                        },
+                        if (session.stale) "信息可能不是最新" else null, // UX-P1 S7（降为副文案，不再占徽章位）
+                        if (session.archived) "已归档" else null,
+                    ).joinToString(" · ").ifEmpty { " " },
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+                // 一行一状态：9 值人话角标（waiting/approval 高亮=QQ 待办；U1-M2 observed
+                // 锁定语义经 StatusBadge 内 InteractionHonesty.waitingInputBadge 保留，不回退）
+                StatusBadge(session.status, sessionMode = session.sessionMode)
             }
         }
         // R3 长按菜单

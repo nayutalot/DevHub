@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -40,9 +42,11 @@ import java.io.IOException
 /**
  * 页面 8：连接诊断页（GET /v1/diagnostics 投影 + 本机连接状态）。
  * 本机块：WS 状态 / 最近错误 / 退避状态 / 最近事件时间（ConnectionManager 真值）。
+ * UX-P2 IA：自底栏 tab 移为路由目的地（connection-status）——状态 chip、「我的」电脑卡/
+ * 入口、连接设置页 G16 可达；onBack 时渲染返回钮（返回栈回归纪律）。
  */
 @Composable
-fun DiagnosticsScreen() {
+fun DiagnosticsScreen(onBack: (() -> Unit)? = null) {
     val context = LocalContext.current
     var diag by remember { mutableStateOf<DiagnosticsDto?>(null) }
     // U2-M5（AUDIT P3#2）：provider 数字 id → catalog displayName/health 映射
@@ -87,6 +91,18 @@ fun DiagnosticsScreen() {
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Spacer(Modifier.height(8.dp))
+        if (onBack != null) {
+            // UX-P2 IA：路由目的地形态补返回导航（tab 形态 onBack=null 不渲染，零行为变化）
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.IconButton(onClick = onBack) {
+                    androidx.compose.material3.Icon(
+                        Icons.Filled.ArrowBack,
+                        contentDescription = "返回",
+                    )
+                }
+            }
+            Spacer(Modifier.height(2.dp))
+        }
         Text("连接帮助", style = MaterialTheme.typography.titleLarge) // UX-P1 Dg1
 
         // —— 本机连接状态（WS）——

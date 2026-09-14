@@ -435,33 +435,8 @@ presentError(com.devhub.mobile.core.ErrorPresent.Presentable("保存失败：请
             }
         }) { Text("体验演示模式（示例数据，不是真实电脑）") } // UX-P1 G17
 
-        // —— U1-M5（AUDIT P1#5）：通知权限入口（拒绝过 → 冷启动不再自动弹，
-        // 主动开启面 + 价值说明移到本页；用户主动点击不属自动弹，不受限）——
-        if (android.os.Build.VERSION.SDK_INT >= 33) {
-            var notifGranted by remember { mutableStateOf(checkNotifGranted(context)) }
-            // 从系统设置返回（ON_RESUME）即刷新授权状态
-            androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                notifGranted = checkNotifGranted(context)
-            }
-            Text("通知权限", style = MaterialTheme.typography.titleMedium)
-            Text(
-                if (notifGranted) {
-                    "已授权：对话事件（等待输入、新对话等）将按系统通知提醒。"
-                } else {
-                    "用于对话事件提醒（等待输入、新对话等）。此前拒绝过将不再自动弹出，可随时在此开启。"
-                },
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (!notifGranted) {
-                TextButton(onClick = {
-                    context.startActivity(
-                        android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                            .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName),
-                    )
-                }) { Text("开启通知权限") }
-            }
-        }
+        // U1-M5 通知权限入口：UX-P2 IA 迁挂「我的→消息提醒」（MineScreen.NotificationEntry，
+        // 文案/语义原样；checkNotifGranted 共用判定保留于本文件，供新挂载点复用）。
     }
 }
 

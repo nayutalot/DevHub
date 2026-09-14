@@ -67,4 +67,25 @@ object SessionListOps {
 
     /** 子会话行层级标注：level 从 1 开始（UX-P1 C3：「L{n} 子会话」→「第 {n} 层」）。 */
     fun childLevelLabel(level: Int): String = "第 $level 层"
+
+    /** 列表行最近消息预览截断上限（微信形态一行省略；渲染层另叠 maxLines=1 兜底）。 */
+    const val ROW_PREVIEW_MAX_CHARS = 60
+
+    /**
+     * UX-P2（docs/24 §3 对话列表行 / docs/26 §3.1）：最近消息预览纯函数。
+     * 取消息缓存尾条 contentRedacted → 清 ** 显示记号（RichTextTokenizer 同源，
+     * 打磨批 D 纪律：显示层清理不改数据）→ 压缩空白 → 截断加省略号。
+     * 空串/空白 → null（调用方回退模式副文案）。
+     */
+    fun rowPreview(lastMessageContent: String?): String? {
+        val cleaned = (RichTextTokenizer.stripDisplayMarkers(lastMessageContent) ?: "")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        if (cleaned.isEmpty()) return null
+        return if (cleaned.length > ROW_PREVIEW_MAX_CHARS) {
+            cleaned.take(ROW_PREVIEW_MAX_CHARS) + "…"
+        } else {
+            cleaned
+        }
+    }
 }

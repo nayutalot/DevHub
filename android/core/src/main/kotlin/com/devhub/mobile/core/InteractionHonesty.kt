@@ -81,6 +81,38 @@ object InteractionHonesty {
     /** R6 判定：服务端 CapabilitySet.mode == managed（数据驱动，绝不硬编码 provider 名）。 */
     const val MODE_MANAGED = "managed"
 
+    // —— UX-P2（docs/24 §2.1/§3.2 + docs/26 §3.2）：provider 卡二态主显示 ——
+    // 「● 可以对话 / ○ 仅查看」与 capabilities 真值一一对应（红线 docs/24 §1 #3：
+    // managed/attached（有授权）→ 可对话侧；observed/未授权/未知 → 仅查看，
+    // 绝不把不可用画成可用）。attached 按 granted 投影归类，细节进 ⓘ 弹层。
+
+    /** 二态主显示：provider 卡能力态（UX-P2 A1 二态化）。 */
+    enum class CapabilityDuality { CAN_TALK, VIEW_ONLY }
+
+    /** 二态主显示文案（X3 同源词表；attached 的第三译名「电脑上接入」只进 ⓘ 弹层）。 */
+    const val DUALITY_CAN_TALK_LABEL = "可以对话"
+    const val DUALITY_VIEW_ONLY_LABEL = "仅查看"
+
+    /**
+     * UX-P2 纯判定：provider capabilities → 二态主显示。
+     * - managed → 可以对话（会话级能力如实注解由 MANAGED_PROVIDER_NOTE 承载）；
+     * - attached → granted 含任一控制令牌（reply/pause/resume/approve/interrupt）→
+     *   可以对话，否则仅查看（docs/24 §2.1「attached 按 granted 投影归类」）；
+     * - observed / 空串 / 未知值 / granted 空 → 仅查看（未知绝不冒充可用，诚实纪律）。
+     */
+    fun capabilityDuality(capabilityMode: String?, granted: List<String>): CapabilityDuality =
+        when (capabilityMode) {
+            MODE_MANAGED -> CapabilityDuality.CAN_TALK
+            "attached" ->
+                if (granted.any { it in CONTROL_GRANT_TOKENS }) CapabilityDuality.CAN_TALK
+                else CapabilityDuality.VIEW_ONLY
+
+            else -> CapabilityDuality.VIEW_ONLY
+        }
+
+    /** AgentCapability 五值令牌（CapabilitesExplain.grantedTokenLabel 同源集合）。 */
+    private val CONTROL_GRANT_TOKENS = setOf("reply", "pause", "resume", "approve", "interrupt")
+
     /**
      * R6.2/R7.2：「启动托管会话」按钮可见性。
      * 门 = 服务端投影 capabilities.mode == managed（服务端另有 L3 二次校验：
