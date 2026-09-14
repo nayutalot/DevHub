@@ -212,7 +212,7 @@ fun RemoteWorkspaceScreen(onOpenEntry: (Long) -> Unit, onBack: () -> Unit = {}) 
         OutlinedTextField(
             value = url,
             onValueChange = { url = it; formError = null },
-            label = { Text("链接（https://…，仅接受 http(s)）") },
+            label = { Text("链接（http/https）") }, // UX-P1 R6
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             isError = url.isNotBlank() && RemoteWorkspaceUrl.parse(url) is RemoteWorkspaceUrl.Verdict.Rejected,
