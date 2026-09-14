@@ -47,10 +47,13 @@ class GatewayConnectionService : Service() {
         }
     }
 
-    private fun connectionText(): String {
-        val mode = if (ConnectionManager.activeMode.value == "relay") "Relay" else "本地"
-        return "$mode · ${ConnectionManager.connectionDisplay()} · ${ConnectionManager.diagnosticsSnapshot()}"
-    }
+    /**
+     * UX-P1（docs/24 §2.1 / docs/25 N4，Top1 反人类点）：常驻通知正文 = 人话一行
+     * （「DevHub 运行中 · 已连接电脑」级别）。地址/心跳/seq/upstream 等协议词与数值
+     * 全部移出通知面（通知面零协议词零数值）；技术原值保留在连接帮助「技术详情」折叠
+     * （ConnectionManager.diagnosticsSnapshot，翻译不删除）。
+     */
+    private fun connectionText(): String = ConnectionManager.notificationText()
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startAsForeground()

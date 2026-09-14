@@ -25,9 +25,12 @@ object SessionListOps {
         if (archived) RowActions(archive = false, unarchive = true, delete = true)
         else RowActions(archive = true, unarchive = false, delete = true)
 
-    /** 删除二次确认文案（红线：写明仅移除 DevHub 记录）。 */
+    /**
+     * 删除二次确认文案（红线：写明仅移除本机投影、绝不触碰源文件）。
+     * UX-P1 S10 微调：「DevHub 记录」→「手机里的记录」（语义不变）。
+     */
     fun deleteConfirmText(title: String?): String =
-        "「${title ?: "该会话"}」将从 DevHub 中删除：仅移除 DevHub 记录，不会改动你电脑上的任何源文件。此操作不可撤销。"
+        "「${title ?: "该对话"}」将从 DevHub 中删除：仅移除手机里的记录，不会改动你电脑上的任何源文件。此操作不可撤销。"
 
     /** GET /v1/sessions 查询串（契约参数名：limit / includeArchived / parentId）。 */
     fun sessionsQuery(limit: Int, includeArchived: Boolean, parentId: Long?): String = buildString {
@@ -62,6 +65,6 @@ object SessionListOps {
             .map { it.index }
     }
 
-    /** 子会话行层级标注：level 从 1 开始（父会话的子 = L1，孙 = L2…）。 */
-    fun childLevelLabel(level: Int): String = "L$level 子会话"
+    /** 子会话行层级标注：level 从 1 开始（UX-P1 C3：「L{n} 子会话」→「第 {n} 层」）。 */
+    fun childLevelLabel(level: Int): String = "第 $level 层"
 }

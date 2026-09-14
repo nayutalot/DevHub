@@ -35,7 +35,7 @@ class EventNotificationMapperTest {
             sessionTitle = null,
             sessionId = 7,
         )
-        assertEquals("DevHub：等待工具批准", n!!.title)
+        assertEquals("DevHub：请求你批准一个操作", n!!.title)
         assertEquals(7L, n.sessionId)
     }
 
@@ -63,7 +63,7 @@ class EventNotificationMapperTest {
                 sessionTitle = "任务 A",
                 sessionId = 9,
             )
-            val expectedLabel = if (to == "completed") "会话已完成" else "会话已失败"
+            val expectedLabel = if (to == "completed") "任务已完成" else "任务已失败"
             assertEquals("DevHub：$expectedLabel", n!!.title)
             assertEquals("任务 A $expectedLabel", n.body) // summary 缺省时兜底文案
         }
@@ -109,6 +109,6 @@ class EventNotificationMapperTest {
             sessionTitle = null,
             sessionId = 42,
         )
-        assertEquals("会话 #42 等待你的输入", n!!.body)
+        assertEquals("对话 #42 等待你的输入", n!!.body)
     }
 }

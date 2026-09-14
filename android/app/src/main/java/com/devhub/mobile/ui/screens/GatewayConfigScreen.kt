@@ -75,9 +75,9 @@ fun GatewayConfigScreen(
     var pinAdvancedOpen by remember { mutableStateOf(false) }
     var loaded by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
-    // U1-M3（AUDIT P1#3）：成功面仍为纯文本；错误面统一 Presentable
-    // （人话 headline + 原始异常/错误码收「技术细节」折叠区，默认收起）
-    var message by remember { mutableStateOf<String?>(null) }
+    // U1-M3（AUDIT P1#3）+ UX-P1（G13/G14）：成功/提示面亦统一 Presentable
+    // （人话 headline；版本/运行时长等技术原值收「技术细节」折叠，零吞码）
+    var message by remember { mutableStateOf<com.devhub.mobile.core.ErrorPresent.Presentable?>(null) }
     var errorResult by remember { mutableStateOf<com.devhub.mobile.core.ErrorPresent.Presentable?>(null) }
 
     /** 错误呈现统一入口：写 errorResult、清成功消息。 */
@@ -121,13 +121,14 @@ fun GatewayConfigScreen(
         if (onBack != null) {
             TextButton(onClick = onBack) { Text("< 返回") }
         }
-        Text("Remote Gateway 配置", style = MaterialTheme.typography.titleLarge)
+        Text("连接设置", style = MaterialTheme.typography.titleLarge) // UX-P1 G1
         Text(
-            "连接模式（显式选择，同一设备 Token 两模式通用）：\n" +
-                "· 本地模式：桌面 DevHub 开启 gateway_enabled（默认 127.0.0.1:8746），主机填桌面电脑的局域网地址。\n" +
-                "· Relay 模式：经中继服务器（wss://，强制 TLS）——电脑不在同一内网时使用。",
+            "选择怎么连电脑：\n" +
+                "· 同一网络：手机和电脑连同一个 Wi-Fi（默认）。\n" +
+                "· 云端连接：电脑不在身边时用，经加密服务器中转。\n" +
+                "两种方式共用一把钥匙。",
             fontSize = 13.sp,
-        )
+        ) // UX-P1 G2（云端连接定名，主控裁决）
 
         if (!loaded) {
             CircularProgressIndicator()
@@ -139,12 +140,12 @@ fun GatewayConfigScreen(
             FilterChip(
                 selected = mode == "local",
                 onClick = { mode = "local" },
-                label = { Text("本地模式") },
+                label = { Text("同一网络（直连）") }, // UX-P1 G3
             )
             FilterChip(
                 selected = mode == "relay",
                 onClick = { mode = "relay" },
-                label = { Text("Relay 模式") },
+                label = { Text("云端连接") }, // UX-P1 G4
             )
         }
 
@@ -152,7 +153,7 @@ fun GatewayConfigScreen(
             OutlinedTextField(
                 value = host,
                 onValueChange = { host = it },
-                label = { Text("主机") },
+                label = { Text("电脑地址") }, // UX-P1 G5
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )
@@ -167,13 +168,13 @@ fun GatewayConfigScreen(
             OutlinedTextField(
                 value = relayUrl,
                 onValueChange = { relayUrl = it.trim() },
-                label = { Text("Relay endpoint") },
+                label = { Text("服务器地址") }, // UX-P1 G7
                 placeholder = { Text("wss://your-relay-host") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 supportingText = {
                     Text(
-                        "仅接受 wss://（ws:// 为明文，App 在保存与连接两层一律拒绝）",
+                        "必须以 wss:// 开头（加密连接）", // UX-P1 G8
                         fontSize = 11.sp,
                     )
                 },
@@ -186,7 +187,7 @@ fun GatewayConfigScreen(
                 )
             }
             Text(
-                "使用与本地模式相同的设备 Token（凭据共用，无需重新配对）。",
+                "两种方式共用同一把钥匙：切换后无需重新配对", // UX-P1 G9
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -196,9 +197,9 @@ fun GatewayConfigScreen(
             // found」，引导前置到配置页）
             if (pinFingerprints.isBlank()) {
                 Text(
-                    "提示：尚未配置证书指纹。自签 IP 证书不受系统默认信任，" +
-                        "生产使用请在下方「证书指纹（高级，可选）」填入 SPKI sha256 指纹，否则连接将失败" +
-                        "（Trust anchor not found）。",
+                    // UX-P1 G10：自签证书引导人话化（Trust anchor not found 等原值在连接失败
+                    // 的「技术细节」折叠如实呈现，此处不再预演）
+                    "若服务器使用自签证书，需要在下方「证书指纹（高级）」里填入证书指纹，否则会连接失败",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.error,
                 )
@@ -273,11 +274,11 @@ fun GatewayConfigScreen(
                             // AC7b：保存后刷新缓存；R3：断旧连新（单连接互斥，切模式即刻生效）
                             ConnectionManager.refreshCachedConfig()
                             ConnectionManager.reconnectNow()
-                            message = if (mode == "relay") "已保存（Relay 模式）。" else "已保存。"
+                            message = com.devhub.mobile.core.ErrorPresent.Presentable("已保存") // UX-P1 G13
                             busy = false
                             onConfigured()
                         } catch (err: Exception) {
-                            presentError(com.devhub.mobile.core.ErrorPresent.Presentable("保存失败：请重试", err.toString()))
+presentError(com.devhub.mobile.core.ErrorPresent.Presentable("保存失败：请重试", err.toString()))
                             busy = false
                         }
                     }
@@ -321,7 +322,13 @@ fun GatewayConfigScreen(
                                 }
                                 try {
                                     val health = probe.health()
-                                    ProbeOutcome.Ok("连接成功：${health.name} v${health.version}（运行 ${health.uptimeSec}s）")
+                                    // UX-P1 G14：版本/运行时长收「技术细节」折叠
+                                    ProbeOutcome.Ok(
+                                        com.devhub.mobile.core.ErrorPresent.Presentable(
+                                            "连接成功！对方 DevHub 运行正常",
+                                            "name=${health.name} · version=${health.version} · uptime=${health.uptimeSec}s",
+                                        ),
+                                    )
                                 } catch (err: ApiError) {
                                     // U1-M3：人话映射 + 原码收「技术细节」（不再直出异常串）
                                     ProbeOutcome.Err(
@@ -342,7 +349,7 @@ fun GatewayConfigScreen(
                             } else {
                                 val portNum = port.toIntOrNull()
                                     ?: return@withContext ProbeOutcome.Err(
-                                        com.devhub.mobile.core.ErrorPresent.Presentable("端口非法：请输入 1–65535 数字"),
+                                        com.devhub.mobile.core.ErrorPresent.Presentable("端口号不对：请填 1–65535 的数字"), // UX-P1 G15
                                     )
                                 // 探测使用当前输入（未保存也允许先测）
                                 val probe = GatewayApi(
@@ -351,7 +358,12 @@ fun GatewayConfigScreen(
                                 )
                                 try {
                                     val health = probe.health()
-                                    ProbeOutcome.Ok("连接成功：${health.name} v${health.version}（运行 ${health.uptimeSec}s）")
+                                    ProbeOutcome.Ok(
+                                        com.devhub.mobile.core.ErrorPresent.Presentable(
+                                            "连接成功！对方 DevHub 运行正常",
+                                            "name=${health.name} · version=${health.version} · uptime=${health.uptimeSec}s",
+                                        ),
+                                    )
                                 } catch (err: ApiError) {
                                     ProbeOutcome.Err(
                                         com.devhub.mobile.core.ErrorPresent.api(
@@ -372,7 +384,7 @@ fun GatewayConfigScreen(
                         }
                         when (outcome) {
                             is ProbeOutcome.Ok -> {
-                                message = outcome.message
+                                message = outcome.presentable
                                 errorResult = null
                             }
 
@@ -399,12 +411,17 @@ fun GatewayConfigScreen(
                 color = Color(0xFFE8F5E9),
                 shape = MaterialTheme.shapes.small,
             ) {
-                Text(it, fontSize = 13.sp, modifier = Modifier.padding(8.dp))
+                Column(Modifier.padding(8.dp)) {
+                    Text(it.headline, fontSize = 13.sp)
+                    it.technical?.let { tech ->
+                        com.devhub.mobile.ui.components.TechnicalDetailsFold(tech)
+                    }
+                }
             }
         }
 
         Spacer(Modifier.height(4.dp))
-        TextButton(onClick = onDiagnostics) { Text("打开连接诊断") }
+        TextButton(onClick = onDiagnostics) { Text("诊断连接问题") } // UX-P1 G16
         // 体验整改批 B：夹具联调入口（显式进入，绝无自动回退；所有界面标注"演示数据"）
         TextButton(onClick = {
             FixtureMode.setEnabled(context, true)
@@ -416,7 +433,7 @@ fun GatewayConfigScreen(
                 }
                 onDemoMode()
             }
-        }) { Text("进入演示模式（夹具数据 · 非真实 Gateway）") }
+        }) { Text("体验演示模式（示例数据，不是真实电脑）") } // UX-P1 G17
 
         // —— U1-M5（AUDIT P1#5）：通知权限入口（拒绝过 → 冷启动不再自动弹，
         // 主动开启面 + 价值说明移到本页；用户主动点击不属自动弹，不受限）——
@@ -429,9 +446,9 @@ fun GatewayConfigScreen(
             Text("通知权限", style = MaterialTheme.typography.titleMedium)
             Text(
                 if (notifGranted) {
-                    "已授权：会话事件（等待输入、新会话等）将按系统通知提醒。"
+                    "已授权：对话事件（等待输入、新对话等）将按系统通知提醒。"
                 } else {
-                    "用于会话事件提醒（等待输入、新会话等）。此前拒绝过将不再自动弹出，可随时在此开启。"
+                    "用于对话事件提醒（等待输入、新对话等）。此前拒绝过将不再自动弹出，可随时在此开启。"
                 },
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -448,9 +465,9 @@ fun GatewayConfigScreen(
     }
 }
 
-/** 「测试连接」探测结果：成功 = 文本；失败 = U1-M3 统一呈现体（人话+技术细节折叠）。 */
+/** 「测试连接」探测结果：成功/失败均统一呈现体（UX-P1 G14：人话 + 技术细节折叠）。 */
 private sealed interface ProbeOutcome {
-    data class Ok(val message: String) : ProbeOutcome
+    data class Ok(val presentable: com.devhub.mobile.core.ErrorPresent.Presentable) : ProbeOutcome
 
     data class Err(val presentable: com.devhub.mobile.core.ErrorPresent.Presentable) : ProbeOutcome
 }

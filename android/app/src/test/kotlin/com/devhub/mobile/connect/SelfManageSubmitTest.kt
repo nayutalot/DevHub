@@ -54,9 +54,10 @@ class SelfManageSubmitTest {
     fun `rejected result surfaces the structured error code (incl SPAWN_REJECTED)`() {
         val r = ManagedSpawnOutcome.fromResult("rejected", null, "cmd-3", "SPAWN_REJECTED")
         assertEquals(ManagedSpawnSubmit.Rejected("SPAWN_REJECTED", "命令被拒绝 [SPAWN_REJECTED]"), r)
-        // UI 文案分叉：SPAWN_REJECTED 点名 spawn 特有原因，绝不吞码
-        val text = InteractionHonesty.spawnRejectionText((r as ManagedSpawnSubmit.Rejected).code, r.message)
-        assertTrue(text.contains("SPAWN_REJECTED") && text.contains("托管通道"))
+        // UI 文案分叉（UX-P1 H19）：SPAWN_REJECTED 点名对话通道/上限原因，原码收技术细节，绝不吞码
+        val presentable = InteractionHonesty.spawnRejection((r as ManagedSpawnSubmit.Rejected).code, r.message)
+        assertTrue(presentable.headline.contains("上限"))
+        assertTrue(presentable.technical!!.contains("SPAWN_REJECTED"))
     }
 
     // ---- 自撤销 relay 分支：收口状态机（成功 = disconnect(revoked)，非 command_result） ----

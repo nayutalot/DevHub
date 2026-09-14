@@ -51,7 +51,7 @@ class WorkspaceLinkSubmitTest {
         assertTrue(r is WorkspaceLinkSubmit.Failed)
         val f = r as WorkspaceLinkSubmit.Failed
         assertEquals("TIMEOUT", f.code)
-        assertTrue(f.message.contains("本地网关") && f.message.contains("时限"))
+        assertTrue(f.message.contains("电脑") && f.message.contains("时限")) // UX-P1：网关词退出用户面
     }
 
     @Test
@@ -60,7 +60,7 @@ class WorkspaceLinkSubmitTest {
         assertTrue(r is WorkspaceLinkSubmit.Failed)
         val f = r as WorkspaceLinkSubmit.Failed
         assertEquals("NOT_CONNECTED", f.code)
-        assertTrue(f.message.contains("本地网关未连接"))
+        assertTrue(f.message.contains("还没连上电脑"))
     }
 
     // ---- command_result 终态投影 ----

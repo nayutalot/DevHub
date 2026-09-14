@@ -29,16 +29,17 @@ data class RelayEndpoint(
 
         /**
          * 文案（保存层 UI 与连接层异常共用）：只讲规则本身，不引内部文档编号
-         * （U2-M3，AUDIT P2#6；原「docs/19 §11」引用移除，语义不变）。
+         * （U2-M3，AUDIT P2#6）。UX-P1 G19 人话化：规则句保留，工程尾注移除
+         * （wss 强制与双层面同函数校验语义零改动）。
          */
         const val REJECT_REASON =
-            "relay endpoint 必须为 wss://（ws:// 为明文，不承载真实配对；App 在保存与连接两层一律拒绝）"
+            "服务器地址必须以 wss:// 开头（加密连接）"
 
         /**
-         * 路径拒绝文案（KC 批）：与 wss 文案同款纪律——只讲规则本身。
+         * 路径拒绝文案（KC 批）：与 wss 文案同款纪律——只讲规则本身。UX-P1 G20 人话化。
          */
         const val REJECT_REASON_PATH =
-            "relay endpoint 只填裸地址（wss://地址[:端口]），不要带 /relay/device 等路径：设备腿路径由 App 自动拼接"
+            "只填地址即可，不要带路径——App 会自动补全"
 
         /**
          * 解析并强制 wss + 裸地址；非法形态抛 IllegalArgumentException（fail-fast，
@@ -52,13 +53,13 @@ data class RelayEndpoint(
             val pathPart = afterScheme.substringAfter('/', missingDelimiterValue = "")
             require(pathPart.isEmpty()) { REJECT_REASON_PATH }
             val pathless = afterScheme.substringBefore('/')
-            require(pathless.isNotEmpty()) { "relay endpoint 缺少 host：$trimmed" }
+            require(pathless.isNotEmpty()) { "服务器地址缺少主机名：$trimmed" }
             val hostPart = pathless.substringBeforeLast(':')
             val portPart = pathless.substringAfterLast(':', missingDelimiterValue = "")
-            require(hostPart.isNotEmpty()) { "relay endpoint 缺少 host：$trimmed" }
+            require(hostPart.isNotEmpty()) { "服务器地址缺少主机名：$trimmed" }
             val port = if (portPart.isEmpty()) DEFAULT_PORT else portPart.toIntOrNull()
-                ?: throw IllegalArgumentException("relay endpoint 端口非法：$trimmed")
-            require(port in 1..65535) { "relay endpoint 端口越界：$trimmed" }
+                ?: throw IllegalArgumentException("服务器地址端口非法：$trimmed")
+            require(port in 1..65535) { "服务器地址端口越界（需 1–65535）：$trimmed" }
             return RelayEndpoint(url = trimmed.trimEnd('/'), host = hostPart, port = port)
         }
     }

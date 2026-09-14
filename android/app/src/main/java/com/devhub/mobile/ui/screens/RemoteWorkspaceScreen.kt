@@ -139,8 +139,9 @@ fun RemoteWorkspaceScreen(onOpenEntry: (Long) -> Unit, onBack: () -> Unit = {}) 
             Text("远程工作区", style = MaterialTheme.typography.titleLarge)
         }
         Text(
-            "把电脑上复制的远程控制页链接（ZCode 移动端遥控、网页终端、控制面板等，https://）存成条目，" +
-                "在手机上全屏打开。链接可能含动态会话令牌：仅存本机、绝不外发，展示时中段省略。",
+            // UX-P1 R2：安全提示事实全保留（仅存本机/绝不外发/展示打码）
+            "把电脑上复制的控制页链接（https://）存成条目，在这里全屏打开。" +
+                "链接可能带私人凭据：只存在手机里、绝不外发，显示时打码。",
             fontSize = 13.sp,
         )
 
@@ -200,24 +201,24 @@ fun RemoteWorkspaceScreen(onOpenEntry: (Long) -> Unit, onBack: () -> Unit = {}) 
         }
 
         // —— 添加条目表单 ——
-        Text("添加条目", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text("添加页面", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) // UX-P1 R4
         OutlinedTextField(
             value = title,
             onValueChange = { title = it },
-            label = { Text("标题（留空取链接主机名）") },
+            label = { Text("标题（可不填）") }, // UX-P1 R5
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
         )
         OutlinedTextField(
             value = url,
             onValueChange = { url = it; formError = null },
-            label = { Text("链接（https://…，仅接受 http(s)）") },
+            label = { Text("链接（http/https）") }, // UX-P1 R6
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             isError = url.isNotBlank() && RemoteWorkspaceUrl.parse(url) is RemoteWorkspaceUrl.Verdict.Rejected,
             supportingText = {
                 // U2-M3（AUDIT P3#5）：helper 不再直出错误码（码归结构化错误面承载）
-                Text("仅接受 http(s):// 链接，其余一律拒绝", fontSize = 11.sp)
+                Text("只能添加 http/https 开头的链接", fontSize = 11.sp) // UX-P1 R7
             },
         )
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -232,7 +233,7 @@ fun RemoteWorkspaceScreen(onOpenEntry: (Long) -> Unit, onBack: () -> Unit = {}) 
                 },
                 enabled = clipboardUrl != null,
             ) {
-                Text(if (clipboardUrl != null) "从剪贴板填入（已检出链接）" else "从剪贴板填入（未检出 http(s) 链接）")
+                Text(if (clipboardUrl != null) "从剪贴板粘贴" else "剪贴板里没有链接") // UX-P1 R8
             }
             Button(
                 onClick = {
@@ -383,8 +384,8 @@ fun RemoteWorkspaceWebViewScreen(entryId: Long, onBack: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text("条目不存在（可能已被删除）。", fontSize = 14.sp)
-                TextButton(onClick = onBack) { Text("返回列表") }
+                Text("页面不存在或已删除", fontSize = 14.sp) // UX-P1 R10
+                TextButton(onClick = onBack) { Text("返回") }
             }
         }
 
@@ -399,6 +400,8 @@ private fun WebViewPane(entry: RemoteWorkspaceEntryEntity, onExit: () -> Unit) {
     var webView by remember { mutableStateOf<WebView?>(null) }
     var loading by remember { mutableStateOf(true) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
+    // UX-P1 R12：code/description 原值收「技术细节」折叠（headline 人话）
+    var errorTech by remember { mutableStateOf<String?>(null) }
     var currentUrl by remember { mutableStateOf(entry.url) }
     var copied by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -439,7 +442,7 @@ private fun WebViewPane(entry: RemoteWorkspaceEntryEntity, onExit: () -> Unit) {
                     cm?.setPrimaryClip(android.content.ClipData.newPlainText("url", currentUrl))
                     copied = true
                 }) {
-                    Text(if (copied) "已复制" else "复制URL", fontSize = 12.sp)
+                    Text(if (copied) "已复制" else "复制链接", fontSize = 12.sp) // UX-P1 R11
                 }
             }
         }
@@ -493,8 +496,8 @@ private fun WebViewPane(entry: RemoteWorkspaceEntryEntity, onExit: () -> Unit) {
                                 // 主框架错误 → 错误态（子资源失败不打断整体——容错降级纪律）
                                 if (request.isForMainFrame) {
                                     loading = false
-                                    errorMsg = "页面加载失败（${error.description}，code=${error.errorCode}）。" +
-                                        "请检查链接与网络后重试。"
+                                    errorMsg = "页面加载失败：请检查链接和网络后重试" // UX-P1 R12
+                                    errorTech = "description=${error.description} · code=${error.errorCode}"
                                     // W 批：立即清掉默认 Chromium 错误页——其把完整 URL（可含
                                     // sid/hash 会话凭据）渲染在屏上，旁观/录屏可见；错误页只需
                                     // "不清单"，用户面信息由上方结构化错误横幅+重试承担
@@ -506,7 +509,7 @@ private fun WebViewPane(entry: RemoteWorkspaceEntryEntity, onExit: () -> Unit) {
                                 // 证书错误绝不 proceed（cancel 默认拒绝——与 pin-TL 红线同向，绝不自签放行）
                                 handler.cancel()
                                 loading = false
-                                errorMsg = "证书校验失败，已阻止加载（绝不放行证书错误）。"
+                                errorMsg = "证书异常，已停止加载（这是安全保护）" // UX-P1 R13
                             }
                         }
                         loadUrl(entry.url)
@@ -523,6 +526,9 @@ private fun WebViewPane(entry: RemoteWorkspaceEntryEntity, onExit: () -> Unit) {
                 ) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(msg, fontSize = 12.sp, color = Color(0xFFB71C1C))
+                        errorTech?.let {
+                            com.devhub.mobile.ui.components.TechnicalDetailsFold(it)
+                        }
                         TextButton(onClick = {
                             errorMsg = null
                             loading = true

@@ -79,8 +79,8 @@ fun StatusBadge(
 @Composable
 fun HealthBadge(health: String, modifier: Modifier = Modifier) {
     val (bg, fg, label) = when (health) {
-        "ok" -> Triple(Color(0xFFDDEBDD), Color(0xFF1B5E20), "健康")
-        "degraded" -> Triple(Color(0xFFFFECB3), Color(0xFF8D6E00), "降级")
+        "ok" -> Triple(Color(0xFFDDEBDD), Color(0xFF1B5E20), "正常") // UX-P1 X3
+        "degraded" -> Triple(Color(0xFFFFECB3), Color(0xFF8D6E00), "不稳定") // UX-P1 X3
         "unavailable" -> Triple(Color(0xFFFFCDD2), Color(0xFFB71C1C), "不可用")
         else -> Triple(Color(0xFFF5F5F5), Color(0xFF757575), "未知")
     }
@@ -92,13 +92,18 @@ fun HealthBadge(health: String, modifier: Modifier = Modifier) {
     )
 }
 
-/** 接入深度徽章（managed / attached / observed；observed = 纯观察全禁控制）。 */
+/**
+ * 接入深度徽章（UX-P1 X2 译名步：managed/attached/observed 原英文直出退役 →
+ * 「可以对话/电脑上接入/仅查看」；列表行隐藏该徽章归 P2 结构批，本批徽章原位译名；
+ * 未知/缺省绝不冒充 observed → 「接入状态未知」（诚实纪律）。
+ */
 @Composable
 fun ModeBadge(mode: String, modifier: Modifier = Modifier) {
     val (bg, fg, label) = when (mode) {
-        "managed" -> Triple(Color(0xFFC8E6C9), Color(0xFF1B5E20), "managed")
-        "attached" -> Triple(Color(0xFFBBDEFB), Color(0xFF0D47A1), "attached")
-        else -> Triple(Color(0xFFFFF3E0), Color(0xFF7A4F00), "observed 只读")
+        "managed" -> Triple(Color(0xFFC8E6C9), Color(0xFF1B5E20), "可以对话")
+        "attached" -> Triple(Color(0xFFBBDEFB), Color(0xFF0D47A1), "电脑上接入")
+        "observed" -> Triple(Color(0xFFFFF3E0), Color(0xFF7A4F00), "仅查看")
+        else -> Triple(Color(0xFFF5F5F5), Color(0xFF757575), "接入状态未知")
     }
     Text(
         text = label,

@@ -97,7 +97,7 @@ fun ChildSessionsScreen(
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) { Text("< 返回") }
             Column(Modifier.weight(1f)) {
-                Text("🤖 子智能体会话", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                Text("🤖 子任务", fontWeight = FontWeight.SemiBold, fontSize = 15.sp) // UX-P1 C1
                 Text(
                     // 打磨批 D：显示层清理 ** 记号（不改数据）
                     com.devhub.mobile.core.RichTextTokenizer.stripDisplayMarkers(parentTitle)
@@ -111,7 +111,7 @@ fun ChildSessionsScreen(
         }
         if (fixtureOn) {
             Text(
-                "演示数据（夹具）· 非真实 Gateway — 端到端验收归批次 C",
+                "演示模式：显示的是示例数据，不是你的电脑", // UX-P1（同 S3）
                 fontSize = 10.sp,
                 color = Color(0xFF7A4F00),
                 modifier = Modifier
@@ -127,7 +127,7 @@ fun ChildSessionsScreen(
                 presentable = error ?: com.devhub.mobile.core.ErrorPresent.Presentable("加载失败"),
                 headlinePrefix = "加载失败：",
             )
-            list.isEmpty() -> Text("该会话没有子智能体会话", fontSize = 13.sp)
+            list.isEmpty() -> Text("这个对话没有子任务", fontSize = 13.sp) // UX-P1 C2
             else -> {
                 // R2 排序：活跃在前、已结束在后（core.SessionListOps 纯逻辑）
                 val ordered = SessionListOps.sortChildren(
@@ -159,7 +159,7 @@ fun ChildSessionsScreen(
                                     // 取首个非系统句；提不出 → null 如实回退原截断显示）
                                     com.devhub.mobile.core.SessionTitleOps.extractTitle(child.title)
                                         ?: com.devhub.mobile.core.RichTextTokenizer.stripDisplayMarkers(child.title)
-                                        ?: "会话 #${child.id}",
+                                        ?: "未命名对话", // UX-P1（同 D1）
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 13.sp,
                                     modifier = Modifier.weight(1f),

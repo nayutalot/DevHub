@@ -175,43 +175,48 @@ sealed class RelayPairEvent {
     data class Closed(val wsCode: Int, val reason: String) : RelayPairEvent()
 }
 
-/** §8.2 码域 → 用户可读结构化文案（配对面失败码全表；未知码兜底透传 message）。 */
+/**
+ * §8.2 码域 → 用户可读结构化文案（配对面失败码全表；未知码兜底透传 message）。
+ * UX-P1（docs/25 X10）：保留人话头；「[$code]」尾注退役——原码由 [RelayPairingMachine.Failure.code]
+ * 结构化承载（UI「技术细节」折叠区可达，翻译不删除）；TTL/gateway_enabled/upstream/Relay
+ * 等工程词随行人话化（云端连接定名，主控裁决）。
+ */
 object RelayPairing {
     fun failureMessage(code: String?, message: String?): RelayPairingMachine.Failure {
         val m = message?.takeIf { it.isNotBlank() }
         return when (code) {
             "PAIRING_INVALID_CODE" ->
-                RelayPairingMachine.Failure(code, "配对失败：码不存在或不正确（计入失败 5 次作废）[$code]")
+                RelayPairingMachine.Failure(code, "配对失败：码不存在或不正确（计入失败 5 次作废）——请在电脑上重新生成")
 
             "PAIRING_CODE_EXPIRED" ->
-                RelayPairingMachine.Failure(code, "配对失败：码已过期（TTL 300s），请在桌面重新生成 [$code]")
+                RelayPairingMachine.Failure(code, "配对失败：码已过期（5 分钟内有效），请在电脑上重新生成")
 
             "PAIRING_CODE_VOIDED" ->
-                RelayPairingMachine.Failure(code, "配对失败：码已作废（失败次数过多或已被新码废止），请在桌面重新生成 [$code]")
+                RelayPairingMachine.Failure(code, "配对失败：码已作废（失败次数过多或已被新码废止），请在电脑上重新生成")
 
             "AUTH_RATE_LIMITED" ->
-                RelayPairingMachine.Failure(code, "尝试过于频繁（5 次/5 分钟），请稍后重试 [$code]")
+                RelayPairingMachine.Failure(code, "尝试过于频繁（5 次/5 分钟），请稍后重试")
 
             "RELAY_UPSTREAM_OFFLINE" ->
                 RelayPairingMachine.Failure(
                     code,
-                    "Relay 已连通，但电脑端离线（upstream offline）——请确认桌面 DevHub 在线后重试 [$code]",
+                    "云端连接已连上，但电脑不在线——请确认电脑上的 DevHub 在线后重试",
                 )
 
             "RELAY_UPSTREAM_TIMEOUT" ->
-                RelayPairingMachine.Failure(code, "电脑端应答超时——请确认桌面 DevHub 在线后重试 [$code]")
+                RelayPairingMachine.Failure(code, "电脑应答超时——请确认电脑上的 DevHub 在线后重试")
 
             "GATEWAY_DISABLED" ->
-                RelayPairingMachine.Failure(code, "桌面 Gateway 未启用（gateway_enabled=0）[$code]")
+                RelayPairingMachine.Failure(code, "电脑上的 DevHub 没有打开「允许手机连接」开关，请到电脑端设置打开后重试")
 
             "DEVICE_REVOKED", "AUTH_INVALID_TOKEN" ->
-                RelayPairingMachine.Failure(code, "设备凭据被拒绝（$code）：请重新配对 [$code]")
+                RelayPairingMachine.Failure(code, "设备凭据被拒绝：请重新配对")
 
             null ->
-                RelayPairingMachine.Failure("RELAY_PAIR_FAILED", "配对失败：${m ?: "Relay 返回未知错误"}")
+                RelayPairingMachine.Failure("RELAY_PAIR_FAILED", "配对失败：${m ?: "连接未完成，请重试"}")
 
             else ->
-                RelayPairingMachine.Failure(code, "配对失败：[$code] ${m ?: "（无详细信息）"}")
+                RelayPairingMachine.Failure(code, "配对失败：${m ?: "（无详细信息）"}")
         }
     }
 }

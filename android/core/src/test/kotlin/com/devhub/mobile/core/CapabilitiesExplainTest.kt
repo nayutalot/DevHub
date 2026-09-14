@@ -18,9 +18,9 @@ class CapabilitiesExplainTest {
 
     @Test
     fun `mode labels cover full server vocabulary`() {
-        assertEquals("托管接入", CapabilitiesExplain.modeLabel("managed"))
-        assertEquals("已挂接（hooks）", CapabilitiesExplain.modeLabel("attached"))
-        assertEquals("观察模式（只读）", CapabilitiesExplain.modeLabel("observed"))
+        assertEquals("可以对话", CapabilitiesExplain.modeLabel("managed"))
+        assertEquals("电脑上接入", CapabilitiesExplain.modeLabel("attached"))
+        assertEquals("仅查看", CapabilitiesExplain.modeLabel("observed"))
         assertEquals("能力未探测", CapabilitiesExplain.modeLabel(""))
         assertEquals("能力状态未知", CapabilitiesExplain.modeLabel("somefuture"))
     }
@@ -182,7 +182,7 @@ class CapabilitiesExplainTest {
             emptyList(),
             "managed face unconfigured: settings key zcode_managed_model is empty (caps stay observed)",
         )
-        assertEquals("观察模式（只读）", e.modeLabel)
+        assertEquals("仅查看", e.modeLabel)
         assertEquals("无控制能力", e.grantedLabel)
         assertEquals("ZCode 托管未启用：尚未在桌面端设置 ZCode 托管模型", e.reasonLabel)
         assertTrue(e.reasonKnown)
@@ -194,10 +194,10 @@ class CapabilitiesExplainTest {
             "observed",
             "managed face unconfigured: settings key zcode_managed_model is empty (caps stay observed)",
         )
-        assertEquals("观察模式（只读） · ZCode 托管未启用：尚未在桌面端设置 ZCode 托管模型", s)
+        assertEquals("仅查看 · ZCode 托管未启用：尚未在桌面端设置 ZCode 托管模型", s)
         // 未知 evidence 形态：摘要只显 mode（英文半截句绝不回漏用户面）
         val unknown = CapabilitiesExplain.summaryLine("observed", "weird future evidence")
-        assertEquals("观察模式（只读）", unknown)
+        assertEquals("仅查看", unknown)
     }
 
     @Test

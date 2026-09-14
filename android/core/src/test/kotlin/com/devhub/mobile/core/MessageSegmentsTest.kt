@@ -66,7 +66,7 @@ class MessageSegmentsTest {
     @Test
     fun `thinking char count uses code points`() {
         assertEquals(5, MessageSegments.thinkingCharCount("abc😀d"))
-        assertEquals("💭 思维链 · 5 字", MessageSegments.thinkingFoldLabel("abc😀d"))
+        assertEquals("💭 思考过程 · 5 字", MessageSegments.thinkingFoldLabel("abc😀d"))
     }
 
     @Test

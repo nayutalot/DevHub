@@ -107,8 +107,14 @@ class RelayPairingTest {
             )
             assertTrue(step is RelayPairingMachine.Step.Failed)
             val failure = (step as RelayPairingMachine.Step.Failed).failure
+            // UX-P1 X10：「[$code]」尾注从用户面退役——原码改由 failure.code 结构化承载
+            //（UI 技术细节折叠可达，翻译不删除），文案保人话头。
             assertEquals(code, failure.code)
-            assertTrue("文案须含码域 [$code]", failure.message.endsWith("[$code]"))
+            assertTrue("原码不得再直出尾注 [$code]", !failure.message.endsWith("[$code]"))
+            assertTrue(
+                "文案须人话头",
+                failure.message.contains("配对失败") || failure.message.contains("尝试过于频繁"),
+            )
             assertEquals(RelayPairingMachine.State.Failed, machine.state)
         }
     }
@@ -119,7 +125,7 @@ class RelayPairingTest {
         val step = machine.onEvent(RelayPairEvent.Error(RelayFrame.Error(code = "RELAY_UPSTREAM_OFFLINE")))
         assertTrue(step is RelayPairingMachine.Step.Failed)
         assertEquals("RELAY_UPSTREAM_OFFLINE", (step as RelayPairingMachine.Step.Failed).failure.code)
-        assertTrue((step).failure.message.contains("电脑端离线"))
+        assertTrue((step).failure.message.contains("电脑不在线"))
     }
 
     @Test

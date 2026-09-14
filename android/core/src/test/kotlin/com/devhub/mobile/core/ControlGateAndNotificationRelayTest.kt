@@ -74,7 +74,7 @@ class ControlGateAndNotificationRelayTest {
             sessionId = 337L,
             requiresUserAction = true,
         )
-        assertEquals("DevHub：等待工具批准", n?.title)
+        assertEquals("DevHub：请求你批准一个操作", n?.title)
     }
 
     @Test
@@ -119,7 +119,7 @@ class ControlGateAndNotificationRelayTest {
             sessionId = 5L,
             requiresUserAction = false,
         )
-        assertEquals("DevHub：会话已失败", n?.title)
+        assertEquals("DevHub：任务已失败", n?.title)
         assertFalse(n?.requiresUserAction == true)
     }
 }

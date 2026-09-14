@@ -1663,6 +1663,27 @@ object ConnectionManager {
         }
     }
 
+    /**
+     * UX-P1（docs/24 §2.1 / docs/25 N4）：常驻通知/诊断常态面的人话一行——零协议词、零数值。
+     * 心跳/seq/upstream/attempt/lastError 等技术原值仍由 [diagnosticsSnapshot] 承载，
+     * 仅供「技术详情」折叠区与诊断页折叠使用（诚实折叠、零吞码）。
+     */
+    fun notificationText(): String = when (val s = _state.value) {
+        is ConnState.Connected -> when {
+            _activeMode.value == "relay" && _upstreamBeacon.value == "disconnected" ->
+                "已连上云端，但电脑不在线——消息会在电脑上线后自动送达"
+
+            _activeMode.value == "relay" -> "已连接：电脑在线（云端连接）"
+
+            else -> "已连接（同一网络）"
+        }
+
+        is ConnState.Connecting -> "连接中…"
+        is ConnState.Backing -> "连接断开，正在自动重试…"
+        is ConnState.Unpaired -> "还没连接电脑"
+        ConnState.Idle -> "未连接"
+    }
+
     /** 诊断页投影：本机 WS 连接状态 / 最近错误 / 退避状态（区分模式与 relay 降级信标）。 */
     fun diagnosticsSnapshot(): String = when (val s = _state.value) {
         is ConnState.Connected -> when {

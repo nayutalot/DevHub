@@ -85,7 +85,7 @@ class FixtureProjection private constructor() : ProjectionApi {
         sessionMode = mode,
         title = title,
         status = status,
-        statusDetail = "夹具演示数据",
+        statusDetail = "演示模式数据",
         startedAtSec = nowSec - startedDaysAgo * daySec,
         lastActivityAtSec = lastActivitySec,
         endedAtSec = if (status in setOf("completed", "failed", "stopped")) lastActivitySec else null,
@@ -112,7 +112,7 @@ class FixtureProjection private constructor() : ProjectionApi {
         addSession(
             session(
                 id = 880_001, providerId = 4, key = "zcode", label = "ZCode",
-                title = "DevHub App 阅读体验重构（夹具长会话）", status = "running",
+                title = "DevHub App 阅读体验重构（演示长对话）", status = "running",
                 lastActivitySec = nowSec - 5 * 60,
             ),
         )
@@ -168,7 +168,7 @@ class FixtureProjection private constructor() : ProjectionApi {
                     segments = listOf(seg(MessageSegments.KIND_TEXT, content))
                 }
                 role == "user" -> content = if (i % 6 == 1) {
-                    "这条用户消息比较长，用于观察气泡换行与右侧对齐表现：请把会话详情改成气泡式对话流，" +
+                    "这条用户消息比较长，用于观察气泡换行与右侧对齐表现：请把对话详情改成气泡式对话流，" +
                         "思维链默认收起，消息默认展示最新一轮，并支持拖动定位与归档删除。"
                 } else "继续，第 $i 步保持这个方向。"
                 else -> content = "收到，第 $i 步已完成（短回复样例）。"
@@ -224,20 +224,20 @@ class FixtureProjection private constructor() : ProjectionApi {
             ),
         )
         msg(880_004, 1, "user", "今天进展如何？", nowSec - 30 * 60)
-        msg(880_004, 2, "assistant", "观察正常，本会话为 observed 只读。", nowSec - 15 * 60)
+        msg(880_004, 2, "assistant", "观察正常，本对话只能查看。", nowSec - 15 * 60)
 
         // —— 主会话 5：DeepSeek 已归档（R3）——
         addSession(
             session(
                 id = 880_005, providerId = 5, key = "deepseek", label = "DeepSeek",
-                title = "DeepSeek 历史会话（已归档样例）", status = "completed",
+                title = "DeepSeek 历史对话（已归档样例）", status = "completed",
                 archived = true,
                 startedDaysAgo = 3,
                 lastActivitySec = nowSec - 2 * daySec - 7200,
             ),
         )
         msg(880_005, 1, "user", "旧任务收尾。", nowSec - 3 * daySec)
-        msg(880_005, 2, "assistant", "已归档的会话默认不在列表显示。", nowSec - 2 * daySec - 7200)
+        msg(880_005, 2, "assistant", "已归档的对话默认不在列表显示。", nowSec - 2 * daySec - 7200)
 
         // —— 打磨批 D：长标题（** 记号 + 单行省略号截断样例）——
         addSession(
@@ -291,7 +291,7 @@ class FixtureProjection private constructor() : ProjectionApi {
     override fun sessionDetail(sessionId: Long): SessionDetailDto {
         val s = sessions[sessionId] ?: throw ApiError(
             code = "SESSION_NOT_FOUND",
-            message = "夹具中不存在该会话",
+            message = "演示数据中不存在该对话",
             httpCode = 404,
         )
         return SessionDetailDto(

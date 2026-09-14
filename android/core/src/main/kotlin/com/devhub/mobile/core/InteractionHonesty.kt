@@ -16,21 +16,21 @@ package com.devhub.mobile.core
  */
 object InteractionHonesty {
 
-    /** R6.1：managed provider 卡文案（能力是会话级的，展示必须如实说）。 */
-    const val MANAGED_PROVIDER_NOTE = "托管会话可交互；外部会话只读"
+    /** R6.1：managed provider 卡文案（能力是会话级的，展示必须如实说；UX-P1 H1 人话化）。 */
+    const val MANAGED_PROVIDER_NOTE = "你发起的对话可以回复/暂停/恢复；电脑上自己开的对话只能看"
 
-    /** R6.2：启动托管会话按钮/输入区文案。 */
-    const val SPAWN_BUTTON_LABEL = "启动托管会话"
-    const val SPAWN_CONFIRM_LABEL = "确认启动"
+    /** R6.2：启动对话按钮/输入区文案（UX-P1 H2-H5）。 */
+    const val SPAWN_BUTTON_LABEL = "开始对话"
+    const val SPAWN_CONFIRM_LABEL = "开始"
     const val SPAWN_CANCEL_LABEL = "取消"
-    const val SPAWN_TASK_LABEL = "托管任务（将作为首条消息发给 Agent）"
-    const val SPAWN_BUSY_LABEL = "启动中…"
+    const val SPAWN_TASK_LABEL = "想让它先做什么？（会作为第一条消息发出）"
+    const val SPAWN_BUSY_LABEL = "正在创建…"
 
-    /** observed 会话通用兜底文案（provider 未知时；per-provider 原因卡优先）。 */
-    const val GENERIC_OBSERVED_NOTE = "observed 会话：纯观察模式，不提供任何远程控制（服务端亦全禁）。"
+    /** observed 会话通用兜底文案（provider 未知时；per-provider 原因卡优先；UX-P1 H6）。 */
+    const val GENERIC_OBSERVED_NOTE = "这个对话只能查看：手机端不能操作，请在电脑上操作"
 
-    /** granted 非空且非 managed/observed 的既有形态（attached 等）沿用明细展示。 */
-    const val EMPTY_GRANTED_NOTE = "无控制能力"
+    /** granted 非空且非 managed/observed 的既有形态（attached 等）沿用明细展示（UX-P1 H7）。 */
+    const val EMPTY_GRANTED_NOTE = "仅查看"
 
     // —— U1-M2（AUDIT P1#2）：observed 会话「等待输入」假可供性修复 ——
     // 列表/详情的 waiting_input 徽章在 observed 会话上加锁定语义：
@@ -40,15 +40,15 @@ object InteractionHonesty {
     const val MODE_OBSERVED = "observed"
     const val STATUS_WAITING_INPUT = "waiting_input"
 
-    /** observed 会话 waiting_input 徽章替换文案（锁定语义）。 */
-    const val WAITING_INPUT_OBSERVED_LABEL = "等待输入 · 只读"
+    /** observed 会话 waiting_input 徽章替换文案（锁定语义；UX-P1 H8 只换说法不换判定）。 */
+    const val WAITING_INPUT_OBSERVED_LABEL = "等电脑回复 · 本机只读"
 
     /**
      * 详情页零控件处解释行（observed + waiting_input 同屏时补一行「为什么不能输入」；
-     * 语义复用既有「转录只读」文案族——ZCODE_REMOTE_DETAIL_NOTE 同源，不杜撰能力）。
+     * 语义复用既有「转录只读」文案族——ZCODE_REMOTE_DETAIL_NOTE 同源，不杜撰能力；UX-P1 H9）。
      */
     const val OBSERVED_WAITING_NOTE =
-        "转录只读，无输入通道：「等待输入」指该会话正在等待桌面端输入；本端仅观察，请到桌面侧回复。"
+        "「等待输入」是说电脑那头在等人输入；这台手机只能看，请在电脑上回复"
 
     /**
      * U1-M2 纯判定：observed 会话 waiting_input 徽章应替换的锁定文案；
@@ -65,13 +65,13 @@ object InteractionHonesty {
             null
         }
 
-    // —— T1 批：ZCode 遥控展示入口文案（诚实纪律：转录仍只读，控制走 ZCode 自家认证页，
-    // 绝不显示为 DevHub 可控/managed）——
-    const val ZCODE_REMOTE_SESSION_BUTTON = "打开 ZCode 遥控"
-    const val ZCODE_REMOTE_AGENTS_BUTTON = "打开遥控"
-    const val ZCODE_REMOTE_DETAIL_NOTE = "转录只读 · 控制经 ZCode 遥控页"
-    const val ZCODE_REMOTE_AGENTS_NOTE = "控制经 ZCode 遥控页（ZCode 自家认证）"
-    const val ZCODE_REMOTE_FETCHING = "正在获取 ZCode 遥控链接…"
+    // —— T1 批：ZCode 展示入口文案（UX-P1 H10-H14 人话化；诚实纪律不变：转录仍只读，
+    // 控制走 ZCode 自家认证页，绝不显示为 DevHub 可控/managed）——
+    const val ZCODE_REMOTE_SESSION_BUTTON = "在电脑上打开 ZCode 页面"
+    const val ZCODE_REMOTE_AGENTS_BUTTON = "打开电脑页面"
+    const val ZCODE_REMOTE_DETAIL_NOTE = "这里只能看内容 · 操作要去 ZCode 页面"
+    const val ZCODE_REMOTE_AGENTS_NOTE = "操作会跳到 ZCode 自己的登录页"
+    const val ZCODE_REMOTE_FETCHING = "正在获取电脑页面…"
 
     // U5 批的 ZCODE_REMOTE_LOCAL_UNAVAILABLE（「本地模式不提供 ZCode 遥控取链 ·
     // 请使用 Relay 接入」）随 X-L 反转（docs/18 §5.3.2，2026-09-14）退役：本地网关
@@ -91,7 +91,8 @@ object InteractionHonesty {
         !fixtureMode && capabilityMode == MODE_MANAGED
 
     /**
-     * R7.1：per-provider observed 原因卡文案（docs/known-limitations.md §1 摘取）。
+     * R7.1：per-provider observed 原因卡文案（docs/known-limitations.md §1 事实；
+     * UX-P1 H15-H18 人话化：措辞变化不改变「不可用不显示为可用」判定，docs/24 §8）。
      * providerKey 精确/归一化包含匹配优先；displayName 令牌匹配兜底（/v1/agents
      * 投影无 providerKey 字段，displayName 为服务端真实投影）；未知 → null
      * （调用方回退 GENERIC_OBSERVED_NOTE，绝不猜）。
@@ -104,16 +105,16 @@ object InteractionHonesty {
         if (haystacks.isEmpty()) return null
         return when {
             haystacks.any { it == "zcode" || it.contains("zcode") } ->
-                "ZCode：官方未提供控制通道，DevHub 只能观察，回复/暂停/恢复不可用。"
+                "ZCode：官方还没有开放手机控制，只能查看"
 
             haystacks.any { it.contains("claude") } ->
-                "Claude Code：hooks 无输入注入 API，回复（reply）无可验证执行路径，当前只读观察。"
+                "Claude Code：暂无可靠的手机回复通道，只能查看"
 
             haystacks.any { it.contains("kimi") } ->
-                "Kimi：托管通道已实现但真机授权验证留待用户裁决，当前只读观察。"
+                "Kimi：手机控制功能已开发但尚未开通，暂时只能查看"
 
             haystacks.any { it.contains("deepseek") } ->
-                "DeepSeek Harness：未接入（无可验证会话/控制接口），无会话数据源。"
+                "DeepSeek：还没接入手机端"
 
             else -> null
         }
@@ -133,24 +134,36 @@ object InteractionHonesty {
 
     /**
      * M3-E1（docs/18 §5.3/§8.2）：relay 模式 spawn_session 拒绝文案分叉（纯函数）。
-     * 按 command_ack rejected 的 errorCode 结构化分叉（绝不吞码、绝不伪造成功）：
+     * UX-P1（docs/25 H19/A19）：headline = 人话（原码退出用户面）；technical = 原码+原样
+     * raw（「技术细节」折叠承载，绝不吞码、绝不伪造成功）。分叉：
      * - SPAWN_REJECTED（新码，WS 专属）：spawn 特有拒绝（provider 无托管通道/并发上限）；
      * - COMMAND_NOT_EXECUTABLE：授权矩阵不允许（provider 非 managed）；
      * - AGENT_CAPABILITY_MISSING：能力未验证/过期；
-     * - 其余（NOT_FOUND/BAD_PAYLOAD/COMMAND_EXPIRED/…）：原码透传展示。
+     * - 其余（NOT_FOUND/BAD_PAYLOAD/COMMAND_EXPIRED/…）：通用人话头 + 原码进折叠。
      */
-    fun spawnRejectionText(errorCode: String?, raw: String?): String = when (errorCode) {
-        "SPAWN_REJECTED" ->
-            "启动被拒绝：该 provider 无托管通道或并发已达上限（SPAWN_REJECTED）"
+    fun spawnRejection(errorCode: String?, raw: String?): ErrorPresent.Presentable {
+        val tech = buildString {
+            append('[')
+            append(errorCode ?: "UNKNOWN")
+            append(']')
+            if (!raw.isNullOrBlank()) {
+                append(' ')
+                append(raw)
+            }
+        }
+        return when (errorCode) {
+            "SPAWN_REJECTED" ->
+                ErrorPresent.Presentable("创建失败：这个助手的对话通道不可用或数量已达上限", tech)
 
-        "COMMAND_NOT_EXECUTABLE" ->
-            "启动被拒绝：该 provider 未授予 managed 能力（COMMAND_NOT_EXECUTABLE）"
+            "COMMAND_NOT_EXECUTABLE" ->
+                ErrorPresent.Presentable("创建失败：该助手暂不支持在手机上开始对话", tech)
 
-        "AGENT_CAPABILITY_MISSING" ->
-            "启动被拒绝：provider 能力未验证或已过期，请先在桌面端重新探测（AGENT_CAPABILITY_MISSING）"
+            "AGENT_CAPABILITY_MISSING" ->
+                ErrorPresent.Presentable("创建失败：助手状态未验证，请先在电脑端刷新", tech)
 
-        else ->
-            if (!raw.isNullOrBlank()) "启动被拒绝 [$errorCode] $raw" else "启动被拒绝 [$errorCode]"
+            else ->
+                ErrorPresent.Presentable("创建失败：请稍后重试", tech)
+        }
     }
 
     /** 与 ProviderPalette 同法归一化：小写 + 仅字母数字。 */
