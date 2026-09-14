@@ -38,6 +38,7 @@ import {
   listAgentMessages,
   listAgentProviders,
   listAgentSessions,
+  readProviderCapabilitySet,
   resolveAgentProviderRef,
   type AgentMessagesQuery,
   type AgentSessionsFilter,
@@ -101,12 +102,34 @@ export function handleSessionListFrame(frame: unknown, host: HostLegRequestHost)
   try {
     const filter = parseSessionQuery(isObject(frame) ? frame.query : undefined)
     const result = listAgentSessions(filter)
+    // RD-mobile-chat run2 投影缺口修复：ECS GET /v1/sessions/{id} 复用本帧承载
+    // detail（docs/18 §7 rest.ts：取 sessions[0] + field(response,'capabilities')
+    // ?? null），而本帧此前不带该 query/字段 → ECS 恒答 capabilities:null → App
+    // 空能力缺省（ControlGate.reply 恒 false）→ relay 模式详情页回复输入门恒死。
+    // query.sessionId 在场 = detail 语义：按 id 收窄（消除 sessions[0] 碰巧命中
+    // 最新会话的脆弱依赖）+ 附该会话 provider 能力投影（与本地 REST detail 同源
+    // 语义，docs/12 §5）；纯列表查询（无 sessionId）路径行为逐字节不变。
+    const rawQuery = isObject(frame) ? frame.query : undefined
+    const detailId = isObject(rawQuery) ? rawQuery['sessionId'] : undefined
+    const sessions =
+      typeof detailId === 'number' && Number.isSafeInteger(detailId) && detailId > 0
+        ? result.sessions.filter((s) => s.id === detailId)
+        : result.sessions
+    const firstSession =
+      typeof detailId === 'number' && Number.isSafeInteger(detailId) && detailId > 0
+        ? result.sessions.find((s) => s.id === detailId)
+        : undefined
+    const caps =
+      firstSession !== undefined && firstSession.providerKey !== undefined
+        ? readProviderCapabilitySet(firstSession.providerKey)
+        : null
     host.sendSessionList({
       type: 'session_list',
       requestId,
       stale: false,
       // SessionView 投影对象 → 协议 JSON 形态（无字段增删，docs/14 §B.1 原样内嵌）
-      sessions: result.sessions.map((s) => ({ ...s }) as Record<string, unknown>),
+      sessions: sessions.map((s) => ({ ...s }) as Record<string, unknown>),
+      ...(caps !== null ? { capabilities: caps as unknown as Record<string, unknown> } : {}),
     })
   } catch (err) {
     host.sendError(errorFrame(requestId, errorCodeOf(err), errorMessageOf(err)))
