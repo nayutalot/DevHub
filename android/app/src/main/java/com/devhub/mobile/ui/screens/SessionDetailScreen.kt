@@ -109,7 +109,8 @@ fun SessionDetailScreen(
     var prevAfter by remember { mutableStateOf<Long?>(null) } // R10 向旧翻页游标（null = 已到最早）
     var loadingOlder by remember { mutableStateOf(false) }
     var replyText by remember { mutableStateOf("") }
-    var submitStatus by remember { mutableStateOf<String?>(null) }
+    // UX-P1 Top4（D8-D17）：指令回执 = 人话 headline + 技术原值（commandId/幂等）收「技术细节」折叠
+    var submitStatus by remember { mutableStateOf<com.devhub.mobile.core.ErrorPresent.Presentable?>(null) }
     // U1-M3：指令被拒 → 统一呈现体（人话 + 原码「技术细节」折叠），不再直出 [code] msg
     var submitError by remember { mutableStateOf<com.devhub.mobile.core.ErrorPresent.Presentable?>(null) }
     var scrubFraction by remember { mutableStateOf<Float?>(null) }
@@ -243,7 +244,7 @@ fun SessionDetailScreen(
             Spacer(Modifier.width(6.dp))
             Text(
                 com.devhub.mobile.core.RichTextTokenizer.stripDisplayMarkers(d?.session?.title)
-                    ?: "会话 #$sessionId",
+                    ?: "未命名对话", // UX-P1 D1
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 15.sp,
                 modifier = Modifier.weight(1f),
@@ -252,8 +253,9 @@ fun SessionDetailScreen(
             )
         }
         if (fixtureOn) {
+            // UX-P1 D2：同 S3（演示模式标注不弱化）
             Text(
-                "演示数据（夹具）· 非真实 Gateway — 端到端验收归批次 C",
+                "演示模式：显示的是示例数据，不是你的电脑",
                 fontSize = 10.sp,
                 color = Color(0xFF7A4F00),
                 modifier = Modifier
@@ -281,7 +283,7 @@ fun SessionDetailScreen(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             StatusBadge(d.session.status, sessionMode = d.session.sessionMode, capsMode = d.capabilities.mode)
             ModeBadge(d.session.sessionMode)
-            if (d.session.stale) Text("数据过期（stale）", fontSize = 11.sp, color = Color(0xFFC7A008))
+            if (d.session.stale) Text("信息可能不是最新", fontSize = 11.sp, color = Color(0xFFC7A008)) // UX-P1 D3
         }
         d.session.statusDetail?.let { Text(it, fontSize = 12.sp) }
         // —— U2-M1（AUDIT P2#1 + P3#7）：capabilities 人话化 + 头部压缩 ——
@@ -302,7 +304,7 @@ fun SessionDetailScreen(
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
             TextButton(onClick = { showCapsInfo = true }, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
-                Text("ⓘ 能力说明", fontSize = 11.sp)
+                Text("ⓘ 这台手机能做什么", fontSize = 11.sp) // UX-P1 D4
             }
         }
 
@@ -318,14 +320,14 @@ fun SessionDetailScreen(
             ) {
                 Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "🤖 子智能体会话 (${d.childSessions.size})",
+                        "🤖 子任务 (${d.childSessions.size})", // UX-P1 D5
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSecondaryContainer,
                     )
                     Spacer(Modifier.weight(1f))
                     Text(
-                        "点入查看层级与状态 ▸",
+                        "查看 ▸", // UX-P1 D6
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSecondaryContainer,
                     )
@@ -381,7 +383,13 @@ fun SessionDetailScreen(
                 OutlinedTextField(
                     value = replyText,
                     onValueChange = { replyText = it.take(4000) },
-                    label = { Text("回复（≤4000 字符）") },
+                    label = { Text("输入消息…") }, // UX-P1 D7
+                    supportingText = {
+                        // 仅当接近 4000 上限时显示剩余计数（D7：常态零密度）
+                        if (replyText.length >= 3600) {
+                            Text("还可输入 ${4000 - replyText.length} 字", fontSize = 11.sp)
+                        }
+                    },
                     modifier = Modifier.weight(1f),
                 )
                 Button(
@@ -399,9 +407,17 @@ fun SessionDetailScreen(
                                             UX_LOG_TAG,
                                             "reply_sent sessionId=$sessionId commandId=${r.commandId} atMs=${System.currentTimeMillis()}",
                                         )
-                                        "已接受（commandId=${r.commandId}）"
+                                        // UX-P1 D8：commandId 收「技术细节」折叠
+                                        com.devhub.mobile.core.ErrorPresent.Presentable(
+                                            "已发送", "commandId=${r.commandId}",
+                                        )
                                     }
-                                    SubmitResult.QueuedOffline -> "当前离线：已入离线队列，重连后自动补发（幂等）"
+                                    SubmitResult.QueuedOffline ->
+                                        // UX-P1 D9（Top4）：幂等字样进折叠
+                                        com.devhub.mobile.core.ErrorPresent.Presentable(
+                                            "电脑不在线，消息会在上线后自动送达",
+                                            "已入离线队列（幂等补发）",
+                                        )
                                     is SubmitResult.Rejected -> {
                                         submitError = com.devhub.mobile.core.ErrorPresent.api(
                                             r.code, r.message,
@@ -431,8 +447,12 @@ fun SessionDetailScreen(
                             submitError = null
                             try {
                                 submitStatus = when (val r = ConnectionManager.submitAction(sessionId, "pause")) {
-                                    is SubmitResult.Accepted -> "pause 已接受（commandId=${r.commandId}）"
-                                    SubmitResult.QueuedOffline -> "当前离线：pause 已入离线队列"
+                                    is SubmitResult.Accepted -> com.devhub.mobile.core.ErrorPresent.Presentable( // D10
+                                        "已暂停 · 电脑已确认", "commandId=${r.commandId}",
+                                    )
+                                    SubmitResult.QueuedOffline -> com.devhub.mobile.core.ErrorPresent.Presentable( // D11
+                                        "电脑不在线：暂停指令已暂存，恢复后自动发送", "已入离线队列（幂等补发）",
+                                    )
                                     is SubmitResult.Rejected -> {
                                         submitError = com.devhub.mobile.core.ErrorPresent.api(
                                             r.code, r.message,
@@ -455,8 +475,12 @@ fun SessionDetailScreen(
                             submitError = null
                             try {
                                 submitStatus = when (val r = ConnectionManager.submitAction(sessionId, "resume")) {
-                                    is SubmitResult.Accepted -> "resume 已接受（commandId=${r.commandId}）"
-                                    SubmitResult.QueuedOffline -> "当前离线：resume 已入离线队列"
+                                    is SubmitResult.Accepted -> com.devhub.mobile.core.ErrorPresent.Presentable( // D12
+                                        "已继续 · 电脑已确认", "commandId=${r.commandId}",
+                                    )
+                                    SubmitResult.QueuedOffline -> com.devhub.mobile.core.ErrorPresent.Presentable( // D13
+                                        "电脑不在线：恢复指令已暂存，上线后自动发送", "已入离线队列（幂等补发）",
+                                    )
                                     is SubmitResult.Rejected -> {
                                         submitError = com.devhub.mobile.core.ErrorPresent.api(
                                             r.code, r.message,
@@ -482,8 +506,12 @@ fun SessionDetailScreen(
                             submitError = null
                             try {
                                 submitStatus = when (val r = ConnectionManager.submitAction(sessionId, "approve")) {
-                                    is SubmitResult.Accepted -> "approve 已接受（commandId=${r.commandId}）"
-                                    SubmitResult.QueuedOffline -> "当前离线：approve 已入离线队列"
+                                    is SubmitResult.Accepted -> com.devhub.mobile.core.ErrorPresent.Presentable( // D14
+                                        "已同意 · 电脑已确认", "commandId=${r.commandId}",
+                                    )
+                                    SubmitResult.QueuedOffline -> com.devhub.mobile.core.ErrorPresent.Presentable( // D15
+                                        "电脑不在线：批准指令已暂存，上线后自动发送", "已入离线队列（幂等补发）",
+                                    )
                                     is SubmitResult.Rejected -> {
                                         submitError = com.devhub.mobile.core.ErrorPresent.api(
                                             r.code, r.message,
@@ -506,8 +534,12 @@ fun SessionDetailScreen(
                             submitError = null
                             try {
                                 submitStatus = when (val r = ConnectionManager.submitAction(sessionId, "interrupt")) {
-                                    is SubmitResult.Accepted -> "interrupt 已接受（commandId=${r.commandId}）"
-                                    SubmitResult.QueuedOffline -> "当前离线：interrupt 已入离线队列"
+                                    is SubmitResult.Accepted -> com.devhub.mobile.core.ErrorPresent.Presentable( // D16
+                                        "已中断 · 电脑已确认", "commandId=${r.commandId}",
+                                    )
+                                    SubmitResult.QueuedOffline -> com.devhub.mobile.core.ErrorPresent.Presentable( // D17
+                                        "电脑不在线：中断指令已暂存，上线后自动发送", "已入离线队列（幂等补发）",
+                                    )
                                     is SubmitResult.Rejected -> {
                                         submitError = com.devhub.mobile.core.ErrorPresent.api(
                                             r.code, r.message,
@@ -524,7 +556,12 @@ fun SessionDetailScreen(
                 }) { Text("中断") }
             }
         }
-        submitStatus?.let { Text(it, fontSize = 12.sp) }
+        submitStatus?.let {
+            Text(it.headline, fontSize = 12.sp)
+            it.technical?.let { tech ->
+                com.devhub.mobile.ui.components.TechnicalDetailsFold(tech)
+            }
+        }
         // U1-M3：指令拒绝统一呈现（人话 + 技术细节折叠，默认收起）
         submitError?.let {
             com.devhub.mobile.ui.components.ErrorPresentation(presentable = it)
@@ -628,10 +665,10 @@ fun SessionDetailScreen(
         var techOpen by remember { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { showCapsInfo = false },
-            title = { Text("接入能力", fontWeight = FontWeight.SemiBold) },
+            title = { Text("这台手机能做什么", fontWeight = FontWeight.SemiBold) }, // UX-P1 D21
             text = {
                 Column {
-                    Text("接入深度：${explain.modeLabel}", fontSize = 13.sp)
+                    Text("连接方式：${explain.modeLabel}", fontSize = 13.sp) // UX-P1 D22
                     Spacer(Modifier.height(4.dp))
                     Text("可执行操作：${explain.grantedLabel}", fontSize = 13.sp)
                     Spacer(Modifier.height(4.dp))
@@ -693,7 +730,7 @@ private fun ScrubberBar(
         scrubFraction?.let { f ->
             val target = ScrubberMath.indexForFraction(f, count)
             val anchorText = if (ScrubberMath.needsOlderPage(f, count, hasOlder)) {
-                if (loadingOlder) "更早…（加载中）" else "更早…（释放自动翻页）"
+                if (loadingOlder) "正在加载更早消息…" else "松手查看更早消息" // UX-P1 D19
             } else {
                 messages.getOrNull(target)?.occurredAtSec?.let { TimeFmt.full(it) } ?: "更早…"
             }
@@ -730,7 +767,7 @@ private fun ScrubberBar(
                 },
                 modifier = Modifier.weight(1f),
             )
-            Text("最旧", fontSize = 10.sp, color = Color(0xFF757575))
+            Text("最早", fontSize = 10.sp, color = Color(0xFF757575)) // UX-P1 D20
         }
     }
 }

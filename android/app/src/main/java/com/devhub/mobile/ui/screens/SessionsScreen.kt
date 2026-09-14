@@ -98,7 +98,8 @@ fun SessionsScreen(
     var loading by remember { mutableStateOf(true) }
     // U1-M3（AUDIT P1#3）：错误统一呈现体（人话+技术细节折叠），不再直出原码
     var error by remember { mutableStateOf<com.devhub.mobile.core.ErrorPresent.Presentable?>(null) }
-    var actionError by remember { mutableStateOf<String?>(null) }
+    // UX-P1 S8：归档/删除失败 = 人话 + 原 message 进「技术细节」折叠（零吞码）
+    var actionError by remember { mutableStateOf<com.devhub.mobile.core.ErrorPresent.Presentable?>(null) }
     var refreshTick by remember { mutableStateOf(0) } // 归档/删除等操作后立即刷新
     var menuFor by remember { mutableStateOf<SessionCacheEntity?>(null) }
     var confirmDelete by remember { mutableStateOf<SessionCacheEntity?>(null) }
@@ -182,12 +183,12 @@ fun SessionsScreen(
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("会话", style = MaterialTheme.typography.titleLarge)
+            Text("对话", style = MaterialTheme.typography.titleLarge) // UX-P1 S1
             Spacer(Modifier.width(8.dp))
             Text("${visible.size}", fontSize = 13.sp)
             Spacer(Modifier.weight(1f))
             Text(
-                text = if (fixtureOn) "演示数据·开" else "演示数据·关",
+                text = if (fixtureOn) "演示模式·开" else "演示模式·关", // UX-P1 S2
                 fontSize = 11.sp,
                 color = if (fixtureOn) Color(0xFF7A4F00) else Color(0xFF757575),
                 modifier = Modifier
@@ -206,8 +207,9 @@ fun SessionsScreen(
             )
         }
         if (fixtureOn) {
+            // UX-P1 S3：演示模式标注不弱化（琥珀底保留；夹具/批次号工程语退役）
             Text(
-                "演示数据（夹具）· 非真实 Gateway — 端到端验收归批次 C",
+                "演示模式：显示的是示例数据，不是你的电脑",
                 fontSize = 11.sp,
                 color = Color(0xFF7A4F00),
                 modifier = Modifier
@@ -280,7 +282,7 @@ fun SessionsScreen(
         }
         // —— R3 显示归档开关 ——
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
-            Text("显示归档", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("显示已归档", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) // UX-P1 S4
             Spacer(Modifier.width(4.dp))
             Switch(
                 checked = showArchived,
@@ -288,7 +290,9 @@ fun SessionsScreen(
                 modifier = Modifier.height(26.dp),
             )
             Spacer(Modifier.weight(1f))
-            actionError?.let { Text(it, fontSize = 11.sp, color = MaterialTheme.colorScheme.error) }
+            actionError?.let {
+                com.devhub.mobile.ui.components.ErrorPresentation(presentable = it)
+            }
         }
 
         when {
@@ -299,7 +303,11 @@ fun SessionsScreen(
                     headlinePrefix = "加载失败：",
                 )
 
-            visible.isEmpty() -> Text("暂无会话（监控管线未产生会话或 Gateway 未连接）", fontSize = 13.sp)
+            // UX-P1 S5：空态 = 一句事实 + 两步动作
+            visible.isEmpty() -> Text(
+                "这里会显示电脑上的 AI 对话。还没有内容——先确认电脑在线（看顶部状态），再到「助手」开始第一个对话",
+                fontSize = 13.sp,
+            )
             else -> LazyColumn {
                 items(visible, key = { it.sessionId }) { session ->
                     SessionRow(
@@ -311,14 +319,22 @@ fun SessionsScreen(
                         onArchive = {
                             scope.launch {
                                 runCatching { withContext(Dispatchers.IO) { ApiProvider.projection(context).archive(session.sessionId) } }
-                                    .onFailure { actionError = "归档失败：${it.message}" }
+                                    .onFailure {
+                                        actionError = com.devhub.mobile.core.ErrorPresent.Presentable(
+                                            "归档没成功，请重试", it.toString(),
+                                        )
+                                    }
                                 refreshTick++
                             }
                         },
                         onUnarchive = {
                             scope.launch {
                                 runCatching { withContext(Dispatchers.IO) { ApiProvider.projection(context).unarchive(session.sessionId) } }
-                                    .onFailure { actionError = "取消归档失败：${it.message}" }
+                                    .onFailure {
+                                        actionError = com.devhub.mobile.core.ErrorPresent.Presentable(
+                                            "取消归档没成功，请重试", it.toString(),
+                                        )
+                                    }
                                 refreshTick++
                             }
                         },
@@ -333,7 +349,7 @@ fun SessionsScreen(
     confirmDelete?.let { target ->
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
-            title = { Text("删除会话", fontWeight = FontWeight.SemiBold) },
+            title = { Text("删除对话", fontWeight = FontWeight.SemiBold) }, // UX-P1（会话→对话改名）
             text = { Text(SessionListOps.deleteConfirmText(
             // 打磨批 D：确认弹窗属显示层，标题同样清理 ** 记号
             com.devhub.mobile.core.RichTextTokenizer.stripDisplayMarkers(target.title),
@@ -344,7 +360,11 @@ fun SessionsScreen(
                         confirmDelete = null
                         scope.launch {
                             runCatching { withContext(Dispatchers.IO) { ApiProvider.projection(context).deleteSession(target.sessionId) } }
-                                .onFailure { actionError = "删除失败：${it.message}" }
+                                .onFailure {
+                                    actionError = com.devhub.mobile.core.ErrorPresent.Presentable(
+                                        "删除没成功，请重试", it.toString(),
+                                    )
+                                }
                             refreshTick++
                         }
                     },
@@ -370,7 +390,7 @@ private fun SessionRow(
     val highlight = StatusColors.highlight(session.status)
     val providerLabel = session.providerLabel
         ?: agents.firstOrNull { it.id == session.providerId }?.displayName
-        ?: "provider #${session.providerId}"
+        ?: "未知助手" // UX-P1 S6
 
     Box(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -400,7 +420,7 @@ private fun SessionRow(
                 Text(
                     // 打磨批 D：显示层清理 ** 记号（不改数据）；超长标题单行省略号截断
                     com.devhub.mobile.core.RichTextTokenizer.stripDisplayMarkers(session.title)
-                        ?: "会话 #${session.sessionId}",
+                        ?: "未命名对话", // UX-P1 D1
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 14.sp,
                     modifier = Modifier.weight(1f),
@@ -413,7 +433,7 @@ private fun SessionRow(
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 ModeBadge(session.sessionMode) // observed 整行标注（左 chip 一处；行尾重复文字已去除）
                 if (session.stale) {
-                    Text("数据过期（stale）", fontSize = 11.sp, color = Color(0xFFC7A008))
+                    Text("信息可能不是最新", fontSize = 11.sp, color = Color(0xFFC7A008)) // UX-P1 S7
                 }
                 Text(providerLabel, fontSize = 11.sp, color = Color(0xFF757575))
                 if (session.archived) {
@@ -440,7 +460,7 @@ private fun SessionRow(
                 )
             }
             DropdownMenuItem(
-                text = { Text("删除（仅移除 DevHub 记录）", color = MaterialTheme.colorScheme.error) },
+                text = { Text("删除（仅移除手机里的记录）", color = MaterialTheme.colorScheme.error) }, // UX-P1 S9
                 onClick = { onMenuChange(false); onRequestDelete() },
             )
         }
