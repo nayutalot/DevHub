@@ -6591,9 +6591,11 @@ if (isEntrypoint()) {
     envSkipNote(`real zcode sessions discovered (read-only): ${sessions.length}`)
   })
 
-  // 114. DeepSeek T12：harness 检测（夹具+真机）→ 「未接入」显式文案；绝不伪造
-  //      会话/事件/能力
-  registerCase('ac4-114: deepseek T12 — fixture + real harness root detection with explicit not-integrated wording; never fabricates sessions/events/capabilities (L3 projection verified)', async () => {
+  // 114. DeepSeek T12（dsobs 批就地更新，2026-09-14 用户令真机侦察授权后
+  //      observed 实接）：harness 检测（夹具+真机）→ observed 投影接线文案 +
+  //      控制通道未验证显式文案（DEEPSEEK_CONTROL_NOTE）；会话/事件投影零伪造
+  //      红线不变（真实投影面由 dsobs-1..3 夹具用例覆盖）
+  registerCase('ac4-114: deepseek T12 — fixture + real harness root detection with observed-projection wording and unverified-control note; never fabricates capabilities (L3 projection verified)', async () => {
     const { mkdtempSync, mkdirSync, writeFileSync, existsSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
     const { join } = await import('node:path')
@@ -6607,10 +6609,12 @@ if (isEntrypoint()) {
     writeFileSync(join(fixtureRoot, 'AGENTS.md'), '# fixture harness')
     writeFileSync(join(fixtureRoot, 'CLAUDE.md'), '# fixture')
     mkdirSync(join(fixtureRoot, 'packages'), { recursive: true })
+    // 夹具数据根（空 sessions）：与真机 ~/.dsh 全程隔离（确定性断言）
+    const fixtureDshHome = join(fixtureRoot, 'dsh-home')
 
     try {
       const db = dbModule.getDatabase()
-      const provider = dsMod.createDeepseekProvider({ harnessRoot: fixtureRoot })
+      const provider = dsMod.createDeepseekProvider({ harnessRoot: fixtureRoot, dshHome: fixtureDshHome })
       svc.setProviderOverride('deepseek', provider)
       svc.setProviderOverride('codex', stubAgentProvider('codex'))
       svc.setProviderOverride('claude-code', stubAgentProvider('claude-code'))
@@ -6625,12 +6629,13 @@ if (isEntrypoint()) {
       assert.equal(row.version, '9.9.9-fixture', 'version clue from package.json')
       assert.equal(row.health, 'ok', 'source tree healthy')
       assert.ok(row.health_detail.includes('harness detected'), `health_detail records what was detected: ${row.health_detail}`)
-      assert.ok(row.health_detail.toLowerCase().includes('not integrated'), `health_detail carries the explicit not-integrated wording (T12): ${row.health_detail}`)
+      assert.ok(row.health_detail.includes('no session data'), `health_detail records the absent session source (empty fixture data home): ${row.health_detail}`)
+      assert.ok(row.health_detail.includes('observed session projection wired'), `health_detail carries the observed-projection wording (dsobs batch): ${row.health_detail}`)
       const caps = JSON.parse(row.capabilities_json)
       assert.equal(caps.mode, 'observed')
-      assert.deepEqual(caps.granted, [], 'capabilities empty set (never fabricated)')
-      assert.ok(caps.evidence.toLowerCase().includes('not integrated'), `evidence carries not-integrated: ${caps.evidence}`)
-      assert.equal(db.prepare("SELECT COUNT(*) AS c FROM agent_sessions s JOIN agent_providers p ON p.id = s.provider_id WHERE p.provider = 'deepseek'").get().c, 0, 'zero deepseek sessions (never fabricated)')
+      assert.deepEqual(caps.granted, [], 'capabilities empty set (control channels unverified, never fabricated)')
+      assert.ok(caps.evidence.includes('never verified'), `evidence carries the unverified-control note: ${caps.evidence}`)
+      assert.equal(db.prepare("SELECT COUNT(*) AS c FROM agent_sessions s JOIN agent_providers p ON p.id = s.provider_id WHERE p.provider = 'deepseek'").get().c, 0, 'zero deepseek sessions on empty fixture home (never fabricated)')
 
       assert.deepEqual(await provider.listSessions(), [])
       const ref = { providerId: 'deepseek', nativeId: 'x' }
@@ -6640,29 +6645,249 @@ if (isEntrypoint()) {
       assert.equal(denied.status, 'unsupported')
       assert.equal(denied.errorCode, 'AGENT_CAPABILITY_MISSING')
       const diag = provider.describeDiagnostics()
-      assert.equal(diag.dataSource.kind, 'not-connected')
-      assert.equal(diag.dataSource.readable, false)
-      assert.ok(diag.control.note.toLowerCase().includes('not integrated'))
+      assert.equal(diag.dataSource.kind, 'session-jsonl-zstd')
+      assert.equal(diag.dataSource.readable, false, 'empty fixture data home is not readable as a session source')
+      assert.ok(diag.control.note.includes('never verified'), `control note carries the unverified-control wording: ${diag.control.note}`)
 
-      // 缺失根 → unavailable + 未接入文案
-      const missing = dsMod.createDeepseekProvider({ harnessRoot: join(fixtureRoot, 'no-such-root') })
+      // 缺失根 → unavailable + 结构化降级文案
+      const missing = dsMod.createDeepseekProvider({ harnessRoot: join(fixtureRoot, 'no-such-root'), dshHome: fixtureDshHome })
       const missingHealth = await missing.probeHealth()
       assert.equal(missingHealth.health, 'unavailable')
       assert.equal(missingHealth.installed, false)
       assert.ok(missingHealth.healthDetail.includes('not found'))
 
-      // 真机根（env-dependent）：存在 → 探测到真实版本线索；不存在 → SKIP 注记
+      // 真机根（env-dependent）：存在 → 探测到真实版本线索 + 真实数据根线索；不存在 → SKIP 注记
       const real = dsMod.createDeepseekProvider()
       const realHealth = await real.probeHealth()
       if (realHealth.installed) {
         assert.ok(realHealth.healthDetail.includes('harness detected'), `real harness detected: ${realHealth.healthDetail?.slice(0, 120)}`)
-        envSkipNote(`real deepseekHarnessRoot detected: ${realHealth.version ?? 'version unknown'}`)
+        envSkipNote(`real deepseekHarnessRoot detected: ${realHealth.version ?? 'version unknown'}; data home clue: ${realHealth.healthDetail?.slice(0, 200)}`)
       } else {
         envSkipNote('deepseekHarnessRoot not present at run time')
       }
     } finally {
       svc.stopAllAgentControlRuntime()
       dbModule.closeDatabase()
+    }
+  }, 'fast')
+
+  // dsobs-1（ds 批，2026-09-14 真机侦察授权后 observed 实接）：zstd 拼接帧容器
+  //      解码 + projcache 会话投影 + 消息脱敏投影 + seq 游标 + 未知类型容忍 +
+  //      残尾帧跳过。夹具全程隔离（真机 ~/.dsh 零触碰）。
+  registerCase('dsobs-1: deepseek observed zstd container — listSessions via projcache (title/cwd/createdAt, never fabricated), readMessages projection (user/assistant text + tool marker + redaction), seq cursor, unprojected-event tolerance, torn-frame tail skip (fixture only)', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, appendFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const { zstdCompressSync } = await import('node:zlib')
+    const dsMod = await import(new URL('../src/main/services/agentControl/providers/deepseekProvider.ts', import.meta.url).href)
+
+    await makeTempHome('devhub-dsobs-1-')
+    const fixtureRoot = mkdtempSync(join(tmpdir(), 'devhub-dsobs-1-root-'))
+    const dshHome = join(fixtureRoot, 'dsh')
+    const sessionId = 'session-1a2b3c4d-0000-4000-8000-000000000001'
+    const sessionDir = join(dshHome, 'sessions', '--fixture-project--', sessionId)
+    mkdirSync(sessionDir, { recursive: true })
+
+    // 脱敏合成语料（schema 对齐 harness session-persistence-jsonl format.ts
+    // HeaderLine + core/session types.ts SessionEventMap 信封；内容全部虚构）
+    const frame = (objs) => zstdCompressSync(Buffer.from(objs.map((o) => JSON.stringify(o)).join('\n') + '\n', 'utf8'))
+    const header = { type: 'session', version: 0, id: sessionId, createdAt: 1750000000000, cwd: 'C:\\fixture\\proj', delegationDepth: 0, agentPreset: 'minimal' }
+    const events = [
+      { type: 'permission/preset', seq: 0, time: 1750000000001, data: { preset: 'workspace-write' } },
+      { type: 'user/message', seq: 1, time: 1750000000002, data: { content: [{ type: 'text', text: 'run the fixture test with token=supersecretvalue123' }], source: { kind: 'user' }, role: 'user', id: 'u1' }, surfaceOp: 'append' },
+      { type: 'turn/start', seq: 2, time: 1750000000003, data: { turn: 1 } },
+      { type: 'unknown-future/event', seq: 3, time: 1750000000004, data: {} },
+      { type: 'assistant/message', seq: 4, time: 1750000000005, data: { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'fixture reply text' }, { type: 'tool-call', id: 'call_1', name: 'bash', arguments: '{}' }], id: 'a1' } } },
+      { type: 'tool/call', seq: 5, time: 1750000000006, data: { turn: 1, step: 1, callId: 'call_1', name: 'bash', arguments: '{}' } },
+      { type: 'tool/result', seq: 6, time: 1750000000007, data: { turn: 1, step: 1, message: { content: [{ type: 'tool-result', toolCallId: 'call_1', content: [{ type: 'text', text: 'fixture stdout' }], isError: false }], role: 'user', id: 'tr1' } } },
+      { type: 'approval/asked', seq: 7, time: 1750000000008, data: { tool: 'bash' } },
+      { type: 'approval/decided', seq: 8, time: 1750000000009, data: { decision: 'allow' } },
+      { type: 'turn/end', seq: 9, time: 1750000000010, data: { turn: 1, reason: { kind: 'completed' } } },
+    ]
+    writeFileSync(join(sessionDir, 'session.jsonl.zstd'), Buffer.concat([frame([header]), frame(events)]))
+    mkdirSync(join(dshHome, 'storages'), { recursive: true })
+    writeFileSync(join(dshHome, 'storages', 'session_projcache.json'), JSON.stringify({
+      unit: { name: 'session_projcache', version: 3 },
+      global: null,
+      tables: {
+        sessions: {
+          [sessionId]: {
+            identity: { createdAt: 1750000000000, cwd: 'C:\\fixture\\proj' },
+            rows: {
+              title: { ver: 1, seq: 4, val: 'fixture session title' },
+              sessionListMetadata: { ver: 1, seq: 9, val: { blank: false, lastPromptAt: 1750000000010 } },
+            },
+          },
+        },
+      },
+    }))
+
+    const provider = dsMod.createDeepseekProvider({ harnessRoot: fixtureRoot, dshHome, messageTextCap: 400 })
+    const sessions = await provider.listSessions()
+    assert.equal(sessions.length, 1, 'one fixture session discovered')
+    const snap = sessions[0]
+    assert.equal(snap.nativeId, sessionId)
+    assert.equal(snap.workdir, 'C:\\fixture\\proj', 'workdir from projcache identity')
+    assert.equal(snap.title, 'fixture session title', 'title from projcache (never fabricated)')
+    assert.equal(snap.startedAt, 1750000000, 'startedAt from projcache createdAt (ms→s)')
+    assert.ok(snap.lastActivityAt >= 1750000010, `lastActivityAt = max(mtime, lastPromptAt): ${snap.lastActivityAt}`)
+
+    const ref = { providerId: 'deepseek', nativeId: sessionId }
+    const page1 = await provider.readMessages(ref)
+    assert.equal(page1.messages.length, 3, 'user + assistant + tool_result projected')
+    const [userMsg, assistantMsg, toolMsg] = page1.messages
+    assert.equal(userMsg.role, 'user')
+    assert.ok(userMsg.contentRedacted.includes('token=***'), `sensitive assignment redacted: ${userMsg.contentRedacted}`)
+    assert.ok(!userMsg.contentRedacted.includes('supersecretvalue123'), 'raw secret never projected')
+    assert.equal(userMsg.nativeMsgId, '1')
+    assert.equal(userMsg.occurredAt, 1750000000, 'occurredAt = event time (ms→s)')
+    assert.ok(userMsg.sourceRef.endsWith('#seq=1'), `sourceRef points at the log event: ${userMsg.sourceRef}`)
+    assert.equal(assistantMsg.role, 'assistant')
+    assert.ok(assistantMsg.contentRedacted.includes('fixture reply text'))
+    assert.ok(assistantMsg.contentRedacted.includes('[tool_call bash]'), `tool-call block folded to marker: ${assistantMsg.contentRedacted}`)
+    assert.equal(toolMsg.role, 'tool')
+    assert.equal(toolMsg.contentRedacted, '[tool_result]', 'tool result content not projected (claude/codex convention)')
+    assert.equal(page1.cursor, '9', 'cursor = max seq seen')
+    assert.equal(page1.hasMore, false)
+
+    const page2 = await provider.readMessages(ref, page1.cursor)
+    assert.deepEqual(page2.messages, [], 'incremental read from cursor is empty')
+    const page3 = await provider.readMessages(ref, '2')
+    assert.equal(page3.messages.length, 2, 'readMessages(after=2) projects seq>2 messages only')
+    assert.equal(page3.cursor, '9')
+
+    // 残尾帧（torn write）：追加半个帧头 → 帧扫描排除，完整帧结果不变
+    appendFileSync(join(sessionDir, 'session.jsonl.zstd'), Buffer.from([0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x00, 0x00]))
+    const pageTorn = await provider.readMessages(ref)
+    assert.equal(pageTorn.messages.length, 3, 'torn tail frame skipped, complete frames intact')
+    assert.equal(pageTorn.cursor, '9')
+  }, 'fast')
+
+  // dsobs-2：明文 session.jsonl 物理形态（compression 'none'）、损坏 zstd 容器
+  //      结构化降级（绝不抛穿）、未知 nativeId 空页。
+  registerCase('dsobs-2: deepseek observed robustness — plain session.jsonl physical form decoded, corrupt zstd container degrades structurally, unknown nativeId returns empty page (fixture only)', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const dsMod = await import(new URL('../src/main/services/agentControl/providers/deepseekProvider.ts', import.meta.url).href)
+
+    await makeTempHome('devhub-dsobs-2-')
+    const fixtureRoot = mkdtempSync(join(tmpdir(), 'devhub-dsobs-2-root-'))
+    const dshHome = join(fixtureRoot, 'dsh')
+    const plainId = 'session-aaaa1111-0000-4000-8000-000000000002'
+    const plainDir = join(dshHome, 'sessions', '--plain-ws--', plainId)
+    mkdirSync(plainDir, { recursive: true })
+    const lines = [
+      JSON.stringify({ type: 'session', version: 0, id: plainId, createdAt: 1750000100000, cwd: 'C:\\fixture\\plain', delegationDepth: 0 }),
+      JSON.stringify({ type: 'user/message', seq: 1, time: 1750000100001, data: { content: [{ type: 'text', text: 'plain form fixture question' }], role: 'user', id: 'u1' } }),
+      JSON.stringify({ type: 'assistant/message', seq: 2, time: 1750000100002, data: { message: { role: 'assistant', content: [{ type: 'text', text: 'plain form fixture answer' }], id: 'a1' } } }),
+    ]
+    writeFileSync(join(plainDir, 'session.jsonl'), lines.join('\n') + '\n')
+    const corruptId = 'session-bbbb2222-0000-4000-8000-000000000003'
+    const corruptDir = join(dshHome, 'sessions', '--plain-ws--', corruptId)
+    mkdirSync(corruptDir, { recursive: true })
+    writeFileSync(join(corruptDir, 'session.jsonl.zstd'), Buffer.from('this is not a zstd container at all'))
+
+    const provider = dsMod.createDeepseekProvider({ harnessRoot: fixtureRoot, dshHome })
+    const sessions = await provider.listSessions()
+    assert.equal(sessions.length, 2, 'both sessions discovered regardless of physical form')
+    assert.ok(sessions.every((s) => s.title === undefined), 'no projcache fixture → no title (never fabricated)')
+
+    const plainPage = await provider.readMessages({ providerId: 'deepseek', nativeId: plainId })
+    assert.equal(plainPage.messages.length, 2)
+    assert.equal(plainPage.messages[0].contentRedacted, 'plain form fixture question')
+    assert.equal(plainPage.messages[1].contentRedacted, 'plain form fixture answer')
+    assert.equal(plainPage.cursor, '2')
+
+    const corruptPage = await provider.readMessages({ providerId: 'deepseek', nativeId: corruptId })
+    assert.deepEqual(corruptPage.messages, [], 'corrupt container degrades to empty page')
+    assert.equal(corruptPage.cursor, '0')
+
+    const unknownPage = await provider.readMessages({ providerId: 'deepseek', nativeId: 'session-does-not-exist' })
+    assert.deepEqual(unknownPage.messages, [], 'unknown nativeId → empty page')
+    assert.equal(unknownPage.cursor, '0')
+
+    // 健康会话独立于损坏会话仍可读
+    const plainAgain = await provider.readMessages({ providerId: 'deepseek', nativeId: plainId })
+    assert.equal(plainAgain.messages.length, 2, 'healthy session unaffected by corrupt sibling')
+  }, 'fast')
+
+  // dsobs-3：状态判定映射（turn/start / approval/asked+decided / turn/end）+
+  //      monitor 端到端：发现 → 历史消息/状态投影 → 追加帧增量（模拟 harness
+  //      写日志，非运行 harness）→ stop 收尾。夹具隔离。
+  registerCase('dsobs-3: deepseek observed monitor — status mapping table (turn/start, approval/asked+decided, turn/end), end-to-end discovery + history projection + appended-frame incremental + stop teardown (fixture only, harness never launched)', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, appendFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const { zstdCompressSync } = await import('node:zlib')
+    const dsMod = await import(new URL('../src/main/services/agentControl/providers/deepseekProvider.ts', import.meta.url).href)
+
+    // 判定表单元断言（docs/12 §5：判定源 = 词表事件名，绝不猜）
+    assert.equal(dsMod.evalDeepseekEventStatus('turn/start'), 'running')
+    assert.equal(dsMod.evalDeepseekEventStatus('approval/asked'), 'approval_required')
+    assert.equal(dsMod.evalDeepseekEventStatus('approval/decided'), 'running')
+    assert.equal(dsMod.evalDeepseekEventStatus('turn/end'), 'unknown')
+    assert.equal(dsMod.evalDeepseekEventStatus('session/title'), null)
+    assert.equal(dsMod.evalDeepseekEventStatus('unknown-future/event'), null)
+    assert.equal(dsMod.evalDeepseekEventStatus(42), null)
+
+    await makeTempHome('devhub-dsobs-3-')
+    const fixtureRoot = mkdtempSync(join(tmpdir(), 'devhub-dsobs-3-root-'))
+    const dshHome = join(fixtureRoot, 'dsh')
+    const sessionId = 'session-cccc3333-0000-4000-8000-000000000004'
+    const sessionDir = join(dshHome, 'sessions', '--monitor-ws--', sessionId)
+    mkdirSync(sessionDir, { recursive: true })
+    const frame = (objs) => zstdCompressSync(Buffer.from(objs.map((o) => JSON.stringify(o)).join('\n') + '\n', 'utf8'))
+    const header = { type: 'session', version: 0, id: sessionId, createdAt: 1750000200000, cwd: 'C:\\fixture\\monitor', delegationDepth: 0 }
+    const initialEvents = [
+      { type: 'user/message', seq: 1, time: 1750000200001, data: { content: [{ type: 'text', text: 'monitor fixture question' }], role: 'user', id: 'u1' } },
+      { type: 'turn/start', seq: 2, time: 1750000200002, data: { turn: 1 } },
+      { type: 'assistant/message', seq: 3, time: 1750000200003, data: { message: { role: 'assistant', content: [{ type: 'text', text: 'monitor fixture answer' }], id: 'a1' } } },
+      { type: 'approval/asked', seq: 4, time: 1750000200004, data: {} },
+      { type: 'approval/decided', seq: 5, time: 1750000200005, data: {} },
+      { type: 'turn/end', seq: 6, time: 1750000200006, data: { turn: 1, reason: { kind: 'completed' } } },
+    ]
+    const sessionFile = join(sessionDir, 'session.jsonl.zstd')
+    writeFileSync(sessionFile, Buffer.concat([frame([header]), frame(initialEvents)]))
+
+    const provider = dsMod.createDeepseekProvider({ harnessRoot: fixtureRoot, dshHome, pollIntervalMs: 40 })
+    const seen = []
+    const sink = {
+      onSessionDiscovered: (pid, snap) => seen.push({ kind: 'session', pid, snap }),
+      onMessageAppended: (ref, msg) => seen.push({ kind: 'message', ref, msg }),
+      onStatusChanged: (ref, from, to, detail) => seen.push({ kind: 'status', ref, from, to, detail }),
+    }
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+    async function pollUntil(fn, timeoutMs, label) {
+      const deadline = Date.now() + timeoutMs
+      while (Date.now() < deadline) {
+        if (fn()) return
+        await sleep(25)
+      }
+      throw new Error(`pollUntil timeout: ${label}`)
+    }
+
+    const handle = provider.startMonitor(sink)
+    try {
+      await pollUntil(() => seen.some((e) => e.kind === 'session' && e.snap.nativeId === sessionId), 4000, 'session discovery')
+      await pollUntil(() => seen.filter((e) => e.kind === 'message').length >= 2, 4000, 'history messages projected')
+      await pollUntil(() => seen.some((e) => e.kind === 'status' && e.to === 'unknown'), 4000, 'turn/end -> unknown')
+      const statuses = seen.filter((e) => e.kind === 'status').map((e) => e.to)
+      assert.ok(statuses.includes('running'), `running judged from turn/start: ${statuses.join(',')}`)
+      assert.ok(statuses.includes('approval_required'), `approval_required judged from approval/asked: ${statuses.join(',')}`)
+
+      // 追加帧 = 模拟 harness 日志追加（写夹具文件，非运行 harness 进程）
+      const appended = [
+        { type: 'user/message', seq: 7, time: 1750000200007, data: { content: [{ type: 'text', text: 'appended fixture question' }], role: 'user', id: 'u2' } },
+        { type: 'turn/start', seq: 8, time: 1750000200008, data: { turn: 2 } },
+      ]
+      appendFileSync(sessionFile, frame(appended))
+      await pollUntil(() => seen.some((e) => e.kind === 'message' && e.msg.nativeMsgId === '7'), 6000, 'appended message incremental')
+      await pollUntil(() => seen.some((e) => e.kind === 'status' && e.to === 'running' && (e.detail ?? '').includes('seq 8')), 6000, 'appended turn/start status')
+      const allMessages = seen.filter((e) => e.kind === 'message').map((e) => e.msg.nativeMsgId)
+      assert.ok(!allMessages.includes('3') || allMessages.filter((id) => id === '3').length <= 1, 'no duplicate projections per nativeMsgId')
+    } finally {
+      await handle.stop()
     }
   }, 'fast')
 
