@@ -55,3 +55,32 @@ fun ErrorPresentation(
         }
     }
 }
+
+/**
+ * UX-P1（docs/24 §4.3 诚实折叠）：中性「技术细节」可折叠区（默认收起）。
+ * 承载非错误语义面的技术原值（指令回执 commandId、诊断 key=value、探测版本/时长等）——
+ * 翻译不删除、零吞码；与 [ErrorPresentation]（错误语义、error 配色）区分。
+ */
+@Composable
+fun TechnicalDetailsFold(
+    technical: String,
+    modifier: Modifier = Modifier,
+    label: String = "技术细节",
+) {
+    var open by remember { mutableStateOf(false) } // 默认收起
+    Column(modifier) {
+        TextButton(
+            onClick = { open = !open },
+            contentPadding = PaddingValues(horizontal = 0.dp),
+        ) {
+            Text(if (open) "收起技术细节" else label, fontSize = 11.sp)
+        }
+        if (open) {
+            Text(
+                technical,
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}

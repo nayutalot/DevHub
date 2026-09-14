@@ -134,24 +134,36 @@ object InteractionHonesty {
 
     /**
      * M3-E1（docs/18 §5.3/§8.2）：relay 模式 spawn_session 拒绝文案分叉（纯函数）。
-     * 按 command_ack rejected 的 errorCode 结构化分叉（绝不吞码、绝不伪造成功）：
+     * UX-P1（docs/25 H19/A19）：headline = 人话（原码退出用户面）；technical = 原码+原样
+     * raw（「技术细节」折叠承载，绝不吞码、绝不伪造成功）。分叉：
      * - SPAWN_REJECTED（新码，WS 专属）：spawn 特有拒绝（provider 无托管通道/并发上限）；
      * - COMMAND_NOT_EXECUTABLE：授权矩阵不允许（provider 非 managed）；
      * - AGENT_CAPABILITY_MISSING：能力未验证/过期；
-     * - 其余（NOT_FOUND/BAD_PAYLOAD/COMMAND_EXPIRED/…）：原码透传展示。
+     * - 其余（NOT_FOUND/BAD_PAYLOAD/COMMAND_EXPIRED/…）：通用人话头 + 原码进折叠。
      */
-    fun spawnRejectionText(errorCode: String?, raw: String?): String = when (errorCode) {
-        "SPAWN_REJECTED" ->
-            "启动被拒绝：该 provider 无托管通道或并发已达上限（SPAWN_REJECTED）"
+    fun spawnRejection(errorCode: String?, raw: String?): ErrorPresent.Presentable {
+        val tech = buildString {
+            append('[')
+            append(errorCode ?: "UNKNOWN")
+            append(']')
+            if (!raw.isNullOrBlank()) {
+                append(' ')
+                append(raw)
+            }
+        }
+        return when (errorCode) {
+            "SPAWN_REJECTED" ->
+                ErrorPresent.Presentable("创建失败：这个助手的对话通道不可用或数量已达上限", tech)
 
-        "COMMAND_NOT_EXECUTABLE" ->
-            "启动被拒绝：该 provider 未授予 managed 能力（COMMAND_NOT_EXECUTABLE）"
+            "COMMAND_NOT_EXECUTABLE" ->
+                ErrorPresent.Presentable("创建失败：该助手暂不支持在手机上开始对话", tech)
 
-        "AGENT_CAPABILITY_MISSING" ->
-            "启动被拒绝：provider 能力未验证或已过期，请先在桌面端重新探测（AGENT_CAPABILITY_MISSING）"
+            "AGENT_CAPABILITY_MISSING" ->
+                ErrorPresent.Presentable("创建失败：助手状态未验证，请先在电脑端刷新", tech)
 
-        else ->
-            if (!raw.isNullOrBlank()) "启动被拒绝 [$errorCode] $raw" else "启动被拒绝 [$errorCode]"
+            else ->
+                ErrorPresent.Presentable("创建失败：请稍后重试", tech)
+        }
     }
 
     /** 与 ProviderPalette 同法归一化：小写 + 仅字母数字。 */

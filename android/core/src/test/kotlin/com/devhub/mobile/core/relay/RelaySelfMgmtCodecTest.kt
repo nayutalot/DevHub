@@ -10,7 +10,7 @@ import org.junit.Test
 /**
  * M3-E1 设备自管理两 action 的 :core 帧面测试（docs/18 §5.3，用户裁决 2026-09-07 #9=B）：
  * - spawn_session / revoke_device 的 command 帧编解码 round-trip（sessionId 缺省帧形）；
- * - revoke 收口状态机（SelfRevokeFlow）+ InteractionHonesty.spawnRejectionText 文案分叉
+ * - revoke 收口状态机（SelfRevokeFlow）+ InteractionHonesty.spawnRejection 文案分叉（headline 人话+原码进技术细节）
  *   （含 SPAWN_REJECTED 新码，docs/18 §8.2 WS 专属）。
  * 帧形零扩展纪律：两 action 只是 §3.8 command 帧的 action 值域追加（§5.3），
  * 编解码面绝无新字段、绝无缺省值伪造（sessionId 缺省 = 帧面不带该字段）。
@@ -68,19 +68,22 @@ class RelaySelfMgmtCodecTest {
     }
 
     @Test
-    fun `spawn rejection text forks by error code including SPAWN_REJECTED`() {
-        val text = com.devhub.mobile.core.InteractionHonesty.spawnRejectionText("SPAWN_REJECTED", null)
-        assertTrue("SPAWN_REJECTED 文案须点名 spawn 特有原因", text.contains("SPAWN_REJECTED") && text.contains("托管通道"))
+    fun `spawn rejection forks by error code with human headline and technical code`() {
+        // UX-P1 H19：headline 人话（原码退出用户面）；technical 承载原码+原样 raw（绝不吞码）
+        val r = com.devhub.mobile.core.InteractionHonesty.spawnRejection("SPAWN_REJECTED", null)
+        assertTrue("SPAWN_REJECTED 文案须点名对话通道/上限原因", r.headline.contains("创建失败") && r.headline.contains("上限"))
+        assertEquals("[SPAWN_REJECTED]", r.technical)
         assertTrue(
-            com.devhub.mobile.core.InteractionHonesty.spawnRejectionText("COMMAND_NOT_EXECUTABLE", null)
-                .contains("COMMAND_NOT_EXECUTABLE"),
+            com.devhub.mobile.core.InteractionHonesty.spawnRejection("COMMAND_NOT_EXECUTABLE", null)
+                .headline.contains("暂不支持在手机上开始对话"),
         )
         assertTrue(
-            com.devhub.mobile.core.InteractionHonesty.spawnRejectionText("AGENT_CAPABILITY_MISSING", null)
-                .contains("AGENT_CAPABILITY_MISSING"),
+            com.devhub.mobile.core.InteractionHonesty.spawnRejection("AGENT_CAPABILITY_MISSING", null)
+                .headline.contains("请先在电脑端刷新"),
         )
-        // 其余码原样透传（绝不吞码）
-        val passthrough = com.devhub.mobile.core.InteractionHonesty.spawnRejectionText("NOT_FOUND", "provider ghost")
-        assertTrue(passthrough.contains("NOT_FOUND") && passthrough.contains("provider ghost"))
+        // 其余码：通用人话头 + 原码进 technical（绝不吞码）
+        val passthrough = com.devhub.mobile.core.InteractionHonesty.spawnRejection("NOT_FOUND", "provider ghost")
+        assertTrue(passthrough.headline.contains("创建失败"))
+        assertTrue(passthrough.technical!!.contains("NOT_FOUND") && passthrough.technical!!.contains("provider ghost"))
     }
 }

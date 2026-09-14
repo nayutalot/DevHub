@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.devhub.mobile.core.ErrorPresent
 import com.devhub.mobile.core.IdempotencyKeys
 import com.devhub.mobile.core.InteractionHonesty
 import com.devhub.mobile.core.relay.WakeResultStatus
@@ -89,7 +90,8 @@ fun AgentsScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var agents by remember { mutableStateOf<List<AgentDto>?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
+    // U1-M3/UX-P1（A2/A3）：错误统一呈现体（人话 headline + 原始异常/错误码收「技术细节」折叠）
+    var error by remember { mutableStateOf<ErrorPresent.Presentable?>(null) }
     val fixtureOn = remember { FixtureMode.enabled(context) }
 
     // R5.3：事件驱动为主（refreshSignal 变化即立即拉取）+ 120s 低频兜底（原 2s 轮询退役）
@@ -100,12 +102,12 @@ fun AgentsScreen(
                 agents = withContext(Dispatchers.IO) { ApiProvider.rest(context).agents() }
                 error = null
             } catch (err: ApiError) {
-                error = "[${err.code}] ${err.message}"
+                error = ErrorPresent.api(err.code, err.message)
             } catch (err: IOException) {
-                error = "网络不可达"
+                error = ErrorPresent.io(err)
             } catch (err: Exception) {
-                // P0 热修：未预期异常绝不容 UI 协程崩进程（诚实人话，不直出栈）
-                error = "发生未知错误：请重试（${err.javaClass.simpleName}）"
+                // P0 热修：未预期异常绝不容 UI 协程崩进程（通用人话，原异常收 technical 不吞码）
+                error = ErrorPresent.io(err)
             }
             delay(ConnectionManager.FALLBACK_POLL_MS)
         }
@@ -113,15 +115,22 @@ fun AgentsScreen(
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Spacer(Modifier.height(8.dp))
-        Text("Agents", style = MaterialTheme.typography.titleLarge)
+        Text("AI 助手", style = MaterialTheme.typography.titleLarge) // UX-P1 A1
         Spacer(Modifier.height(4.dp))
         // RW1：relay 分支连接区「唤醒 Windows」（本地模式不渲染——wake 是 relay 原生能力）
         WakeHostCard()
         val list = agents
         when {
             list == null && error == null -> Column(Modifier.padding(24.dp)) { CircularProgressIndicator() }
-            list == null -> Text("加载失败：$error", color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
-            list.isEmpty() -> Text("暂无 provider 投影", fontSize = 13.sp)
+            list == null -> com.devhub.mobile.ui.components.ErrorPresentation(
+                presentable = error!!,
+                headlinePrefix = "加载失败：",
+            )
+            // UX-P1 A4：空态 = 一句事实 + 一步动作（本页事件驱动自动刷新，无手工重扫按钮）
+            list.isEmpty() -> Text(
+                "这里会显示电脑上的 AI 助手。还没有内容——请确认电脑在线、DevHub 正在运行，连上后会自动刷新",
+                fontSize = 13.sp,
+            )
             else -> LazyColumn {
                 items(list, key = { it.id }) { agent ->
                     ProviderCard(
@@ -156,7 +165,8 @@ private fun WakeHostCard() {
     if (activeMode != "relay") return
 
     var busy by remember { mutableStateOf(false) }
-    var statusText by remember { mutableStateOf<String?>(null) }
+    // UX-P1（A8-A14）：唤醒结果 = 人话 headline + 技术原值收「技术细节」折叠（零吞码）
+    var statusText by remember { mutableStateOf<ErrorPresent.Presentable?>(null) }
     var cooldownUntilMs by remember { mutableStateOf(0L) }
     var cooldownRemainSec by remember { mutableStateOf(0) }
 
@@ -190,7 +200,7 @@ private fun WakeHostCard() {
                             val r = ConnectionManager.submitWakeHost()
                             when (r) {
                                 is WakeSubmit.Result -> {
-                                    statusText = wakeResultText(r)
+                                    statusText = wakeResult(r)
                                     val cooldownMs = when (r.status) {
                                         WakeResultStatus.RATE_LIMITED -> r.retryAfterMs ?: WAKE_LOCAL_COOLDOWN_MS
                                         WakeResultStatus.SENT, WakeResultStatus.ALREADY_ON -> WAKE_LOCAL_COOLDOWN_MS
@@ -200,15 +210,18 @@ private fun WakeHostCard() {
                                 }
 
                                 WakeSubmit.NotConnected ->
-                                    statusText = "未连接：唤醒仅在 Relay 已连接时可用（不排队、不伪成功）"
+                                    // UX-P1 A7：人话 + 指路（不排队不伪成功纪律不变，工程尾注退役）
+                                    statusText = ErrorPresent.Presentable(
+                                        "还没连上电脑，无法唤醒；先在「连接设置」检查连接",
+                                    )
 
                                 WakeSubmit.Timeout ->
                                     // App 侧等待窗超时：与 relay timeout 态同文案（不谎报 sent）
-                                    statusText = "唤醒超时（timeout）：15s 内未完成，可稍后重试"
+                                    statusText = wakeTimeoutText()
                             }
                         } catch (err: Exception) {
                             // B1 泛化热修（P0 先例）：未预期异常绝不崩 UI 进程；busy 复位防按钮卡死。
-                            statusText = "唤醒异常：请重试（${err.javaClass.simpleName}）"
+                            statusText = ErrorPresent.Presentable("唤醒出了问题，请重试", err.toString())
                         } finally {
                             busy = false
                         }
@@ -219,8 +232,8 @@ private fun WakeHostCard() {
                 Text(
                     when {
                         busy -> "发送中…"
-                        cooling -> "冷却中 ${cooldownRemainSec}s"
-                        else -> "唤醒 Windows"
+                        cooling -> "请等 ${cooldownRemainSec}s" // UX-P1 A6
+                        else -> "唤醒电脑" // UX-P1 A5
                     },
                     fontSize = 13.sp,
                 )
@@ -228,24 +241,30 @@ private fun WakeHostCard() {
             if (busy) CircularProgressIndicator(Modifier.width(16.dp).height(16.dp), strokeWidth = 2.dp)
         }
 
-        // 结果行（六态如实投影；exec_failed 的 stderrSummary 由 relay 脱敏截断后直显）
+        // 结果行（六态如实投影：人话 headline + 技术原值进折叠；exec_failed 的
+        // stderrSummary 由 relay 脱敏截断后收「技术细节」，不再直出）
         statusText?.let {
-            Text(it, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(it.headline, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            it.technical?.let { tech ->
+                com.devhub.mobile.ui.components.TechnicalDetailsFold(tech)
+            }
         }
 
         // 状态行（未连接 / 冷却中——诚实禁用原因，绝不静默）
         if (!busy && statusText == null) {
             when {
                 !connected ->
+                    // UX-P1 A7（第二处：禁用原因如实说明）
                     Text(
-                        "未连接：唤醒仅在 Relay 已连接时可用（不排队、不伪成功）",
+                        "还没连上电脑，无法唤醒；先在「连接设置」检查连接",
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
 
                 cooling ->
+                    // UX-P1 A9（本地防抖尾注退役；权威仍在 relay 冷却窗）
                     Text(
-                        "冷却中：${cooldownRemainSec}s 后可再试（本地防抖，以 relay 实际判定为准）",
+                        "请等 ${cooldownRemainSec} 秒后再试",
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -254,23 +273,47 @@ private fun WakeHostCard() {
     }
 }
 
-/** wake 六态 → 如实文案（绝不美化；exec_failed 携 relay 已脱敏 stderr 摘要）。 */
-private fun wakeResultText(r: WakeSubmit.Result): String = when (r.status) {
+/**
+ * wake 六态 → 如实呈现（UX-P1 A8/A10-A14，docs/25 终稿）：headline 人话，状态码/数值/工程
+ * 原值（sent/already_on/rate_limited/disabled/exec_failed/timeout、WAKE_ENABLED、stderr 摘要）
+ * 全部收「技术细节」折叠——绝不美化、绝不谎报 sent（「已发出」≠「已开机」语义由 headline
+ * 「电脑开机需要一点时间」+折叠原值承载）。
+ */
+private fun wakeResult(r: WakeSubmit.Result): ErrorPresent.Presentable = when (r.status) {
     WakeResultStatus.SENT ->
-        "唤醒指令已发出（sent，${r.latencyMs ?: "?"}ms）。「已发出」≠「已开机」，以主机实际状态为准"
+        ErrorPresent.Presentable(
+            "唤醒指令已发出，电脑开机需要一点时间；是否上线以连接状态为准",
+            "sent" + (r.latencyMs?.let { " · ${it}ms" } ?: ""),
+        )
 
-    WakeResultStatus.ALREADY_ON -> "Windows 已在线（already_on），无需唤醒"
+    WakeResultStatus.ALREADY_ON ->
+        ErrorPresent.Presentable("电脑已经在线，不用唤醒", "already_on")
 
     WakeResultStatus.RATE_LIMITED ->
-        "Relay 冷却窗拒绝（rate_limited）：需 ${((r.retryAfterMs ?: 15_000L) + 999) / 1000}s 后重试"
+        ErrorPresent.Presentable(
+            "操作太频繁：请 ${((r.retryAfterMs ?: 15_000L) + 999) / 1000} 秒后再试",
+            "rate_limited" + (r.retryAfterMs?.let { " · retryAfter=${it}ms" } ?: ""),
+        )
 
-    WakeResultStatus.DISABLED -> "Relay 未启用唤醒功能（disabled）：需在 ECS 配置 WAKE_ENABLED=1"
+    WakeResultStatus.DISABLED ->
+        // UX-P1 A13（最严重级）：ECS/WAKE_ENABLED 字样退出用户面，技术原值进折叠
+        ErrorPresent.Presentable(
+            "唤醒功能未开启：需在电脑端开启远程唤醒",
+            "disabled · 需在 ECS 配置 WAKE_ENABLED=1",
+        )
 
     WakeResultStatus.EXEC_FAILED ->
-        "唤醒执行失败（exec_failed）：" + (r.stderrSummary?.takeIf { it.isNotBlank() } ?: "无诊断摘要")
+        ErrorPresent.Presentable(
+            "唤醒失败：这台电脑可能不支持远程开机",
+            "exec_failed" + (r.stderrSummary?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""),
+        )
 
-    WakeResultStatus.TIMEOUT -> "唤醒超时（timeout）：15s 内未完成，可稍后重试"
+    WakeResultStatus.TIMEOUT -> wakeTimeoutText()
 }
+
+/** App 侧等待窗超时与 relay timeout 态同文案（A8；绝不谎报 sent）。 */
+private fun wakeTimeoutText(): ErrorPresent.Presentable =
+    ErrorPresent.Presentable("唤醒超时：电脑没响应，稍后可再试", "timeout")
 
 @Composable
 private fun ProviderCard(
@@ -285,7 +328,10 @@ private fun ProviderCard(
     var spawnPanelOpen by remember(agent.id) { mutableStateOf(false) }
     var spawnTask by remember(agent.id) { mutableStateOf("") }
     var spawnBusy by remember(agent.id) { mutableStateOf(false) }
-    var spawnStatus by remember(agent.id) { mutableStateOf<String?>(null) }
+    // UX-P1（A16-A21）：提交回执 = 人话 headline + 技术原值（commandId/status/异常）收折叠
+    var spawnStatus by remember(agent.id) { mutableStateOf<ErrorPresent.Presentable?>(null) }
+    // 拒绝走 ErrorPresentation（错误语义 + 「技术细节」折叠）
+    var spawnError by remember(agent.id) { mutableStateOf<ErrorPresent.Presentable?>(null) }
 
     val isManaged = agent.capabilities.mode == InteractionHonesty.MODE_MANAGED
     val canSpawn = InteractionHonesty.canSpawnManagedSession(agent.capabilities.mode, fixtureOn)
@@ -313,9 +359,10 @@ private fun ProviderCard(
             ModeBadge(agent.capabilities.mode)
                 Text(
                     when {
-                        isManaged -> InteractionHonesty.MANAGED_PROVIDER_NOTE // R6.1 诚实文案
-                        agent.capabilities.granted.isEmpty() -> InteractionHonesty.EMPTY_GRANTED_NOTE
-                        else -> "granted: ${agent.capabilities.granted.joinToString(" / ")}"
+                        isManaged -> InteractionHonesty.MANAGED_PROVIDER_NOTE // R6.1 诚实文案（H1 人话化）
+                        agent.capabilities.granted.isEmpty() -> InteractionHonesty.EMPTY_GRANTED_NOTE // H7
+                        // UX-P1 A15：granted 令牌直出退役 → core 译码（可执行：回复、暂停…）
+                        else -> com.devhub.mobile.core.CapabilitiesExplain.grantedLabel(agent.capabilities.granted)
                     },
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, // 打磨批 D：深色主题下灰字升为主题次级色
@@ -356,6 +403,7 @@ private fun ProviderCard(
                 onClick = {
                     spawnPanelOpen = true
                     spawnStatus = null
+                    spawnError = null
                 },
             ) { Text(InteractionHonesty.SPAWN_BUTTON_LABEL, fontSize = 13.sp) }
         }
@@ -376,8 +424,9 @@ private fun ProviderCard(
                             if (task.isEmpty() || spawnBusy) return@Button
                             spawnBusy = true
                             spawnStatus = null
+                            spawnError = null
                             scope.launch {
-                                val message: String = if (ConnectionManager.configuredMode() == "relay") {
+                                val message: ErrorPresent.Presentable? = if (ConnectionManager.configuredMode() == "relay") {
                                     // M3-E1（docs/18 §5.3/§10 通道迁移）：relay 模式走 WS command
                                     // spawn_session（REST POST /v1/providers/{id}/sessions 打 ECS
                                     // 必败——§7.2 不开放）；本地模式保持下方 REST 路径零改动。
@@ -387,17 +436,26 @@ private fun ProviderCard(
                                             spawnTask = ""
                                             // 跳入新托管会话详情：reply/pause/resume 会话级真实可用（R6.2）
                                             onOpenSession(r.sessionId)
-                                            "已启动（commandId=${r.commandId}）"
+                                            // UX-P1 A16：commandId 收「技术细节」折叠
+                                            ErrorPresent.Presentable("对话已创建", "commandId=${r.commandId}")
                                         }
 
                                         is ManagedSpawnSubmit.AcceptedNoSession ->
-                                            "已受理（${r.status}，commandId=${r.commandId}）；会话列表稍后出现新会话"
+                                            // UX-P1 A17：status/commandId 进折叠
+                                            ErrorPresent.Presentable(
+                                                "已提交：对话创建中，稍后在「对话」列表出现",
+                                                "status=${r.status} · commandId=${r.commandId}",
+                                            )
 
                                         ManagedSpawnSubmit.Queued ->
-                                            "已排队（电脑离线）：连接恢复后自动启动"
+                                            // UX-P1 A18（排队语义如实，绝不伪成功）
+                                            ErrorPresent.Presentable("电脑不在线：已暂存你的请求，它上线后自动开始")
 
-                                        is ManagedSpawnSubmit.Rejected ->
-                                            InteractionHonesty.spawnRejectionText(r.code, r.message)
+                                        is ManagedSpawnSubmit.Rejected -> {
+                                            // UX-P1 A19/H19：人话 headline + 原码进「技术细节」
+                                            spawnError = InteractionHonesty.spawnRejection(r.code, r.message)
+                                            null
+                                        }
                                     }
                                 } else {
                                     try {
@@ -414,19 +472,23 @@ private fun ProviderCard(
                                             spawnTask = ""
                                             // 跳入新托管会话详情：reply/pause/resume 会话级真实可用（R6.2）
                                             onOpenSession(sid)
-                                            "已启动（commandId=${started.commandId}）"
+                                            ErrorPresent.Presentable("对话已创建", "commandId=${started.commandId}") // A16
                                         } else {
-                                            "已受理（${started.status}，commandId=${started.commandId}）；会话列表稍后出现新会话"
+                                            ErrorPresent.Presentable( // A17
+                                                "已提交：对话创建中，稍后在「对话」列表出现",
+                                                "status=${started.status} · commandId=${started.commandId}",
+                                            )
                                         }
                                     } catch (err: ApiError) {
-                                        "启动被拒绝：[${err.code}] ${err.message}"
+                                        spawnError = InteractionHonesty.spawnRejection(err.code, err.message) // A19
+                                        null
                                     } catch (err: IOException) {
-                                        "网络不可达，未启动"
+                                        ErrorPresent.Presentable("网络不可用：对话没有创建，请检查网络后再试") // A20
                                     } catch (err: Exception) {
                                         // B1 泛化热修（P0 先例）：提交协程跑在 rememberCoroutineScope
                                         //（主线程无异常处理器）——未预期异常绝不崩 UI 进程；
                                         // spawnBusy 在下方统一复位，按钮不卡死。
-                                        "启动异常：请重试（${err.javaClass.simpleName}）"
+                                        ErrorPresent.Presentable("启动出了问题，请重试", err.toString()) // A21
                                     }
                                 }
                                 spawnBusy = false
@@ -445,11 +507,16 @@ private fun ProviderCard(
             }
         }
         spawnStatus?.let {
-            Text(it, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(it.headline, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            it.technical?.let { tech -> com.devhub.mobile.ui.components.TechnicalDetailsFold(tech) }
+        }
+        spawnError?.let {
+            com.devhub.mobile.ui.components.ErrorPresentation(presentable = it)
         }
         if (fixtureOn) {
+            // UX-P1 A22：演示模式标注不弱化（琥珀底+事实+不可操作说明；「夹具/批次号」工程语退役）
             Text(
-                "演示数据（夹具）：此页能力展示仅示意，控制动作不可用",
+                "演示模式：这里是示例数据，按钮不可操作",
                 fontSize = 10.sp,
                 color = Color(0xFF7A4F00),
             )
