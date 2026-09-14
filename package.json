@@ -61,6 +61,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@napi-rs/canvas": "^1.0.9",
+    "electron-updater": "^6.6.4",
     "pdfjs-dist": "^6.3.289",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

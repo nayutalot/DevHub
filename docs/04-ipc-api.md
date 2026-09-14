@@ -202,3 +202,18 @@ importPack——取消复用 importCancel：agent 任务 = watcher 取消令牌 
 
 CP6 备份恢复（docs/22 §3 预告 "+2 通道"）实落 2 条（backupExport/backupImport），
 白名单就地更新 108 → **110**。
+
+X-U App 自更新（docs/briefs/xu-updater.md，就地注记）实落 4 条，白名单就地更新
+111 → **115**：
+
+| channel | payload | result data | 读写 | 状态 |
+| --- | --- | --- | --- | --- |
+| `updates:status` | `{}` | UpdateStatusView（supported/currentVersion/phase 八值/availableVersion/releaseNotes 人话投影/downloadProgress/error 结构化/silentAnnounced/lastCheckedAt） | READ_ONLY | X-U 已落地（115） |
+| `updates:check` | `{}` | `{ started }`（受理即 true；busy 态 `UPDATE_BUSY`；dev `UPDATE_UNSUPPORTED`） | 变更 | X-U 已落地（115） |
+| `updates:download` | `{}` | `{ started }`（仅 available 态受理；用户「下载并安装」确认钮前置，绝不自动下载） | 变更 | X-U 已落地（115） |
+| `updates:install` | `{}` | `{ installing }`（仅 downloaded 态受理；确认弹窗前置 → quitAndInstall，绝不静默重启） | 变更 | X-U 已落地（115） |
+
+main 侧控制器经 `updateRegistry` 单例注入（keyStore setKeyCrypto 同款先例），
+纯 Node/测试环境缺省 NOT_AVAILABLE；全部轮询模式无广播（docs/14 §A.3 同纪律）；
+feed=编译期常量（既有 relay 基址 + `/updates/`，零凭据）；启动后 60s 静默检查
+一次（仅发现新版 toast，绝不自动下载）；退出链零触碰。

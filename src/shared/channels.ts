@@ -86,6 +86,12 @@ export const IPC_GATEWAY = 'devhub:invoke' as const
  * { canceled, path }；electron 面经 HandlerDeps.pickPath 注入（gateway 生产接线），
  * handlers 保持零 electron import；取消/未选 = canceled:true + path:null，
  * renderer 维持原值不报错）。
+ * X-U 批次 note（App 自更新，docs/briefs/xu-updater.md + docs/09 §9 注记授权的
+ * 同一模式就地更新）：updates 4 条并入，111 → 115（status READ_ONLY 状态快照 /
+ * check 手动检查受理 / download 下载受理（用户「下载并安装」确认钮前置，绝不
+ * 自动下载）/ install 安装受理（下载完成后确认→quitAndInstall，绝不静默重启）；
+ * 全部轮询模式无广播；main 侧控制器经 updateRegistry 单例注入，纯 Node 环境
+ * 缺省 NOT_AVAILABLE）。
  */
 export const IPC_CHANNELS = [
   // scan
@@ -257,6 +263,16 @@ export const IPC_CHANNELS = [
   // READ_ONLY 对话框面——只回用户选中的路径，零 fs 能力暴露；取消/失败 =
   // canceled:true + path:null，renderer 维持原值不报错）
   'dialog:pickPath',
+  // updates（X-U 批次，docs/briefs/xu-updater.md + docs/09 §9 注记：App 自更新。
+  // status 为 READ_ONLY 轮询快照（electron-updater 状态机的结构化投影）；
+  // check / download / install 为动作受理通道——download 仅 available 态受理且
+  // 用户「下载并安装」确认钮前置（绝不自动下载），install 仅 downloaded 态受理
+  // 且确认弹窗前置（quitAndInstall，绝不静默重启）。全部轮询模式无广播；
+  // 控制器经 updateRegistry 单例注入，纯 Node/测试环境缺省 NOT_AVAILABLE）
+  'updates:status',
+  'updates:check',
+  'updates:download',
+  'updates:install',
 ] as const
 
 /** Compile-time whitelist: a handler map must be keyed by IpcChannel. */
