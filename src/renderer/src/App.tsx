@@ -16,6 +16,10 @@
  * Suspense 加载态 + 懒加载 rejection / 视图渲染错误捕获 → 结构化 ErrorState +
  * 重试（重建 lazy 组件绕过 React 对 payload rejection 的缓存）。OverlayApp 保持
  * 静态 import（悬浮窗小而常驻，避免微小置顶部件出现加载闪空）。
+ *
+ * D5-M2（AUDIT D-Aud I11）：窗口级键盘快捷键——F5/Ctrl+R 刷新、Ctrl+1..9 切视图
+ * （顺序=侧栏序）、/ 聚焦当前视图搜索框（输入控件聚焦时不抢占）。零 router 依赖，
+ * 只加 keydown 监听，useState 路由与 hash 映射机制原样。
  */
 
 import { Component, Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
@@ -96,6 +100,12 @@ function hashForTarget(t: ViewTarget): string {
   return t.view === 'contest' && t.contestId !== undefined ? `#contest:${t.contestId}` : `#${t.view}`
 }
 
+/**
+ * Ctrl+1..9 → 视图映射（AUDIT D-Aud I11，D5-M2）：顺序=侧栏序（Sidebar NAV_ITEMS）
+ * 前 9 项；Agents/比赛无数字位（Ctrl+0/10+ 不占用，侧栏点击仍可达）。
+ */
+const SHORTCUT_VIEWS: readonly ViewTarget['view'][] = VIEW_IDS.slice(0, 9)
+
 function initialTarget(): ViewTarget {
   const key = window.location.hash.replace(/^#\/?/, '')
   const contestMatch = key.match(/^contest:(\d+)$/)
@@ -171,6 +181,47 @@ function MainApp() {
     const h = hashForTarget(t)
     if (window.location.hash !== h) window.location.hash = h
   }, [])
+
+  // 键盘快捷键（AUDIT D-Aud I11，D5-M2；零 router 依赖，只加监听不动路由机制）：
+  //   F5 / Ctrl+R → 刷新（refreshAll 全局键自增；已挂载视图=当前视图随之重拉）；
+  //   Ctrl+1..9   → 切视图（顺序=侧栏序前 9 项，经既有 navigate→hash 回写路径）；
+  //   /           → 聚焦当前视图搜索框（.search-input；无则忽略；输入控件聚焦时
+  //                 不抢占——在输入框里打 / 必须是字面字符）。
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent): void => {
+      const plainCtrl = e.ctrlKey && !e.altKey && !e.metaKey
+      if (e.key === 'F5' || (plainCtrl && !e.shiftKey && (e.key === 'r' || e.key === 'R'))) {
+        e.preventDefault()
+        refreshAll()
+        return
+      }
+      if (plainCtrl && !e.shiftKey && e.key >= '1' && e.key <= '9') {
+        const view = SHORTCUT_VIEWS[Number(e.key) - 1]
+        if (view !== undefined) {
+          e.preventDefault()
+          navigate({ view } as ViewTarget)
+        }
+        return
+      }
+      if (e.key === '/' && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
+        const t = e.target
+        if (
+          t instanceof HTMLElement &&
+          (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)
+        ) {
+          return
+        }
+        const search = document.querySelector<HTMLElement>('.content .search-input')
+        if (search !== null) {
+          e.preventDefault()
+          search.focus()
+        }
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [navigate, refreshAll])
+
   const appState = useMemo(() => ({ refreshKey, refreshAll, navigate }), [refreshKey, refreshAll, navigate])
 
   return (
