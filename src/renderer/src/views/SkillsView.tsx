@@ -21,6 +21,7 @@ import { EmptyState, ErrorState, Loading, Spinner, Toast, useToast } from '../co
 import { useApp } from '../lib/appContext.ts'
 import { relativeTime } from '../lib/format.ts'
 import { call } from '../lib/ipc.ts'
+import { pickPath } from '../lib/pickPath.ts'
 import { useAsync } from '../lib/useAsync.ts'
 import type {
   LinkState,
@@ -566,6 +567,18 @@ function ImportDialog({
   const [selected, setSelected] = useState<number[]>([])
   const [busy, setBusy] = useState(false)
 
+  /** 「浏览…」：原生目录选择器（D5-M1/I8）回填 sourceDir；取消/失败维持原值不报错。 */
+  async function browseSourceDir(): Promise<void> {
+    const picked = await pickPath('directory', {
+      defaultPath: sourceDir.trim(),
+      title: '选择 Skill 源目录（目录名即 skill 名）',
+    })
+    if (picked !== null) {
+      setSourceDir(picked)
+      setPlan(null)
+    }
+  }
+
   async function preview(e: FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault()
     setBusy(true)
@@ -609,6 +622,15 @@ function ImportDialog({
               setPlan(null)
             }}
           />
+          <button
+            type="button"
+            className="btn"
+            disabled={busy}
+            title="浏览选择 Skill 源目录（手输仍可用）"
+            onClick={() => void browseSourceDir()}
+          >
+            浏览…
+          </button>
           <button type="submit" className="btn" disabled={busy || sourceDir.trim().length === 0}>
             预览
           </button>

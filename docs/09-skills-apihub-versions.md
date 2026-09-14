@@ -352,6 +352,13 @@ smoke 用例 #1 的 21 条断言由实现批次按同一模式更新为 43 条�
 WSL 动作不新增 channel：`wsl:action`（terminate/boot/shutdownAll）与 `wsl:distroStats`
 随 Environment 扩展批次并入 whitelist（同一追加模式，届时一并更新断言与 docs/04）。
 
+D5 桌面收官批追加 1 条（AUDIT D-Aud I8，就地注记）：`dialog:pickPath`——
+`{ mode: 'directory'|'file', defaultPath?, title? }` → `{ canceled, path }`
+（electron `dialog.showOpenDialog` 结构化投影；READ_ONLY 对话框面，零 fs 能力暴露；
+electron 面经 HandlerDeps 注入，取消/未选 = canceled:true + path:null，renderer
+维持原值不报错；接入 BackupPanel destDir / Skills importDialog sourceDir /
+Archive destRoot / MaterialImport manual_pack destDir 四处，手输保留）。
+
 ## 10. MCP 只读扩展（变更动作不进 MCP）
 
 新增 4 个 READ_ONLY tool（docs/08 机制不变：zod schema + structuredContent + 只读落库快照）：

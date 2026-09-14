@@ -164,6 +164,7 @@ import type {
   ContestPatch,
   ContestReminderUpsertPayload,
   ContestStatus,
+  PickPathApplier,
 } from '../../shared/types.ts'
 import {
   ARCHIVE_HISTORY_LIMIT,
@@ -396,6 +397,13 @@ export type HandlerRegistry = Record<IpcChannel, ChannelHandler>
 export interface HandlerDeps {
   /** 注入的版本号（main 进程传 app.getVersion()；本模块不 import electron）。 */
   appVersion: string
+  /**
+   * dialog:pickPath 的 electron 对话框面（D5 批次，AUDIT D-Aud I8）：main 入口
+   * 注入 dialog.showOpenDialog 生产实现（gateway.ts GatewayDeps 必填透传，生产
+   * 遗忘接线在编译期不可能）；smoke/纯 Node 环境缺省 → handler 折叠为
+   * NOT_AVAILABLE 结构化错误，绝不触碰 electron。
+   */
+  pickPath?: PickPathApplier
 }
 
 function errEnvelope(code: string, message: string): Result<never> {
@@ -1277,6 +1285,31 @@ export function createHandlerRegistry(deps: HandlerDeps): HandlerRegistry {
         throw badPayload('contestpin:backupImport', 'manifestPath must be a non-empty string')
       }
       return importBackup({ manifestPath: p.manifestPath as string })
+    },
+
+    // --- dialog（D5 批次，AUDIT D-Aud I8 目录/文件选择器；1 条 READ_ONLY 对话框
+    // 面。electron dialog.showOpenDialog 经 HandlerDeps.pickPath 注入（gateway 生
+    // 产接线，本模块保持零 electron import）；取消/未选 = canceled:true + path:null，
+    // renderer 维持原值不报错；缺 applier（纯 Node/测试环境）= NOT_AVAILABLE） ---
+    'dialog:pickPath': async (payload) => {
+      const p = asPayloadObject('dialog:pickPath', payload)
+      const mode = p.mode
+      if (mode !== 'directory' && mode !== 'file') {
+        throw badPayload('dialog:pickPath', 'mode must be "directory" or "file"')
+      }
+      const defaultPath = optionalString('dialog:pickPath', p, 'defaultPath')
+      const title = optionalString('dialog:pickPath', p, 'title')
+      if (deps.pickPath === undefined) {
+        throw new ServiceError(
+          'NOT_AVAILABLE',
+          'dialog:pickPath requires the electron dialog applier (unavailable outside the main process)',
+        )
+      }
+      return deps.pickPath({
+        mode,
+        ...(defaultPath !== undefined ? { defaultPath } : {}),
+        ...(title !== undefined ? { title } : {}),
+      })
     },
 
     // --- LLM 复核层（LR1 批次，docs/04「LR1 追加」节；4 条全 READ_ONLY。

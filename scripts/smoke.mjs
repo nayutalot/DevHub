@@ -142,8 +142,12 @@ if (isEntrypoint()) {
   // 结构性零凭据 + materials/ sha256 复制幂等 + BACKUP_EXISTS 拒绝覆盖；
   // backupImport 变更面：形状/材料 sha256 对账 → 一份 manual_pack 草稿走既有
   // 核对界面，绝不直写生产行绝不静默覆盖）。
+  // D5 批次 note（桌面收官，docs/09 §9 注记 + AUDIT D-Aud I8 授权的同一模式就地
+  // 更新）：dialog:pickPath 1 条并入，110 → 111（原生目录/文件选择器——electron
+  // dialog.showOpenDialog 的结构化投影；electron 面经 HandlerDeps.pickPath 注入
+  // （smoke 注 fake），取消/未选 = canceled:true + path:null）。
   // ------------------------------------------------------------------
-  registerCase('step1: channels whitelist has exactly 110 entries (CP6 就地更新 108→110) and IPC_GATEWAY', async () => {
+  registerCase('step1: channels whitelist has exactly 111 entries (D5 就地更新 110→111) and IPC_GATEWAY', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     assert.equal(channels.IPC_GATEWAY, 'devhub:invoke', 'gateway channel')
     const expected = [
@@ -274,10 +278,12 @@ if (isEntrypoint()) {
       // CP6 contestpin backup group (docs/22 §9 + docs/04「ContestPin 追加」节)
       'contestpin:backupExport',
       'contestpin:backupImport',
+      // D5 dialog group (docs/09 §9 注记 + AUDIT D-Aud I8：原生目录/文件选择器)
+      'dialog:pickPath',
     ]
-    assert.equal(channels.IPC_CHANNELS.length, 110, `expected 110 channels, got ${channels.IPC_CHANNELS.length}`)
-    assert.deepEqual([...channels.IPC_CHANNELS], expected, 'whitelist must match docs/04 + docs/09 §9 + docs/10 §11 + docs/14 §A.1 + docs/04 ContestPin 追加节 + docs/22 §4/§5/§6/§7/§8/§9 + docs/04 LR1 追加节 exactly')
-    assert.equal(new Set(channels.IPC_CHANNELS).size, 110, 'no duplicate channels')
+    assert.equal(channels.IPC_CHANNELS.length, 111, `expected 111 channels, got ${channels.IPC_CHANNELS.length}`)
+    assert.deepEqual([...channels.IPC_CHANNELS], expected, 'whitelist must match docs/04 + docs/09 §9 + docs/10 §11 + docs/14 §A.1 + docs/04 ContestPin 追加节 + docs/22 §4/§5/§6/§7/§8/§9 + docs/04 LR1 追加节 + docs/09 §9 D5 注记 exactly')
+    assert.equal(new Set(channels.IPC_CHANNELS).size, 111, 'no duplicate channels')
   }, 'fast')
 
   // ------------------------------------------------------------------
@@ -1065,14 +1071,14 @@ if (isEntrypoint()) {
   // CHANNEL_NOT_ALLOWED（文档权威原则，约束 #6）。
   // ------------------------------------------------------------------
   registerCase(
-    'step6: handler registry keys equal the 110-channel whitelist (CP6 就地更新 108→110); app:version returns injected value; unknown channel folds to CHANNEL_NOT_ALLOWED envelope',
+    'step6: handler registry keys equal the 111-channel whitelist (D5 就地更新 110→111); app:version returns injected value; unknown channel folds to CHANNEL_NOT_ALLOWED envelope',
     async () => {
       const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
       const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
       const registry = handlers.createHandlerRegistry({ appVersion: '0.1.0-smoke' })
       const keys = Object.keys(registry).sort()
-      assert.equal(keys.length, 110, `registry must hold exactly 110 handlers, got ${keys.length}`)
+      assert.equal(keys.length, 111, `registry must hold exactly 111 handlers, got ${keys.length}`)
       assert.deepEqual(keys, [...channels.IPC_CHANNELS].sort(), 'registry keys must equal IPC_CHANNELS (no more, no less)')
 
       const version = await registry['app:version']({})
@@ -3571,12 +3577,12 @@ if (isEntrypoint()) {
   //  识别配置 4 条；CP3b 就地更新 88→97，CP4 就地更新 97→100；LR1 并入 main
   //  100→104，docs/04「LR1 追加」节 LLM 复核层 4 条）：
   //  registry 键集 = 白名单 = 契约覆盖
-  registerCase('s4-68: whitelist 45→50 (S5 就地更新为 55，AC2 就地更新 55→68，夜间#1 就地更新 68→70，CP1 就地更新 70→79，CP2 就地更新 79→84，CP3a 就地更新 84→88，CP3b 就地更新 88→97，CP4 就地更新 97→100，LR1 并入 main 100→104，CP5 就地更新 104→108，CP6 就地更新 108→110) — registry keys equal the whitelist and the compile-time contract assertion holds', async () => {
+  registerCase('s4-68: whitelist 45→50 (S5 就地更新为 55，AC2 就地更新 55→68，夜间#1 就地更新 68→70，CP1 就地更新 70→79，CP2 就地更新 79→84，CP3a 就地更新 84→88，CP3b 就地更新 88→97，CP4 就地更新 97→100，LR1 并入 main 100→104，CP5 就地更新 104→108，CP6 就地更新 108→110，D5 就地更新 110→111) — registry keys equal the whitelist and the compile-time contract assertion holds', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
-    assert.equal(channels.IPC_CHANNELS.length, 110, 'whitelist extended 45 → 50 (S4), 50 → 55 (S5 archive), 55 → 68 (AC2 agents), 68 → 70 (夜间#1), 70 → 79 (CP1 contestpin 9 条), 79 → 84 (CP2 contestpin 悬浮窗 5 条), 84 → 88 (CP3a contestpin 识别配置 4 条), 88 → 97 (CP3b contestpin 材料导入/识别管线/核对界面 9 条), 97 → 100 (CP4 contestpin 提醒 3 条), 100 → 104 (LR1 LLM 复核层 4 条), 104 → 108 (CP5 contestpin Agent 模式 4 条), 108 → 110 (CP6 contestpin 备份恢复 2 条)')
-    assert.equal(new Set(channels.IPC_CHANNELS).size, 110, 'no duplicates after extension')
+    assert.equal(channels.IPC_CHANNELS.length, 111, 'whitelist extended 45 → 50 (S4), 50 → 55 (S5 archive), 55 → 68 (AC2 agents), 68 → 70 (夜间#1), 70 → 79 (CP1 contestpin 9 条), 79 → 84 (CP2 contestpin 悬浮窗 5 条), 84 → 88 (CP3a contestpin 识别配置 4 条), 88 → 97 (CP3b contestpin 材料导入/识别管线/核对界面 9 条), 97 → 100 (CP4 contestpin 提醒 3 条), 100 → 104 (LR1 LLM 复核层 4 条), 104 → 108 (CP5 contestpin Agent 模式 4 条), 108 → 110 (CP6 contestpin 备份恢复 2 条), 110 → 111 (D5 dialog:pickPath 1 条)')
+    assert.equal(new Set(channels.IPC_CHANNELS).size, 111, 'no duplicates after extension')
     // 编译期断言 AssertContractCoversWhitelist 的解析产物（ChannelContract 恰好覆盖白名单）
     assert.equal(handlers.contractCoversWhitelist, true, 'ChannelContract covers exactly the whitelist (compile-time, observed at runtime)')
 
@@ -4717,7 +4723,7 @@ if (isEntrypoint()) {
   }, 'fast')
 
   // 84. agents 13 条 channel：白名单尾部按 docs/14 §A.1 顺序逐字存在 + 注册表覆盖
-  registerCase('ac2-84: agents channels (14, 夜间#1 就地更新 13→14) — whitelist tail in docs/14 §A.1 order, registry handlers, compile-time contract assertion holds（LR1 并入 main 100→104：LLM 复核层尾窗；CP5 就地更新 104→108：Agent 模式尾窗；CP6 就地更新 108→110：备份恢复 2 条尾窗，其余尾窗再前移）', async () => {
+  registerCase('ac2-84: agents channels (14, 夜间#1 就地更新 13→14) — whitelist tail in docs/14 §A.1 order, registry handlers, compile-time contract assertion holds（LR1 并入 main 100→104：LLM 复核层尾窗；CP5 就地更新 104→108：Agent 模式尾窗；CP6 就地更新 108→110：备份恢复 2 条尾窗；D5 就地更新 110→111：dialog:pickPath 尾窗，其余尾窗再前移）', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
@@ -4737,11 +4743,11 @@ if (isEntrypoint()) {
       'agents:diagnostics',
       'agents:probeProvider',
     ]
-    assert.equal(channels.IPC_CHANNELS.length, 110, 'whitelist 55 → 70 (docs/14 §A.2; 夜间#1 就地更新 68→70), 70 → 79 (CP1 就地更新，docs/04 ContestPin 追加节), 79 → 84 (CP2 就地更新，docs/22 §4 悬浮窗 5 条), 84 → 88 (CP3a 就地更新，docs/22 §6 识别配置 4 条), 88 → 97 (CP3b 就地更新，docs/22 §5 材料导入/识别管线 9 条), 97 → 100 (CP4 就地更新，docs/22 §7 提醒 3 条), 100 → 104 (LR1 并入 main，docs/04 LR1 追加节 LLM 复核层 4 条), 104 → 108 (CP5 就地更新，docs/22 §8 Agent 模式 4 条), 108 → 110 (CP6 就地更新，docs/22 §9 备份恢复 2 条)')
-    // CP6 就地更新 2 条（备份恢复）并入后——agents 尾窗再前移为 slice(-54, -40)
-    assert.deepEqual([...channels.IPC_CHANNELS.slice(-54, -40)], expectedAgents, '14 agents channels appended verbatim in docs/14 §A.1 order (夜间#1 就地更新 13→14)')
+    assert.equal(channels.IPC_CHANNELS.length, 111, 'whitelist 55 → 70 (docs/14 §A.2; 夜间#1 就地更新 68→70), 70 → 79 (CP1 就地更新，docs/04 ContestPin 追加节), 79 → 84 (CP2 就地更新，docs/22 §4 悬浮窗 5 条), 84 → 88 (CP3a 就地更新，docs/22 §6 识别配置 4 条), 88 → 97 (CP3b 就地更新，docs/22 §5 材料导入/识别管线 9 条), 97 → 100 (CP4 就地更新，docs/22 §7 提醒 3 条), 100 → 104 (LR1 并入 main，docs/04 LR1 追加节 LLM 复核层 4 条), 104 → 108 (CP5 就地更新，docs/22 §8 Agent 模式 4 条), 108 → 110 (CP6 就地更新，docs/22 §9 备份恢复 2 条), 110 → 111 (D5 就地更新，docs/09 §9 注记 dialog:pickPath 1 条)')
+    // D5 就地更新 1 条（dialog:pickPath）并入后——agents 尾窗再前移为 slice(-55, -41)
+    assert.deepEqual([...channels.IPC_CHANNELS.slice(-55, -41)], expectedAgents, '14 agents channels appended verbatim in docs/14 §A.1 order (夜间#1 就地更新 13→14)')
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-40, -31)],
+      [...channels.IPC_CHANNELS.slice(-41, -32)],
       [
         'contestpin:list',
         'contestpin:get',
@@ -4756,7 +4762,7 @@ if (isEntrypoint()) {
       '9 contestpin channels appended verbatim in docs/04 ContestPin 追加节 order (CP1 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-31, -26)],
+      [...channels.IPC_CHANNELS.slice(-32, -27)],
       [
         'contestpin:overlayState',
         'contestpin:overlaySetEnabled',
@@ -4767,7 +4773,7 @@ if (isEntrypoint()) {
       '5 contestpin overlay channels appended verbatim in docs/22 §4 order (CP2 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-26, -22)],
+      [...channels.IPC_CHANNELS.slice(-27, -23)],
       [
         'contestpin:configList',
         'contestpin:configSave',
@@ -4777,7 +4783,7 @@ if (isEntrypoint()) {
       '4 contestpin recognition-config channels appended verbatim in docs/22 §6 order (CP3a 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-22, -13)],
+      [...channels.IPC_CHANNELS.slice(-23, -14)],
       [
         'contestpin:materialsList',
         'contestpin:importMaterials',
@@ -4792,7 +4798,7 @@ if (isEntrypoint()) {
       '9 contestpin materials/import/draft channels appended verbatim in docs/22 §5 order (CP3b 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-13, -10)],
+      [...channels.IPC_CHANNELS.slice(-14, -11)],
       [
         'contestpin:reminderUpsert',
         'contestpin:reminderDelete',
@@ -4801,7 +4807,7 @@ if (isEntrypoint()) {
       '3 contestpin reminder channels appended verbatim in docs/22 §7 order (CP4 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-10, -6)],
+      [...channels.IPC_CHANNELS.slice(-11, -7)],
       [
         'review:testEndpoint',
         'archive:reviewPre',
@@ -4811,7 +4817,7 @@ if (isEntrypoint()) {
       '4 LLM review channels appended verbatim in docs/04 LR1 追加节 order (LR1 批次；全 READ_ONLY advisory)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-6, -2)],
+      [...channels.IPC_CHANNELS.slice(-7, -3)],
       [
         'contestpin:agentStatus',
         'contestpin:agentSubmit',
@@ -4821,7 +4827,7 @@ if (isEntrypoint()) {
       '4 contestpin Agent channels appended verbatim in docs/22 §8 order (CP5 批次)',
     )
     assert.deepEqual(
-      [...channels.IPC_CHANNELS.slice(-2)],
+      [...channels.IPC_CHANNELS.slice(-3, -1)],
       [
         'contestpin:backupExport',
         'contestpin:backupImport',
@@ -15139,6 +15145,64 @@ if (isEntrypoint()) {
     assert.ok(refused.detail?.includes('disposed'), `structured refusal names dispose: ${refused.detail ?? ''}`)
     assert.equal(refused.nativeId, undefined, 'no native id issued after dispose')
     assert.equal(configReads, 0, 'refusal happens before any config source read (zero work past the guard)')
+  }, 'fast')
+
+  // ==================================================================
+  // D5 批次（桌面收官）：dialog:pickPath 原生目录/文件选择器（AUDIT D-Aud I8）。
+  // 纯模块直测：payload 校验 + applier 注入透传 + 缺 applier 结构化降级，
+  // 零 electron、零真实对话框（原生对话框无法无人值守驱动）。
+  // ==================================================================
+  registerCase('d5-111: dialog:pickPath — mode whitelist BAD_PAYLOAD, optional string fields, fake applier passthrough, cancel shape, missing applier folds to NOT_AVAILABLE', async () => {
+    const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
+
+    // A) 缺 applier（纯 Node 环境）：mode 合法也折叠 NOT_AVAILABLE，绝不触碰 electron
+    const bare = handlers.createHandlerRegistry({ appVersion: 'd5-smoke' })
+    const unavailable = await handlers.dispatchGatewayRequest(bare, { channel: 'dialog:pickPath', payload: { mode: 'directory' } })
+    assert.equal(unavailable.ok, false, 'missing applier must not resolve')
+    assert.equal(unavailable.error.code, 'NOT_AVAILABLE', 'structured NOT_AVAILABLE outside the main process')
+
+    // B) 假 applier 注入：参数透传（mode/defaultPath/title）+ 选中路径回传
+    let seen = null
+    const registry = handlers.createHandlerRegistry({
+      appVersion: 'd5-smoke',
+      pickPath: async (req) => {
+        seen = req
+        return { canceled: false, path: 'D:\\picked\\dir' }
+      },
+    })
+    const picked = await handlers.dispatchGatewayRequest(registry, {
+      channel: 'dialog:pickPath',
+      payload: { mode: 'directory', defaultPath: 'D:\\work', title: '选择目录' },
+    })
+    assert.equal(picked.ok, true, 'applier passthrough resolves')
+    assert.deepEqual(picked.data, { canceled: false, path: 'D:\\picked\\dir' }, 'selected path returned verbatim')
+    assert.deepEqual(seen, { mode: 'directory', defaultPath: 'D:\\work', title: '选择目录' }, 'payload passed through after validation')
+
+    // C) file 模式 + 省略可选字段：不注入 undefined 键
+    let seen2 = null
+    const registry2 = handlers.createHandlerRegistry({
+      appVersion: 'd5-smoke',
+      pickPath: async (req) => {
+        seen2 = req
+        return { canceled: true, path: null }
+      },
+    })
+    const canceled = await handlers.dispatchGatewayRequest(registry2, { channel: 'dialog:pickPath', payload: { mode: 'file' } })
+    assert.equal(canceled.ok, true, 'cancel resolves ok (never throws)')
+    assert.deepEqual(canceled.data, { canceled: true, path: null }, 'cancel shape: canceled=true + path=null')
+    assert.deepEqual(seen2, { mode: 'file' }, 'omitted optional fields stay absent (no undefined keys)')
+
+    // D) mode 非法 / defaultPath 非字符串 → BAD_PAYLOAD（applier 不被触达）
+    let applierCalls = 0
+    const registry3 = handlers.createHandlerRegistry({ appVersion: 'd5-smoke', pickPath: async () => { applierCalls += 1; return { canceled: true, path: null } } })
+    const badMode = await handlers.dispatchGatewayRequest(registry3, { channel: 'dialog:pickPath', payload: { mode: 'recursive' } })
+    assert.equal(badMode.ok, false, 'invalid mode rejected')
+    assert.equal(badMode.error.code, 'BAD_PAYLOAD', 'stable BAD_PAYLOAD code')
+    const badPath = await handlers.dispatchGatewayRequest(registry3, { channel: 'dialog:pickPath', payload: { mode: 'file', defaultPath: 42 } })
+    assert.equal(badPath.error.code, 'BAD_PAYLOAD', 'non-string defaultPath rejected')
+    const badTitle = await handlers.dispatchGatewayRequest(registry3, { channel: 'dialog:pickPath', payload: { mode: 'file', title: ['x'] } })
+    assert.equal(badTitle.error.code, 'BAD_PAYLOAD', 'non-string title rejected')
+    assert.equal(applierCalls, 0, 'applier never reached on BAD_PAYLOAD')
   }, 'fast')
 
     await run(parseTierArg())

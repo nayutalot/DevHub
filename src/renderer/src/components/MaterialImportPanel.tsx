@@ -27,6 +27,7 @@ import type { ChangeEvent, DragEvent } from 'react'
 import { Badge } from './Badge.tsx'
 import { EmptyState, ErrorState, Loading, Spinner, Toast, useToast } from './StateViews.tsx'
 import { call } from '../lib/ipc.ts'
+import { pickPath } from '../lib/pickPath.ts'
 import { useAsync } from '../lib/useAsync.ts'
 import { usePolling } from '../lib/usePolling.ts'
 import type {
@@ -113,6 +114,15 @@ function MaterialImportPanelOpen({ onClose }: { onClose: () => void }) {
   const [providerKey, setProviderKey] = useState<string>('')
   const [instruction, setInstruction] = useState('')
   const [destDir, setDestDir] = useState('')
+
+  /** 「浏览…」：原生目录选择器（D5-M1/I8）回填任务包导出目录；取消/失败维持原值不报错。 */
+  async function browseDestDir(): Promise<void> {
+    const picked = await pickPath('directory', {
+      defaultPath: destDir.trim(),
+      title: '选择任务包导出目录',
+    })
+    if (picked !== null) setDestDir(picked)
+  }
 
   const storedMode = defaultMode.data?.value === 'multimodal' ? 'multimodal' : 'two_stage'
   const effectiveMode: ContestImportMode = mode !== '' ? mode : storedMode
@@ -509,6 +519,14 @@ function MaterialImportPanelOpen({ onClose }: { onClose: () => void }) {
                 onChange={(e) => setDestDir(e.target.value)}
               />
             </span>
+            <button
+              type="button"
+              className="btn btn-small"
+              title="浏览选择任务包导出目录（手输仍可用）"
+              onClick={() => void browseDestDir()}
+            >
+              浏览…
+            </button>
             <span className="field">
               <label htmlFor="cp-imp-pack-instruction">附加说明（可选）</label>
               <input

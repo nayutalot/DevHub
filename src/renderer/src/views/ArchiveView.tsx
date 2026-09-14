@@ -21,6 +21,7 @@ import { ZcodeManagedSettingsCard } from '../components/ZcodeManaged.tsx'
 import { EmptyState, ErrorState, Loading, Spinner, Toast, useToast } from '../components/StateViews.tsx'
 import { useApp } from '../lib/appContext.ts'
 import { call, sleep } from '../lib/ipc.ts'
+import { pickPath } from '../lib/pickPath.ts'
 import { useAsync } from '../lib/useAsync.ts'
 import type {
   ArchiveFileFix,
@@ -84,6 +85,15 @@ export function ArchiveView() {
     if (destSetting.data !== null && destInput === '') setDestInput(destSetting.data.value)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在设置数据首次到达时回填输入框
   }, [destSetting.data])
+
+  /** 「浏览…」：原生目录选择器（D5-M1/I8）回填 archive_dest_root 输入框；取消/失败维持原值不报错（保存仍需手点）。 */
+  async function browseDestRoot(): Promise<void> {
+    const picked = await pickPath('directory', {
+      defaultPath: destInput.trim(),
+      title: '选择归档目标根目录（archive_dest_root）',
+    })
+    if (picked !== null) setDestInput(picked)
+  }
 
   async function saveDestRoot(): Promise<void> {
     setDestSaving(true)
@@ -208,6 +218,15 @@ export function ArchiveView() {
           onChange={(e) => setDestInput(e.target.value)}
           disabled={destSetting.loading || destSaving}
         />
+        <button
+          type="button"
+          className="btn"
+          disabled={destSetting.loading}
+          title="浏览选择归档目标根目录（手输仍可用；保存仍需点击）"
+          onClick={() => void browseDestRoot()}
+        >
+          浏览…
+        </button>
         <button type="button" className="btn" disabled={destSaving || destInput.trim() === (destSetting.data?.value ?? '')} onClick={() => void saveDestRoot()}>
           {destSaving && <Spinner />} 保存
         </button>
