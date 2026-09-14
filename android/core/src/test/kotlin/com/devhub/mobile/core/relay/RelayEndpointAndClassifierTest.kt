@@ -43,6 +43,31 @@ class RelayEndpointAndClassifierTest {
         }
     }
 
+    @Test
+    fun `rejects path-bearing endpoint with bare-address reason (KC batch 404 trap)`() {
+        // RD 批 404 陷阱：parse 曾静默接受带路径输入 → deviceWsUrl 双拼 /relay/device
+        for (bad in listOf(
+            "wss://59.110.149.11/relay/device",
+            "wss://59.110.149.11:18443/relay/device",
+            "wss://relay.example.test/sub/path",
+        )) {
+            val err = runCatching { RelayEndpoint.parse(bad) }.exceptionOrNull()
+            assertTrue("must reject path-bearing: '$bad'", err is IllegalArgumentException)
+            assertEquals(RelayEndpoint.REJECT_REASON_PATH, err?.message)
+        }
+    }
+
+    @Test
+    fun `bare address still passes and device path is appended exactly once (KC batch)`() {
+        val e = RelayEndpoint.parse("wss://relay.example.test:8443")
+        assertEquals("relay.example.test", e.host)
+        assertEquals(8443, e.port)
+        assertEquals("wss://relay.example.test:8443/relay/device", e.deviceWsUrl)
+        // 裸尾斜杠归一剥除（既有语义保持）：非路径，不拒绝
+        val trailing = RelayEndpoint.parse("wss://relay.example.test/")
+        assertEquals("wss://relay.example.test/relay/device", trailing.deviceWsUrl)
+    }
+
     // ---- RelayCommandClassifier（偏离⑤：queued → 挂起重试） ----
 
     @Test

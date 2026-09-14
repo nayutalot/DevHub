@@ -54,6 +54,42 @@
  * （重试退避实测可达 ~34s，门注入 idle 60s）。0.36→0.42 漂移面详见
  * acceptance/kimi-managed-e2e/phase-a-0.42-review.md。
  *
+ * KC 批 — startManagedSession（spawn_session 契约落地；docs/18 §5.3 / docs/12 §5 /
+ * agentControlService.startProviderManagedSession 调用形状）。**设计选型 B：spawn 即
+ * 带首条消息一次性物化**。取舍（任务书两候选）：
+ * - 候选 A（pending 态注册 + 首条 sendReply 物化）**否决**：spawn_session 契约在
+ *   provider 返回 ok 后立即以 nativeId 查 agent_sessions 解析 sessionId 并
+ *   applySessionStatus('running')——合成/占位 nativeId 落库即伪行（监控管线在物化前
+ *   永远发现不了它），App 侧 sessionId 缺失无法跳转；且 spawn 表单契约必带的首条
+ *   task 文本被闲置转存，多一处 pending 状态面。与契约不自洽。
+ * - 候选 B（采纳）：`kimi -p {task} --output-format stream-json` 一次性运行（新会话，
+ *   无 -S 段）——kimi 的「建会话+发首条」天然就是一次 -p 运行（KM 批真机已证：
+ *   会话由一次 -p 运行物化 state.json/wire.jsonl），与 codex thread/start+turn/start、
+ *   zcode session/create+send 完全同构。App 时序自洽：spawn 表单携带 task（docs/18
+ *   §5.3 payload）→ executed 返回 sessionId → App 跳会话详情（快照 mode:'managed'
+ *   即时落库 → ControlGate 输入门随 session_mode≠observed 自动开）→ 后续回复走既有
+ *   resume 通道（-S 续聊；caps granted=['reply'] 语义零变化）。
+ *
+ * KC 批实现要点（startManagedSession）：
+ * - 新会话 argv = 门显式携带的 spawnTemplate（kimiManagedConfig.KIMI_MANAGED_SPAWN_
+ *   TEMPLATE = ['-p','{prompt}','--output-format','stream-json']；显式常量而非从
+ *   replyTemplate 推导——模板演进不静默漂移）；{prompt} 全量替换、参数数组无 shell。
+ * - 新会话发现：spawn 前拍 session_index.jsonl 基线 id 集 → spawn 后按 replyPollMs
+ *   节奏轮询差分 → 新条目即 nativeId（多新条目取首个并注记；基线差窗口极小）。
+ *   发现窗 spawnDiscoverMs（默认 30s；kimi.exe 冷启动秒级）。
+ * - ok 语义 = 「会话已物化、首回合在途」（codex 'real turn in flight' 同构）：
+ *   快照以 mode:'managed' 经 sink 即时落库后返回，终态由监控管线按 wire/state 收敛；
+ *   进程继续受 spawnManaged 双上限（门 idle 60s/lifetime 300s）托管。
+ * - 红线继承：进程先退且无新会话 → 结构化失败（进程退出 ≠ 成功）；发现窗超时进程
+ *   仍活 → killTree + 结构化失败（无法归管的推理进程绝不留孤）；后台 reaper 在退出
+ *   后核对会话终态，仅记诊断（lastSpawnVerdict），不再有返回通道。
+ * - 授权门与 sendReply 同门（managedGate.enabled）：门停 = 零 spawn 结构化拒绝。
+ *   键=0 行为不变：L3 spawn 门先因 caps.mode='observed' 折 COMMAND_NOT_EXECUTABLE
+ *   （与本方法存在与否无关，REST 错误面逐字节同前）。
+ * - cwd：新会话 workDir = spawn 时继承的 DevHub 进程 cwd（kimi 记 cwd=spawn cwd）；
+ *   后续 resume 由既有机制对齐 state.json.cwd（0.42 工作区规则）——绝不猜测/改写
+ *   用户工作区。快照 workdir 读会话 state.json.cwd（缺文件则缺省，监控随后自愈）。
+ *
  * 红线：`~/.kimi-code/**` 全程零写入；config.toml 明文 api_key 任何投影只有尾 4 位
  * + 长度（projectKimiConfig → maskKey，docs/12 §8.3 / docs/15 §6）；
  * electron-free；一切系统命令经 core/exec.run()/spawnManaged()（约束 #7/#8）。
@@ -118,6 +154,8 @@ export interface KimiProviderOptions {
   replySettleMs?: number
   /** 终态轮询间隔毫秒。 */
   replyPollMs?: number
+  /** KC 批：startManagedSession 新会话发现窗毫秒（session_index.jsonl 差分轮询；超时进程仍活 → 树杀+结构化失败）。 */
+  spawnDiscoverMs?: number
   /** 托管探测确认窗口毫秒。 */
   managedProbeConfirmMs?: number
   /**
@@ -139,6 +177,10 @@ const DEFAULT_MANAGED_LIFETIME_MS = 120_000
 const DEFAULT_REPLY_SETTLE_MS = 30_000
 const DEFAULT_REPLY_POLL_MS = 250
 const DEFAULT_PROBE_CONFIRM_MS = 15_000
+/** KC 批：新会话发现窗（kimi.exe 冷启动秒级 + 会话落盘即刻；30s 宽裕上限）。 */
+const DEFAULT_SPAWN_DISCOVER_MS = 30_000
+/** startManagedSession 任务文本上限（与 L3 MANAGED_SESSION_TASK_MAX_CHARS / codex 同量级；provider 级自防）。 */
+export const KIMI_MANAGED_TASK_MAX_CHARS = 4_000
 const DEFAULT_MESSAGE_TEXT_CAP = 4_000
 const DEFAULT_TICK_MESSAGE_CAP = 400
 /** --version 结果缓存（探测不反复打子进程）。 */
@@ -477,6 +519,7 @@ export function createKimiProvider(options: KimiProviderOptions = {}): AgentProv
   const managedLifetimeTimeoutMs = options.managedLifetimeTimeoutMs ?? DEFAULT_MANAGED_LIFETIME_MS
   const replySettleMs = options.replySettleMs ?? DEFAULT_REPLY_SETTLE_MS
   const replyPollMs = options.replyPollMs ?? DEFAULT_REPLY_POLL_MS
+  const spawnDiscoverMs = options.spawnDiscoverMs ?? DEFAULT_SPAWN_DISCOVER_MS
   const managedProbeConfirmMs = options.managedProbeConfirmMs ?? DEFAULT_PROBE_CONFIRM_MS
   const messageTextCap = options.messageTextCap ?? DEFAULT_MESSAGE_TEXT_CAP
   const tickMessageCap = options.tickMessageCap ?? DEFAULT_TICK_MESSAGE_CAP
@@ -484,6 +527,8 @@ export function createKimiProvider(options: KimiProviderOptions = {}): AgentProv
   const stats = { indexParseFailures: 0, wireParseFailures: 0 }
   let versionCache: { version?: string; ok: boolean; at: number; detail: string } | null = null
   let lastReplyVerdict: string | null = null
+  /** KC 批：startManagedSession 诊断记忆（spawn 进程退出后的终态核对结论；仅诊断面）。 */
+  let lastSpawnVerdict: string | null = null
 
   function indexPath(): string {
     return join(kimiHome, 'session_index.jsonl')
@@ -737,7 +782,7 @@ export function createKimiProvider(options: KimiProviderOptions = {}): AgentProv
       mode: 'managed',
       granted: ['reply'],
       verifiedAt: nowSec(),
-      evidence: `kimi managed face enabled (${KIMI_MANAGED_ENABLED_SETTING_KEY}=1): ${v.detail}; config.toml ${configReadable ? 'readable' : 'NOT readable (reply will fail closed)'}; reply = one-shot "kimi -S <id> -p <text>" with session-file terminal confirmation`,
+      evidence: `kimi managed face enabled (${KIMI_MANAGED_ENABLED_SETTING_KEY}=1): ${v.detail}; config.toml ${configReadable ? 'readable' : 'NOT readable (reply will fail closed)'}; reply = one-shot "kimi -S <id> -p <text>" with session-file terminal confirmation; spawn = one-shot "kimi -p <task>" with session_index discovery (KC)`,
     }
   }
 
@@ -923,6 +968,135 @@ export function createKimiProvider(options: KimiProviderOptions = {}): AgentProv
 
   async function resume(): Promise<CommandOutcome> {
     return unsupported('resume')
+  }
+
+  // -------------------------------------------------------------------------
+  // KC 批 — R6/spawn_session：startManagedSession（spawn 即物化；设计取全文
+  // 文件头「KC 批」段。docs/18 §5.3 / L3 startProviderManagedSession 调用形状）
+  // -------------------------------------------------------------------------
+
+  /**
+   * spawn_session provider 落点：task = spawn 表单首条任务文本（契约非空 ≤4000）
+   * → 一次性 `kimi -p {task}` 新会话物化 → session_index.jsonl 基线差发现 nativeId
+   * → 快照 mode:'managed' 经 sink 即时落库 → ok（首回合在途，终态由监控管线按
+   * wire/state 收敛）。失败路径全结构化：门停零 spawn（真机红线：真实启动必然写
+   * ~/.kimi-code + 消耗推理）；进程先退且无新会话 ≠ 成功；发现窗超时树杀不留孤。
+   */
+  async function startManagedSession(
+    task: string,
+    sink: EventSink,
+  ): Promise<{ ok: boolean; nativeId?: string; detail?: string }> {
+    const gate = options.managedGate?.()
+    if (gate === undefined || !gate.enabled) {
+      return {
+        ok: false,
+        detail: `kimi managed gate disabled (${KIMI_MANAGED_ENABLED_SETTING_KEY}!=1): real kimi launch would write ~/.kimi-code and consume inference (red line); managed spawn refused`,
+      }
+    }
+    if (task.trim().length === 0 || task.length > KIMI_MANAGED_TASK_MAX_CHARS) {
+      return { ok: false, detail: `task must be a non-empty string of 1..${KIMI_MANAGED_TASK_MAX_CHARS} chars` }
+    }
+    const template = gate.spawnTemplate
+    if (template === undefined) {
+      lastSpawnVerdict = 'gate enabled without spawn template'
+      return { ok: false, detail: 'kimi managed gate enabled without a spawn template (malformed gate state)' }
+    }
+    // 基线：spawn 前的既有会话 id 集（差分窗口 = 本次 spawn 生命周期，极小）
+    const baseline = await parseKimiSessionIndex(indexPath())
+    stats.indexParseFailures += baseline.parseFailures
+    const knownIds = new Set(baseline.entries.map((e) => e.sessionId))
+    const exe = await resolveExe()
+    const args = template.map((arg) => arg.replaceAll('{prompt}', task))
+    lastSpawnVerdict = 'spawn in flight'
+    const proc = spawnManaged(exe, args, {
+      idleTimeoutMs: gate.managedIdleTimeoutMs ?? managedIdleTimeoutMs,
+      lifetimeTimeoutMs: gate.managedLifetimeTimeoutMs ?? managedLifetimeTimeoutMs,
+      stdinWritable: false, // 新会话一次性运行无 stdin（0.42 TUI 信任门红线同源）
+    })
+    const exitFlag = trackEarlyExit(proc)
+    if (proc.pid <= 0) {
+      lastSpawnVerdict = 'spawn failed'
+      await proc.exited.catch(() => {})
+      return { ok: false, detail: 'kimi managed spawn failed' }
+    }
+    const deadline = Date.now() + spawnDiscoverMs
+    for (;;) {
+      const discovered = await discoverNewKimiSession(knownIds)
+      if (discovered !== null) return await finishManagedSpawn(proc, discovered, sink)
+      if (exitFlag.get()) {
+        // 进程先退：最后再差分一次（退出冲刷可能已落盘索引）→ 仍无 = 结构化失败
+        const final = await discoverNewKimiSession(knownIds)
+        if (final !== null) return await finishManagedSpawn(proc, final, sink)
+        lastSpawnVerdict = 'process exited before session discovery'
+        await proc.exited.catch(() => {})
+        return {
+          ok: false,
+          detail: 'kimi process exited before any new session was discovered in session_index.jsonl (process exit ≠ success)',
+        }
+      }
+      if (Date.now() >= deadline) {
+        // 发现窗超时且进程仍活：树杀（无法归管的推理进程绝不留孤）→ 结构化失败
+        try {
+          await proc.killTree()
+        } catch {
+          /* 已退出 */
+        }
+        await proc.exited.catch(() => {})
+        lastSpawnVerdict = 'session discovery timed out (process killed)'
+        return {
+          ok: false,
+          detail: `no new kimi session discovered within ${spawnDiscoverMs}ms; managed process killed (unattributable inference process must not outlive spawn)`,
+        }
+      }
+      await new Promise((r) => setTimeout(r, Math.max(50, replyPollMs)))
+    }
+  }
+
+  /** session_index.jsonl 差分：基线之外的首个新条目（无 → null）。 */
+  async function discoverNewKimiSession(knownIds: Set<string>): Promise<KimiIndexEntry | null> {
+    const index = await parseKimiSessionIndex(indexPath())
+    stats.indexParseFailures += index.parseFailures
+    for (const entry of index.entries) {
+      if (!knownIds.has(entry.sessionId)) return entry
+    }
+    return null
+  }
+
+  /**
+   * 发现新会话后的收尾：快照 mode:'managed' 经 sink 即时落库（同步先于返回——L3 在
+   * ok 后立即以 nativeId 查 agent_sessions 解析 sessionId，竞态=sessionId 缺失/行被
+   * ensureSessionRow 以 observed 抢建）→ 后台 reaper 挂上（退出后核对终态，诊断面
+   * only——返回通道已关闭，绝不回写会话状态）→ ok。
+   */
+  async function finishManagedSpawn(
+    proc: ManagedProcess,
+    entry: KimiIndexEntry,
+    sink: EventSink,
+  ): Promise<{ ok: boolean; nativeId: string; detail: string }> {
+    const nativeId = entry.sessionId
+    // 快照 workdir = 会话 state.json.cwd（此刻可能尚未落盘 → 缺省，监控随后自愈）
+    const { state } = await readKimiState(entry.sessionDir)
+    const snapshot: SessionSnapshot = { nativeId, mode: 'managed', lastActivityAt: nowSec() }
+    if (typeof state?.cwd === 'string' && state.cwd.length > 0) snapshot.workdir = state.cwd
+    sink.onSessionDiscovered?.('kimi', snapshot)
+    lastSpawnVerdict = `session ${nativeId} materialized; first turn in flight`
+    void proc.exited
+      .then(async () => {
+        const { state } = await readKimiState(entry.sessionDir)
+        const reason = typeof state?.lastTurnReason === 'string' ? state.lastTurnReason : null
+        lastSpawnVerdict =
+          reason !== null
+            ? `first turn ended (${reason}); spawn process exited`
+            : 'spawn process exited without session-file terminal state (process exit ≠ success)'
+      })
+      .catch(() => {
+        lastSpawnVerdict = 'spawn process exit await failed'
+      })
+    return {
+      ok: true,
+      nativeId,
+      detail: 'kimi session materialized (one-shot -p run in flight; stream-json feeds managed heartbeat; terminal state converges via monitor)',
+    }
   }
 
   interface TerminalBaseline {
@@ -1207,8 +1381,9 @@ export function createKimiProvider(options: KimiProviderOptions = {}): AgentProv
       control: {
         ...(managedConfigured ? { stdin: true } : {}),
         // KM 批两态如实：门开=一次性 prompt 通道；门停/未注入=既有文案逐字节不变
+        // （KC 批：门开且发生过 spawn 时追加 last spawn verdict；未 spawn 面逐字节不变）
         note: gateEnabled
-          ? `managed one-shot prompt channel enabled (${KIMI_MANAGED_ENABLED_SETTING_KEY}=1, real inference authorized); last reply verdict: ${lastReplyVerdict ?? 'none yet'}`
+          ? `managed one-shot prompt channel enabled (${KIMI_MANAGED_ENABLED_SETTING_KEY}=1, real inference authorized); last reply verdict: ${lastReplyVerdict ?? 'none yet'}${lastSpawnVerdict !== null ? `; last spawn verdict: ${lastSpawnVerdict}` : ''}`
           : managedConfigured
             ? `managed stdin channel configured; last reply verdict: ${lastReplyVerdict ?? 'none yet'}`
             : 'managed stdin channel not configured (real kimi launch would write ~/.kimi-code; red line) — observed only',
@@ -1228,5 +1403,8 @@ export function createKimiProvider(options: KimiProviderOptions = {}): AgentProv
     startMonitor,
     dispose,
     describeDiagnostics,
+    // KC 批（docs/18 §5.3 spawn_session 契约最后一环）：spawn 即带首条消息一次性
+    // 物化（-p 新会话 + session_index 基线差发现；设计取全文见文件头「KC 批」段）。
+    startManagedSession: (task, sink) => startManagedSession(task, sink),
   }
 }

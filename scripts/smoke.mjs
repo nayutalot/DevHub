@@ -6458,6 +6458,233 @@ if (isEntrypoint()) {
     assert.equal(gated.describeDiagnostics().control?.note, legacy.describeDiagnostics().control?.note, 'gate off: diagnostics note byte-identical')
   })
 
+  // kc-1（KC 批，docs/briefs/kc-kimi-spawn.md）：startManagedSession 五段主链——
+  // spawn（-p 新会话物化+基线差发现+managed 快照落 sink）→ 首条（task=spawn 表单
+  // 首条消息，无 -S 段）→ 续聊（resume 通道 -S 对齐）→ 终态（会话文件终态证据）→
+  // 失败（进程先退且无新会话 = 结构化失败，进程退出 ≠ 成功）。夹具假 kimi 脚本
+  // 对齐 km-2 风格：fixture 路径经模板 argv 注入，args.json/args2.json 记账。
+  registerCase('kc-1: kimi startManagedSession five segments — spawn materializes a new session via one-shot -p with baseline-diff discovery and managed snapshot to sink; task text = first turn message (no -S); reply resumes the same session with exact substitution; terminal state confirmed in session files; early exit without a new session = structured failure', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, readFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const kimiMod = await import(new URL('../src/main/services/agentControl/providers/kimiProvider.ts', import.meta.url).href)
+
+    const dir = mkdtempSync(join(tmpdir(), 'devhub-kc-1-'))
+    const PRE = 'session_kc1pre00-0000-4000-8000-000000000001'
+    const SID = 'session_kc100000-0000-4000-8000-000000000009'
+    const sessRoot = join(dir, 'sess', 'wd_kc1')
+    const preDir = join(sessRoot, PRE)
+    const newDir = join(sessRoot, SID)
+    mkdirSync(join(preDir, 'agents', 'main'), { recursive: true })
+    writeFileSync(join(preDir, 'state.json'), JSON.stringify({ cwd: sessRoot, updatedAt: 1, lastTurnReason: 'completed' }), 'utf8')
+    const fixtureHome = join(dir, 'kimihome')
+    mkdirSync(fixtureHome, { recursive: true })
+    // 基线含一个既有会话：证明发现是差分（PRE 不被误认成 spawn 产物）
+    writeFileSync(
+      join(fixtureHome, 'session_index.jsonl'),
+      JSON.stringify({ sessionId: PRE, sessionDir: preDir, workDir: sessRoot }) + '\n',
+      'utf8',
+    )
+    writeFileSync(join(fixtureHome, 'config.toml'), 'default_model = "fixture/m"\n', 'utf8')
+
+    // 夹具假 kimi（node 直跑）：spawn 分支先落索引条目（发现面）再落终态；resume
+    // 分支增量落同一 wire（0.42 实测语义）+ state 推进；--exit-early 秒退零会话。
+    const script = join(dir, 'fake-kimi-spawn.mjs')
+    writeFileSync(
+      script,
+      [
+        "import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'",
+        "import { join } from 'node:path'",
+        'const argv = process.argv.slice(2)',
+        "const opt = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined }",
+        "const home = opt('--home')",
+        "const root = opt('--sessroot')",
+        "const prompt = opt('-p')",
+        "const sid = opt('-S')",
+        "if (argv.includes('--exit-early')) process.exit(0)",
+        'if (sid === undefined) {',
+        "  const SID = 'session_kc100000-0000-4000-8000-000000000009'",
+        '  const sessionDir = join(root, SID)',
+        '  mkdirSync(join(sessionDir, "agents", "main"), { recursive: true })',
+        '  writeFileSync(join(sessionDir, "state.json"), JSON.stringify({ cwd: root, updatedAt: Date.now(), lastTurnReason: null }))',
+        "  appendFileSync(join(sessionDir, 'agents', 'main', 'wire.jsonl'), JSON.stringify({ type: 'turn.prompt', prompt, time: Date.now() }) + '\\n')",
+        "  appendFileSync(join(home, 'session_index.jsonl'), JSON.stringify({ sessionId: SID, sessionDir, workDir: root }) + '\\n')",
+        "  writeFileSync(join(root, 'args.json'), JSON.stringify({ p: prompt, s: sid ?? null, fmt: opt('--output-format'), cwd: process.cwd() }))",
+        '  if (argv.includes("--hang")) { setInterval(() => {}, 1000) } else {',
+        "    appendFileSync(join(sessionDir, 'agents', 'main', 'wire.jsonl'), JSON.stringify({ type: 'turn.ended', reason: 'completed', time: Date.now() }) + '\\n')",
+        '    writeFileSync(join(sessionDir, "state.json"), JSON.stringify({ cwd: root, updatedAt: Date.now() + 5, lastTurnReason: "completed" }))',
+        '  }',
+        '} else {',
+        '  const sessionDir = join(root, sid)',
+        "  appendFileSync(join(sessionDir, 'agents', 'main', 'wire.jsonl'), JSON.stringify({ type: 'turn.prompt', prompt, time: Date.now() }) + '\\n')",
+        "  appendFileSync(join(sessionDir, 'agents', 'main', 'wire.jsonl'), JSON.stringify({ type: 'turn.ended', reason: 'completed', time: Date.now() }) + '\\n')",
+        '  writeFileSync(join(sessionDir, "state.json"), JSON.stringify({ cwd: root, updatedAt: Date.now() + 10, lastTurnReason: "completed" }))',
+        "  writeFileSync(join(root, 'args2.json'), JSON.stringify({ s: sid, p: prompt, cwd: process.cwd() }))",
+        '}',
+        '',
+      ].join('\n'),
+      'utf8',
+    )
+
+    const gateOn = {
+      enabled: true,
+      replyTemplate: [script, '-S', '{sessionId}', '--home', fixtureHome, '--sessroot', sessRoot, '-p', '{prompt}', '--output-format', 'stream-json'],
+      spawnTemplate: [script, '--home', fixtureHome, '--sessroot', sessRoot, '-p', '{prompt}', '--output-format', 'stream-json'],
+      managedIdleTimeoutMs: 8_000,
+      managedLifetimeTimeoutMs: 20_000,
+      kimiHome: fixtureHome,
+    }
+    const captured = []
+    const sink = { onSessionDiscovered: (_pid, snap) => captured.push(snap) }
+    const provider = kimiMod.createKimiProvider({ kimiHome: fixtureHome, exePath: process.execPath, managedGate: () => gateOn, replySettleMs: 10_000, replyPollMs: 50 })
+
+    // 段1 spawn：-p 一次性物化新会话 + 基线差发现 + managed 快照即时落 sink
+    const spawnOutcome = await provider.startManagedSession('first task from spawn form', sink)
+    assert.deepEqual(
+      { ok: spawnOutcome.ok, nativeId: spawnOutcome.nativeId },
+      { ok: true, nativeId: SID },
+      `spawn materialized + baseline-diff discovery, got ${JSON.stringify(spawnOutcome)}`,
+    )
+    assert.ok(spawnOutcome.detail.includes('materialized'), `detail carries in-flight semantics: ${spawnOutcome.detail}`)
+    const managedSnap = captured.find((s) => s.nativeId === SID)
+    assert.ok(managedSnap, 'managed snapshot delivered to sink before ok (L3 resolves sessionId synchronously)')
+    assert.equal(managedSnap.mode, 'managed', 'snapshot carries mode=managed (input gate opens data-driven)')
+    assert.equal(managedSnap.workdir, sessRoot, 'snapshot workdir = session state.json.cwd')
+
+    // 段2 首条：task 文本 = 首回合消息（spawn argv 无 -S；{prompt} 单 argv 精确替换）
+    const seen = JSON.parse(readFileSync(join(sessRoot, 'args.json'), 'utf8'))
+    assert.equal(seen.p, 'first task from spawn form', 'task text materialized as the first turn prompt')
+    assert.equal(seen.s, null, 'spawn argv carries no -S (new session)')
+    assert.equal(seen.fmt, 'stream-json', 'output-format flag passed through on spawn')
+    const wire = readFileSync(join(newDir, 'agents', 'main', 'wire.jsonl'), 'utf8')
+    assert.ok(wire.includes('"turn.prompt"') && wire.includes('first task from spawn form'), 'first turn message recorded in session wire')
+
+    // 段3 续聊：sendReply 走既有 resume 通道（-S 对齐新会话；state.json.cwd 对齐）
+    const reply = await provider.sendReply({ providerId: 'kimi', nativeId: SID }, 'second message via resume')
+    assert.equal(reply.ok, true, `resume reply executed, got ${JSON.stringify(reply)}`)
+    const seen2 = JSON.parse(readFileSync(join(sessRoot, 'args2.json'), 'utf8'))
+    assert.equal(seen2.s, SID, '{sessionId} resume substituted exactly')
+    assert.equal(seen2.p, 'second message via resume', '{prompt} substituted exactly')
+    assert.equal(seen2.cwd, sessRoot, 'resume spawn cwd aligned to state.json.cwd (0.42 workspace rule)')
+
+    // 段4 终态：会话文件终态证据（state lastTurnReason + detail 携带终态结论）
+    assert.ok(reply.detail.includes('terminal state'), `terminal evidence in detail: ${reply.detail}`)
+    const stateJson = JSON.parse(readFileSync(join(newDir, 'state.json'), 'utf8'))
+    assert.equal(stateJson.lastTurnReason, 'completed', 'session file terminal state = completed')
+
+    // 段5 失败：进程秒退且零新会话 → 结构化失败（进程退出 ≠ 成功；快照不落）
+    const before = captured.length
+    const gateEarly = { ...gateOn, spawnTemplate: [...gateOn.spawnTemplate, '--exit-early'] }
+    const earlyProvider = kimiMod.createKimiProvider({ kimiHome: fixtureHome, exePath: process.execPath, managedGate: () => gateEarly, replyPollMs: 50 })
+    const earlyOutcome = await earlyProvider.startManagedSession('doomed task', sink)
+    assert.equal(earlyOutcome.ok, false, 'early exit without a new session must not succeed')
+    assert.ok(earlyOutcome.detail.includes('process exited'), `structured failure detail: ${earlyOutcome.detail}`)
+    assert.equal(captured.length, before, 'no managed snapshot on failure')
+  })
+
+  // kc-2（KC 批）：startManagedSession 授权红线——门停/未接线 = 零 spawn 结构化拒绝
+  //（键=0 与未接线 detail 全等；真机红线理由入 detail）；task 校验；门开缺模板 =
+  // 结构化；发现窗超时树杀不留孤；诊断面 spawn verdict（门停面逐字节不变）。
+  registerCase('kc-2: kimi startManagedSession authorization red lines — gate off/missing = zero-spawn structured refusal with byte-identical detail; task validation; enabled-without-spawn-template = structured; discovery timeout kills the process; diagnostics carry spawn verdict while gate-off note stays byte-identical', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, existsSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const kimiMod = await import(new URL('../src/main/services/agentControl/providers/kimiProvider.ts', import.meta.url).href)
+
+    const dir = mkdtempSync(join(tmpdir(), 'devhub-kc-2-'))
+    const sessRoot = join(dir, 'sess', 'wd_kc2')
+    mkdirSync(sessRoot, { recursive: true })
+    const fixtureHome = join(dir, 'kimihome')
+    mkdirSync(fixtureHome, { recursive: true })
+    const script = join(dir, 'fake-kimi-redline.mjs')
+    writeFileSync(
+      script,
+      [
+        "import { appendFileSync, mkdirSync } from 'node:fs'",
+        "import { join } from 'node:path'",
+        'const argv = process.argv.slice(2)',
+        "if (argv.includes('--hang')) { setInterval(() => {}, 1000) }",
+        'if (argv.includes("--materialize")) {',
+        "  const SID = 'session_kc200000-0000-4000-8000-000000000002'",
+        '  const sessionDir = join(process.env.KC2_ROOT, SID)',
+        '  mkdirSync(join(sessionDir, "agents", "main"), { recursive: true })',
+        "  appendFileSync(join(process.env.KC2_HOME, 'session_index.jsonl'), JSON.stringify({ sessionId: SID, sessionDir }) + '\\n')",
+        '}',
+        '',
+      ].join('\n'),
+      'utf8',
+    )
+
+    const gateOn = {
+      enabled: true,
+      replyTemplate: [script, '-S', '{sessionId}', '-p', '{prompt}'],
+      spawnTemplate: [script, '--materialize', '-p', '{prompt}'],
+      managedIdleTimeoutMs: 8_000,
+      managedLifetimeTimeoutMs: 20_000,
+      kimiHome: fixtureHome,
+    }
+    const gateOffState = { enabled: false, reason: `settings key kimi_managed_enabled is not '1' (managed face disabled by default)` }
+    const noopSink = { onSessionDiscovered: () => {} }
+
+    // 1) 门未接线/门停 = 零 spawn 结构化拒绝（detail 全等 + 点名键名与真机红线）
+    const noGate = kimiMod.createKimiProvider({ kimiHome: fixtureHome, exePath: process.execPath })
+    const gateOff = kimiMod.createKimiProvider({ kimiHome: fixtureHome, exePath: process.execPath, managedGate: () => gateOffState })
+    const refusedNone = await noGate.startManagedSession('task', noopSink)
+    const refusedOff = await gateOff.startManagedSession('task', noopSink)
+    assert.equal(refusedNone.ok, false, 'no gate = refused')
+    assert.equal(refusedOff.ok, false, 'gate disabled = refused')
+    assert.equal(refusedNone.detail, refusedOff.detail, 'gate missing vs disabled: refusal byte-identical (key=0 behavior unchanged)')
+    assert.ok(refusedOff.detail.includes('kimi_managed_enabled'), `refusal names the settings key: ${refusedOff.detail}`)
+    assert.ok(refusedOff.detail.includes('red line'), `refusal carries the real-machine red line: ${refusedOff.detail}`)
+    assert.equal(existsSync(join(sessRoot, 'session_kc200000-0000-4000-8000-000000000002')), false, 'zero spawn under disabled gate')
+
+    // 2) task 校验（provider 级自防，门开路径下生效——门检查先于 task 校验）
+    const gateOnProvider = kimiMod.createKimiProvider({ kimiHome: fixtureHome, exePath: process.execPath, managedGate: () => gateOn, replyPollMs: 50 })
+    const badTask = await gateOnProvider.startManagedSession('   ', noopSink)
+    assert.equal(badTask.ok, false)
+    assert.ok(badTask.detail.includes('task must be'), `empty task structured: ${badTask.detail}`)
+    const longTask = await gateOnProvider.startManagedSession('x'.repeat(4001), noopSink)
+    assert.equal(longTask.ok, false)
+    assert.ok(longTask.detail.includes('1..4000'), `oversized task structured: ${longTask.detail}`)
+
+    // 3) 门开但缺 spawnTemplate = 结构化（畸形门状态，绝不半开）
+    const gateNoTemplate = kimiMod.createKimiProvider({ kimiHome: fixtureHome, exePath: process.execPath, managedGate: () => ({ ...gateOn, spawnTemplate: undefined }) })
+    const noTemplate = await gateNoTemplate.startManagedSession('task', noopSink)
+    assert.equal(noTemplate.ok, false)
+    assert.ok(noTemplate.detail.includes('spawn template'), `malformed gate structured: ${noTemplate.detail}`)
+
+    // 4) 发现窗超时：进程挂着不物化 → 树杀 + 结构化失败（无法归管的推理进程不留孤）
+    process.env.KC2_ROOT = sessRoot
+    process.env.KC2_HOME = fixtureHome
+    const gateHang = kimiMod.createKimiProvider({
+      kimiHome: fixtureHome,
+      exePath: process.execPath,
+      managedGate: () => ({ ...gateOn, spawnTemplate: [script, '--hang', '-p', '{prompt}'] }),
+      spawnDiscoverMs: 500,
+      replyPollMs: 50,
+    })
+    const timeout = await gateHang.startManagedSession('hang task', noopSink)
+    assert.equal(timeout.ok, false, 'discovery timeout must not succeed')
+    assert.ok(timeout.detail.includes('no new kimi session discovered'), `timeout structured: ${timeout.detail}`)
+    assert.ok(timeout.detail.includes('killed'), `kill-noted: ${timeout.detail}`)
+    assert.equal(existsSync(join(fixtureHome, 'session_index.jsonl')), false, 'hang mode wrote no session (nothing misattributed)')
+
+    // 5) 诊断面：spawn 后 gate-on note 追加 verdict；门停 note 逐字节不变
+    const onProvider = kimiMod.createKimiProvider({ kimiHome: fixtureHome, exePath: process.execPath, managedGate: () => gateOn, spawnDiscoverMs: 10_000, replyPollMs: 50 })
+    const okSpawn = await onProvider.startManagedSession('diag task', noopSink)
+    assert.equal(okSpawn.ok, true, `spawn ok for diagnostics segment, got ${JSON.stringify(okSpawn)}`)
+    const noteOn = String(onProvider.describeDiagnostics().control?.note ?? '')
+    assert.ok(noteOn.includes('one-shot prompt channel enabled'), `gate-on note keeps KM prefix: ${noteOn}`)
+    assert.ok(noteOn.includes('last spawn verdict'), `gate-on note carries spawn verdict: ${noteOn}`)
+    const legacyOff = kimiMod.createKimiProvider({ kimiHome: fixtureHome, exePath: 'definitely-missing-kc-2.exe' })
+    const gatedOff = kimiMod.createKimiProvider({ kimiHome: fixtureHome, exePath: 'definitely-missing-kc-2.exe', managedGate: () => gateOffState })
+    assert.equal(
+      gatedOff.describeDiagnostics().control?.note,
+      legacyOff.describeDiagnostics().control?.note,
+      'gate off: diagnostics note byte-identical (KC additions absent)',
+    )
+  })
+
   // 110. ZCode 夹具：schema 白名单通过 → 健康探测/会话/消息/审批落库；task_status
   //      映射（completed/error）+ approval_required 事件贯通；T11 只读不变性
   registerCase('ac4-110: zcode fixture — schema whitelist passes, health ok, sessions/messages persisted, task_status map (completed/error) + approval_required waiting_input event through L3; T11 read-only invariance (mtime+hash of db trio unchanged)', async () => {
