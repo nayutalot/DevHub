@@ -14,6 +14,7 @@ import {ErrorState, Loading,} from '../components/StateViews.tsx'
 import { useToast } from '../components/ToastProvider.tsx'
 import { useApp } from '../lib/appContext.ts'
 import { relativeTime } from '../lib/format.ts'
+import { useMinuteTick } from '../lib/useMinuteTick.ts'
 import { call, sleep } from '../lib/ipc.ts'
 import { useAsync } from '../lib/useAsync.ts'
 import type { VersionJobSnapshot, VersionStatus } from '../../../shared/types.ts'
@@ -43,6 +44,9 @@ export function VersionsView() {
   const { refreshKey } = useApp()
   const { show } = useToast()
   const data = useAsync<{ targets: VersionStatus[] }>(async () => call('versions:list', {}), [refreshKey])
+  // D5-M4（AUDIT D-Aud F6）：订阅全局 1min tick——非轮询视图的 relativeTime 文案
+  // （"刚刚"/"N 分钟前"）每分钟自动重算；format.ts 输出契约零触碰。
+  useMinuteTick()
 
   const [busy, setBusy] = useState<string | null>(null)
   const [checking, setChecking] = useState(false)

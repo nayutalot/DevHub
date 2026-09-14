@@ -21,6 +21,7 @@ import {EmptyState, ErrorState, Loading, Spinner,} from '../components/StateView
 import { useToast } from '../components/ToastProvider.tsx'
 import { useApp } from '../lib/appContext.ts'
 import { relativeTime } from '../lib/format.ts'
+import { useMinuteTick } from '../lib/useMinuteTick.ts'
 import { call } from '../lib/ipc.ts'
 import { pickPath } from '../lib/pickPath.ts'
 import { useAsync } from '../lib/useAsync.ts'
@@ -70,6 +71,9 @@ interface LoadData {
 export function SkillsView() {
   const { refreshKey } = useApp()
   const { show } = useToast()
+  // D5-M4（AUDIT D-Aud F6）：订阅全局 1min tick——非轮询视图的 relativeTime 文案
+  // （"刚刚"/"N 分钟前"）每分钟自动重算；format.ts 输出契约零触碰。
+  useMinuteTick()
   const data = useAsync<LoadData>(async () => {
     const [agentsResult, listResult, vault, lastSync] = await Promise.all([
       call('skills:agents', {}),

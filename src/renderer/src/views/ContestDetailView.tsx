@@ -28,6 +28,7 @@ import {
   formatDateTime,
 } from '../lib/contestFormat.ts'
 import { relativeTime, toMs } from '../lib/format.ts'
+import { useMinuteTick } from '../lib/useMinuteTick.ts'
 import { call } from '../lib/ipc.ts'
 import { useAsync } from '../lib/useAsync.ts'
 import type {
@@ -63,6 +64,9 @@ export function ContestDetailView({
 }) {
   const { refreshKey } = useApp()
   const detail = useAsync(() => call('contestpin:get', { id } as ContestGetPayload), [id, refreshKey])
+  // D5-M4（AUDIT D-Aud F6）：订阅全局 1min tick——非轮询视图的 relativeTime 文案
+  // （"刚刚"/"N 分钟前"）每分钟自动重算；format.ts 输出契约零触碰。
+  useMinuteTick()
   const { show } = useToast()
   const [editing, setEditing] = useState(false)
   const [nodeForm, setNodeForm] = useState<{ open: boolean; node: ContestNodeView | null }>({ open: false, node: null })

@@ -14,6 +14,7 @@ import {ErrorState, Loading,} from '../components/StateViews.tsx'
 import { useToast } from '../components/ToastProvider.tsx'
 import { useApp } from '../lib/appContext.ts'
 import { formatCommandLine, relativeTime, truncate } from '../lib/format.ts'
+import { useMinuteTick } from '../lib/useMinuteTick.ts'
 import { call, sleep } from '../lib/ipc.ts'
 import { useAsync } from '../lib/useAsync.ts'
 import type { ContainerRecord } from '../../../shared/types.ts'
@@ -32,6 +33,9 @@ export function ProjectDetailView({
 }) {
   const { refreshKey } = useApp()
   const detail = useAsync(() => call('projects:get', { id }), [id, refreshKey])
+  // D5-M4（AUDIT D-Aud F6）：订阅全局 1min tick——非轮询视图的 relativeTime 文案
+  // （"刚刚"/"N 分钟前"）每分钟自动重算；format.ts 输出契约零触碰。
+  useMinuteTick()
   const { show } = useToast()
   const [busyAction, setBusyAction] = useState<string | null>(null)
   // D4-M4（AUDIT D-Aud I9）：rescanGit 轮询循环的卸载取消标志——组件卸载（切换
