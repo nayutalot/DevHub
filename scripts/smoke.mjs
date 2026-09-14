@@ -15722,6 +15722,113 @@ if (isEntrypoint()) {
     assert.equal(naAfter.error.code, 'NOT_AVAILABLE', 'reset restores NOT_AVAILABLE')
   }, 'fast')
 
-    await run(parseTierArg())
+  // ---------------------------------------------------------------------------
+  // CERT 批（docs/23 §2.3/§3.3，D3=A 裁决 2026-09-14）：updater feed TLS 信任——
+  // feedTrustProc 纯逻辑：三态（pin 命中接受 / 不符拒绝 / 非 feed host 透传）+
+  // 双指纹窗口 + 有效期窗 + fail-closed。fake 证书夹具（__fixtures__/feedtrust/
+  // 公开物料），零真网络零 electron——fast 档（纯函数/夹具库分类口径）。
+  // ---------------------------------------------------------------------------
+
+  const certFxDir = '../src/main/services/updateCenter/__fixtures__/feedtrust'
+
+  registerCase('cert: feedTrustProc — 三态核心：pin 命中接受(0)/pin 不符拒绝(-2)/非 feed host 透传 errorCode 且 loader 零调用', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { createHash, X509Certificate } = await import('node:crypto')
+    const trust = await import(new URL('../src/main/services/updateCenter/feedTrustProc.ts', import.meta.url).href)
+    const spkiOf = (pem) => createHash('sha256').update(new X509Certificate(pem).publicKey.export({ type: 'spki', format: 'der' })).digest('hex')
+    const leafA = readFileSync(new URL(`${certFxDir}/leaf-a.pem`, import.meta.url), 'utf8')
+    const leafB = readFileSync(new URL(`${certFxDir}/leaf-b.pem`, import.meta.url), 'utf8')
+    const HOST = '59.110.149.11'
+    const FEED_T0 = 1_000_000
+    const FEED_T1 = 9_000_000_000
+    const feedReq = (pem) => ({ hostname: HOST, errorCode: -202, certificate: { data: pem, validStart: FEED_T0, validExpiry: FEED_T1 } })
+    let loaderCalls = 0
+    const makeProc = (pins) => trust.createFeedCertVerifyProc({
+      feedHost: HOST,
+      loadPins: () => { loaderCalls += 1; return { ok: true, pins } },
+      nowSec: () => 5_000_000,
+    })
+    // ① feed host + pin 命中 → 接受（0）
+    assert.equal(makeProc([spkiOf(leafA)])(feedReq(leafA)), trust.FEED_CERT_ACCEPT, 'pinned leaf must be accepted')
+    // ② feed host + pin 不符 → 拒绝（-2）
+    assert.equal(makeProc([spkiOf(leafA)])(feedReq(leafB)), trust.FEED_CERT_REJECT, 'unpinned leaf must be rejected')
+    // ③ 非 feed host → 透传：成功 0 回放 0、失败 -202 回放 -202（默认行为逐位保持）
+    const otherReq = (code) => ({ hostname: 'example.com', errorCode: code, certificate: { data: leafA, validStart: FEED_T0, validExpiry: FEED_T1 } })
+    assert.equal(makeProc([spkiOf(leafA)])(otherReq(0)), 0, 'passthrough replays success code 0')
+    assert.equal(makeProc([spkiOf(leafA)])(otherReq(-202)), -202, 'passthrough replays failure code verbatim')
+    // 透传路径零干预证明：loader 一次都未被调用（分流在先）
+    assert.equal(loaderCalls, 2, 'pin loader must not be consulted for non-feed hosts (only feed-host calls: #1 #2)')
+  }, 'fast')
+
+  registerCase('cert: feedTrustProc — 双指纹窗口：旧+新任一命中即过；仅旧集时新叶拒（docs/19 §10.4 同语义）', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { createHash, X509Certificate } = await import('node:crypto')
+    const trust = await import(new URL('../src/main/services/updateCenter/feedTrustProc.ts', import.meta.url).href)
+    const spkiOf = (pem) => createHash('sha256').update(new X509Certificate(pem).publicKey.export({ type: 'spki', format: 'der' })).digest('hex')
+    const leafA = readFileSync(new URL(`${certFxDir}/leaf-a.pem`, import.meta.url), 'utf8')
+    const leafB = readFileSync(new URL(`${certFxDir}/leaf-b.pem`, import.meta.url), 'utf8')
+    const pinA = spkiOf(leafA)
+    const pinB = spkiOf(leafB)
+    const HOST = '59.110.149.11'
+    const feedReq = (pem) => ({ hostname: HOST, errorCode: -202, certificate: { data: pem, validStart: 1_000_000, validExpiry: 9_000_000_000 } })
+    // 双指纹窗口（开窗态）：旧+新两枚并存，任一命中即信任
+    const windowProc = trust.createFeedCertVerifyProc({
+      feedHost: HOST, loadPins: () => ({ ok: true, pins: [pinA, pinB] }), nowSec: () => 5_000_000,
+    })
+    assert.equal(windowProc(feedReq(leafA)), trust.FEED_CERT_ACCEPT, 'old pin leaf accepted in window')
+    assert.equal(windowProc(feedReq(leafB)), trust.FEED_CERT_ACCEPT, 'new pin leaf accepted in window')
+    // 开窗前（仅旧集）：新叶拒——服务端切载早于客户端加 pin 不断链的反向面
+    const oldOnlyProc = trust.createFeedCertVerifyProc({
+      feedHost: HOST, loadPins: () => ({ ok: true, pins: [pinA] }), nowSec: () => 5_000_000,
+    })
+    assert.equal(oldOnlyProc(feedReq(leafB)), trust.FEED_CERT_REJECT, 'new leaf rejected before window opens')
+    // 收敛后（仅新集）：旧叶拒
+    const newOnlyProc = trust.createFeedCertVerifyProc({
+      feedHost: HOST, loadPins: () => ({ ok: true, pins: [pinB] }), nowSec: () => 5_000_000,
+    })
+    assert.equal(newOnlyProc(feedReq(leafA)), trust.FEED_CERT_REJECT, 'old leaf rejected after window collapse')
+  }, 'fast')
+
+  registerCase('cert: feedTrustProc — 有效期窗：过期拒/未生效拒（nowSec 注入；pin 命中不豁免有效期）', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { createHash, X509Certificate } = await import('node:crypto')
+    const trust = await import(new URL('../src/main/services/updateCenter/feedTrustProc.ts', import.meta.url).href)
+    const spkiOf = (pem) => createHash('sha256').update(new X509Certificate(pem).publicKey.export({ type: 'spki', format: 'der' })).digest('hex')
+    const leafA = readFileSync(new URL(`${certFxDir}/leaf-a.pem`, import.meta.url), 'utf8')
+    const HOST = '59.110.149.11'
+    const pinned = spkiOf(leafA)
+    const feedReq = (over) => ({ hostname: HOST, errorCode: -202, certificate: { data: leafA, validStart: 1_000_000, validExpiry: 2_000_000, ...over } })
+    const makeProc = (now) => trust.createFeedCertVerifyProc({
+      feedHost: HOST, loadPins: () => ({ ok: true, pins: [pinned] }), nowSec: () => now,
+    })
+    assert.equal(makeProc(1_500_000)(feedReq({})), trust.FEED_CERT_ACCEPT, 'in-validity pinned leaf accepted')
+    assert.equal(makeProc(2_000_001)(feedReq({})), trust.FEED_CERT_REJECT, 'expired pinned leaf rejected (acceptance 三拒语义)')
+    assert.equal(makeProc(999_999)(feedReq({})), trust.FEED_CERT_REJECT, 'not-yet-valid pinned leaf rejected')
+    // 有效期界缺失：生产 wiring 由 electron.d.ts 类型锁定恒有值；缺值属意外形态 → fail-closed
+    assert.equal(makeProc(1_500_000)(feedReq({ validExpiry: undefined })), trust.FEED_CERT_REJECT, 'missing validity bound must fail-closed')
+  }, 'fast')
+
+  registerCase('cert: feedTrustProc — fail-closed：pin 集缺失/空/坏 PEM/缺 data 拒；host 归一（大小写/首尾空白）', async () => {
+    const { readFileSync } = await import('node:fs')
+    const trust = await import(new URL('../src/main/services/updateCenter/feedTrustProc.ts', import.meta.url).href)
+    const leafA = readFileSync(new URL(`${certFxDir}/leaf-a.pem`, import.meta.url), 'utf8')
+    const HOST = '59.110.149.11'
+    const feedReq = (over = {}) => ({ hostname: HOST, errorCode: -202, certificate: { data: leafA, validStart: 1_000_000, validExpiry: 9_000_000_000, ...over } })
+    const makeProc = (pinSet, feedHost = HOST) => trust.createFeedCertVerifyProc({
+      feedHost, loadPins: () => pinSet, nowSec: () => 5_000_000,
+    })
+    assert.equal(makeProc({ ok: false, pins: [] })(feedReq()), trust.FEED_CERT_REJECT, 'missing pins file must fail-closed')
+    assert.equal(makeProc({ ok: true, pins: [] })(feedReq()), trust.FEED_CERT_REJECT, 'empty pin set must fail-closed')
+    assert.equal(makeProc({ ok: true, pins: ['zzzz'] })(feedReq()), trust.FEED_CERT_REJECT, 'non-matching garbage pin rejects')
+    // 坏 PEM / 缺 data
+    const bad = trust.createFeedCertVerifyProc({ feedHost: HOST, loadPins: () => ({ ok: true, pins: ['00'] }), nowSec: () => 5_000_000 })
+    assert.equal(bad(feedReq({ data: 'not a pem' })), trust.FEED_CERT_REJECT, 'unparseable PEM rejects')
+    assert.equal(bad(feedReq({ data: undefined })), trust.FEED_CERT_REJECT, 'missing certificate data rejects')
+    // host 归一：大小写/首尾空白与 feedHost 等价命中同一判定路径（IP host 实际恒小写，防御面）
+    const tolerant = makeProc({ ok: true, pins: ['00'] }, ' 59.110.149.11'.toUpperCase().trim() + ' ')
+    assert.equal(tolerant(feedReq()), trust.FEED_CERT_REJECT, 'hostname normalization reaches pin judgment (reject on wrong pin)')
+  }, 'fast')
+
+  await run(parseTierArg())
 }
 

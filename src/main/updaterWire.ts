@@ -21,11 +21,17 @@
  *   - **退出链零触碰**：本模块不挂 before-quit、不改 quitTransition 状态机；
  *     quitAndInstall 触发的 app.quit() 走既有 before-quit 有序收尾（electron-updater
  *     内部安装器调度属框架固有行为，注记即可）；失败只结构化日志（core/logger），
- *     绝不弹窗绝不打断启动/退出链。
+ *     绝不弹窗绝不打断启动/退出链；
+ *   - **feed TLS 信任（CERT 批 D3=A，docs/23 §2.3/§3.3）**：仅 electron-updater
+ *     分区 session 挂 verify proc（叶 SPKI pin + 有效期复核 + fail-closed），按
+ *     hostname 分流零干预其他流量；判定纯逻辑 smoke fake 夹具直测，零真网络。
  */
 
-import { app } from 'electron'
+import { readFileSync } from 'node:fs'
+import { app, session } from 'electron'
 import { logger } from './core/logger.ts'
+import { getRelayFingerprintsPath, parseRelayFingerprintFile } from './services/agentControl/relayClient/config.ts'
+import { createFeedCertVerifyProc, type FeedPinSet } from './services/updateCenter/feedTrustProc.ts'
 import { createUpdateController } from './services/updateCenter/updateController.ts'
 import type { UpdateControllerActions } from './services/updateCenter/updateController.ts'
 import { setUpdateController } from './services/updateCenter/updateRegistry.ts'
@@ -42,6 +48,60 @@ export const DEVHUB_UPDATE_FEED_URL = 'https://59.110.149.11/updates/'
 
 /** 启动后静默检查延迟（任务书 §1 #2：60s；unref 定时器不阻塞退出链）。 */
 export const UPDATE_SILENT_CHECK_DELAY_MS = 60_000
+
+/**
+ * electron-updater 专用分区 session 名（CERT 批，docs/23 §2.3 取证）：锁版
+ * electron-updater@6.6.4 全部更新流量走 `session.fromPartition("electron-updater",
+ * { cache: false })`（node_modules/electron-updater/out/electronHttpExecutor.js:6,8,54-56；
+ * AppUpdater.js:196 恒用 ElectronHttpExecutor）。包根不 re-export 该名——按锁版值
+ * 锚定，**升版须复核**（失配 = updater 侧 session 无 proc → 自签 feed 撞墙回到
+ * X11 形态，fail-closed 可诊断不静默放行）。
+ */
+const ELECTRON_UPDATER_PARTITION = 'electron-updater'
+
+/**
+ * feed pin 集装载缝（D3=A 裁决 2026-09-14）：与 host-leg fingerprints 文件**同源
+ * 同解析**——relayClient config.ts 的 `parseRelayFingerprintFile` 读同一物料文件
+ * （`%LOCALAPPDATA%\DevHub\relay\fingerprints`，多行 pin = 双指纹窗口任一匹配，
+ * docs/19 §10.4）。每次验证现读 = 热装载同款；任何失败（缺失/不可读/格式错/空）
+ * 折叠为 ok=false——feed host 一律 fail-closed 拒绝，绝不静默放行（pin 集必须
+ * ≥1，docs/19 §10.3 同精神；指纹是公开物料，错误信息零凭据面）。
+ */
+function loadFeedPinSet(): FeedPinSet {
+  try {
+    const pins = parseRelayFingerprintFile(readFileSync(getRelayFingerprintsPath(), 'utf8'))
+    return { ok: pins.length > 0, pins }
+  } catch {
+    return { ok: false, pins: [] }
+  }
+}
+
+/**
+ * 装 feed 证书 verify proc（仅 electron-updater 分区 session；defaultSession/
+ * renderer 零触碰——爆炸半径最小，docs/23 §2.3 选项 A）。判定纯逻辑在
+ * feedTrustProc.ts（smoke fake 夹具直测）；本函数只做 electron 缝合：同步、
+ * 非阻塞、绝不抛——失败折叠为结构化日志（updater 链路本就 fail-closed 自守，
+ * 不因 proc 装载失败扩大故障面）。仅打包态调用（dev 全链禁用红线不变）。
+ */
+function installFeedCertVerifyProc(): void {
+  try {
+    const feedHost = new URL(DEVHUB_UPDATE_FEED_URL).hostname
+    const verify = createFeedCertVerifyProc({
+      feedHost,
+      loadPins: loadFeedPinSet,
+      log: (m) => logger.info(`updater feed trust: ${m}`),
+    })
+    // Electron 官方回调语义（electron.d.ts:13338-13345）：callback(0) 接受 /
+    // callback(-2) 拒绝；非 feed host 由 verify 原样回放 request.errorCode
+    // （默认校验行为逐位保持，零干预）。
+    session.fromPartition(ELECTRON_UPDATER_PARTITION, { cache: false }).setCertificateVerifyProc((request, callback) => {
+      callback(verify(request))
+    })
+    logger.info(`updater wire: feed cert verify proc installed (session=partition "${ELECTRON_UPDATER_PARTITION}", feedHost=${feedHost})`)
+  } catch (err) {
+    logger.error(`updater wire: feed cert verify proc install failed (non-blocking): ${errorMessage(err)}`)
+  }
+}
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
@@ -83,6 +143,10 @@ export function initUpdaterWire(deps: UpdaterWireDeps): void {
       log: (m) => logger.info(`updater: ${m}`),
     })
     setUpdateController(controller)
+
+    // feed TLS 信任先于 electron-updater 动态 import 装载（D3=A：分区 session
+    // verify proc；先装后用——60s 静默检查/手动检查/下载全部过 proc 裁决）
+    installFeedCertVerifyProc()
 
     void import('electron-updater')
       .then((mod) => {
