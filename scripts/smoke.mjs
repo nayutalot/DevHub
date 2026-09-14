@@ -6356,6 +6356,8 @@ if (isEntrypoint()) {
     const SID = 'session_km200000-0000-4000-8000-000000000002'
     const sessionDir = join(dir, 'sess', 'wd_km2', SID)
     mkdirSync(join(sessionDir, 'agents', 'main'), { recursive: true })
+    // 0.42 resume 工作区规则锁：state.json.cwd 是 argv 通道 spawn cwd 的对齐源
+    writeFileSync(join(sessionDir, 'state.json'), JSON.stringify({ cwd: dir }), 'utf8')
     const fixtureHome = join(dir, 'kimihome')
     mkdirSync(fixtureHome, { recursive: true })
     writeFileSync(
@@ -6378,7 +6380,7 @@ if (isEntrypoint()) {
         "const opt = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined }",
         "if (argv.includes('--exit-early')) process.exit(0)",
         "const out = opt('--out')",
-        "writeFileSync(join(out, 'args.json'), JSON.stringify({ s: opt('-S'), p: opt('-p'), fmt: opt('--output-format') }))",
+        "writeFileSync(join(out, 'args.json'), JSON.stringify({ s: opt('-S'), p: opt('-p'), fmt: opt('--output-format'), cwd: process.cwd() }))",
         "writeFileSync(join(out, 'state.json'), JSON.stringify({ updatedAt: Date.now(), lastTurnReason: 'completed' }))",
         "mkdirSync(join(out, 'agents', 'main'), { recursive: true })",
         "appendFileSync(join(out, 'agents', 'main', 'wire.jsonl'), JSON.stringify({ type: 'turn.ended', turnId: 1, reason: 'completed', time: Date.now() }) + '\\n')",
@@ -6421,6 +6423,7 @@ if (isEntrypoint()) {
     assert.equal(seen.s, SID, '{sessionId} substituted exactly')
     assert.equal(seen.p, prompt, '{prompt} substituted exactly (single argv, shell-free)')
     assert.equal(seen.fmt, 'stream-json', 'output-format flag passed through')
+    assert.equal(seen.cwd, dir, 'spawn cwd aligned to state.json.cwd (0.42 resume workspace rule)')
 
     // 3) 秒退无终态 → 结构化失败（进程退出 ≠ 成功红线在 argv 通道原样保留）
     const gateEarly = { ...gateOn, replyTemplate: [...gateOn.replyTemplate, '--exit-early'] }

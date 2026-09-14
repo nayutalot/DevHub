@@ -818,9 +818,10 @@ export function createKimiProvider(options: KimiProviderOptions = {}): AgentProv
   /**
    * KM 批真机通道：授权门的一次性 argv 模板 spawn（无 stdin 注入——0.42 实测
    * TUI+管道 stdin 有 workspace 信任门不可托管）。模板占位符 {sessionId}/{prompt}
-   * 全量替换；参数数组无 shell，prompt 原样单 argv 传递（零注入面）。终态确认与
-   * stdin 路径完全同款（进程退出 ≠ 成功红线原样保留）。门注入 idle/lifetime 覆盖
-   * 默认（stream-json 事件流喂心跳；重试退避实测 ~34s > 默认 idle 15s）。
+   * 全量替换；参数数组无 shell，prompt 原样单 argv 传递（零注入面）。spawn cwd
+   * 对齐会话 state.json.cwd（0.42 resume 工作区规则）。终态确认与 stdin 路径完全
+   * 同款（进程退出 ≠ 成功红线原样保留）。门注入 idle/lifetime 覆盖默认
+   * （stream-json 事件流喂心跳；重试退避实测 ~34s > 默认 idle 15s）。
    */
   async function sendReplyManagedArgv(ref: SessionRef, text: string, gate: KimiManagedGateState): Promise<CommandOutcome> {
     const template = gate.replyTemplate
@@ -847,10 +848,16 @@ export function createKimiProvider(options: KimiProviderOptions = {}): AgentProv
     const args = template.map((arg) =>
       arg.replaceAll('{sessionId}', ref.nativeId).replaceAll('{prompt}', text),
     )
+    // 0.42 resume 工作区规则（Phase A 实测）：`-S <id>` 拒绝在会话 workDir 之外
+    // resume（"Session ... was created under a different directory"）——spawn cwd
+    // 对齐 state.json.cwd（缺失则继承父进程，交由终态确认结构化兜底）
+    const { state } = await readKimiState(sessionDir)
+    const sessionCwd = typeof state?.cwd === 'string' && state.cwd.length > 0 ? state.cwd : undefined
     const proc = spawnManaged(exe, args, {
       idleTimeoutMs: gate.managedIdleTimeoutMs ?? managedIdleTimeoutMs,
       lifetimeTimeoutMs: gate.managedLifetimeTimeoutMs ?? managedLifetimeTimeoutMs,
       stdinWritable: false,
+      ...(sessionCwd !== undefined ? { cwd: sessionCwd } : {}),
     })
     const exitFlag = trackEarlyExit(proc)
     try {
