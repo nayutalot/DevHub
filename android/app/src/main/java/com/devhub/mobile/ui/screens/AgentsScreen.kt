@@ -29,6 +29,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -60,6 +62,14 @@ import java.io.IOException
 private const val SPAWN_TASK_MAX_CHARS = 4_000
 
 /**
+ * UX-P3（docs/briefs/uxp3-flows.md §1.2 funnel）：自动展开「开始对话」面板的目标
+ * 纯判定（:app 单测直锁）——首个可对话（managed 且非演示）的助手；无可对话助手 →
+ * null（绝不伪造入口，A4 教训：页面无该功能不得画按钮）。
+ */
+internal fun autoSpawnTargetId(agents: List<AgentDto>, fixtureOn: Boolean): Long? =
+    agents.firstOrNull { InteractionHonesty.canSpawnManagedSession(it.capabilities.mode, fixtureOn) }?.id
+
+/**
  * 页面 3：Agent 列表（GET /v1/agents，docs/14 §B.1；体验整改批 C 交互诚实化）。
  * - R6.1：managed provider 卡文案 =「托管会话可交互；外部会话只读」（能力是会话级的，
  *   展示必须如实；不再把 provider 级 granted 列表渲染成"现在就能交互"）；
@@ -72,11 +82,17 @@ private const val SPAWN_TASK_MAX_CHARS = 4_000
  * - T1 批：zcode provider 卡加「打开遥控」动作（数据驱动
  *   InteractionHonesty.isZcodeDisplayEntry；与「启动托管会话」视觉同层、文案区分，
  *   注明控制经 ZCode 自家认证遥控页；observed 原因卡保持——DevHub 原生控制仍不可用）。
+ *
+ * UX-P3 开始对话一键化：autoOpenSpawn=true 时（对话页空态 CTA「去助手开始第一个对话」
+ * 一步带入）首个可对话助手卡自动展开内联输入框并聚焦（键盘弹起）；无可对话助手不展开
+ * （诚实纪律）。onAutoSpawnConsumed 在名单就绪消费一次，防重复展开。
  */
 @Composable
 fun AgentsScreen(
     onOpenSession: (Long) -> Unit = {},
     onOpenRemoteEntry: (Long) -> Unit = {},
+    autoOpenSpawn: Boolean = false,
+    onAutoSpawnConsumed: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -120,6 +136,13 @@ fun AgentsScreen(
             com.devhub.mobile.ui.components.WakeHostCard()
         }
         val list = agents
+        // UX-P3：autoOpenSpawn 消费（名单就绪才消费一次；消费后父层翻回 false）
+        val autoTargetId = remember(list, autoOpenSpawn) {
+            if (autoOpenSpawn && list != null) autoSpawnTargetId(list, fixtureOn) else null
+        }
+        LaunchedEffect(list, autoOpenSpawn) {
+            if (autoOpenSpawn && list != null) onAutoSpawnConsumed()
+        }
         when {
             list == null && error == null -> Column(Modifier.padding(24.dp)) { CircularProgressIndicator() }
             list == null -> com.devhub.mobile.ui.components.ErrorPresentation(
@@ -138,6 +161,7 @@ fun AgentsScreen(
                         fixtureOn = fixtureOn,
                         onOpenSession = onOpenSession,
                         onOpenRemoteEntry = onOpenRemoteEntry,
+                        autoOpen = agent.id == autoTargetId,
                     )
                 }
             }
@@ -151,6 +175,7 @@ private fun ProviderCard(
     fixtureOn: Boolean,
     onOpenSession: (Long) -> Unit,
     onOpenRemoteEntry: (Long) -> Unit = {},
+    autoOpen: Boolean = false,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -162,9 +187,27 @@ private fun ProviderCard(
     var spawnStatus by remember(agent.id) { mutableStateOf<ErrorPresent.Presentable?>(null) }
     // 拒绝走 ErrorPresentation（错误语义 + 「技术细节」折叠）
     var spawnError by remember(agent.id) { mutableStateOf<ErrorPresent.Presentable?>(null) }
+    // UX-P3 一键化：输入框聚焦请求器（面板展开即键盘弹起，直接说事）
+    val spawnFocusRequester = remember { FocusRequester() }
 
     val isManaged = agent.capabilities.mode == InteractionHonesty.MODE_MANAGED
     val canSpawn = InteractionHonesty.canSpawnManagedSession(agent.capabilities.mode, fixtureOn)
+
+    // UX-P3：对话页空态 CTA 带入的自动展开（仅首个可对话助手；名单/门不满足绝不展开）
+    LaunchedEffect(autoOpen) {
+        if (autoOpen && canSpawn && !spawnPanelOpen) {
+            spawnPanelOpen = true
+            spawnStatus = null
+            spawnError = null
+        }
+    }
+    // UX-P3：面板展开（手动点按钮或自动带入）即聚焦输入框（键盘弹起，一键化动线）
+    LaunchedEffect(spawnPanelOpen) {
+        if (spawnPanelOpen) {
+            kotlinx.coroutines.delay(150) // 等面板完成布局组合再请求焦点
+            runCatching { spawnFocusRequester.requestFocus() }
+        }
+    }
     // R7.1：observed 原因卡（displayName 匹配；未知 → null → 通用兜底）
     val observedReason = if (!isManaged) {
         InteractionHonesty.observedReason(providerKey = null, displayName = agent.displayName)
@@ -268,7 +311,10 @@ private fun ProviderCard(
                     value = spawnTask,
                     onValueChange = { spawnTask = it.take(SPAWN_TASK_MAX_CHARS) },
                     label = { Text(InteractionHonesty.SPAWN_TASK_LABEL, fontSize = 12.sp) },
-                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text(InteractionHonesty.SPAWN_TASK_PLACEHOLDER) }, // UX-P3 一键化
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(spawnFocusRequester),
                     enabled = !spawnBusy,
                     textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp),
                 )

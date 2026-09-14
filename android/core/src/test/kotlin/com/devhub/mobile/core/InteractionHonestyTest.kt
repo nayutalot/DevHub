@@ -147,4 +147,13 @@ class InteractionHonestyTest {
         assertTrue(InteractionHonesty.ZCODE_REMOTE_AGENTS_BUTTON.contains("电脑页面"))
         assertTrue(InteractionHonesty.ZCODE_REMOTE_AGENTS_NOTE.contains("ZCode"))
     }
+
+    // —— UX-P3（docs/briefs/uxp3-flows.md §1.2）：开始对话一键化 ——
+
+    @Test
+    fun `spawn placeholder is the short first message prompt`() {
+        // UX-P3：点「开始对话」即展开内联输入框（placeholder 引导直接说事）；
+        // 文案与任务书逐字一致
+        assertEquals("想让它先做什么？", InteractionHonesty.SPAWN_TASK_PLACEHOLDER)
+    }
 }

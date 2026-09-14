@@ -26,6 +26,12 @@ object InteractionHonesty {
     const val SPAWN_TASK_LABEL = "想让它先做什么？（会作为第一条消息发出）"
     const val SPAWN_BUSY_LABEL = "正在创建…"
 
+    /**
+     * UX-P3（docs/briefs/uxp3-flows.md §1.2「开始对话一键化」）：第一条消息输入框
+     * placeholder——点 [开始对话] 即展开内联输入框并聚焦（键盘弹起），引导直接说事。
+     */
+    const val SPAWN_TASK_PLACEHOLDER = "想让它先做什么？"
+
     /** observed 会话通用兜底文案（provider 未知时；per-provider 原因卡优先；UX-P1 H6）。 */
     const val GENERIC_OBSERVED_NOTE = "这个对话只能查看：手机端不能操作，请在电脑上操作"
 
