@@ -1,0 +1,6 @@
+{
+  "ok": true,
+  "nativeId": "session-df6aaa99-9ab5-404d-a02e-8c75cd87fbe3",
+  "detail": "dsh runtime spawned + initialize handshake ok (serverInfo deepseek-harness-sdk-runtime v0.0.1); lazy create+prompt in one (turn in flight; 44-type firehose streams to idle)",
+  "totalMs": 613
+}

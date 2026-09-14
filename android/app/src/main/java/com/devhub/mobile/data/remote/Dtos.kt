@@ -35,6 +35,11 @@ data class CapabilitiesDto(
     val granted: List<String>,
     val verifiedAtSec: Long,
     val evidence: String,
+    // DSW 批（docs/briefs/dsw-workspace.md §1）：managed 生效工作区（桌面端 spawn
+    // cwd + 沙箱 workspaceRoot——用户面可见 agent 在哪读写，spawn 表单/详情 ⓘ
+    // 「工作区：<路径>」一行）。仅托管 provider 门开时携带；旧桌面端/停用面缺失
+    // → null（UI 回退不显示，解析纪律 = 宽容缺省）。
+    val workspace: String? = null,
 )
 
 data class AgentDto(
@@ -156,6 +161,7 @@ object Dtos {
         granted = body.getJSONArray("granted").toStringList(),
         verifiedAtSec = body.getLong("verifiedAt"),
         evidence = body.optString("evidence"),
+        workspace = body.optString("workspace").takeIf { it.isNotEmpty() },
     )
 
     fun parseAgents(body: JSONObject): List<AgentDto> = body.getJSONArray("providers").mapObjects { raw ->

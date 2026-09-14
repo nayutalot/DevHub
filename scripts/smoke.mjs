@@ -15472,7 +15472,7 @@ if (isEntrypoint()) {
     await makeTempHome('devhub-t2z-110-')
     try {
       assert.equal(settings.allowedSettingKeys().includes('zcode_managed_model'), true, 'whitelist carries the T2 key (18→19)')
-      assert.equal(settings.allowedSettingKeys().length, 22, 'ALLOWED_KEYS 20→22 (DM 批就地更新：尾追 deepseek_managed_enabled/deepseek_managed_model 两键，docs/briefs/dm-dsh-managed.md §1.2；dsh-102 锁新键语义)')
+      assert.equal(settings.allowedSettingKeys().length, 23, 'ALLOWED_KEYS 22→23 (DSW 批就地更新：尾追 deepseek_managed_workspace 托管工作区旋钮，docs/briefs/dsw-workspace.md §1；dsh-102 锁新键语义)')
       assert.throws(() => settings.setSetting('zcode_managed_not_a_key', 'x'), /not allowed/, 'non-whitelisted keys still rejected')
       assert.equal(cfg.zcodeManagedModelSetting(), '', 'absence = empty = disabled')
       settings.setSetting('zcode_managed_model', 'dummyhub/dummy-model')
@@ -16616,10 +16616,10 @@ if (isEntrypoint()) {
   //      （name/version 失配/畸形结果全拒）；cordis.yml 渲染物零凭据 + 必需插件面
   //      + workspace-write + approval never + 无 stdout logger + Windows 路径 YAML
   //      安全；原子写 + 幂等跳过。
-  registerCase('dsh-102: deepseek managed config source — settings whitelist roundtrip, default-off strict \'1\' gate, model route tri-state, version sentinel layers (bin presence + handshake name/version), cordis.yml render with zero credentials + workspace-write + approval never + no stdout logger, atomic idempotent write + node_modules junction resolution bridge', async () => {
+  registerCase('dsh-102: deepseek managed config source — settings whitelist roundtrip, default-off strict \'1\' gate, model route tri-state, version sentinel layers (bin presence + handshake name/version), cordis.yml render with zero credentials + workspace-write + approval never + no stdout logger, atomic idempotent write + node_modules junction resolution bridge + managed workspace knob (default safe dir / explicit key override / missing-dir structured refusal / ~ expansion / on-demand create)', async () => {
     const { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
-    const { join } = await import('node:path')
+    const { join, resolve } = await import('node:path')
     const settings = await import(new URL('../src/main/services/settingsService.ts', import.meta.url).href)
     const cfg = await import(new URL('../src/main/services/agentControl/providers/deepseekManagedConfig.ts', import.meta.url).href)
 
@@ -16656,6 +16656,58 @@ if (isEntrypoint()) {
     assert.equal(badRoute.enabled, false)
     assert.ok(badRoute.reason.includes(cfg.DEEPSEEK_MANAGED_MODEL_SETTING_KEY), 'non-conforming model ref refuses the gate with a structured reason')
     settings.setSetting(cfg.DEEPSEEK_MANAGED_MODEL_SETTING_KEY, '')
+
+    // —— DSW 批：托管工作区旋钮（docs/briefs/dsw-workspace.md §1；run3 home×ACL
+    // 阻断修复：旧默认 = resolveHomeDir() = 用户 home 根 → dsh 沙箱 temp-root 撞
+    // Windows ACL → initialize 30s 超时）——
+    settings.setSetting(cfg.DEEPSEEK_MANAGED_ENABLED_SETTING_KEY, '1')
+    // 1) 键缺行 → 默认安全目录 <DEVHUB_HOME>/dsh-workspace（paths 既有边界解析，
+    //    DEVHUB_HOME 策略感知）；**绝不默认 home 根**；门读取零写盘（目录不被
+    //    静默创建——创建归 provider spawn 前置 ensure）
+    const noKeyGate = cfg.readDeepseekManagedGate({ binPath, configPath: join(binDir, 'cordis.yml') })
+    const expectedDefault = join(resolve(process.env.DEVHUB_HOME), 'dsh-workspace')
+    assert.equal(noKeyGate.enabled, true)
+    assert.equal(noKeyGate.workspacePath, expectedDefault, `key absent → default safe dir inside the DevHub data dir (DEVHUB_HOME aware): ${noKeyGate.workspacePath}`)
+    assert.notEqual(noKeyGate.workspacePath, resolve(process.env.DEVHUB_HOME), 'default is NEVER the home/data root itself (run3 ACL lesson)')
+    assert.equal(existsSync(expectedDefault), false, 'gate read stays write-free: the default workspace dir is not silently created')
+    // 2) 目录按需创建（provider spawn 前置）：首次 created=true + 在位；再次幂等跳过
+    const ensuredWs = cfg.ensureDeepseekManagedWorkspaceDir(expectedDefault)
+    assert.equal(ensuredWs.ok, true, `on-demand create ok: ${ensuredWs.reason ?? ''}`)
+    assert.equal(ensuredWs.created, true)
+    assert.ok(existsSync(expectedDefault))
+    assert.equal(cfg.ensureDeepseekManagedWorkspaceDir(expectedDefault).created, false, 'second ensure is an idempotent skip')
+    // 3) 显式键覆盖 → 已存在目录原样生效
+    const explicitWs = mkdtempSync(join(tmpdir(), 'devhub-dsh-102ws-'))
+    settings.setSetting(cfg.DEEPSEEK_MANAGED_WORKSPACE_SETTING_KEY, explicitWs)
+    const explicitGate = cfg.readDeepseekManagedGate({ binPath, configPath: join(binDir, 'cordis.yml') })
+    assert.equal(explicitGate.enabled, true)
+    assert.equal(explicitGate.workspacePath, explicitWs, 'explicit key to an existing directory wins over the default')
+    // 4) 显式键指向不存在目录 → 结构化拒绝（人话文案点名键名+路径）；绝不静默创建
+    const missingWs = join(binDir, 'no-such-workspace')
+    settings.setSetting(cfg.DEEPSEEK_MANAGED_WORKSPACE_SETTING_KEY, missingWs)
+    const missingGate = cfg.readDeepseekManagedGate({ binPath, configPath: join(binDir, 'cordis.yml') })
+    assert.equal(missingGate.enabled, false, 'explicit key to a missing directory refuses the gate')
+    assert.ok(missingGate.reason.includes(cfg.DEEPSEEK_MANAGED_WORKSPACE_SETTING_KEY), `refusal names the settings key: ${missingGate.reason}`)
+    assert.ok(missingGate.reason.includes(missingWs), 'refusal names the offending path')
+    assert.equal(existsSync(missingWs), false, 'never silently creates an explicitly configured workspace')
+    // 5) `~` 前缀展开经 resolveHomeDir 既有 env→path 边界（explicit/APIHUB_HOME/
+    //    homedir 阶梯复用——勿新内联）；展开后目录在位 → 生效
+    const tildeDir = join(binDir, 'tilde-ws')
+    mkdirSync(tildeDir, { recursive: true })
+    settings.setSetting(cfg.DEEPSEEK_MANAGED_WORKSPACE_SETTING_KEY, '~/tilde-ws')
+    const tildeGate = cfg.readDeepseekManagedGate({ binPath, configPath: join(binDir, 'cordis.yml'), homeDir: binDir })
+    assert.equal(tildeGate.enabled, true)
+    assert.equal(tildeGate.workspacePath, tildeDir, '~/ prefix expands through the existing resolveHomeDir boundary')
+    // 6) provider caps 携带生效工作区（用户面可见）；门停不携带（逐字节不变）
+    const wsMod = await import(new URL('../src/main/services/agentControl/providers/deepseekProvider.ts', import.meta.url).href)
+    const wsProv = wsMod.createDeepseekProvider({ dshHome: join(binDir, 'dsh-home'), managedGate: () => ({ enabled: true, workspacePath: explicitWs, provider: 'deepseek-official', model: 'deepseek-v4-flash' }) })
+    const wsCaps = await wsProv.getCapabilities({ providerId: 'deepseek', nativeId: 'ws-x' })
+    assert.equal(wsCaps.workspace, explicitWs, 'enabled-gate caps carry the effective workspace (spawn form/detail ⓘ line)')
+    const offProv = wsMod.createDeepseekProvider({ dshHome: join(binDir, 'dsh-home'), managedGate: () => ({ enabled: false, reason: 'off' }) })
+    const offCaps = await offProv.getCapabilities({ providerId: 'deepseek', nativeId: 'ws-x' })
+    assert.equal('workspace' in offCaps, false, 'gate-off caps carry no workspace key (REST face byte identity)')
+    settings.setSetting(cfg.DEEPSEEK_MANAGED_WORKSPACE_SETTING_KEY, '')
+    settings.setSetting(cfg.DEEPSEEK_MANAGED_ENABLED_SETTING_KEY, '0')
 
     // 版本哨兵第一层：bin 不在位 → 结构化拒绝（文件在位检查，绝不 spawn 探测）
     settings.setSetting(cfg.DEEPSEEK_MANAGED_ENABLED_SETTING_KEY, '1')

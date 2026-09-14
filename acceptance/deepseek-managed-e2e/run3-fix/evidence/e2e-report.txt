@@ -1,0 +1,19 @@
+gate: enabled=true provider=deepseek-official model=deepseek-v4-flash
+workspace knob: key absent → default = C:\Users\sakuya\AppData\Local\Temp\devhub-dsw-fix-PLY2LB\dsh-workspace (expected C:\Users\sakuya\AppData\Local\Temp\devhub-dsw-fix-PLY2LB\dsh-workspace)
+workspace knob: gate read stayed write-free (dir absent before spawn) = true
+gate: binPath=D:\Apps\deepseek-harness\packages\examples\jsonrpc-demo\lib\bin.js configPath=C:\Users\sakuya\AppData\Local\Temp\devhub-dsw-fix-PLY2LB\deepseek-managed\cordis.yml
+caps: mode=managed granted=reply workspace=C:\Users\sakuya\AppData\Local\Temp\devhub-dsw-fix-PLY2LB\dsh-workspace
+M0: cordis.yml rendered at C:\Users\sakuya\AppData\Local\Temp\devhub-dsw-fix-PLY2LB\deepseek-managed\cordis.yml (workspaceRoot/cwd = default safe dir)
+M0: workspace dir on-demand create → ok=true created=true at C:\Users\sakuya\AppData\Local\Temp\devhub-dsw-fix-PLY2LB\dsh-workspace
+M0: initialize answered — spawn→response total 587ms, write→response 77ms (run3 baseline: 30000ms budget exhausted = COMMAND_NOT_EXECUTABLE)
+M0: serverInfo={"name":"deepseek-harness-sdk-runtime","version":"0.0.1"} sentinel ok=true
+M0: shutdown → exit=0 in 25ms
+T1 start: ok=true nativeId=session-df6aaa99-9ab5-404d-a02e-8c75cd87fbe3 totalMs=613 (spawn+initialize+prompt accept; run3 failed this exact call)
+T1 turn: 3 assistant projections landed, all before idle = false; text=["收到","。","收到。"]
+identity: observed listSessions sees sessionId=session-df6aaa99-9ab5-404d-a02e-8c75cd87fbe3: true
+workspace-at-runtime: harness projectKey dir for session-df6aaa99-9ab5-404d-a02e-8c75cd87fbe3 = --C-Users-sakuya-AppData-Local-Temp-devhub-dsw-fix-PLY2LB-dsh-workspace-- (encodes temp-home token + dsh-workspace) = true
+workspace dir present after run = true (on-demand created by the provider spawn path)
+revert: key=0 → caps mode=observed granted=0 workspaceKeyPresent=false
+revert: startManagedSession refused = true detail=deepseek managed gate disabled: settings key deepseek_managed_enabled is not '1' (managed face disabled by default; real inference + ~/.dsh writes require explicit authorization)
+wire: dispose done in 19ms
+RUN3-FIX COMPLETE: M0 initialize latency captured (vs run3 30s timeout); 1 real prompt consumed (T1); zero credentials read/injected/logged; workspace knob = default safe dir end-to-end

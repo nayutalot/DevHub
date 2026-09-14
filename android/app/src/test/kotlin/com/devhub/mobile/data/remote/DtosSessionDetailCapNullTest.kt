@@ -70,4 +70,29 @@ class DtosSessionDetailCapNullTest {
         assertEquals(1757400000L, dto.capabilities.verifiedAtSec)
         assertEquals("probe-ok", dto.capabilities.evidence)
     }
+
+    /**
+     * DSW 批（docs/briefs/dsw-workspace.md §1）：workspace 可选字段——桌面托管门开
+     * 时携带生效工作区（spawn 表单/详情 ⓘ「工作区：<路径>」）；旧桌面/停用面缺失
+     * → null（宽容缺省，UI 回退不显示，解析绝不抛）。
+     */
+    @Test
+    fun `workspace parses when present and stays null when missing`() {
+        val withWs = JSONObject()
+            .put("mode", "managed")
+            .put("granted", JSONArray().put("reply"))
+            .put("verifiedAt", 1757400000L)
+            .put("evidence", "probe-ok")
+            .put("workspace", "C:\\Users\\t\\AppData\\Roaming\\DevHub\\dsh-workspace")
+        assertEquals(
+            "C:\\Users\\t\\AppData\\Roaming\\DevHub\\dsh-workspace",
+            Dtos.parseSessionDetail(detailBody(capabilities = withWs)).capabilities.workspace,
+        )
+        val withoutWs = JSONObject()
+            .put("mode", "managed")
+            .put("granted", JSONArray().put("reply"))
+            .put("verifiedAt", 1757400000L)
+            .put("evidence", "probe-ok")
+        assertEquals(null, Dtos.parseSessionDetail(detailBody(capabilities = withoutWs)).capabilities.workspace)
+    }
 }

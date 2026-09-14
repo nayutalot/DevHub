@@ -1,0 +1,62 @@
+[
+  {
+    "at": 1789429398949,
+    "kind": "discovered",
+    "snap": {
+      "nativeId": "session-df6aaa99-9ab5-404d-a02e-8c75cd87fbe3",
+      "mode": "managed",
+      "workdir": "C:\\Users\\sakuya\\AppData\\Local\\Temp\\devhub-dsw-fix-PLY2LB\\dsh-workspace",
+      "lastActivityAt": 1789429398
+    }
+  },
+  {
+    "at": 1789429398961,
+    "kind": "status",
+    "nativeId": "session-df6aaa99-9ab5-404d-a02e-8c75cd87fbe3",
+    "to": "running",
+    "detail": "session.status running"
+  },
+  {
+    "at": 1789429398998,
+    "kind": "msg",
+    "nativeId": "session-df6aaa99-9ab5-404d-a02e-8c75cd87fbe3",
+    "role": "user",
+    "text": "请直接回复：收到。不要使用任何工具。"
+  },
+  {
+    "at": 1789429398998,
+    "kind": "msg",
+    "nativeId": "session-df6aaa99-9ab5-404d-a02e-8c75cd87fbe3",
+    "role": "user",
+    "text": "Current runtime context. This snapshot supersedes earlier runtime-context snapsh"
+  },
+  {
+    "at": 1789429399436,
+    "kind": "msg",
+    "nativeId": "session-df6aaa99-9ab5-404d-a02e-8c75cd87fbe3",
+    "role": "assistant",
+    "text": "收到"
+  },
+  {
+    "at": 1789429399448,
+    "kind": "msg",
+    "nativeId": "session-df6aaa99-9ab5-404d-a02e-8c75cd87fbe3",
+    "role": "assistant",
+    "text": "。"
+  },
+  {
+    "at": 1789429399451,
+    "kind": "msg",
+    "nativeId": "session-df6aaa99-9ab5-404d-a02e-8c75cd87fbe3",
+    "role": "assistant",
+    "text": "收到。"
+  },
+  {
+    "at": 1789429399451,
+    "kind": "status",
+    "nativeId": "session-df6aaa99-9ab5-404d-a02e-8c75cd87fbe3",
+    "from": "running",
+    "to": "waiting_input",
+    "detail": "turn ended (reason: completed)"
+  }
+]

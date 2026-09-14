@@ -313,6 +313,19 @@ private fun ProviderCard(
         }
         if (spawnPanelOpen) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                // DSW 批（docs/briefs/dsw-workspace.md §1）：生效工作区一行——用户面
+                // 可见 agent 在哪读写（桌面端 caps.workspace 携带；缺失/旧端 → 不显示）
+                agent.capabilities.workspace?.let { ws ->
+                    Text(
+                        "工作区：$ws",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                    )
+                }
                 OutlinedTextField(
                     value = spawnTask,
                     onValueChange = { spawnTask = it.take(SPAWN_TASK_MAX_CHARS) },

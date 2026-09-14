@@ -1668,6 +1668,14 @@ table.table {
 
 .agents-caps {
   display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+/* DSW 批：caps 徽章行（CapabilityBlock 内层；工作区行另起一行不挤徽章） */
+.agents-caps-row {
+  display: flex;
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;

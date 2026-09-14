@@ -1512,6 +1512,12 @@ export interface AgentCapabilitySet {
   verifiedAt: number
   /** 验证依据（如 'app-server handshake ok' / 'hooks registered' / 'read-only source'）。 */
   evidence: string
+  /**
+   * managed 生效工作区（DSW 批，docs/briefs/dsw-workspace.md §1：仅托管 provider
+   * 门开时携带——用户面可见 agent 在哪读写，spawn 表单/详情 ⓘ「工作区：<路径>」；
+   * 停用面/其他 provider 恒缺省，REST 面零漂移。目录路径非凭据）。
+   */
+  workspace?: string
 }
 
 // --- agents:providers ---
