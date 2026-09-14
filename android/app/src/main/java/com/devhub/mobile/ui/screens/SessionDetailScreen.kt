@@ -673,6 +673,12 @@ fun SessionDetailScreen(
                     Text("可执行操作：${explain.grantedLabel}", fontSize = 13.sp)
                     Spacer(Modifier.height(4.dp))
                     Text("状态说明：${explain.reasonLabel}", fontSize = 13.sp)
+                    // DSW 批（docs/briefs/dsw-workspace.md §1）：生效工作区一行——
+                    // 用户面可见 agent 在哪读写（仅托管门开时桌面端携带，缺失不显示）
+                    d.capabilities.workspace?.let { ws ->
+                        Spacer(Modifier.height(4.dp))
+                        Text("工作区：$ws", fontSize = 13.sp)
+                    }
                     if (d.session.sessionMode == "observed" || d.capabilities.mode == "observed") {
                         Spacer(Modifier.height(6.dp))
                         Text(
@@ -695,7 +701,8 @@ fun SessionDetailScreen(
                         Text(
                             "mode=${d.capabilities.mode}\n" +
                                 "granted=[${d.capabilities.granted.joinToString(", ")}]\n" +
-                                "evidence=${d.capabilities.evidence}",
+                                "evidence=${d.capabilities.evidence}" +
+                                (d.capabilities.workspace?.let { "\nworkspace=$it" } ?: ""), // DSW 批：技术原值零吞码
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier

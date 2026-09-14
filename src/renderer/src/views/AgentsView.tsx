@@ -349,21 +349,29 @@ function ControlBar({ monitorEnabled, autostartEnabled, onChanged }: {
 function CapabilityBlock({ caps }: { caps: AgentCapabilitySet }) {
   return (
     <div className="agents-caps">
-      <Badge tone={modeTone(caps.mode)} title={`接入深度三态（docs/12 §5）：${caps.mode}`}>{MODE_LABEL[caps.mode]}</Badge>
-      {caps.granted.length > 0 ? (
-        caps.granted.map((g) => (
-          <Badge key={g} tone="ok" title="此刻真实验证存在的能力（能力验证门，docs/12 §5）">
-            {g}
+      <div className="agents-caps-row">
+        <Badge tone={modeTone(caps.mode)} title={`接入深度三态（docs/12 §5）：${caps.mode}`}>{MODE_LABEL[caps.mode]}</Badge>
+        {caps.granted.length > 0 ? (
+          caps.granted.map((g) => (
+            <Badge key={g} tone="ok" title="此刻真实验证存在的能力（能力验证门，docs/12 §5）">
+              {g}
+            </Badge>
+          ))
+        ) : (
+          <Badge tone="dim" title="无已验证控制能力（observed 或验证失败，服务端能力门拒绝）">
+            无已验证能力
           </Badge>
-        ))
-      ) : (
-        <Badge tone="dim" title="无已验证控制能力（observed 或验证失败，服务端能力门拒绝）">
-          无已验证能力
+        )}
+        <Badge tone={capabilityTone(caps)} title={caps.evidence || 'no evidence'}>
+          {caps.verifiedAt > 0 ? `验证于 ${relativeTime(caps.verifiedAt)}` : '从未验证'}
         </Badge>
+      </div>
+      {/* DSW 批：managed 生效工作区一行（用户面可见 agent 在哪读写；仅托管门开时携带） */}
+      {caps.workspace !== undefined && (
+        <div className="agents-card-line mono td-dim" title="托管会话工作区（spawn cwd + 沙箱 workspaceRoot；agent 在此读写）">
+          工作区：{caps.workspace}
+        </div>
       )}
-      <Badge tone={capabilityTone(caps)} title={caps.evidence || 'no evidence'}>
-        {caps.verifiedAt > 0 ? `验证于 ${relativeTime(caps.verifiedAt)}` : '从未验证'}
-      </Badge>
     </div>
   )
 }

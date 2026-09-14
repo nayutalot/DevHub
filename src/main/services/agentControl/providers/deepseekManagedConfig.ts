@@ -17,6 +17,16 @@
  * home 边界复用 apihub/adapters.resolveHomeDir 既有阶梯（explicit → APIHUB_HOME →
  * homedir——Mimosa 纪律：边界函数归位既有模块，绝不另写一份）。
  *
+ * 工作区旋钮（DSW 批 docs/briefs/dsw-workspace.md §1；run3 阻断修复：旧默认
+ * workspacePath=resolveHomeDir()=用户 home 根 → dsh 沙箱 temp-root 撞 Windows ACL
+ * → initialize 30s 超时 → COMMAND_NOT_EXECUTABLE）：settings 键
+ * `deepseek_managed_workspace` 三级阶梯——deps 显式注入缝（smoke 夹具，向后兼容
+ * 不做存在性强制）> settings 显式键（必须指向**已存在**目录：不存在 = 结构化
+ * 拒绝 + 人话文案，绝不静默创建在奇怪位置；`~` 前缀经 resolveHomeDir 既有
+ * env→path 边界展开——Mimosa 纪律勿新内联）> 默认安全目录
+ * `<data>/dsh-workspace`（paths 既有边界解析，DEVHUB_HOME 策略感知；目录由
+ * provider 在 spawn 前按需创建——门读取保持零写盘）。**绝不默认 home 根**。
+ *
  * cordis.yml 渲染（docs/27 §4.2 骨架 + 本机 examples/jsonrpc-agent/cordis.yml 与
  * bundle/base/cordis.patch.yml 逐条对源）：sdk-jsonrpc-server + agent-spine +
  * llm-deepseek + sessions（persistence root=dshHomePath('sessions')——DSH_HOME
@@ -54,6 +64,19 @@ export const DEEPSEEK_MANAGED_ENABLED_SETTING_KEY = 'deepseek_managed_enabled'
 
 /** settings 键名：可选模型路由（形如 `provider/model`；缺行 = runtime 默认路由）。 */
 export const DEEPSEEK_MANAGED_MODEL_SETTING_KEY = 'deepseek_managed_model'
+
+/**
+ * settings 键名：托管会话工作区生产旋钮（DSW 批；缺行 = 默认安全目录，显式键 =
+ * 用户自管已存在目录——不存在结构化拒绝不静默创建）。
+ */
+export const DEEPSEEK_MANAGED_WORKSPACE_SETTING_KEY = 'deepseek_managed_workspace'
+
+/**
+ * 默认工作区目录名（DSW 批；恒挂 DevHub 数据目录内——`<data>/dsh-workspace`，
+ * paths 边界解析 DEVHUB_HOME 策略感知。**绝不默认用户 home 根**：run3 实证 dsh
+ * 沙箱 temp-root 在 home 根撞 Windows ACL 确定性失败）。
+ */
+export const DEEPSEEK_MANAGED_WORKSPACE_DEFAULT_DIRNAME = 'dsh-workspace'
 
 /** harness settings 键（安装根；S3 批既有键，本批复用不新增）。 */
 export const DEEPSEEK_HARNESS_ROOT_SETTING_KEY = 'deepseekHarnessRoot'
@@ -129,9 +152,10 @@ export interface DeepseekManagedGateDeps {
   binPath?: string
   /** cordis.yml 渲染物路径覆盖（默认 getDataDir()/deepseek-managed/cordis.yml）。 */
   configPath?: string
-  /** 托管会话工作区覆盖（默认 resolveHomeDir()——home 边界既有阶梯）。 */
+  /** 托管会话工作区覆盖（smoke 注入缝最高优先，向后兼容不做存在性强制；缺省走
+   *  settings 键 > 默认安全目录三级阶梯——resolveManagedWorkspace）。 */
   workspacePath?: string
-  /** home 解析注入（透传 resolveHomeDir explicit 槽；smoke 隔离）。 */
+  /** home 解析注入（透传 resolveHomeDir explicit 槽；smoke 隔离 + `~` 前缀展开）。 */
   homeDir?: string
   /** spawn 命令覆盖（默认 process.execPath；smoke 注入系统 node）。 */
   spawnCommand?: string
@@ -186,6 +210,92 @@ export function resolveManagedModelRoute(): { ok: true; provider: string; model:
 /** DevHub 渲染物默认落位（DevHub 自有数据目录——绝不写 ~/.dsh）。 */
 export function defaultDeepseekCordisConfigPath(): string {
   return join(getDataDir(), 'deepseek-managed', 'cordis.yml')
+}
+
+// ---------------------------------------------------------------------------
+// 托管会话工作区解析（DSW 批旋钮；run3 home×ACL 阻断修复）
+// ---------------------------------------------------------------------------
+
+/** 工作区解析结果（ok=false 时 reason 零凭据、带人话文案）。 */
+export type DeepseekManagedWorkspaceResolution =
+  | { ok: true; path: string; /** 命中来源（诊断面；deps=注入缝 settings=显式键 default=安全目录）。 */ source: 'deps' | 'settings' | 'default' }
+  | { ok: false; reason: string }
+
+/** 目录在位判定（存在且是目录；符号链接/junction 解引用语义与 statSync 一致）。 */
+function isExistingDir(path: string): boolean {
+  try {
+    return statSync(path).isDirectory()
+  } catch {
+    return false
+  }
+}
+
+/**
+ * settings 显式键的 `~` 前缀展开（Mimosa 纪律：env→path 归位 resolveHomeDir
+ * 既有边界函数——explicit/APIHUB_HOME/homedir 阶梯原样复用，勿新内联）。
+ */
+function expandWorkspaceHome(value: string, homeDir?: string): string {
+  if (value === '~') return resolveHomeDir(homeDir)
+  if (value.startsWith('~/') || value.startsWith('~\\')) return join(resolveHomeDir(homeDir), value.slice(2))
+  return value
+}
+
+/**
+ * 托管会话工作区三级解析（每调用读取；纯读取零写盘——目录按需创建由 provider
+ * 在 spawn 前经 ensureDeepseekManagedWorkspaceDir 执行）：
+ * 1. deps.workspacePath 显式注入缝（smoke 夹具；向后兼容：不做存在性强制）；
+ * 2. settings 键 `deepseek_managed_workspace` 非空 → `~` 前缀经 resolveHomeDir
+ *    展开后**必须已存在且是目录**——否则结构化拒绝（人话文案点名键名与路径；
+ *    绝不静默创建在用户没建过的位置）；
+ * 3. 缺行 → 默认安全目录 `<data>/dsh-workspace`（paths 既有边界解析，
+ *    DEVHUB_HOME 策略感知）。**绝不默认用户 home 根**（run3 教训）。
+ */
+export function resolveManagedWorkspace(deps: { workspacePath?: string; homeDir?: string } = {}): DeepseekManagedWorkspaceResolution {
+  if (deps.workspacePath !== undefined && deps.workspacePath.trim().length > 0) {
+    return { ok: true, path: deps.workspacePath, source: 'deps' }
+  }
+  let configured: string | null = null
+  try {
+    const raw = getSetting(DEEPSEEK_MANAGED_WORKSPACE_SETTING_KEY)
+    if (raw !== undefined && raw.trim().length > 0) configured = raw.trim()
+  } catch {
+    configured = null // settings 不可用（无库上下文）：默认安全目录兜底
+  }
+  if (configured !== null) {
+    const resolved = expandWorkspaceHome(configured, deps.homeDir)
+    if (!isExistingDir(resolved)) {
+      return {
+        ok: false,
+        reason: `settings key ${DEEPSEEK_MANAGED_WORKSPACE_SETTING_KEY} points to a missing directory: ${resolved} (managed face refused; create the directory yourself first, or clear the key to fall back to the safe default under the DevHub data directory — DevHub never auto-creates an explicitly configured workspace)`,
+      }
+    }
+    return { ok: true, path: resolved, source: 'settings' }
+  }
+  return { ok: true, path: join(getDataDir(), DEEPSEEK_MANAGED_WORKSPACE_DEFAULT_DIRNAME), source: 'default' }
+}
+
+/** ensureDeepseekManagedWorkspaceDir 结果（created=false = 已在位幂等跳过）。 */
+export type EnsureDeepseekManagedWorkspaceResult =
+  | { ok: true; path: string; created: boolean }
+  | { ok: false; path: string; reason: string }
+
+/**
+ * 工作区目录按需创建（provider spawn 前置；默认安全目录路径唯一写盘点）。
+ * 已在位 → 幂等跳过；缺目录 → mkdir recursive（POSIX 叶子 0700 语义——用户数据
+ * 目录内不放开组/其他位；Windows ACL 随 %APPDATA% 用户档案继承）。创建失败
+ * 结构化拒绝——绝不带病 spawn（cwd 缺位 = runtime ENOENT）。
+ */
+export function ensureDeepseekManagedWorkspaceDir(path: string): EnsureDeepseekManagedWorkspaceResult {
+  if (isExistingDir(path)) return { ok: true, path, created: false }
+  try {
+    mkdirSync(path, { recursive: true, mode: 0o700 })
+  } catch (err) {
+    return { ok: false, path, reason: `managed workspace directory create failed at ${path}: ${errMessage(err)}` }
+  }
+  if (!isExistingDir(path)) {
+    return { ok: false, path, reason: `managed workspace directory still missing after create at ${path}` }
+  }
+  return { ok: true, path, created: true }
 }
 
 // ---------------------------------------------------------------------------
@@ -526,9 +636,11 @@ function extractServerInfoLoose(result: unknown): { name: string; version: strin
  * 同构）。停用面（enabled=false 全部结构化 reason，绝不半开）：
  * 1. settings 键 ≠ '1' → 停用（默认态）；
  * 2. 模型路由键形态不符 → 停用；
- * 3. bin.js 不存在 → 版本哨兵第一层拒绝。
+ * 3. bin.js 不存在 → 版本哨兵第一层拒绝；
+ * 4. 工作区显式键指向不存在目录 → 结构化拒绝（绝不静默创建——DSW 批）。
  * 就绪面：spawn 载体 + 渲染物路径 + 路由 + 超时全量携带（渲染物写盘由 provider
- * 在 spawn 前经 ensureDeepseekCordisConfig 执行——本函数零写盘，纯读取+判定）。
+ * 在 spawn 前经 ensureDeepseekCordisConfig 执行——本函数零写盘，纯读取+判定；
+ * 默认工作区目录的按需创建同理归 provider spawn 前置 ensureDeepseekManagedWorkspaceDir）。
  */
 export function readDeepseekManagedGate(deps: DeepseekManagedGateDeps = {}): DeepseekManagedGateState {
   if (!gateEnabledBySettings()) {
@@ -556,7 +668,12 @@ export function readDeepseekManagedGate(deps: DeepseekManagedGateDeps = {}): Dee
       reason: `version sentinel: jsonrpc-demo bin not found at ${binPath} (deepseekHarnessRoot=${harnessRoot}; install or point the setting at a harness checkout with packages/examples/jsonrpc-demo/lib/bin.js built)`,
     }
   }
-  const workspacePath = deps.workspacePath ?? resolveHomeDir(deps.homeDir)
+  const workspace = resolveManagedWorkspace(deps)
+  if (!workspace.ok) {
+    // 显式键指向不存在目录：结构化拒绝（绝不静默创建在奇怪位置——DSW 批红线）
+    return { enabled: false, reason: workspace.reason }
+  }
+  const workspacePath = workspace.path
   const configPath = deps.configPath ?? defaultDeepseekCordisConfigPath()
   const spawnCommand = deps.spawnCommand ?? process.execPath
   return {

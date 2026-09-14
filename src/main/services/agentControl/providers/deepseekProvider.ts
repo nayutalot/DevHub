@@ -43,6 +43,11 @@
  *   taskkill 温和→/T /F 强制，docs/27 SDK client 阶梯的 Windows 映射）+双超时；
  *   approval policy never v1（无远程应答通道，UI/ⓘ 如实标注）。
  *   授权门/渲染/哨兵在 deepseekManagedConfig.ts；协议纯函数在 deepseekProtocol.ts。
+ * - **工作区旋钮（DSW 批，docs/briefs/dsw-workspace.md §1）**：settings 键
+ *   `deepseek_managed_workspace`——缺行 = 默认安全目录 <data>/dsh-workspace
+ *   （spawn 前按需创建；绝不默认 home 根——run3 home×ACL 确定性失败修法）；
+ *   显式键必须已存在（不存在结构化拒绝不静默创建）。生效路径经 caps `workspace`
+ *   字段与 spawn 表单/详情 ⓘ 用户面可见（「工作区：<路径>」）。
  *
  * 纪律：`~/.dsh/**` 只读（`.credentials.yaml` 绝不读取）；未知事件类型容忍
  * 丢弃 + 计数；脏尾帧（torn write）跳过；解析失败结构化降级绝不抛穿。
@@ -75,6 +80,7 @@ import {
   DEEPSEEK_MANAGED_SHUTDOWN_TIMEOUT_MS,
   DEEPSEEK_HARNESS_ROOT_DEFAULT,
   ensureDeepseekCordisConfig,
+  ensureDeepseekManagedWorkspaceDir,
   readDeepseekManagedGate,
   verifyDeepseekHandshake,
   type DeepseekManagedGateState,
@@ -1027,7 +1033,9 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
    * - 门就绪 → managed + granted ['reply']（evidence 带版本哨兵证据：bin 在位 +
    *   wire-stable runtime 名 + 预期版本）。**granted 不含 pause**：SDK 协议无
    *   wire cancel（docs/27 §1.6 唯一硬缺口如实呈现——取消语义=终止进程，v1 caps
-   *   不通告）；approval 无远程应答（policy never v1）如实注记。
+   *   不通告）；approval 无远程应答（policy never v1）如实注记。就绪面 caps 另携
+   *   生效工作区（`workspace` 字段——DSW 批用户面可见 agent 在哪读写；键≠'1'
+   *   停用面不携带，逐字节不变）。
    */
   async function getCapabilities(_ref: SessionRef): Promise<AgentCapabilitySet> {
     const gate = managedGate()
@@ -1051,6 +1059,8 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
         granted: ['reply'],
         verifiedAt: nowSec(),
         evidence: `deepseek managed face enabled (${gate.provider}/${gate.model}): ${probe.detail}; reply = live session/prompt or one-shot resume fallback; NO wire cancel (SDK protocol has none; cancel semantics = process kill ladder); approval policy 'never' v1 (no remote approval channel; out-of-workspace ops auto-refused)`,
+        // 生效工作区（DSW 批：用户面可见 agent 在哪读写——spawn 表单/详情 ⓘ 一行）
+        ...(gate.workspacePath !== undefined ? { workspace: gate.workspacePath } : {}),
       }
     }
     return {
@@ -1058,6 +1068,7 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
       granted: ['reply'],
       verifiedAt: nowSec(),
       evidence: `deepseek managed face enabled (${gate.provider}/${gate.model}): version sentinel layer-1 ok (bin present at ${gate.binPath}); layer-2 initialize handshake identity check enforced at spawn; reply = live session/prompt or one-shot resume fallback (evidence distinguishes both states); NO wire cancel (SDK protocol has none; cancel semantics = process kill ladder); approval policy 'never' v1 (no remote approval channel; out-of-workspace ops auto-refused)`,
+      ...(gate.workspacePath !== undefined ? { workspace: gate.workspacePath } : {}),
     }
   }
 
@@ -1079,6 +1090,15 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
       return { ok: false, detail: `deepseek managed gate disabled: ${gate.reason ?? 'unknown'}` }
     }
     const workspace = options.managedWorkspacePath ?? gate.workspacePath
+    // 工作区目录按需创建（DSW 批：默认安全目录 <data>/dsh-workspace 首次 spawn
+    // 落盘；显式键/注入缝路径已在位 → 幂等跳过；失败结构化拒绝——绝不 spawn 无
+    // cwd 的 runtime，run3 home×ACL 教训的正面修法）
+    if (workspace !== undefined) {
+      const wsDir = ensureDeepseekManagedWorkspaceDir(workspace)
+      if (!wsDir.ok) {
+        return { ok: false, detail: `deepseek managed workspace failed: ${wsDir.reason}` }
+      }
+    }
     // 渲染物落盘（原子写；幂等跳过；失败结构化拒绝——绝不 spawn 无配置的 runtime）
     const ensured = ensureDeepseekCordisConfig(
       { workspacePath: workspace ?? homedir(), harnessRoot: gate.harnessRoot },
@@ -1206,6 +1226,13 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
       }
     }
     const workspace = options.managedWorkspacePath ?? gate.workspacePath
+    // 工作区目录按需创建（同 startManagedSession；one-shot 亦受保护）
+    if (workspace !== undefined) {
+      const wsDir = ensureDeepseekManagedWorkspaceDir(workspace)
+      if (!wsDir.ok) {
+        return { ok: false, status: 'failed', errorCode: 'COMMAND_NOT_EXECUTABLE', detail: `deepseek managed workspace failed: ${wsDir.reason}` }
+      }
+    }
     const ensured = ensureDeepseekCordisConfig(
       { workspacePath: workspace ?? homedir(), harnessRoot: gate.harnessRoot },
       ...(options.managedConfigPath !== undefined || gate.configPath !== undefined ? [{ configPath: options.managedConfigPath ?? gate.configPath }] : []),

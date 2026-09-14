@@ -22,7 +22,12 @@
  * 表既有机制，缺行 = 空 = 托管面停用，caps 保持 observed，白名单 18→19）；
  * kimi_managed_enabled（KM 批，20→上文）+ deepseek_managed_enabled /
  * deepseek_managed_model（DM 批：DeepSeek Harness 真机 managed 授权门+可选模型
- * 路由键，恰 '1' 授权默认停用；白名单 20→22，docs/briefs/dm-dsh-managed.md §1.2）；
+ * 路由键，恰 '1' 授权默认停用；白名单 20→22，docs/briefs/dm-dsh-managed.md §1.2）/
+ * deepseek_managed_workspace（DSW 批：DeepSeek managed 托管会话工作区生产旋钮，
+ * docs/briefs/dsw-workspace.md §1——缺行 = 默认安全目录 <data>/dsh-workspace
+ * （paths 边界解析、DEVHUB_HOME 策略感知、按需创建、绝不默认 home 根——run3
+ * Windows ACL 确定性失败教训）；显式键必须指向已存在目录（不存在 = 结构化拒绝，
+ * 绝不静默创建）。白名单 22→23）；
  * 一切 SQL 参数绑定（约束 #11）。
  */
 
@@ -76,6 +81,13 @@ const ALLOWED_KEYS: readonly string[] = [
   // ~/.dsh/.credentials.yaml，DevHub 零读取零注入）；无种子行零迁移。20→22。
   'deepseek_managed_enabled',
   'deepseek_managed_model',
+  // DSW 批（DeepSeek managed 托管会话工作区生产旋钮，docs/briefs/dsw-workspace.md §1；
+  // run3 阻断修复：spawn cwd/workspaceRoot 默认曾=用户 home 根 → dsh 沙箱 temp-root
+  // 撞 Windows ACL → initialize 30s 超时）：缺行 = 默认安全目录 <data>/dsh-workspace
+  // （paths 边界解析 DEVHUB_HOME 感知；按需创建；绝不默认 home 根）；显式键 =
+  // 用户自管已存在目录（不存在 = 结构化拒绝绝不静默创建）。零凭据语义（目录路径
+  // 非凭据）；无种子行零迁移。22→23。
+  'deepseek_managed_workspace',
 ]
 
 function assertAllowedKey(key: string): void {
