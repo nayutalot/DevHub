@@ -1,0 +1,5 @@
+{
+  "ok": true,
+  "status": "executed",
+  "detail": "session process terminated via kill ladder (no wire-level cancel in the SDK protocol; turn state converges via persisted log)"
+}

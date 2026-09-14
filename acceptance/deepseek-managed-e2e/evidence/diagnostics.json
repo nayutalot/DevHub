@@ -1,0 +1,10 @@
+{
+  "dataSource": {
+    "kind": "session-jsonl-zstd",
+    "readable": true,
+    "detail": "root present: D:/Apps/deepseek-harness, package.json @deepseek-ai/dsh-root, version 0.1.0-rc.5, AGENTS.md present, CLAUDE.md present, apps present, packages present; session data home verified at C:\\Users\\sakuya\\.dsh (sessions dir readable)"
+  },
+  "control": {
+    "note": "managed face enabled (deepseek-official/deepseek-v4-flash; idle 180000ms / lifetime 1800000ms); live connections: 1; last spawn verdict: session session-b6946f06-bcbb-493f-b209-b4997389822d connection closed (pause (no wire cancel in the SDK protocol; cancel semantics = process termination)); firehose events seen: 408 (chunks streamed: 378), unknown frames: 0, unknown notifications: 0, late/foreign events: 0, sink errors: 0, subagent notices: 0, shutdown-ok/killTree: 1/0"
+  }
+}

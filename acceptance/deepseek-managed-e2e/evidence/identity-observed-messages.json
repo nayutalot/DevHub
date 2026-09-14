@@ -1,0 +1,58 @@
+[
+  {
+    "role": "user",
+    "contentRedacted": "请直接回复：收到。不要使用任何工具。",
+    "nativeMsgId": "4",
+    "occurredAt": 1789422088,
+    "sourceRef": "C:\\Users\\sakuya\\.dsh\\sessions\\--C-Users-sakuya--\\session-ee998ab6-b816-40d5-876e-1ffccf36325e\\session.jsonl.zstd#seq=4"
+  },
+  {
+    "role": "user",
+    "contentRedacted": "Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\nCurrent DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace: \"C:\\\\Users\\\\sakuya\". Some platform temporary areas may also be writable.\n\nApproval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`).",
+    "nativeMsgId": "5",
+    "occurredAt": 1789422088,
+    "sourceRef": "C:\\Users\\sakuya\\.dsh\\sessions\\--C-Users-sakuya--\\session-ee998ab6-b816-40d5-876e-1ffccf36325e\\session.jsonl.zstd#seq=5"
+  },
+  {
+    "role": "assistant",
+    "contentRedacted": "收到。",
+    "nativeMsgId": "15",
+    "occurredAt": 1789422090,
+    "sourceRef": "C:\\Users\\sakuya\\.dsh\\sessions\\--C-Users-sakuya--\\session-ee998ab6-b816-40d5-876e-1ffccf36325e\\session.jsonl.zstd#seq=15"
+  },
+  {
+    "role": "user",
+    "contentRedacted": "请运行 bash 命令 `echo dsh-e2e-ok`，再尝试运行 `ls C:/Windows`；若第二条被沙箱拒绝，用一句话说明拒绝原因后结束。不要做别的事。",
+    "nativeMsgId": "22",
+    "occurredAt": 1789422090,
+    "sourceRef": "C:\\Users\\sakuya\\.dsh\\sessions\\--C-Users-sakuya--\\session-ee998ab6-b816-40d5-876e-1ffccf36325e\\session.jsonl.zstd#seq=22"
+  },
+  {
+    "role": "assistant",
+    "contentRedacted": "[tool_call bash]\n[tool_call bash]",
+    "nativeMsgId": "203",
+    "occurredAt": 1789422091,
+    "sourceRef": "C:\\Users\\sakuya\\.dsh\\sessions\\--C-Users-sakuya--\\session-ee998ab6-b816-40d5-876e-1ffccf36325e\\session.jsonl.zstd#seq=203"
+  },
+  {
+    "role": "tool",
+    "contentRedacted": "[tool_result]",
+    "nativeMsgId": "205",
+    "occurredAt": 1789422091,
+    "sourceRef": "C:\\Users\\sakuya\\.dsh\\sessions\\--C-Users-sakuya--\\session-ee998ab6-b816-40d5-876e-1ffccf36325e\\session.jsonl.zstd#seq=205"
+  },
+  {
+    "role": "tool",
+    "contentRedacted": "[tool_result]",
+    "nativeMsgId": "207",
+    "occurredAt": 1789422091,
+    "sourceRef": "C:\\Users\\sakuya\\.dsh\\sessions\\--C-Users-sakuya--\\session-ee998ab6-b816-40d5-876e-1ffccf36325e\\session.jsonl.zstd#seq=207"
+  },
+  {
+    "role": "assistant",
+    "contentRedacted": "两条命令都没有真正执行：bash 工具在启动阶段就报错 `Windows ACL temp root must be outside the workspace: workspace=C:\\Users\\sakuya; temp=C:\\Users\\sakuya\\AppData\\Local\\Temp`，即临时根目录位于工作区内部导致初始化失败，并非沙箱对该命令的策略拒绝。",
+    "nativeMsgId": "402",
+    "occurredAt": 1789422093,
+    "sourceRef": "C:\\Users\\sakuya\\.dsh\\sessions\\--C-Users-sakuya--\\session-ee998ab6-b816-40d5-876e-1ffccf36325e\\session.jsonl.zstd#seq=402"
+  }
+]

@@ -1,0 +1,67 @@
+[
+  {
+    "at": 1789422088878,
+    "kind": "discovered",
+    "snap": {
+      "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+      "mode": "managed",
+      "workdir": "C:\\Users\\sakuya",
+      "lastActivityAt": 1789422088
+    }
+  },
+  {
+    "at": 1789422088889,
+    "kind": "status",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "to": "running",
+    "detail": "session.status running"
+  },
+  {
+    "at": 1789422088923,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "user",
+    "nativeMsgId": "user-message-4",
+    "text": "请直接回复：收到。不要使用任何工具。"
+  },
+  {
+    "at": 1789422088923,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "user",
+    "nativeMsgId": "user-message-5",
+    "text": "Current runtime context. This snapshot supersedes earlier runtime-context snapsh"
+  },
+  {
+    "at": 1789422090455,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-10",
+    "text": "收到"
+  },
+  {
+    "at": 1789422090455,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-11",
+    "text": "。"
+  },
+  {
+    "at": 1789422090457,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-message-15",
+    "text": "收到。"
+  },
+  {
+    "at": 1789422090458,
+    "kind": "status",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "from": "running",
+    "to": "waiting_input",
+    "detail": "turn ended (reason: completed)"
+  }
+]
