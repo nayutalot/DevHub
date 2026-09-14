@@ -1,7 +1,8 @@
 # UX-P2 走查记录：导航 IA 重排（四标签→三标签）
 
 > 批次：UX-P2（docs/briefs/uxp2-ia.md）。走查环境：headless 模拟器 DevHub_API_35（emulator-5554，API 35），
-> APK = 本批 assembleDebug 产物（同 dist/DevHub-Android-0.1.0-debug.apk，sha256 见提交记录）。
+> APK = 本批 assembleDebug 产物（同 dist/DevHub-Android-0.1.0-debug.apk）。
+> APK sha256 = bd0aa76581394d5fa1adfd6da8218f849c22c729ca47038d4cdf3a139efa4d7e（11,668,665 字节，2026-09-15 00:58 落 dist）。
 > 走查时电脑侧无真实 DevHub 主机 → 连接类状态为「连接中/连不上重试中」真实投影（不伪造状态的走查口径）。
 > 凭据盘查：全部截图仅含模拟器本地值（设备 ID 1、gateway=b1-fake-gw 既有测试假值、10.0.2.2:18746 模拟器回环缺省），
 > 零 token/配对码/指纹明文——凭据三零达标。
