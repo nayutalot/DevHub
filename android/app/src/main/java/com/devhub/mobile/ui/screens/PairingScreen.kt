@@ -31,6 +31,7 @@ import com.devhub.mobile.data.ApiProvider
 import com.devhub.mobile.data.SecureStore
 import com.devhub.mobile.data.db.DeviceEntity
 import com.devhub.mobile.data.db.DevHubDb
+import com.devhub.mobile.core.ErrorPresent
 import com.devhub.mobile.data.remote.ApiError
 import com.devhub.mobile.ui.AppState
 import kotlinx.coroutines.Dispatchers
@@ -62,7 +63,8 @@ fun PairingScreen(onPaired: () -> Unit) {
     var code by remember { mutableStateOf("") }
     var advancedOpen by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
+    // UX-P1（P8-P13/X9）：连接失败统一呈现体（人话 headline + 原码/异常收「技术细节」折叠）
+    var error by remember { mutableStateOf<ErrorPresent.Presentable?>(null) }
     var showSecurityNotice by remember { mutableStateOf(false) }
 
     // M3-C3a 修 1：模式感知传输层（显式读取已保存配置，绝不字段嗅探；null = 载入中按 local 处理）
@@ -85,32 +87,32 @@ fun PairingScreen(onPaired: () -> Unit) {
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("配对设备", style = MaterialTheme.typography.titleLarge)
+        Text("连接电脑", style = MaterialTheme.typography.titleLarge) // UX-P1 P1
         Text(
-            "桌面 DevHub → Agents 视图 →「配对新设备」会签发 8 位一次性配对码（TTL 300s）。\n" +
-                "输入码即可配对（码即唯一定位）；码即用即废；claim 限流：同源 5 次 / 5 分钟。",
+            "在电脑的 DevHub 上点「配对新设备」，会显示一个 8 位配对码（5 分钟内有效，用过即废）。\n" +
+                "在下面输入它即可连接；输错多次会暂时锁定。",
             fontSize = 13.sp,
-        )
+        ) // UX-P1 P2
         Text(
-            if (relayMode) "当前模式：Relay（配对经 wss 加密直连中继服务器）"
-            else "当前模式：本地（REST claim → 桌面 Gateway）",
+            if (relayMode) "连接方式：云端连接（电脑不在身边也能用）"
+            else "连接方式：同一网络直连（手机和电脑连同一个 Wi-Fi）",
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        ) // UX-P1 P3（云端连接定名，主控裁决）
 
         OutlinedTextField(
             value = code,
             onValueChange = { code = it.trim().uppercase() },
-            label = { Text("8 位配对码（Crockford Base32）") },
+            label = { Text("输入 8 位配对码") }, // UX-P1 P4
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
         )
-        Text("设备名：${Build.MODEL}（platform: android）", fontSize = 13.sp)
+        Text("手机名：${Build.MODEL}", fontSize = 13.sp) // UX-P1 P5
 
         // 高级选项（pairingId）：仅 local REST claim 面（relay 设备腿 pair 帧无此字段）
         if (!relayMode) {
             TextButton(onClick = { advancedOpen = !advancedOpen }) {
-                Text(if (advancedOpen) "收起高级选项" else "高级选项（pairingId，通常无需填写）")
+                Text(if (advancedOpen) "收起高级选项" else "高级选项（通常无需填写）") // UX-P1 P6
             }
             if (advancedOpen) {
                 OutlinedTextField(
@@ -162,7 +164,11 @@ fun PairingScreen(onPaired: () -> Unit) {
                                     // M3-C6c 小项#6：失败即清空码输入框（16 位拼接误输之源：
                                     // 残码 + 新码拼接必败，清空强制整码重输）
                                     code = ""
-                                    error = outcome.message
+                                    // UX-P1 X10：人话头 + 原码收「技术细节」折叠
+                                    error = ErrorPresent.Presentable(
+                                        outcome.message,
+                                        "[${outcome.code}]",
+                                    )
                                 }
                             }
                         } else {
@@ -192,29 +198,45 @@ fun PairingScreen(onPaired: () -> Unit) {
                         }
                     } catch (err: ApiError) {
                         code = "" // M3-C6c 小项#6：失败即清空码输入框（16 位拼接误输之源）
+                        // UX-P1 P8-P12：人话 headline + 原码收「技术细节」折叠
                         error = when (err.code) {
-                            "AUTH_INVALID_TOKEN" -> "配对失败：码无效/已过期/已被使用（一次性）[${err.code}]"
-                            "AUTH_RATE_LIMITED" ->
-                                "尝试过于频繁（5 次/5 分钟），请 ${err.retryAfterSec ?: 60}s 后重试 [${err.code}]"
+                            "AUTH_INVALID_TOKEN" -> ErrorPresent.Presentable(
+                                "连接失败：码不对、已过期或已被使用——请在电脑上重新生成",
+                                "[${err.code}] ${err.message}",
+                            )
 
-                            "GATEWAY_DISABLED" -> "桌面 Gateway 未启用（gateway_enabled=0）[${err.code}]"
-                            else -> "配对失败：[${err.code}] ${err.message}"
+                            "AUTH_RATE_LIMITED" -> ErrorPresent.Presentable(
+                                "尝试太频繁：请 ${err.retryAfterSec ?: 60} 秒后再试",
+                                "[${err.code}] ${err.message}",
+                            )
+
+                            "GATEWAY_DISABLED" -> ErrorPresent.Presentable(
+                                "电脑上的 DevHub 没有打开「允许手机连接」开关，请到电脑端设置打开后重试",
+                                "[${err.code}] ${err.message}",
+                            )
+
+                            else -> ErrorPresent.Presentable(
+                                "连接出了问题，请重试",
+                                "[${err.code}] ${err.message}",
+                            )
                         }
                     } catch (err: IOException) {
                         code = "" // M3-C6c 小项#6：同上
-                        error = "无法连接 Gateway：请先在「Gateway 配置」页测试连接"
+                        error = ErrorPresent.Presentable("连不上电脑：请先在「连接设置」里测试连接", err.toString())
                     } catch (err: Exception) {
                         code = "" // M3-C6c 小项#6：同上
-                        error = "配对异常：${err.message}"
+                        error = ErrorPresent.Presentable("连接出了问题，请重试", err.toString())
                     }
                     busy = false
                 }
             },
             enabled = code.length == 8 && !busy, // AC7b：code-only 主流程，pairingId 不再必填
-        ) { Text(if (busy) "配对中…" else "配对") }
+        ) { Text(if (busy) "连接中…" else "连接") } // UX-P1（配对→连接改名）
 
         if (busy) CircularProgressIndicator()
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp) }
+        error?.let {
+            com.devhub.mobile.ui.components.ErrorPresentation(presentable = it)
+        }
     }
 
     if (showSecurityNotice) {
@@ -233,11 +255,12 @@ fun SecurityNoticeDialog(onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         title = { Text("安全须知") },
         text = {
+            // UX-P1 P13：四事实全保留（钥匙只存本机/摘要通知/强停补齐/仅回复暂停恢复），工程词人话化
             Text(
-                "1. 设备 Token 仅存本机 Android Keystore（AES-GCM 加密），桌面端只存哈希，任何界面不再显示明文。\n" +
-                    "2. 通知仅展示脱敏摘要；完整上下文需点进会话详情才加载。\n" +
-                    "3. App 被强停期间 WS 断开，无实时通知保证；重连后按 sequence 补齐。\n" +
-                    "4. 远程控制仅 reply / pause / resume 三种会话动作，无 shell/文件通道。",
+                "1. 钥匙（设备凭据）只存这台手机的加密存储里，电脑端也不留底，任何界面都不再显示。\n" +
+                    "2. 提醒通知只显示摘要；完整内容要点进对话详情才会加载。\n" +
+                    "3. App 被强制关闭时可能收不到实时提醒，重新连上后会自动补齐。\n" +
+                    "4. 手机端只能「回复/暂停/恢复」对话，不能执行命令或传文件。",
                 fontSize = 13.sp,
             )
         },
