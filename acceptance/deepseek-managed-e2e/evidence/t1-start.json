@@ -1,4 +1,5 @@
 {
-  "ok": false,
-  "detail": "deepseek managed turn start failed: dsh runtime request timeout or write failure: initialize"
+  "ok": true,
+  "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+  "detail": "dsh runtime spawned + initialize handshake ok (serverInfo deepseek-harness-sdk-runtime v0.0.1); lazy create+prompt in one (turn in flight; 44-type firehose streams to idle)"
 }

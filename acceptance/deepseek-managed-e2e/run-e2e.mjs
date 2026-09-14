@@ -57,6 +57,15 @@ const mod = await import(new URL('../../src/main/services/agentControl/providers
 const cfg = await import(new URL('../../src/main/services/agentControl/providers/deepseekManagedConfig.ts', import.meta.url).href)
 
 // 单实例锁窗口：临时 DEVHUB_HOME（库模式，无桌面实例）；还原纪律见 finally
+//
+// 网络路由（验证环境事实，2026-09-15 实测）：api.deepseek.com 本机直连超时——
+// harness LLM 往返需经用户系统代理。本 runner 以普通 shell 同款方式设置
+// NODE_USE_ENV_PROXY/HTTPS_PROXY（**路由非凭据**：零 key 值；生产 DevHub spawn
+// 透传 process.env，用户 shell 带什么路由就走什么——provider 代码零注入）。
+process.env['NODE_USE_ENV_PROXY'] = '1'
+process.env['HTTPS_PROXY'] = process.env['HTTPS_PROXY'] ?? 'http://127.0.0.1:7897'
+process.env['HTTP_PROXY'] = process.env['HTTP_PROXY'] ?? 'http://127.0.0.1:7897'
+
 try {
   // ------------------------------------------------------------------
   // 键置 1 → 门开

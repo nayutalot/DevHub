@@ -80,7 +80,7 @@ import {
   type DeepseekManagedGateState,
 } from './deepseekManagedConfig.ts'
 import {
-  describeDshTurnEnd,
+  describeDshTurnEndData,
   encodeDshRequest,
   evalDshEventStatus,
   extractDshServerInfo,
@@ -967,7 +967,7 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
         const from = handle.lastStatus ?? undefined
         handle.lastStatus = next
         const detail = ev.type === 'turn/end'
-          ? describeDshTurnEnd(reasonOfTurnEnd(ev.data))
+          ? describeDshTurnEndData(ev.data)
           : `dsh event: ${ev.type}`
         try {
           sink.onStatusChanged?.(ref, from, next, detail)
@@ -1018,12 +1018,6 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
       return
     }
     managedStats.unknownNotifications += 1 // 其余通知：容忍计数
-  }
-
-  function reasonOfTurnEnd(data: unknown): string | null {
-    if (data === null || typeof data !== 'object' || Array.isArray(data)) return null
-    const reason = (data as Record<string, unknown>)['reason']
-    return typeof reason === 'string' ? reason : null
   }
 
   /**

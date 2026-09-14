@@ -1,0 +1,634 @@
+[
+  {
+    "at": 1789422090533,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "user",
+    "nativeMsgId": "user-message-22",
+    "text": "请运行 bash 命令 `echo dsh-e2e-ok`，再尝试运行 `ls C:/Windows`；若第二条被沙箱拒绝，用一句话说明拒绝原因后结束。不要做别"
+  },
+  {
+    "at": 1789422091973,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-message-203",
+    "text": "[tool_call bash]\n[tool_call bash]"
+  },
+  {
+    "at": 1789422091973,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "tool",
+    "nativeMsgId": "tool-call-204",
+    "text": "[tool_call bash]"
+  },
+  {
+    "at": 1789422091986,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "tool",
+    "nativeMsgId": "tool-result-205",
+    "text": "[tool_result]"
+  },
+  {
+    "at": 1789422091986,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "tool",
+    "nativeMsgId": "tool-call-206",
+    "text": "[tool_call bash]"
+  },
+  {
+    "at": 1789422091991,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "tool",
+    "nativeMsgId": "tool-result-207",
+    "text": "[tool_result]"
+  },
+  {
+    "at": 1789422093125,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-326",
+    "text": "两条"
+  },
+  {
+    "at": 1789422093125,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-327",
+    "text": "命令"
+  },
+  {
+    "at": 1789422093125,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-328",
+    "text": "都没有"
+  },
+  {
+    "at": 1789422093207,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-329",
+    "text": "真正"
+  },
+  {
+    "at": 1789422093208,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-330",
+    "text": "执行"
+  },
+  {
+    "at": 1789422093208,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-331",
+    "text": "："
+  },
+  {
+    "at": 1789422093208,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-332",
+    "text": "bash"
+  },
+  {
+    "at": 1789422093208,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-333",
+    "text": " "
+  },
+  {
+    "at": 1789422093208,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-334",
+    "text": "工具"
+  },
+  {
+    "at": 1789422093208,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-335",
+    "text": "在"
+  },
+  {
+    "at": 1789422093208,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-336",
+    "text": "启动"
+  },
+  {
+    "at": 1789422093208,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-337",
+    "text": "阶段"
+  },
+  {
+    "at": 1789422093208,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-338",
+    "text": "就"
+  },
+  {
+    "at": 1789422093209,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-339",
+    "text": "报"
+  },
+  {
+    "at": 1789422093209,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-340",
+    "text": "错"
+  },
+  {
+    "at": 1789422093209,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-341",
+    "text": " `"
+  },
+  {
+    "at": 1789422093209,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-342",
+    "text": "Windows"
+  },
+  {
+    "at": 1789422093209,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-343",
+    "text": " ACL"
+  },
+  {
+    "at": 1789422093209,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-344",
+    "text": " temp"
+  },
+  {
+    "at": 1789422093209,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-345",
+    "text": " root"
+  },
+  {
+    "at": 1789422093209,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-346",
+    "text": " must"
+  },
+  {
+    "at": 1789422093209,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-347",
+    "text": " be"
+  },
+  {
+    "at": 1789422093209,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-348",
+    "text": " outside"
+  },
+  {
+    "at": 1789422093210,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-349",
+    "text": " the"
+  },
+  {
+    "at": 1789422093210,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-350",
+    "text": " workspace"
+  },
+  {
+    "at": 1789422093210,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-351",
+    "text": ":"
+  },
+  {
+    "at": 1789422093210,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-352",
+    "text": " workspace"
+  },
+  {
+    "at": 1789422093210,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-353",
+    "text": "=C"
+  },
+  {
+    "at": 1789422093210,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-354",
+    "text": ":\\"
+  },
+  {
+    "at": 1789422093210,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-355",
+    "text": "Users"
+  },
+  {
+    "at": 1789422093210,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-356",
+    "text": "\\"
+  },
+  {
+    "at": 1789422093210,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-357",
+    "text": "s"
+  },
+  {
+    "at": 1789422093248,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-358",
+    "text": "aku"
+  },
+  {
+    "at": 1789422093248,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-359",
+    "text": "ya"
+  },
+  {
+    "at": 1789422093248,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-360",
+    "text": ";"
+  },
+  {
+    "at": 1789422093248,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-361",
+    "text": " temp"
+  },
+  {
+    "at": 1789422093249,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-362",
+    "text": "=C"
+  },
+  {
+    "at": 1789422093249,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-363",
+    "text": ":\\"
+  },
+  {
+    "at": 1789422093249,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-364",
+    "text": "Users"
+  },
+  {
+    "at": 1789422093249,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-365",
+    "text": "\\"
+  },
+  {
+    "at": 1789422093249,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-366",
+    "text": "s"
+  },
+  {
+    "at": 1789422093249,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-367",
+    "text": "aku"
+  },
+  {
+    "at": 1789422093249,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-368",
+    "text": "ya"
+  },
+  {
+    "at": 1789422093249,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-369",
+    "text": "\\"
+  },
+  {
+    "at": 1789422093250,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-370",
+    "text": "App"
+  },
+  {
+    "at": 1789422093319,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-371",
+    "text": "Data"
+  },
+  {
+    "at": 1789422093319,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-372",
+    "text": "\\"
+  },
+  {
+    "at": 1789422093319,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-373",
+    "text": "Local"
+  },
+  {
+    "at": 1789422093319,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-374",
+    "text": "\\"
+  },
+  {
+    "at": 1789422093319,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-375",
+    "text": "Temp"
+  },
+  {
+    "at": 1789422093320,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-376",
+    "text": "`"
+  },
+  {
+    "at": 1789422093320,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-377",
+    "text": "，"
+  },
+  {
+    "at": 1789422093320,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-378",
+    "text": "即"
+  },
+  {
+    "at": 1789422093320,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-379",
+    "text": "临时"
+  },
+  {
+    "at": 1789422093320,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-380",
+    "text": "根"
+  },
+  {
+    "at": 1789422093320,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-381",
+    "text": "目录"
+  },
+  {
+    "at": 1789422093320,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-382",
+    "text": "位于"
+  },
+  {
+    "at": 1789422093320,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-383",
+    "text": "工作"
+  },
+  {
+    "at": 1789422093320,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-384",
+    "text": "区"
+  },
+  {
+    "at": 1789422093320,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-385",
+    "text": "内部"
+  },
+  {
+    "at": 1789422093321,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-386",
+    "text": "导致"
+  },
+  {
+    "at": 1789422093321,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-387",
+    "text": "初始化"
+  },
+  {
+    "at": 1789422093321,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-388",
+    "text": "失败"
+  },
+  {
+    "at": 1789422093321,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-389",
+    "text": "，"
+  },
+  {
+    "at": 1789422093321,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-390",
+    "text": "并非"
+  },
+  {
+    "at": 1789422093321,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-391",
+    "text": "沙"
+  },
+  {
+    "at": 1789422093321,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-392",
+    "text": "箱"
+  },
+  {
+    "at": 1789422093321,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-393",
+    "text": "对该"
+  },
+  {
+    "at": 1789422093322,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-394",
+    "text": "命令"
+  },
+  {
+    "at": 1789422093322,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-395",
+    "text": "的策略"
+  },
+  {
+    "at": 1789422093322,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-396",
+    "text": "拒绝"
+  },
+  {
+    "at": 1789422093322,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-chunk-397",
+    "text": "。"
+  },
+  {
+    "at": 1789422093323,
+    "kind": "msg",
+    "nativeId": "session-ee998ab6-b816-40d5-876e-1ffccf36325e",
+    "role": "assistant",
+    "nativeMsgId": "assistant-message-402",
+    "text": "两条命令都没有真正执行：bash 工具在启动阶段就报错 `Windows ACL temp root must be outside the workspace"
+  }
+]

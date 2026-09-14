@@ -16596,6 +16596,10 @@ if (isEntrypoint()) {
     assert.equal(proto.evalDshEventStatus('turn/end', { reason: 'blocked' }), 'failed')
     assert.equal(proto.evalDshEventStatus('turn/end', { reason: 'error' }), 'failed')
     assert.equal(proto.evalDshEventStatus('turn/end', { reason: 'future-reason' }), 'unknown', 'unregistered reason → unknown (never guesses)')
+    // 真机实测双形态：wire 携带 {kind:'completed'} 对象（2026-09-15），字符串形态容忍
+    assert.equal(proto.evalDshEventStatus('turn/end', { reason: { kind: 'completed' } }), 'waiting_input', 'object-wrapped reason kind normalized (real-machine wire shape)')
+    assert.equal(proto.evalDshEventStatus('turn/end', { reason: { kind: 'error' } }), 'failed', 'object-wrapped error kind → failed')
+    assert.equal(proto.evalDshEventStatus('turn/end', { reason: { kind: 'unheard-of' } }), 'unknown', 'object-wrapped unknown kind → unknown')
     assert.equal(proto.evalDshEventStatus('assistant/message', {}), null, 'content events carry no status evidence')
     assert.ok(proto.DSH_TURN_END_REASONS.includes('max-tokens'))
 

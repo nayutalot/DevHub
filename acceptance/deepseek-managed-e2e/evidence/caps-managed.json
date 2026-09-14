@@ -3,6 +3,6 @@
   "granted": [
     "reply"
   ],
-  "verifiedAt": 1789419462,
+  "verifiedAt": 1789422088,
   "evidence": "deepseek managed face enabled (deepseek-official/deepseek-v4-flash): version sentinel layer-1 ok (bin present at D:\\Apps\\deepseek-harness\\packages\\examples\\jsonrpc-demo\\lib\\bin.js); layer-2 initialize handshake identity check enforced at spawn; reply = live session/prompt or one-shot resume fallback (evidence distinguishes both states); NO wire cancel (SDK protocol has none; cancel semantics = process kill ladder); approval policy 'never' v1 (no remote approval channel; out-of-workspace ops auto-refused)"
 }

@@ -241,16 +241,16 @@ export const DSH_TURN_END_REASONS: readonly string[] = [
  * - turn/end 按 reason 如实映射：completed → waiting_input（回合正常收尾）；
  *   max-tokens → waiting_input（截断收尾仍等输入，detail 由调用方注明）；
  *   aborted → paused；interrupted → paused；blocked/error → failed；
- *   未登记录值 → unknown（绝不猜）；
- * - 其余 44 型事件 → null（无状态证据；内容事件走同库转录面，零额外工作）。
+ *   未登记录值 → unknown（绝不猜）。
+ *   reason 形态（真机实测绘）：字符串 `'completed'` 或对象 `{kind:'completed'}`
+ *   双形态容忍（真机 2026-09-15 实测 `{kind:'completed'}`）。
  */
 export function evalDshEventStatus(type: string, data: unknown): SessionStatus | null {
   if (type === 'turn/start') return 'running'
   if (type === 'approval/asked') return 'approval_required'
   if (type === 'approval/decided') return 'running'
   if (type === 'turn/end') {
-    const reason = data !== null && typeof data === 'object' && !Array.isArray(data) ? (data as Record<string, unknown>)['reason'] : undefined
-    switch (reason) {
+    switch (reasonKindOf(data)) {
       case 'completed':
       case 'max-tokens':
         return 'waiting_input'
@@ -263,6 +263,18 @@ export function evalDshEventStatus(type: string, data: unknown): SessionStatus |
       default:
         return 'unknown'
     }
+  }
+  return null
+}
+
+/** turn/end data 的 reason 宽容归一（字符串或 `{kind}` 包裹对象；真机双形态实测）。 */
+export function reasonKindOf(data: unknown): string | null {
+  if (data === null || typeof data !== 'object' || Array.isArray(data)) return null
+  const raw = (data as Record<string, unknown>)['reason']
+  if (typeof raw === 'string') return raw
+  if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) {
+    const kind = (raw as Record<string, unknown>)['kind']
+    if (typeof kind === 'string') return kind
   }
   return null
 }
@@ -287,6 +299,11 @@ export function describeDshTurnEnd(reason: string | null): string {
     default:
       return `turn ended (reason: ${reason ?? 'unspecified'})`
   }
+}
+
+/** turn/end data → reason 归一（evalDshEventStatus 同源；provider detail 用）。 */
+export function describeDshTurnEndData(data: unknown): string {
+  return describeDshTurnEnd(reasonKindOf(data))
 }
 
 /**
