@@ -51,6 +51,19 @@ export const KIMI_MANAGED_REPLY_TEMPLATE: readonly string[] = [
 ]
 
 /**
+ * 真机 managed 托管启动（spawn_session）一次性 argv 模板（KC 批，
+ * docs/briefs/kc-kimi-spawn.md；docs/18 §5.3 spawn_session 契约面）：新会话无
+ * `{sessionId}` 可占——与已验证 resume 模板（KIMI_MANAGED_REPLY_TEMPLATE）同源
+ * 少 `-S {sessionId}` 段，`-p {prompt}` 携带 spawn 表单的首条任务文本（契约必带，
+ * task 非空 ≤4000）。占位符 {prompt} 由 kimiProvider 全量替换；本常量只读导出。
+ * 显式常量而非从 replyTemplate 推导：模板演进不静默漂移（显式 > 隐式）。
+ */
+export const KIMI_MANAGED_SPAWN_TEMPLATE: readonly string[] = [
+  '-p', '{prompt}',
+  '--output-format', 'stream-json',
+]
+
+/**
  * 授权门开启时的托管进程超时（覆盖 provider 默认）：idle 60s（Phase A 实测重试
  * 退避上限 ~34s，默认 15s 会误杀网络抖动中的真实回合）；总生命周期 300s（一次性
  * 最小 prompt 回合的宽裕上限；超时即树杀→结构化失败，不存在无超时状态）。
@@ -65,6 +78,11 @@ export interface KimiManagedGateState {
   reason?: string
   /** 一次性回复 argv 模板（enabled=true 必有；{sessionId}/{prompt} 占位符）。 */
   replyTemplate?: string[]
+  /**
+   * 托管启动（spawn_session）一次性 argv 模板（enabled=true 必有；KC 批新增，
+   * {prompt} 占位符=spawn 表单首条任务文本；无 {sessionId}——新会话由 kimi 物化）。
+   */
+  spawnTemplate?: string[]
   /** 托管进程心跳空闲超时（enabled=true 必有；理由见常量注）。 */
   managedIdleTimeoutMs?: number
   /** 托管进程总生命周期上限（enabled=true 必有）。 */
@@ -89,6 +107,7 @@ export function readKimiManagedGate(deps?: { kimiHome?: string }): KimiManagedGa
   return {
     enabled: true,
     replyTemplate: [...KIMI_MANAGED_REPLY_TEMPLATE],
+    spawnTemplate: [...KIMI_MANAGED_SPAWN_TEMPLATE],
     managedIdleTimeoutMs: KIMI_MANAGED_IDLE_TIMEOUT_MS,
     managedLifetimeTimeoutMs: KIMI_MANAGED_LIFETIME_TIMEOUT_MS,
     kimiHome,
