@@ -1,4 +1,7 @@
-# DevHub 会话交接文档（2026-09-14 01:5x——桌面端优化线全收官：D-Aud 审计+D1 交互修复+D3 性能+B3 累积修复+D2 文案统一五批全合，常驻 X9 版在役）
+# DevHub 会话交接文档（2026-09-14 09:2x——桌面优化线 D4 交互批+X10 换装收官：审计清单仅剩 D5 四小项，常驻 X10 版在役）
+
+> **✅ D4 交互整改批已合 main（4feefaf）+X10 已换装在役（09-14 09:10 PID 20228 health×3，asar 全命中）**：I4 Contests BackupPanel 默认折叠回首屏/I5 Skills toggle 去双重确认（直切+异常态确认）/I7 Services 先 list 后 refresh（不再被数秒扫描阻塞）/I9+I10 扫描循环卸载取消+折叠面板停轮询（CDP 计数带阳性对照）/I6 会话行键盘可达性（role+tabIndex+Enter/Space+焦点环）。
+> **桌面优化线累计**：D-Aud 审计→D1 交互 P1×3→D3 性能（分割-36.6%）→B3 services 累积→D2 文案统一中文→D4 交互 P2×5——审计清单仅剩 **D5 四小项**（I8 目录选择器 IPC/I11 快捷键/I12 Toast 队列/F6 relativeTime tick）+P3 打磨若干。手机端 APK 6fcd774f 待装件不变。
 
 > **✅ D-Aud 桌面端三向审计（09-13 深夜，「优化桌面端」令）**：美观/交互/性能三桶×四级，**P0 零/P1×3/P2×13/P3×10**（清单=acceptance/desktop-audit-20260913/AUDIT.md+15 截图）。P1：I1 Docker Remove 用 window.prompt（Electron 必抛）=删除功能整体失效/I2 「加载更多」实为重载第一页（useCursorStream loadMore=refresh 游标重置）/I3 hash 路由仅 2/11 视图且不回写。性能基线：启动 health200 中位 **1321ms**、内存 465→575MB、Agents 滚动 169fps、bundle 931KB 无代码分割。走查护栏实证：锁屏检测→CDP 零注入完成 11 视图+悬浮窗（未对锁屏注入）。
 > **✅ D1 已合 main（4d1648c）+X7 已换装在役（PID 27748）**：P1×3 全修（Docker Remove modal 化转可用/loadMore 真追加 CDP 实证 100→163 行/hash 路由 11 视图全映射+回写）+美观快赢×3；typecheck 0+fast 115+CDP 运行时验证。
