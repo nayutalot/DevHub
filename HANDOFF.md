@@ -1,4 +1,4 @@
-# DevHub 会话交接文档（2026-09-14 深夜——「全做」mega-session+DeepSeek/Kimi 适配批收官：桌面清单清零+自动更新在役+本地命令协议②+证书双指纹+Kimi 真机 managed+DeepSeek observed 实装；main 见顶部，常驻 X11 版 PID 33704，最终 APK cd6d8caf）
+# DevHub 会话交接文档（2026-09-14 深夜——「全做」mega-session+DeepSeek/Kimi 适配批+X12 换装收官：桌面清单清零+自动更新在役+本地命令协议②+证书双指纹+Kimi 真机 managed+DeepSeek observed 全部在役；main=04c7c7c，常驻 X12 版 PID 21256，最终 APK cd6d8caf）
 
 > **✅ DeepSeek/Kimi 适配批（09-14 深夜，用户 /goal「推进对 deepseekharness，kimicode 的适配」=known-limitations §1.2/§1.5 等待的授权落地）——KM/DS 双批全收，main 合并树门禁 typecheck 0+fast 129（新基线）/full 224/build 过**：
 > 1. **KM（Kimi Code 真机 managed 接入）**：settings 键 `kimi_managed_enabled` 授权门（ALLOWED_KEYS，默认 0=停用，键 0 行为逐字节不变）+kimiManagedConfig 生产 wiring；**0.36→0.42 漂移七项复核**（-p/-S/--output-format stream-json/doctor/acp 新托管面、resume 强制 cwd=会话 workDir 已对齐、TUI+管道 stdin 有 workspace 信任门不可托管→定案一次性 argv 模板 `['-S','{sessionId}','-p','{prompt}','--output-format','stream-json']`、失败重试退避至 ~34s）；**真机 E2E 全序列**（capabilities observed→managed→真实 sendReply 11772ms executed→wire.jsonl 增长 sha256 双证→键 0 可撤销回归；推理消耗 2 次最小 prompt 如实；app 级 dev 实例投影翻转同证；单实例窗口纪律 health×3 同 PID 33704）；**known-limitations §1.5 收口**。证据=acceptance/kimi-managed-e2e/（零凭据入册）。
