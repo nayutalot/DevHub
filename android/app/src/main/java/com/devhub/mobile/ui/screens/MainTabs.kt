@@ -66,14 +66,14 @@ fun MainTabs(
                 NavigationBarItem(
                     selected = selected == "sessions",
                     onClick = { selected = "sessions" },
-                    icon = { Icon(Icons.Filled.List, contentDescription = "会话") },
-                    label = { Text("会话") },
+                    icon = { Icon(Icons.Filled.List, contentDescription = "对话") },
+                    label = { Text("对话") },
                 )
                 NavigationBarItem(
                     selected = selected == "agents",
                     onClick = { selected = "agents" },
-                    icon = { Icon(Icons.Filled.Star, contentDescription = "Agents") },
-                    label = { Text("Agents") },
+                    icon = { Icon(Icons.Filled.Star, contentDescription = "助手") },
+                    label = { Text("助手") },
                 )
                 // T1 批：独立「远程工作区」tab 撤销（用户裁决）——遥控入口并入会话/Agent 流
                 NavigationBarItem(
@@ -117,7 +117,8 @@ fun MainTabs(
     }
 }
 
-/** 顶部连接状态条：WS 状态（已连接 / 连接中 / 退避 / 未启动）一目了然；relay 模式区分降级信标。 */
+/** 顶部连接状态条：三态可判断性（docs/24 §2.2 矩阵逐格）——还没连接电脑 / 连不上 / 电脑不在线互斥文案；
+ * 心跳等数值全部移出常态面（技术原值在连接帮助「技术详情」折叠，docs/25 M5-M12 人话化）。 */
 @Composable
 private fun ConnectionStatusBar(onGatewayConfig: () -> Unit) {
     val state by ConnectionManager.state.collectAsState()
@@ -125,25 +126,37 @@ private fun ConnectionStatusBar(onGatewayConfig: () -> Unit) {
     val upstreamBeacon by ConnectionManager.upstreamBeacon.collectAsState()
     // 打磨批 D：钉深色主题后默认文字为主题浅色，与浅色状态底对比失效 →
     // 各状态显式配对 fg 色（取色与 StatusBadge 同源语义）。
-    // M2-R3（docs/19 §7.3）：relay 降级态（upstream disconnected）=「Relay 已连接，电脑离线
-    // （命令将排队）」结构化文案，琥珀底高亮，绝不显示为正常态——容错降级纪律。
+    // M2-R3（docs/19 §7.3）：relay 降级态（upstream disconnected）=「云端连接已连上，但电脑
+    // 不在线」结构化文案，琥珀底高亮，绝不显示为正常态——容错降级纪律（不伪造状态红线）。
     val (bg, fg, label) = when (val s = state) {
         is ConnState.Connected -> when {
             activeMode == "relay" && upstreamBeacon == "disconnected" ->
-                Triple(Color(0xFFFFECB3), Color(0xFF7A4F00), "Relay 已连接，电脑离线（命令将排队）")
+                Triple(
+                    Color(0xFFFFECB3),
+                    Color(0xFF7A4F00),
+                    "云端连接已连上，但电脑不在线——消息会在电脑上线后自动送达",
+                )
 
             activeMode == "relay" ->
-                Triple(Color(0xFFDDEBDD), Color(0xFF1B5E20), "Relay 已连接 · 心跳 ${s.heartbeatSec}s")
+                Triple(Color(0xFFDDEBDD), Color(0xFF1B5E20), "已连接（云端连接）")
 
-            else -> Triple(Color(0xFFDDEBDD), Color(0xFF1B5E20), "已连接 · 心跳 ${s.heartbeatSec}s")
+            else -> Triple(Color(0xFFDDEBDD), Color(0xFF1B5E20), "已连接")
         }
 
         is ConnState.Connecting -> Triple(Color(0xFFFFECB3), Color(0xFF7A4F00), "连接中…")
         is ConnState.Backing ->
-            Triple(Color(0xFFFFAB91), Color(0xFF7A2400), "退避重连（第 ${s.attempt} 次，${s.nextDelayMs / 1000}s 后）")
-        is ConnState.Unpaired -> Triple(Color(0xFFFFCDD2), Color(0xFFB71C1C), "未配对")
-        ConnState.Idle -> Triple(Color(0xFFE0E0E0), Color(0xFF37474F), "未启动")
+            Triple(
+                Color(0xFFFFAB91),
+                Color(0xFF7A2400),
+                "连不上：请检查手机网络或电脑是否开机（第 ${s.attempt} 次重试，约 ${s.nextDelayMs / 1000} 秒后）",
+            )
+        is ConnState.Unpaired -> Triple(Color(0xFFFFCDD2), Color(0xFFB71C1C), "还没连接电脑：先在电脑上生成配对码")
+        ConnState.Idle -> Triple(Color(0xFFE0E0E0), Color(0xFF37474F), "未连接")
     }
+    // 三态动作出口（docs/24 §2.2）：还没连接电脑/未连接 → 「去连接」直达连接流程入口
+    // （连接设置 → 连接电脑）；其余状态保持「连接设置」。「诊断连接问题」出口在
+    // 诊断 tab 与连接设置页（G16）——状态条直连诊断的接线归 P2 IA。
+    val actionLabel = if (state is ConnState.Unpaired || state == ConnState.Idle) "去连接" else "连接设置"
     Surface(color = bg, modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
@@ -152,7 +165,7 @@ private fun ConnectionStatusBar(onGatewayConfig: () -> Unit) {
             Text(label, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = fg)
             Spacer(Modifier.weight(1f))
             TextButton(onClick = onGatewayConfig) {
-                Text("网关配置", fontSize = 12.sp, color = fg)
+                Text(actionLabel, fontSize = 12.sp, color = fg)
             }
         }
     }
