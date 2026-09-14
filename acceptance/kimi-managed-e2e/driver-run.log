@@ -1,0 +1,31 @@
+2026-09-14T11:33:04.564Z === S0: health/version probe (read-only) ===
+(node:29504) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///F:/Active_Project/DevHub/worktrees/km-kimi/src/main/services/agentControl/providers/kimiProvider.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to F:\Active_Project\DevHub\worktrees\km-kimi\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+2026-09-14T11:33:05.102Z probeHealth: {"installed":true,"version":"0.42.0","exePath":"C:\\Users\\sakuya\\.kimi-code\\bin\\kimi.exe","health":"ok"}
+2026-09-14T11:33:05.102Z === S1: key absent (default off) → caps ===
+2026-09-14T11:33:05.104Z settings kimi_managed_enabled = (absent)
+2026-09-14T11:33:05.104Z caps1: {"mode":"observed","granted":[],"verifiedAt":1789385585,"evidence":"read-only session files; managed probe skipped: launching a real kimi session would write into ~/.kimi-code and cannot be guaranteed inference-free (red line; fixture-verified managed channel, real-machine e2e lands in AC8)"}
+2026-09-14T11:33:05.106Z [S1] wire.bytes=99108 wire.sha256[:16]=be23eaa0dce5d67f state.lastTurnReason=completed state.updatedAt=1789385253725
+2026-09-14T11:33:05.106Z === S2: key=1 (runtime flip, no restart) → caps ===
+2026-09-14T11:33:05.106Z settings kimi_managed_enabled = 1
+2026-09-14T11:33:05.633Z caps2: {"mode":"managed","granted":["reply"],"verifiedAt":1789385585,"evidence":"kimi managed face enabled (kimi_managed_enabled=1): kimi --version ok (0.42.0); config.toml readable; reply = one-shot \"kimi -S <id> -p <text>\" with session-file terminal confirmation"}
+2026-09-14T11:33:05.633Z === S3: real sendReply (real inference #2, minimal prompt) ===
+2026-09-14T11:33:05.634Z [S3-before] wire.bytes=99108 wire.sha256[:16]=be23eaa0dce5d67f state.lastTurnReason=completed state.updatedAt=1789385253725
+2026-09-14T11:33:17.406Z sendReply: {"ok":true,"status":"executed","detail":"kimi session file terminal state: state.json lastTurnReason=completed"} (11772ms)
+2026-09-14T11:33:17.406Z [S3-after] wire.bytes=176421 wire.sha256[:16]=bcd341ced8d6a9b7 state.lastTurnReason=completed state.updatedAt=1789385596345
+2026-09-14T11:33:17.407Z === S4: projection via readMessages (cursor 0) ===
+2026-09-14T11:33:17.409Z messages: 7 cursor: 176421
+2026-09-14T11:33:17.409Z   role=user at=1789385242 text="Reply with exactly this token and nothing else: E2E-SEED-OK"
+2026-09-14T11:33:17.409Z   role=user at=1789385242 text="<system-reminder>\nToday's date is 2026-09-14. The current date is restated in a "
+2026-09-14T11:33:17.409Z   role=user at=1789385242 text="<system-reminder>\nAuto permission mode is active. Tool approvals will be handled"
+2026-09-14T11:33:17.409Z   role=assistant at=1789385253 text="E2E-SEED-OK"
+2026-09-14T11:33:17.409Z   role=user at=1789385586 text="Reply with exactly this token and nothing else: DEVHUB-KM-E2E-OK"
+2026-09-14T11:33:17.409Z   role=user at=1789385586 text="<system-reminder>\nAuto permission mode is active. Tool approvals will be handled"
+2026-09-14T11:33:17.409Z   role=assistant at=1789385596 text="DEVHUB-KM-E2E-OK"
+2026-09-14T11:33:17.409Z diagnostics.control.note: managed one-shot prompt channel enabled (kimi_managed_enabled=1, real inference authorized); last reply verdict: terminal state confirmed (state.json lastTurnReason=completed)
+2026-09-14T11:33:17.409Z === S5: key=0 (revocation) → caps ===
+2026-09-14T11:33:17.410Z caps3: {"mode":"observed","granted":[],"verifiedAt":1789385597,"evidence":"read-only session files; managed probe skipped: launching a real kimi session would write into ~/.kimi-code and cannot be guaranteed inference-free (red line; fixture-verified managed channel, real-machine e2e lands in AC8)"}
+2026-09-14T11:33:17.410Z key now = 0
+2026-09-14T11:33:17.410Z === driver done ===

@@ -6291,6 +6291,173 @@ if (isEntrypoint()) {
     envSkipNote(`real kimi sessions discovered (read-only): ${sessions.length}`)
   })
 
+  // km-1（KM 批 Phase B，docs/briefs/km-kimi-managed.md）：kimi managed 授权门配置源。
+  // settings 白名单新增 kimi_managed_enabled；缺行/'0'/'true' = 停用（默认停用绝不
+  // 半开，reason 结构化点名键名且零凭据）；恰为 '1' 才授权（严格解析）；授权态携带
+  // 一次性 argv 模板（{sessionId}/{prompt} 占位符）+ 门注入超时（Phase A 实测重试
+  // 退避 ~34s → idle 60s）。
+  registerCase('km-1: kimi managed gate config source — settings whitelist addition, default-off with structured key-naming reason (zero credential), strict \'1\' authorization, one-shot argv template placeholders + gate timeout overrides', async () => {
+    const settings = await import(new URL('../src/main/services/settingsService.ts', import.meta.url).href)
+    const cfg = await import(new URL('../src/main/services/agentControl/providers/kimiManagedConfig.ts', import.meta.url).href)
+
+    await makeTempHome('devhub-km-1-')
+
+    // 1) 白名单接线（settings:set 通道可写的前提）
+    assert.ok(settings.allowedSettingKeys().includes('kimi_managed_enabled'), 'settings whitelist contains the gate key')
+
+    // 2) 缺行 = 停用（无种子行零迁移；llm_review/zcode_managed_model「默认停用绝不半开」先例）
+    assert.equal(settings.getSetting('kimi_managed_enabled'), undefined, 'no seed row: absence = disabled')
+    const off = cfg.readKimiManagedGate({ kimiHome: 'C:\\fixture\\kimi' })
+    assert.equal(off.enabled, false, 'absence = disabled')
+    assert.equal(off.replyTemplate, undefined, 'disabled gate carries no spawn template')
+    assert.ok(off.reason.includes('kimi_managed_enabled'), `structured reason names the settings key: ${off.reason}`)
+    assert.ok(off.reason.includes('disabled by default'), 'reason states the default-off semantic')
+    assert.equal(off.reason.includes('api_key'), false, 'reason carries zero credential wording')
+
+    // 3) 严格解析：恰为 '1' 才授权（'0'/'true' 等一律停用）
+    settings.setSetting('kimi_managed_enabled', '0')
+    assert.equal(cfg.readKimiManagedGate({ kimiHome: 'x' }).enabled, false, "'0' = disabled")
+    settings.setSetting('kimi_managed_enabled', 'true')
+    assert.equal(cfg.readKimiManagedGate({ kimiHome: 'x' }).enabled, false, "'true' = disabled (strict parsing)")
+    settings.setSetting('kimi_managed_enabled', '1')
+    const on = cfg.readKimiManagedGate({ kimiHome: 'C:\\fixture\\kimi' })
+    assert.equal(on.enabled, true, "'1' = enabled")
+    assert.equal(on.reason, undefined, 'enabled gate carries no reason')
+    assert.equal(on.kimiHome, 'C:\\fixture\\kimi', 'injected kimiHome honored (smoke seam)')
+
+    // 4) 授权态形状：一次性 argv 模板占位符 + 门注入超时（Phase A 0.42.0 复核值）
+    assert.deepEqual(
+      on.replyTemplate,
+      ['-S', '{sessionId}', '-p', '{prompt}', '--output-format', 'stream-json'],
+      'one-shot argv template (Phase A verified shape)',
+    )
+    assert.equal(on.managedIdleTimeoutMs, 60_000, 'gate idle override (retry backoff observed ~34s)')
+    assert.equal(on.managedLifetimeTimeoutMs, 300_000, 'gate lifetime override')
+
+    // 5) 默认 home 缝：homedir()/.kimi-code（与 kimiProvider 同一边界；零 env 读取）
+    const onDefault = cfg.readKimiManagedGate()
+    assert.equal(onDefault.enabled, true)
+    assert.ok(onDefault.kimiHome.endsWith('.kimi-code'), `default home mirrors kimiProvider boundary: ${onDefault.kimiHome}`)
+    assert.equal(cfg.KIMI_MANAGED_ENABLED_SETTING_KEY, 'kimi_managed_enabled')
+  }, 'fast')
+
+  // km-2（KM 批 Phase B/C 前置）：授权门 → kimiProvider 生产接线。门开 = caps 翻
+  // managed（evidence 带真实版本探测）+ sendReply 一次性 argv 通道（占位符替换
+  // 精确性：prompt 含空格/引号/& 单 argv 原样；终态确认同款红线：秒退无终态 = 结构
+  // 化失败）；门开但 CLI 不可用 = observed（绝不半开）；门停 = caps evidence/
+  // unsupported detail/diagnostics note 与未接线逐字节一致（键=0 行为不变断言）。
+  registerCase('km-2: kimi managed gate provider wiring — caps flip to managed with real version evidence; one-shot argv template reply with exact placeholder substitution confirmed by session-file terminal state; exit-without-terminal = structured failure; gate off = byte-identical legacy caps/reply/diagnostics', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, readFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const kimiMod = await import(new URL('../src/main/services/agentControl/providers/kimiProvider.ts', import.meta.url).href)
+
+    const dir = mkdtempSync(join(tmpdir(), 'devhub-km-2-'))
+    const SID = 'session_km200000-0000-4000-8000-000000000002'
+    const sessionDir = join(dir, 'sess', 'wd_km2', SID)
+    mkdirSync(join(sessionDir, 'agents', 'main'), { recursive: true })
+    // 0.42 resume 工作区规则锁：state.json.cwd 是 argv 通道 spawn cwd 的对齐源
+    writeFileSync(join(sessionDir, 'state.json'), JSON.stringify({ cwd: dir }), 'utf8')
+    const fixtureHome = join(dir, 'kimihome')
+    mkdirSync(fixtureHome, { recursive: true })
+    writeFileSync(
+      join(fixtureHome, 'session_index.jsonl'),
+      JSON.stringify({ sessionId: SID, sessionDir, workDir: 'C:\\nonexistent-km-2' }) + '\n',
+      'utf8',
+    )
+    writeFileSync(join(fixtureHome, 'config.toml'), 'default_model = "fixture/m"\n', 'utf8')
+
+    // 夹具脚本（node 直跑；--out 落终态 + args.json 记账供占位符替换断言；
+    // --exit-early 秒退无终态 → 结构化失败路径）。argv 通道无 env 注入面——
+    // 夹具参数全部经模板 argv 传递（与真机形态同构）。
+    const script = join(dir, 'fake-kimi-argv.mjs')
+    writeFileSync(
+      script,
+      [
+        "import { writeFileSync, appendFileSync, mkdirSync } from 'node:fs'",
+        "import { join } from 'node:path'",
+        'const argv = process.argv.slice(2)',
+        "const opt = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined }",
+        "if (argv.includes('--exit-early')) process.exit(0)",
+        "const out = opt('--out')",
+        "writeFileSync(join(out, 'args.json'), JSON.stringify({ s: opt('-S'), p: opt('-p'), fmt: opt('--output-format'), cwd: process.cwd() }))",
+        "writeFileSync(join(out, 'state.json'), JSON.stringify({ updatedAt: Date.now(), lastTurnReason: 'completed' }))",
+        "mkdirSync(join(out, 'agents', 'main'), { recursive: true })",
+        "appendFileSync(join(out, 'agents', 'main', 'wire.jsonl'), JSON.stringify({ type: 'turn.ended', turnId: 1, reason: 'completed', time: Date.now() }) + '\\n')",
+        '',
+      ].join('\n'),
+      'utf8',
+    )
+
+    const gateOn = {
+      enabled: true,
+      replyTemplate: [script, '-S', '{sessionId}', '--out', sessionDir, '-p', '{prompt}', '--output-format', 'stream-json'],
+      managedIdleTimeoutMs: 8_000,
+      managedLifetimeTimeoutMs: 20_000,
+      kimiHome: fixtureHome,
+    }
+    const gateOff = { enabled: false, reason: `settings key kimi_managed_enabled is not '1' (managed face disabled by default)` }
+    const ref = { providerId: 'kimi', nativeId: SID }
+
+    // 1) 门开 → caps 翻 managed：granted ['reply']，evidence 点名键名+真实版本探测
+    const on = kimiMod.createKimiProvider({ kimiHome: fixtureHome, exePath: process.execPath, managedGate: () => gateOn })
+    const capsOn = await on.getCapabilities(ref)
+    assert.equal(capsOn.mode, 'managed', `gate on → managed, got ${capsOn.mode}: ${capsOn.evidence}`)
+    assert.deepEqual(capsOn.granted, ['reply'], 'reply granted under authorization gate')
+    assert.ok(capsOn.evidence.includes('kimi_managed_enabled=1'), `evidence names the key: ${capsOn.evidence}`)
+    assert.ok(capsOn.evidence.includes('kimi --version ok'), `evidence carries the real probe: ${capsOn.evidence}`)
+    assert.ok(capsOn.evidence.includes('config.toml readable'), 'evidence states config face readiness')
+    const diagOn = on.describeDiagnostics()
+    assert.ok(String(diagOn.control?.note ?? '').includes('one-shot prompt channel enabled'), `diagnostics two-state text (on): ${diagOn.control?.note}`)
+
+    // 2) 门开 argv 通道：一次性模板 spawn → 终态确认 → executed；占位符替换精确
+    const prompt = 'devhub km minimal prompt with "quotes" & spaces'
+    const okOutcome = await on.sendReply(ref, prompt)
+    assert.deepEqual(
+      { ok: okOutcome.ok, status: okOutcome.status },
+      { ok: true, status: 'executed' },
+      `argv channel executed on terminal state, got ${JSON.stringify(okOutcome)}`,
+    )
+    assert.ok(okOutcome.detail.includes('terminal state'), `detail carries terminal evidence: ${okOutcome.detail}`)
+    const seen = JSON.parse(readFileSync(join(sessionDir, 'args.json'), 'utf8'))
+    assert.equal(seen.s, SID, '{sessionId} substituted exactly')
+    assert.equal(seen.p, prompt, '{prompt} substituted exactly (single argv, shell-free)')
+    assert.equal(seen.fmt, 'stream-json', 'output-format flag passed through')
+    assert.equal(seen.cwd, dir, 'spawn cwd aligned to state.json.cwd (0.42 resume workspace rule)')
+
+    // 3) 秒退无终态 → 结构化失败（进程退出 ≠ 成功红线在 argv 通道原样保留）
+    const gateEarly = { ...gateOn, replyTemplate: [...gateOn.replyTemplate, '--exit-early'] }
+    const early = kimiMod.createKimiProvider({ kimiHome: fixtureHome, exePath: process.execPath, managedGate: () => gateEarly })
+    const earlyOutcome = await early.sendReply(ref, 'hi')
+    assert.equal(earlyOutcome.ok, false, 'process exit without terminal state must not succeed')
+    assert.equal(earlyOutcome.status, 'failed')
+    assert.equal(earlyOutcome.errorCode, 'COMMAND_NOT_EXECUTABLE')
+    assert.ok(earlyOutcome.detail.includes('process exited'), `structured failure detail: ${earlyOutcome.detail}`)
+
+    // 4) 门开但 CLI 不可用 → observed + 结构化 evidence（绝不半开）
+    const badExe = kimiMod.createKimiProvider({ kimiHome: fixtureHome, exePath: 'definitely-missing-km-2.exe', managedGate: () => gateOn })
+    const capsBad = await badExe.getCapabilities(ref)
+    assert.equal(capsBad.mode, 'observed', 'gate on + unusable CLI = observed')
+    assert.deepEqual(capsBad.granted, [], 'empty granted on unusable CLI')
+    assert.ok(capsBad.evidence.includes('version probe failed'), `structured downgrade evidence: ${capsBad.evidence}`)
+
+    // 5) 门停 = 逐字节同未接线（键=0 行为不变）：caps evidence / reply detail /
+    //    diagnostics note 三面全等
+    const legacy = kimiMod.createKimiProvider({ kimiHome: fixtureHome, exePath: 'definitely-missing-km-2.exe' })
+    const gated = kimiMod.createKimiProvider({ kimiHome: fixtureHome, exePath: 'definitely-missing-km-2.exe', managedGate: () => gateOff })
+    const capsLegacy = await legacy.getCapabilities(ref)
+    const capsOff = await gated.getCapabilities(ref)
+    assert.equal(capsOff.mode, capsLegacy.mode, 'gate off: mode identical')
+    assert.deepEqual(capsOff.granted, capsLegacy.granted, 'gate off: granted identical')
+    assert.equal(capsOff.evidence, capsLegacy.evidence, `gate off: evidence byte-identical: ${capsOff.evidence}`)
+    const replyLegacy = await legacy.sendReply(ref, 'x')
+    const replyOff = await gated.sendReply(ref, 'x')
+    assert.equal(replyOff.ok, replyLegacy.ok)
+    assert.equal(replyOff.status, replyLegacy.status)
+    assert.equal(replyOff.detail, replyLegacy.detail, `gate off: unsupported detail byte-identical: ${replyOff.detail}`)
+    assert.equal(gated.describeDiagnostics().control?.note, legacy.describeDiagnostics().control?.note, 'gate off: diagnostics note byte-identical')
+  })
+
   // 110. ZCode 夹具：schema 白名单通过 → 健康探测/会话/消息/审批落库；task_status
   //      映射（completed/error）+ approval_required 事件贯通；T11 只读不变性
   registerCase('ac4-110: zcode fixture — schema whitelist passes, health ok, sessions/messages persisted, task_status map (completed/error) + approval_required waiting_input event through L3; T11 read-only invariance (mtime+hash of db trio unchanged)', async () => {
@@ -14853,7 +15020,7 @@ if (isEntrypoint()) {
     await makeTempHome('devhub-t2z-110-')
     try {
       assert.equal(settings.allowedSettingKeys().includes('zcode_managed_model'), true, 'whitelist carries the T2 key (18→19)')
-      assert.equal(settings.allowedSettingKeys().length, 19, 'ALLOWED_KEYS 18→19 (T2 batch; no prior count lock — settingsService header note updated)')
+      assert.equal(settings.allowedSettingKeys().length, 20, 'ALLOWED_KEYS 19→20 (KM 批就地更新：尾追 kimi_managed_enabled 授权门键，docs/briefs/km-kimi-managed.md Phase B；km-1 锁新键语义)')
       assert.throws(() => settings.setSetting('zcode_managed_not_a_key', 'x'), /not allowed/, 'non-whitelisted keys still rejected')
       assert.equal(cfg.zcodeManagedModelSetting(), '', 'absence = empty = disabled')
       settings.setSetting('zcode_managed_model', 'dummyhub/dummy-model')

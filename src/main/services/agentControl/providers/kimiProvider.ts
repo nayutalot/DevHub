@@ -39,10 +39,20 @@
  * managed 通道（docs/12 §8.3）：sendReply = spawnManaged 托管启动 kimi（stdinWritable）
  * + writeStdin 注入 → **轮询会话文件终态确认**（wire.jsonl 新增 turn.ended 或
  * state.json updatedAt 推进且 lastTurnReason 非空），超时/进程先退且无终态 → 结构化
- * 失败——**禁仅凭进程退出判成功**。真机边界：kimi 真实托管启动必然写入 ~/.kimi-code
- * （sessions/logs）且无法保证不触发推理 → 真机 managed 探测跳过（getCapabilities
- * 保持 observed + 空集，原因随 evidence 记录）；managed 通道全部由夹具假进程验证，
- * 真机端到端 reply 留 AC8。
+ * 失败——**禁仅凭进程退出判成功**。真机边界（KM 批改版）：kimi 真实托管启动必然
+ * 写入 ~/.kimi-code（sessions/logs）且必然消耗真实推理 → 默认（settings 键
+ * `kimi_managed_enabled` 缺行/≠'1'）保持 observed + 空集，原因随 evidence 记录；
+ * 键=1（用户显式授权，docs/briefs/km-kimi-managed.md Phase B/C）时经 options.managedGate
+ * 授 managed+reply（evidence 带真实 CLI 版本；zcode doctor 先例：存活探测+配置
+ * 就绪 → managed，回合级真实验证由真实 sendReply 承担——一次性 -p 探测必然消耗
+ * 推理并产生垃圾会话，绝不作 caps 探测面）。
+ *
+ * KM 批真机通道（Phase A kimi 0.42.0 只读复核定形）：一次性 argv 模板
+ * `kimi -S {sessionId} -p {prompt} --output-format stream-json`——0.42 的 TUI+管道
+ * stdin 有 workspace 信任门+TTY 依赖不可托管；resume 实测不建新会话（turn 增量落
+ * 同一 wire.jsonl，turnId 递增）；stream-json stdout NDJSON 事件流喂托管心跳
+ * （重试退避实测可达 ~34s，门注入 idle 60s）。0.36→0.42 漂移面详见
+ * acceptance/kimi-managed-e2e/phase-a-0.42-review.md。
  *
  * 红线：`~/.kimi-code/**` 全程零写入；config.toml 明文 api_key 任何投影只有尾 4 位
  * + 长度（projectKimiConfig → maskKey，docs/12 §8.3 / docs/15 §6）；
@@ -66,6 +76,7 @@ import {
   type MonitorCancelToken,
 } from '../monitorRegistry.ts'
 import { maskKey, redactText } from '../redact.ts'
+import { KIMI_MANAGED_ENABLED_SETTING_KEY, type KimiManagedGateState } from './kimiManagedConfig.ts'
 import type {
   AgentProvider,
   CommandOutcome,
@@ -109,6 +120,13 @@ export interface KimiProviderOptions {
   replyPollMs?: number
   /** 托管探测确认窗口毫秒。 */
   managedProbeConfirmMs?: number
+  /**
+   * KM 批：真机 managed 授权门（每调用读取，kimiManagedConfig.readKimiManagedGate
+   * 生产注入）。enabled=true 时 getCapabilities 授 managed+reply（evidence 带真实
+   * CLI 版本），sendReply 走一次性 argv 模板通道；停用/undefined = 现行为逐字节
+   * 不变——夹具 stdin 通道与 observed 红线全保留。
+   */
+  managedGate?: () => KimiManagedGateState
   /** 消息投影单条字符上限（完整内容在源文件，source_ref 指回）。 */
   messageTextCap?: number
   /** 单 tick 消息投影上限（防御超大 wire 语料）。 */
@@ -612,6 +630,11 @@ export function createKimiProvider(options: KimiProviderOptions = {}): AgentProv
       const verdict = await runManagedProbe()
       return verdict
     }
+    // KM 批：settings 授权门开着（键=1，用户显式授权真机推理+写入）→ 门驱动判定
+    // （真实 CLI 版本探测+配置面可读；门停用/未注入 → 落到既有 observed 路径，
+    // 行为逐字节不变）
+    const gate = options.managedGate?.()
+    if (gate !== undefined && gate.enabled) return gateCapabilities(gate)
     const v = await probeVersion()
     const indexReadable = await stat(indexPath()).then(() => true, () => false)
     const reason =
@@ -688,6 +711,36 @@ export function createKimiProvider(options: KimiProviderOptions = {}): AgentProv
     }
   }
 
+  /**
+   * KM 批：settings 授权门驱动的 managed 判定（键=1）。判定面 = 真实 CLI 版本探测
+   * （--version，零推理零写入）+ config.toml 可读性（只 stat 不读内容——api_key
+   * 红线）；回合级真实验证由真实 sendReply 承担（一次性 -p 探测必然消耗推理并
+   * 产生垃圾会话，绝不作 caps 探测面）。版本探测失败/配置缺失 → observed + 结构化
+   * evidence（绝不半开：门开着但 CLI 不可用 = 不可托管）。
+   */
+  async function gateCapabilities(gate: KimiManagedGateState): Promise<AgentCapabilitySet> {
+    const v = await probeVersion(true)
+    if (!v.ok) {
+      return {
+        mode: 'observed',
+        granted: [],
+        verifiedAt: nowSec(),
+        evidence: `kimi managed face enabled (${KIMI_MANAGED_ENABLED_SETTING_KEY}=1) but version probe failed: ${v.detail}`,
+      }
+    }
+    const configPath = join(gate.kimiHome ?? kimiHome, 'config.toml')
+    const configReadable = await stat(configPath).then(
+      () => true,
+      () => false,
+    )
+    return {
+      mode: 'managed',
+      granted: ['reply'],
+      verifiedAt: nowSec(),
+      evidence: `kimi managed face enabled (${KIMI_MANAGED_ENABLED_SETTING_KEY}=1): ${v.detail}; config.toml ${configReadable ? 'readable' : 'NOT readable (reply will fail closed)'}; reply = one-shot "kimi -S <id> -p <text>" with session-file terminal confirmation`,
+    }
+  }
+
   // -------------------------------------------------------------------------
   // 九方法 5-7：sendReply / pause / resume（managed stdin 注入 + 会话文件终态确认）
   // -------------------------------------------------------------------------
@@ -709,8 +762,14 @@ export function createKimiProvider(options: KimiProviderOptions = {}): AgentProv
    * writeStdin 注入 → 轮询会话文件终态（wire 新增 turn.ended / state.json updatedAt
    * 推进且 lastTurnReason 非空）→ executed；超时或进程先退且无终态 → 结构化失败
    * （进程退出 ≠ 成功，docs/12 §8.3）。
+   * KM 批：授权门开着且带一次性 argv 模板 → 走 sendReplyManagedArgv（0.42 真机
+   * 形态）；门停用/未注入 → 既有 stdin 路径逐字节保留（夹具通道）。
    */
   async function sendReply(ref: SessionRef, text: string): Promise<CommandOutcome> {
+    const gate = options.managedGate?.()
+    if (gate !== undefined && gate.enabled && gate.replyTemplate !== undefined) {
+      return sendReplyManagedArgv(ref, text, gate)
+    }
     if (options.spawnArgs === undefined) return unsupported('reply')
     const sessionDir = await findSessionDir(ref.nativeId)
     if (sessionDir === null) {
@@ -745,37 +804,7 @@ export function createKimiProvider(options: KimiProviderOptions = {}): AgentProv
           detail: `kimi reply stdin write failed: ${written.error?.message ?? written.error?.code ?? 'unknown'}`,
         }
       }
-      const deadline = Date.now() + replySettleMs
-      while (Date.now() < deadline) {
-        const terminal = await readTerminalEvidence(sessionDir, baseline)
-        if (terminal !== null) {
-          lastReplyVerdict = `terminal state confirmed (${terminal})`
-          return { ok: true, status: 'executed', detail: `kimi session file terminal state: ${terminal}` }
-        }
-        if (exitFlag.get()) {
-          // 进程先退：最后再核对一次（退出冲刷可能已落盘）
-          const final = await readTerminalEvidence(sessionDir, baseline)
-          if (final !== null) {
-            lastReplyVerdict = `terminal state confirmed after exit (${final})`
-            return { ok: true, status: 'executed', detail: `kimi session file terminal state (process exited): ${final}` }
-          }
-          lastReplyVerdict = 'process exited without session-file terminal state'
-          return {
-            ok: false,
-            status: 'failed',
-            errorCode: 'COMMAND_NOT_EXECUTABLE',
-            detail: 'kimi process exited before any session-file terminal state (process exit ≠ success)',
-          }
-        }
-        await new Promise((r) => setTimeout(r, replyPollMs))
-      }
-      lastReplyVerdict = `no terminal state within ${replySettleMs}ms`
-      return {
-        ok: false,
-        status: 'failed',
-        errorCode: 'COMMAND_NOT_EXECUTABLE',
-        detail: `kimi reply not confirmed in session files within ${replySettleMs}ms`,
-      }
+      return await pollTerminalOutcome(sessionDir, baseline, exitFlag, replyPollMs, replySettleMs)
     } finally {
       try {
         await proc.killTree()
@@ -783,6 +812,108 @@ export function createKimiProvider(options: KimiProviderOptions = {}): AgentProv
         /* 已退出 */
       }
       await proc.exited.catch(() => {})
+    }
+  }
+
+  /**
+   * KM 批真机通道：授权门的一次性 argv 模板 spawn（无 stdin 注入——0.42 实测
+   * TUI+管道 stdin 有 workspace 信任门不可托管）。模板占位符 {sessionId}/{prompt}
+   * 全量替换；参数数组无 shell，prompt 原样单 argv 传递（零注入面）。spawn cwd
+   * 对齐会话 state.json.cwd（0.42 resume 工作区规则）。终态确认与 stdin 路径完全
+   * 同款（进程退出 ≠ 成功红线原样保留）。门注入 idle/lifetime 覆盖默认
+   * （stream-json 事件流喂心跳；重试退避实测 ~34s > 默认 idle 15s）。
+   */
+  async function sendReplyManagedArgv(ref: SessionRef, text: string, gate: KimiManagedGateState): Promise<CommandOutcome> {
+    const template = gate.replyTemplate
+    if (template === undefined) {
+      lastReplyVerdict = 'gate enabled without reply template'
+      return {
+        ok: false,
+        status: 'failed',
+        errorCode: 'COMMAND_NOT_EXECUTABLE',
+        detail: 'kimi managed gate enabled without a reply template (malformed gate state)',
+      }
+    }
+    const sessionDir = await findSessionDir(ref.nativeId)
+    if (sessionDir === null) {
+      return {
+        ok: false,
+        status: 'failed',
+        errorCode: 'COMMAND_NOT_EXECUTABLE',
+        detail: `kimi session ${ref.nativeId} not found in session_index.jsonl`,
+      }
+    }
+    const baseline = await readTerminalBaseline(sessionDir)
+    const exe = await resolveExe()
+    const args = template.map((arg) =>
+      arg.replaceAll('{sessionId}', ref.nativeId).replaceAll('{prompt}', text),
+    )
+    // 0.42 resume 工作区规则（Phase A 实测）：`-S <id>` 拒绝在会话 workDir 之外
+    // resume（"Session ... was created under a different directory"）——spawn cwd
+    // 对齐 state.json.cwd（缺失则继承父进程，交由终态确认结构化兜底）
+    const { state } = await readKimiState(sessionDir)
+    const sessionCwd = typeof state?.cwd === 'string' && state.cwd.length > 0 ? state.cwd : undefined
+    const proc = spawnManaged(exe, args, {
+      idleTimeoutMs: gate.managedIdleTimeoutMs ?? managedIdleTimeoutMs,
+      lifetimeTimeoutMs: gate.managedLifetimeTimeoutMs ?? managedLifetimeTimeoutMs,
+      stdinWritable: false,
+      ...(sessionCwd !== undefined ? { cwd: sessionCwd } : {}),
+    })
+    const exitFlag = trackEarlyExit(proc)
+    try {
+      if (proc.pid <= 0) {
+        lastReplyVerdict = 'spawn failed'
+        return { ok: false, status: 'failed', errorCode: 'COMMAND_NOT_EXECUTABLE', detail: 'kimi managed spawn failed' }
+      }
+      return await pollTerminalOutcome(sessionDir, baseline, exitFlag, replyPollMs, replySettleMs)
+    } finally {
+      try {
+        await proc.killTree()
+      } catch {
+        /* 已退出 */
+      }
+      await proc.exited.catch(() => {})
+    }
+  }
+
+  /** 终态确认轮询（stdin/argv 两条 managed 通道共用；逐字节同款语义）。 */
+  async function pollTerminalOutcome(
+    sessionDir: string,
+    baseline: TerminalBaseline,
+    exitFlag: { get(): boolean },
+    pollMs: number,
+    settleMs: number,
+  ): Promise<CommandOutcome> {
+    const deadline = Date.now() + settleMs
+    while (Date.now() < deadline) {
+      const terminal = await readTerminalEvidence(sessionDir, baseline)
+      if (terminal !== null) {
+        lastReplyVerdict = `terminal state confirmed (${terminal})`
+        return { ok: true, status: 'executed', detail: `kimi session file terminal state: ${terminal}` }
+      }
+      if (exitFlag.get()) {
+        // 进程先退：最后再核对一次（退出冲刷可能已落盘）
+        const final = await readTerminalEvidence(sessionDir, baseline)
+        if (final !== null) {
+          lastReplyVerdict = `terminal state confirmed after exit (${final})`
+          return { ok: true, status: 'executed', detail: `kimi session file terminal state (process exited): ${final}` }
+        }
+        lastReplyVerdict = 'process exited without session-file terminal state'
+        return {
+          ok: false,
+          status: 'failed',
+          errorCode: 'COMMAND_NOT_EXECUTABLE',
+          detail: 'kimi process exited before any session-file terminal state (process exit ≠ success)',
+        }
+      }
+      await new Promise((r) => setTimeout(r, pollMs))
+    }
+    lastReplyVerdict = `no terminal state within ${settleMs}ms`
+    return {
+      ok: false,
+      status: 'failed',
+      errorCode: 'COMMAND_NOT_EXECUTABLE',
+      detail: `kimi reply not confirmed in session files within ${settleMs}ms`,
     }
   }
 
@@ -1062,6 +1193,8 @@ export function createKimiProvider(options: KimiProviderOptions = {}): AgentProv
   }
 
   function describeDiagnostics(): ProviderDiagnosticsInfo {
+    const gate = options.managedGate?.()
+    const gateEnabled = gate !== undefined && gate.enabled
     const managedConfigured = options.spawnArgs !== undefined
     return {
       dataSource: {
@@ -1073,9 +1206,12 @@ export function createKimiProvider(options: KimiProviderOptions = {}): AgentProv
       },
       control: {
         ...(managedConfigured ? { stdin: true } : {}),
-        note: managedConfigured
-          ? `managed stdin channel configured; last reply verdict: ${lastReplyVerdict ?? 'none yet'}`
-          : 'managed stdin channel not configured (real kimi launch would write ~/.kimi-code; red line) — observed only',
+        // KM 批两态如实：门开=一次性 prompt 通道；门停/未注入=既有文案逐字节不变
+        note: gateEnabled
+          ? `managed one-shot prompt channel enabled (${KIMI_MANAGED_ENABLED_SETTING_KEY}=1, real inference authorized); last reply verdict: ${lastReplyVerdict ?? 'none yet'}`
+          : managedConfigured
+            ? `managed stdin channel configured; last reply verdict: ${lastReplyVerdict ?? 'none yet'}`
+            : 'managed stdin channel not configured (real kimi launch would write ~/.kimi-code; red line) — observed only',
       },
     }
   }
