@@ -225,7 +225,12 @@ export function SkillsView() {
   function handleToggle(agent: SkillAgentScanView, skill: string, state: LinkState): void {
     if (state === 'real-dir') return
     const enable = state !== 'linked'
-    if (!window.confirm(`${enable ? '建立' : '解除'}链接：${agent.name} / ${skill}？`)) return
+    // D4-M2（AUDIT D-Aud I5）：linked↔missing 高频开关直接切换不再弹 native confirm；
+    // 仅异常态（vault-missing / wrong-target，操作结果不可预期）保留一次确认。
+    // 开关结果语义不变：toggleLink 载荷与 confirmed 原样，反馈/刷新路径不变。
+    if (state === 'vault-missing' || state === 'wrong-target') {
+      if (!window.confirm(`${enable ? '建立' : '解除'}链接：${agent.name} / ${skill}（当前：${LINK_LABEL[state]}）？`)) return
+    }
     void runAction('切换链接', async () => {
       const r = await call('skills:toggleLink', { agentId: agent.id, skill, enable, confirmed: true })
       setFeedback({ title: `链接切换 ${agent.name}/${skill}：${r.changed ? '已变更' : '无变更'} → ${LINK_LABEL[r.state]}`, lines: r.steps })
