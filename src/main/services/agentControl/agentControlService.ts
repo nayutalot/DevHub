@@ -1294,13 +1294,12 @@ export function completeWorkspaceLink(input: {
 }
 
 /**
- * provider 能力模式只读投影（M3-E1 commandDownlink spawn_session 拒绝码分类专用）：
- * 业务键或数字 id → caps.mode（managed|attached|observed）；provider 未知 → null
- * （分类跳过，由 L3 startProviderManagedSession 折 NOT_FOUND）。绝不写库、绝不
- * 旁路 L3 门——L3 在执行路径重新权威校验，本投影仅用于错误码映射（§5.3：
- * 授权矩阵不允许 → COMMAND_NOT_EXECUTABLE；spawn 特有拒绝 → SPAWN_REJECTED）。
+ * provider 能力集只读投影（relay session_detail 附带 caps 用，RD-mobile-chat
+ * run2：host 腿 session_list detail 语义与本地 REST detail 同源，docs/12 §5）：
+ * 业务键或数字 id → CapabilitySet；provider 未知 → null。绝不写库、绝不旁路 L3
+ * 门（仅读投影，授权判定仍归各 L3 权威校验）。
  */
-export function readProviderCapabilityMode(ref: string): 'managed' | 'attached' | 'observed' | null {
+export function readProviderCapabilitySet(ref: string): AgentCapabilitySet | null {
   const numericId = /^\d+$/.test(ref) ? Number.parseInt(ref, 10) : null
   const row = (
     numericId !== null
@@ -1308,7 +1307,18 @@ export function readProviderCapabilityMode(ref: string): 'managed' | 'attached' 
       : (getDatabase().prepare('SELECT capabilities_json FROM agent_providers WHERE provider = ?').get(ref) as { capabilities_json: string | null } | undefined)
   )
   if (row === undefined) return null
-  return parseCapabilitySet(row.capabilities_json).mode
+  return parseCapabilitySet(row.capabilities_json)
+}
+
+/**
+ * provider 能力模式只读投影（M3-E1 commandDownlink spawn_session 拒绝码分类专用）：
+ * 业务键或数字 id → caps.mode（managed|attached|observed）；provider 未知 → null
+ * （分类跳过，由 L3 startProviderManagedSession 折 NOT_FOUND）。绝不写库、绝不
+ * 旁路 L3 门——L3 在执行路径重新权威校验，本投影仅用于错误码映射（§5.3：
+ * 授权矩阵不允许 → COMMAND_NOT_EXECUTABLE；spawn 特有拒绝 → SPAWN_REJECTED）。
+ */
+export function readProviderCapabilityMode(ref: string): 'managed' | 'attached' | 'observed' | null {
+  return readProviderCapabilitySet(ref)?.mode ?? null
 }
 
 /**

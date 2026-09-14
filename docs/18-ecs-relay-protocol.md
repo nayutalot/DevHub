@@ -221,6 +221,11 @@ endpoint（G2/G7/D7，docs/21 §1）——时间盒属部署期例外，代码�
 `stale:true` 仅出现在 host leg 断开时由 ECS 缓存元数据降级应答（§7.3）；此时 ECS 只答缓存中有
 元数据的字段，缺失字段缺省，**绝不构造猜测值**。
 
+**detail 复用（RD-mobile-chat run2 补记，2026-09-14）**：ECS REST `GET /v1/sessions/{id}`（§7）
+复用本帧承载 detail——`query.sessionId`（正整数，detail 语义：host 按 id 收窄 sessions）+ 响应
+可选顶层 `capabilities`（该会话 provider 的 CapabilitySet，本地 REST detail 同源语义，docs/12 §5；
+缺失时 ECS 以 null 透传、App 空能力缺省）。纯列表查询两字段均缺省，行为不变。
+
 ### 3.6 event（事件帧，投影规则见 §4）
 
 ```json
