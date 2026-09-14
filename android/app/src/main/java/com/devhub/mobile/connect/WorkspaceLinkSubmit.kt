@@ -46,11 +46,11 @@ object WorkspaceLinkOutcome {
 
     /** X-L 本地面（docs/18 §5.3.2）：10s 终态未回 → 结构化超时（本地无补发面，绝不排队）。 */
     fun localTimeout(): WorkspaceLinkSubmit =
-        WorkspaceLinkSubmit.Failed("TIMEOUT", "本地网关未在时限内返回链接（请确认桌面 DevHub 正在运行）")
+        WorkspaceLinkSubmit.Failed("TIMEOUT", "电脑未在时限内返回页面链接（请确认电脑上的 DevHub 正在运行）")
 
     /** X-L 本地面（docs/18 §5.3.2）：本地网关未连接 → 结构化不可用（绝不排队、绝不伪成功）。 */
     fun localNotConnected(): WorkspaceLinkSubmit =
-        WorkspaceLinkSubmit.Failed("NOT_CONNECTED", "本地网关未连接（请确认桌面 DevHub 正在运行且设备已配对）")
+        WorkspaceLinkSubmit.Failed("NOT_CONNECTED", "还没连上电脑（请确认电脑上的 DevHub 正在运行且设备已配对）")
 
     fun fromResult(status: String, result: JSONObject?, errorCode: String?): WorkspaceLinkSubmit = when {
         status == "executed" && result != null && !result.optString("url").isBlank() ->
@@ -62,14 +62,14 @@ object WorkspaceLinkOutcome {
 
         status == "executed" ->
             // executed 却无 url：投影不完整——结构化失败，绝不猜（绝不造 URL）
-            WorkspaceLinkSubmit.Failed("BAD_PAYLOAD", "workspace_link 终态缺少链接载荷")
+            WorkspaceLinkSubmit.Failed("BAD_PAYLOAD", "电脑返回的链接数据不完整")
 
         else ->
             WorkspaceLinkSubmit.Failed(
                 errorCode ?: "COMMAND_REJECTED",
                 when (errorCode) {
-                    "ZCODE_LINK_UNAVAILABLE" -> "桌面暂无法获取 ZCode 工作区链接（ZCode 未运行或凭据不可读）"
-                    else -> errorCode?.let { "命令被拒绝 [$it]" } ?: "命令被拒绝"
+                    "ZCODE_LINK_UNAVAILABLE" -> "电脑暂无法获取 ZCode 页面链接（ZCode 未运行或凭据不可读）"
+                    else -> "电脑没接受这个请求"
                 },
             )
     }

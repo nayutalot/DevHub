@@ -78,7 +78,7 @@ internal object ZCodeRemoteEntryOp {
         is WorkspaceLinkCard.State.Queued ->
             // U1-M4（AUDIT P1#4）：与心跳横幅分层——横幅「已连接」指 relay 链路，
             // 排队真因是桌面侧 ZCode 工作区链路未就绪，文案如实区分（不写「电脑离线」）
-            PendingSettle.GiveUp("桌面 ZCode 链路未就绪：链接请求已排队，就绪后再试")
+            PendingSettle.GiveUp("电脑还没准备好：稍后再试（就绪后会自动打开）") // UX-P1 W6
         is WorkspaceLinkCard.State.Unavailable -> PendingSettle.GiveUp(state.message)
         // U5 批的 NotAvailableInLocal 本地分支随 X-L 反转（docs/18 §5.3.2）移除：
         // 本地模式全流转，失败统一 Unavailable 结构化收口（含本地 TIMEOUT/NOT_CONNECTED）

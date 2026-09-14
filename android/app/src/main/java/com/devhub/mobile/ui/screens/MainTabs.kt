@@ -106,7 +106,8 @@ fun MainTabs(
                 )
                 // T1 批：会话页顶部「ZCode 工作区」智能卡（点击开遥控 / 管理入口进条目管理屏）
                 "diagnostics" -> DiagnosticsScreen()
-                "device" -> DeviceScreen()
+                // UX-P1 De2：「去连接」动作出口复用既有连接设置路由（零结构改动）
+                "device" -> DeviceScreen(onGoConnect = onGatewayConfig)
                 else -> SessionsScreen(
                     onOpenSession = onOpenSession,
                     onOpenRemoteEntry = onOpenRemoteEntry,

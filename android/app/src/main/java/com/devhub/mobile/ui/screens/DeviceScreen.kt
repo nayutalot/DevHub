@@ -55,7 +55,7 @@ import java.util.Locale
  * + 撤销自己（DELETE /v1/devices/{id}，docs/14 §B.1 仅自撤销）→ 清 Token 回配对页。
  */
 @Composable
-fun DeviceScreen() {
+fun DeviceScreen(onGoConnect: () -> Unit = {}) {
     val context = LocalContext.current
     val db = remember { DevHubDb.get(context) }
     val scope = rememberCoroutineScope()
@@ -106,22 +106,36 @@ fun DeviceScreen() {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text("设备管理", style = MaterialTheme.typography.titleLarge)
+        Text("这台手机", style = MaterialTheme.typography.titleLarge) // UX-P1 De1
         val o = own
         if (o == null) {
-            Text("本机尚未配对", fontSize = 13.sp)
+            // UX-P1 De2：空态 = 一句事实 + 一步动作（去连接 → 连接设置入口，零结构改动）
+            Text("这台手机还没有连接电脑", fontSize = 13.sp)
+            TextButton(onClick = onGoConnect) { Text("去连接") }
             return@Column
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text("本设备", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-            // U1-M6/P2#4（AUDIT，17/21 号截图）：原始 JSON key 不再直出，标签统一中文
-            //（deviceId/platform/gateway 为产品术语，术语词保留英文形态）
-            Text("设备 ID：${o.deviceId}", fontSize = 13.sp)
+            // UX-P1 De3：设备 ID 属技术标识——P1 期降噪为次级色（收折叠归 P2「开发者选项」）
+            Text(
+                "设备 ID：${o.deviceId}",
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Text("设备名：${o.deviceName}", fontSize = 13.sp)
             Text("平台：Android", fontSize = 13.sp)
-            Text("配对时间：" + formatSec(o.pairedAtSec), fontSize = 13.sp)
-            Text("网关：${o.gatewayName}", fontSize = 13.sp)
+            Text("连接时间：" + formatSec(o.pairedAtSec), fontSize = 13.sp) // UX-P1（配对→连接随行）
+            // UX-P1 De4：网关原串直出退役 → 连接方式人话（原串进下方折叠）
+            Text(
+                "连接方式：" + if (o.gatewayName.startsWith("relay:")) {
+                    "云端连接（服务器 ${o.gatewayName.removePrefix("relay:")}）"
+                } else {
+                    "同一网络（电脑地址 ${o.gatewayName}）"
+                },
+                fontSize = 13.sp,
+            )
+            com.devhub.mobile.ui.components.TechnicalDetailsFold("gateway=${o.gatewayName}")
         }
 
         if (relayMode) {
@@ -130,7 +144,7 @@ fun DeviceScreen() {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text("服务端状态", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 Text(
-                    "中继接入不提供设备列表查询：本设备以配对信息为准，撤销操作不受影响。",
+                    "云端连接方式下不显示服务器上的设备列表；不影响这台手机的任何功能。", // UX-P1 De5
                     fontSize = 13.sp,
                 )
             }
@@ -138,9 +152,21 @@ fun DeviceScreen() {
         serverRow?.let { row ->
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text("服务端状态", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                Text("状态：${row.status}", fontSize = 13.sp)
+                // UX-P1 De6：状态原词（active 等）直出退役 → 在线/离线人话（原词进折叠）
+                Text(
+                    "状态：" + when (row.status.lowercase()) {
+                        "active" -> "在线"
+                        "revoked" -> "已解绑"
+                        else -> "离线"
+                    },
+                    fontSize = 13.sp,
+                )
                 Text("最近在线：" + (row.lastSeenAtSec?.let { formatSec(it) } ?: "（从未）"), fontSize = 13.sp)
-                Text("令牌版本：${row.tokenVersion}", fontSize = 13.sp)
+                // UX-P1 De8：令牌版本（token rotation）隐藏进开发者折叠区（docs/24 §2.1）
+                com.devhub.mobile.ui.components.TechnicalDetailsFold(
+                    "status=${row.status}\ntokenVersion=${row.tokenVersion}",
+                    label = "开发者信息",
+                )
             }
         }
         error?.let {
@@ -158,10 +184,10 @@ fun DeviceScreen() {
                 contentColor = MaterialTheme.colorScheme.onError,
             ),
         ) {
-            Text(if (revoking) "撤销中…" else "撤销本设备")
+            Text(if (revoking) "解绑中…" else "解绑这台手机") // UX-P1 De9
         }
         Text(
-            "撤销后：本机 Token 即被拒绝、WS 立即断开、凭据清除并回到配对页（桌面端可随时重新配对）。",
+            "解绑后：这台手机会立即断开并删除钥匙；以后要用需重新配对（电脑端随时可以重新配对）。", // UX-P1 De10
             fontSize = 12.sp,
         )
     }
@@ -169,8 +195,8 @@ fun DeviceScreen() {
     if (confirmingRevoke) {
         AlertDialog(
             onDismissRequest = { confirmingRevoke = false },
-            title = { Text("撤销本设备？") },
-            text = { Text("撤销即刻生效且不可恢复：设备 Token 永久拒绝（需重新配对才能继续远程控制）。") },
+            title = { Text("解绑这台手机？") }, // UX-P1 De11
+            text = { Text("解绑立即生效且不可恢复：这台手机的钥匙将被永久作废，需重新配对才能继续使用。") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmingRevoke = false
@@ -187,7 +213,7 @@ fun DeviceScreen() {
 
                                     is SelfRevokeSubmit.Queued -> {
                                         error = com.devhub.mobile.core.ErrorPresent.Presentable(
-                                            "撤销已排队（电脑离线）：连接恢复后自动执行",
+                                            "电脑不在线：解绑请求已暂存，恢复连接后自动完成", // UX-P1 De12
                                         )
                                         revoking = false
                                     }
@@ -226,7 +252,7 @@ fun DeviceScreen() {
                             }
                         } catch (err: IOException) {
                             error = com.devhub.mobile.core.ErrorPresent.Presentable(
-                                "网络不可达：撤销未执行",
+                                "网络不可达：解绑未执行",
                                 err.toString(),
                             )
                             revoking = false
@@ -240,7 +266,7 @@ fun DeviceScreen() {
                         GatewayConnectionService.stop(context)
                         revoking = false
                     }
-                }) { Text("确认撤销") }
+                }) { Text("确认解绑") }
             },
             dismissButton = { TextButton(onClick = { confirmingRevoke = false }) { Text("取消") } },
         )

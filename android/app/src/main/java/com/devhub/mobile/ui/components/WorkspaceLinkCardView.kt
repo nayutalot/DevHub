@@ -68,14 +68,14 @@ fun WorkspaceLinkCardView(
                 Text("ZCode 工作区", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 when (val s = state) {
                     WorkspaceLinkCard.State.Idle ->
-                        Text("进入本页时自动获取桌面链接…", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("正在准备电脑页面…", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) // UX-P1 W2
 
                     WorkspaceLinkCard.State.Requesting ->
                         Text("正在从桌面获取当前链接…", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
                     is WorkspaceLinkCard.State.Ready ->
                         Text(
-                            "已获取（${s.deviceName ?: "桌面"}）· 点击全屏打开",
+                            "已就绪（${s.deviceName ?: "电脑"}）· 点击打开", // UX-P1 W4
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -84,7 +84,8 @@ fun WorkspaceLinkCardView(
                         // U1-M4（AUDIT P1#4）：顶部横幅「已连接·心跳」指 relay 链路（手机↔中继），
                         // 卡片 Queued 指桌面侧 ZCode 工作区链路——两者不同层。原「电脑离线」
                         // 与心跳横幅同屏自相矛盾（05/12/16 号截图实证），改如实分层表述。
-                        Text("桌面 ZCode 链路未就绪：请求已排队，就绪后自动送达", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        // UX-P1 W5（U1-M4 分层语义保留：不写「电脑离线」，排队如实）
+                        Text("电脑还没准备好：已记住你的请求，就绪后自动打开", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
                     // U5 批的 NotAvailableInLocal 本地分支随 X-L 反转（docs/18 §5.3.2）移除：
                     // 本地模式全流转，失败统一 Unavailable 结构化面（原文案 + 重试钮）。
