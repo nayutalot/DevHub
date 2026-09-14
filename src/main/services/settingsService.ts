@@ -17,9 +17,12 @@
  * llm_review_base_url / llm_review_model（LR1：007 种子两键，默认空 = 停用，
  * 双键同设才生效；docs/briefs/lr1-llm-review.md §5，白名单 16→18）/
  * zcode_managed_model（T2 批：zcode 托管面模型键，值 = 完整 "provider/model" 串，
- * 默认缺行 = 停用——llm_review 双键同款「默认空 = 停用绝不半开」先例；docs/
+ * 默认缺行 = 停用——llm_review 双键「默认空 = 停用绝不半开」先例；docs/
  * briefs/t2-zcode-managed.md 主控定案 #1。无种子行、零 migration：settings 键值对
  * 表既有机制，缺行 = 空 = 托管面停用，caps 保持 observed，白名单 18→19）；
+ * kimi_managed_enabled（KM 批，20→上文）+ deepseek_managed_enabled /
+ * deepseek_managed_model（DM 批：DeepSeek Harness 真机 managed 授权门+可选模型
+ * 路由键，恰 '1' 授权默认停用；白名单 20→22，docs/briefs/dm-dsh-managed.md §1.2）；
  * 一切 SQL 参数绑定（约束 #11）。
  */
 
@@ -65,6 +68,14 @@ const ALLOWED_KEYS: readonly string[] = [
   // observed，provider 行为与未接线逐字节一致）。默认 0 = 停用绝不半开；零凭据
   // 语义（kimi CLI 用自己的 config.toml，DevHub 零注入）。无种子行零迁移。19→20。
   'kimi_managed_enabled',
+  // DM 批（DeepSeek Harness 真机 managed 通道，docs/briefs/dm-dsh-managed.md §1.2；
+  // kimi_managed_enabled 同构先例）：enabled 值恰为 '1' = 授权（真实推理 +
+  // ~/.dsh 会话写入；缺行/'0'/'true' 等一律停用，绝不宽松解析）；model 为可选
+  // "provider/model" 路由键（缺行 = runtime 默认 deepseek-official/deepseek-v4-flash，
+  // 形态不符 = 结构化拒绝）。凭据三零（harness credential seam 自取
+  // ~/.dsh/.credentials.yaml，DevHub 零读取零注入）；无种子行零迁移。20→22。
+  'deepseek_managed_enabled',
+  'deepseek_managed_model',
 ]
 
 function assertAllowedKey(key: string): void {
