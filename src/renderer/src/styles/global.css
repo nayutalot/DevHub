@@ -530,6 +530,12 @@ table.table {
   background: rgba(0, 122, 204, 0.18);
 }
 
+/* 键盘焦点可见（AUDIT D-Aud I6 / D4-M5：会话行 tabIndex 后焦点态需可辨） */
+.table tr.row-hit:focus-visible {
+  outline: 2px solid var(--accent-bright);
+  outline-offset: -2px;
+}
+
 /* 选中态专用（agents 会话表）：蓝底 + 左侧 2px accent 边线 */
 .table tr.agents-row-selected {
   background: rgba(0, 122, 204, 0.18);

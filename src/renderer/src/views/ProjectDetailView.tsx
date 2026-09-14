@@ -8,7 +8,7 @@
  * （二次确认）。空仓库 / 空容器 / 空服务均为结构化空态文案。
  */
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Badge, originTone, stateTone } from '../components/Badge.tsx'
 import { ErrorState, Loading, Toast, useToast } from '../components/StateViews.tsx'
 import { useApp } from '../lib/appContext.ts'
@@ -33,6 +33,15 @@ export function ProjectDetailView({
   const detail = useAsync(() => call('projects:get', { id }), [id, refreshKey])
   const { toast, show } = useToast()
   const [busyAction, setBusyAction] = useState<string | null>(null)
+  // D4-M4（AUDIT D-Aud I9）：rescanGit 轮询循环的卸载取消标志——组件卸载（切换
+  // 选中项目 / 离开视图）后不再空转 sleep+scan:status（setup 内复位兼容 StrictMode）
+  const rescanAbortedRef = useRef(false)
+  useEffect(() => {
+    rescanAbortedRef.current = false
+    return () => {
+      rescanAbortedRef.current = true
+    }
+  }, [])
 
   if (detail.loading) {
     return (
@@ -72,9 +81,12 @@ export function ProjectDetailView({
     setBusyAction('rescan')
     try {
       const { scanId } = await call('projects:rescan', { id })
-      // 轮询到终态再刷新（docs/06 §4：scan/refresh 类操作轮询 scan:status）
+      // 轮询到终态再刷新（docs/06 §4：scan/refresh 类操作轮询 scan:status）；
+      // 卸载取消：出循环且不写状态/弹 toast（I9）
       for (;;) {
+        if (rescanAbortedRef.current) return
         await sleep(POLL_INTERVAL_MS)
+        if (rescanAbortedRef.current) return
         const status = await call('scan:status', { scanId })
         if (status.status !== 'running') {
           if (status.status === 'failed' && status.errorSummary !== undefined) {

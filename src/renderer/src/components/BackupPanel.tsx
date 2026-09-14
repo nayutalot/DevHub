@@ -12,6 +12,9 @@
  *     核对确认（name+year 相似检测/合并/另建均为既有流程）。
  * 状态面：空闲提示（EmptyState 语义）/ 执行中（Spinner）/ 结构化错误 /
  * 结果摘要四态显式渲染，无静默分支。
+ *
+ * D4-M1（AUDIT D-Aud I4）：默认折叠（对齐 DraftReviewPanel/MaterialImportPanel
+ * 收纳模式），Contests 首屏归还比赛列表+分页；纯 UI，操作语义不变。
  */
 
 import { useState } from 'react'
@@ -32,6 +35,8 @@ interface ImportOutcome {
 }
 
 export function BackupPanel() {
+  // I4：默认折叠；折叠条对齐 RecognitionSettingsPanel/DraftReviewPanel 收纳模式
+  const [open, setOpen] = useState(false)
   const [destDir, setDestDir] = useState('')
   const [exporting, setExporting] = useState(false)
   const [exportResult, setExportResult] = useState<ContestBackupExportResult | null>(null)
@@ -40,6 +45,17 @@ export function BackupPanel() {
   const [importing, setImporting] = useState(false)
   const [importOutcome, setImportOutcome] = useState<ImportOutcome | null>(null)
   const [importError, setImportError] = useState<AsyncError | null>(null)
+
+  if (!open) {
+    return (
+      <div className="recog-collapsed" data-testid="contest-backup-panel">
+        <button type="button" className="btn btn-small" onClick={() => setOpen(true)}>
+          备份与恢复 ▸
+        </button>
+        <span className="dim">manifest 结构性零凭据 · 导入一律走待核对草稿，绝不静默覆盖</span>
+      </div>
+    )
+  }
 
   async function exportBackup(): Promise<void> {
     if (exporting) return
@@ -91,8 +107,13 @@ export function BackupPanel() {
   return (
     <div className="panel" data-testid="contest-backup-panel">
       <div className="recog-head">
-        <h3 className="panel-title">备份与恢复</h3>
-        <span className="dim">manifest 结构性零凭据（识别配置/密钥绝不导出） · 材料按 sha256 去重复制 · 导入一律走待核对草稿，绝不静默覆盖</span>
+        <div>
+          <h3 className="panel-title">备份与恢复</h3>
+          <span className="dim">manifest 结构性零凭据（识别配置/密钥绝不导出） · 材料按 sha256 去重复制 · 导入一律走待核对草稿，绝不静默覆盖</span>
+        </div>
+        <button type="button" className="btn btn-small" onClick={() => setOpen(false)}>
+          收起 ▴
+        </button>
       </div>
 
       <div className="recog-group">

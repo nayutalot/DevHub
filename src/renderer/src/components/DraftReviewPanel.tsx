@@ -12,6 +12,7 @@ import { useState } from 'react'
 import { Badge } from './Badge.tsx'
 import { EmptyState, ErrorState, Loading, Spinner, Toast, useToast } from './StateViews.tsx'
 import { call } from '../lib/ipc.ts'
+import { useAsync } from '../lib/useAsync.ts'
 import { usePolling } from '../lib/usePolling.ts'
 import { CONTEST_NODE_KIND_LABEL, CONTEST_NODE_PRECISION_LABEL } from '../lib/contestFormat.ts'
 import type {
@@ -30,9 +31,13 @@ const NODE_PRECISIONS: readonly ContestNodePrecision[] = ['exact', 'date', 'mont
 
 export function DraftReviewPanel() {
   const [open, setOpen] = useState(false)
-  const drafts = usePolling(() => call('contestpin:draftList', {}), [], 3000)
-  const count = drafts.data?.jobs.length ?? 0
+  // D4-M4（AUDIT D-Aud I10）：收起时不挂 3s 轮询——展开才挂 DraftReviewPanelOpen
+  // 子组件（MaterialImportPanel 同款对照）；折叠条计数为一次性拉取（非轮询），
+  // 展开/收起动作时各重拉一次。
+  const collapsedCount = useAsync(() => call('contestpin:draftList', {}).then((r) => r.jobs.length), [])
+
   if (!open) {
+    const count = collapsedCount.data ?? 0
     return (
       <div className="recog-collapsed">
         <button type="button" className="btn btn-small" onClick={() => setOpen(true)}>
@@ -43,10 +48,24 @@ export function DraftReviewPanel() {
     )
   }
   return (
+    <DraftReviewPanelOpen
+      onClose={() => {
+        setOpen(false)
+        collapsedCount.refresh()
+      }}
+    />
+  )
+}
+
+/** 展开态（挂载期间才持有 3s draftList 轮询；卸载即停，I10）。 */
+function DraftReviewPanelOpen({ onClose }: { onClose: () => void }) {
+  const drafts = usePolling(() => call('contestpin:draftList', {}), [], 3000)
+  const count = drafts.data?.jobs.length ?? 0
+  return (
     <div className="panel">
       <div className="recog-head">
         <h3 className="panel-title">待核对草稿{count > 0 ? `（${count}）` : ''}</h3>
-        <button type="button" className="btn btn-small" onClick={() => setOpen(false)}>
+        <button type="button" className="btn btn-small" onClick={onClose}>
           收起 ▴
         </button>
       </div>

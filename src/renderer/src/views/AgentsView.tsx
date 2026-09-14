@@ -496,7 +496,17 @@ const SessionRow = memo(
     return (
       <tr
         className={`row-hit${selected ? ' agents-row-selected' : ''}`}
+        role="button"
+        tabIndex={0}
+        aria-label={`会话 #${s.id} ${s.title ?? ''}`.trim()}
         onClick={() => onSelect(s.id)}
+        onKeyDown={(e) => {
+          // D4-M5（AUDIT D-Aud I6）：键盘可达——Enter/Space 触发（对齐 OverlayApp 正确做法）
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onSelect(s.id)
+          }
+        }}
       >
         <td className="td-dim">{s.id}</td>
         <td>{providerName}</td>
@@ -782,7 +792,7 @@ const EventRow = memo(
         <td className="td-dim mono">
           {e.providerId !== undefined ? `p#${e.providerId}` : ''} {e.sessionId !== undefined ? `s#${e.sessionId}` : ''}
         </td>
-        <td className="td-mono td-dim agents-msg-cell" title={e.summary ?? ''}>
+        <td className="td-mono td-dim agents-msg-cell" title={e.summary ?? JSON.stringify(e.payload)}>
           {e.summary ?? JSON.stringify(e.payload)}
         </td>
         <td>

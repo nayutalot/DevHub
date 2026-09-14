@@ -7,7 +7,7 @@
  * 空列表给扫描/手动添加引导（docs/06 §4）。
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Badge } from '../components/Badge.tsx'
 import { EmptyState, ErrorState, Loading, Spinner } from '../components/StateViews.tsx'
@@ -26,6 +26,15 @@ export function ProjectsView({ initialProjectId }: { initialProjectId?: number }
   const [filter, setFilter] = useState('')
   const [addOpen, setAddOpen] = useState(false)
   const [scanRunning, setScanRunning] = useState(false)
+  // D4-M4（AUDIT D-Aud I9）：扫描轮询循环的卸载取消标志——视图卸载后不再空转
+  // sleep+scan:status 至终态（setup 内复位以兼容 StrictMode 双挂载）
+  const scanAbortedRef = useRef(false)
+  useEffect(() => {
+    scanAbortedRef.current = false
+    return () => {
+      scanAbortedRef.current = true
+    }
+  }, [])
 
   // 选中项不存在（被移除 / 列表刷新后消失）时自动落到第一项
   useEffect(() => {
@@ -40,7 +49,9 @@ export function ProjectsView({ initialProjectId }: { initialProjectId?: number }
     try {
       const { scanId } = await call('scan:start', { kind: 'full' })
       for (;;) {
+        if (scanAbortedRef.current) return // 卸载取消：出循环，不写任何状态（I9）
         await sleep(POLL_INTERVAL_MS)
+        if (scanAbortedRef.current) return
         const status = await call('scan:status', { scanId })
         if (status.status !== 'running') break
       }
