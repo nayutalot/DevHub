@@ -638,6 +638,62 @@ ECS 侧 `command.action` 白名单同步追加两值属实现批次范围（值�
   "timestamp": 1757000100 }
 ```
 
+#### 5.3.2 X-L 批增补：本地网关 `workspace_link` 请求面（2026-09-14）
+
+> 背景（U4 回归实证 + Z3 结论 B）：本地模式（App ↔ 本地网关 WS 直连）下 T1「ZCode
+> 工作区」卡结构性恒 Queued——本地网关 `ws.ts` 对未知帧型静默忽略（永无 ack），App
+> 10s 超时入队。U5 当时以方案①（本地否定门 + 诚实文案）止损；本节即方案②落地：
+> **本地命令面就位，U5 的 local 否定门随真实传输面就位而反转**。relay 面（§5.3.1）
+> 帧形、ECS 转发表、`commandDownlink` 流水**逐字节零变化**（既有单测/代码路径锁定）。
+
+**帧形（本地网关 WS `/v1/events`，docs/14 §B.2 ndjson 最小扩展；零新 REST 端点）**：
+
+```json
+// 请求（App → 本地网关）：docs/14 §B.2 既有 {type,...} 单行 JSON 形态
+{ "type": "command", "requestId": "uuid-…", "idempotencyKey": "uuid-…",
+  "action": "workspace_link", "payload": {} }
+// 受理（网关 → App）：docs/18 §3.9 同域语义（本地形态）
+{ "type": "command_ack", "requestId": "uuid-…", "idempotencyKey": "uuid-…",
+  "commandId": "cmd-<uuid>", "status": "accepted" }
+// 终态（网关 → App）：§3.10 同域语义（本地形态）；result 仅 executed 且为
+// workspace_link 时携带（内存过境）
+{ "type": "command_result", "requestId": "uuid-…", "commandId": "cmd-<uuid>",
+  "idempotencyKey": "uuid-…", "action": "workspace_link", "status": "executed",
+  "errorCode": null, "result": { "provider": "zcode", "url": "https://…", "deviceName": "…" },
+  "timestamp": 1757000100 }
+```
+
+| 项 | 值 |
+| --- | --- |
+| 鉴权模型 | **零 auth 块**——本地连接在 upgrade 时已 Bearer 设备 Token 鉴权（docs/14 §B.2），`connection.deviceId` 即命令发起设备；§3.8 内嵌 `auth{token,ts,nonce}` 是 relay 腿防重放构造（ECS 不解释只转发），本地回环连接级鉴权语义等价，不照搬 |
+| 执行通道 | 与 relay 面**同一 L3 台账**：`beginWorkspaceLink`（幂等行 + 审计）→ `zcodeLinkProvider` 磁盘三文件重建 → `completeWorkspaceLink`（§5.3.1 同源）；`remote_commands.action='workspace_link'` 注释级枚举零迁移复用 |
+| 幂等语义 | §5.3.1 同款：同 key 重试 = 重新拉取最新链接（拉取模型），原 commandId 复用；跨 action 撞键 → COMMAND_KEY_CONFLICT（command_ack rejected 承载） |
+| 审计来源区分 | `beginWorkspaceLink` 增可选 source 入参（审计 detail_json `source` 字段）：relay 面缺省 `'relay-command'`（原文零变化），本地面传 `'local-gateway'`——同一台账、通道如实入册 |
+| 结构化拒绝 | 幂等键缺失 / action 非 `workspace_link`（本地面 v1 唯一命令值）/ sessionId 非法 / payload 形态非法 → `command_ack { status:'rejected', errorCode:'BAD_PAYLOAD' }`——**绝不再静默忽略**（U4 根因反例入册：未知 `type` 帧仍静默忽略现状保持，但 `type:'command'` 一旦出现必有结构化回声） |
+
+**结算语义（成功 / 失败 / 超时）**：
+
+- **受理时序**：ack 先于 result（§5.2 同序）；网关侧执行为同步磁盘重建（亚秒级），同一连接回程。
+- **成功**：`command_result { status:'executed', result:{provider,url,deviceName} }`——URL 仅帧面内存过境。
+- **失败**（三文件缺失 / 信封解密失败 / ZCode 未配对）：`{ status:'failed', errorCode:'ZCODE_LINK_UNAVAILABLE' }`（§8.2 同一命名域），**绝不 partial URL、绝不假成功**（失败结构化如实投影）。
+- **超时**：本地面**无排队面**——App 侧 10s（§3.0 #8 同窗）无终态 → 结构化失败如实落卡（不入离线队列：本地 REST 补发面对该 action 本就 `COMMAND_NOT_EXECUTABLE`，入队即假承诺）。「结构性恒 Queued」这一失败类在本地模式整体消灭。
+
+**红线入册（与 §5.3.1 审计红线同格执行）**：
+
+1. **token_rotation / event 帧绝不夹带本地命令**——本地通道零 token 轮换语义（本地无 token
+   概念，撞 S 批红线）；命令面只存在于本节专用 `command`/`command_ack`/`command_result`
+   帧型，绝不搭车既有帧。
+2. **链来源 = 桌面磁盘三文件重建（与 relay 同源），绝不伪造、绝不 fabricate**——网关侧
+   无磁盘可读凭据时按 ZCODE_LINK_UNAVAILABLE 结构化失败，绝不构造替代 URL/占位链接。
+3. **本地通道零凭据存储**——URL 及其任何子串（sid/hash/mid）零落库（`result_json` 只记
+   `{provider}`）零审计零日志；App 侧仅本机 Room 智能条目 + WebView 内存面（§5.3.1 口径
+   原样适用于本地腿）；失败 reason 只用静态字面量（zcodeLinkProvider 既有保证）。
+
+**U5 策略修订记录**：WorkspaceLinkModePolicy local 分支由「NotAvailableInLocal 不取链 +
+三入口『本地模式不提供 ZCode 遥控取链』文案」**反转为「经本地网关取链」**（本节传输面
+就位，诚实原则不弃——取不到时如实结构化失败）。App 侧 observed 转录只读纪律、relay 模式
+全流转、fixture 演示模式现状均零变化。
+
 ---
 
 ## 6. 同步与 ACK 语义（断线补发）
