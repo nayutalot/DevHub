@@ -171,15 +171,20 @@ export function initUpdaterWire(deps: UpdaterWireDeps): void {
         autoUpdater.allowPrerelease = false
         autoUpdater.autoRunAppAfterInstall = true
         autoUpdater.setFeedURL({ provider: 'generic', url: DEVHUB_UPDATE_FEED_URL })
-        // electron-updater 自身日志路由进结构化 logger（零打扰：只落日志，不弹窗）
+        // electron-updater 自身日志路由进结构化 logger（零打扰：只落日志，不弹窗）。
+        // m: unknown——互操作 any 链下对象字面量回调失上下文类型（TS7006 级联实录）；
+        // unknown 参数对 electron-updater Logger(message?: any) 逆变兼容，两种解析形态
+        // （类型在/缺）均编译通过，不依赖 node_modules 状态
         autoUpdater.logger = {
-          info: (m) => logger.info(`electron-updater: ${String(m)}`),
-          warn: (m) => logger.warn(`electron-updater: ${String(m)}`),
-          error: (m) => logger.error(`electron-updater: ${String(m)}`),
+          info: (m: unknown) => logger.info(`electron-updater: ${String(m)}`),
+          warn: (m: unknown) => logger.warn(`electron-updater: ${String(m)}`),
+          error: (m: unknown) => logger.error(`electron-updater: ${String(m)}`),
         }
 
-        // 下载进度（唯一走事件的回填；检查/下载的成败走 promise，见下）
-        autoUpdater.on('download-progress', (progress) => {
+        // 下载进度（唯一走事件的回填；检查/下载的成败走 promise，见下）。
+        // progress 最小局部 shape（percent/transferred/total）——electron-updater
+        // Progress 结构超集，逆变可指派；不引用其类型名（类型缺席态也须编译）
+        autoUpdater.on('download-progress', (progress: { percent: number; transferred: number; total: number }) => {
           controller.progressChanged({
             percent: progress.percent,
             transferredBytes: progress.transferred,
@@ -188,7 +193,7 @@ export function initUpdaterWire(deps: UpdaterWireDeps): void {
         })
         // 'error' 事件 = promise 拒绝的镜像（electron-updater 双路上报）：这里只
         // 落日志，状态翻转统一由 promise 拒绝经 operationFailed 幂等处理
-        autoUpdater.on('error', (err) => {
+        autoUpdater.on('error', (err: unknown) => {
           logger.warn(`electron-updater error event: ${errorMessage(err)}`)
         })
 
@@ -196,7 +201,11 @@ export function initUpdaterWire(deps: UpdaterWireDeps): void {
           check: (kind) => {
             void autoUpdater
               .checkForUpdates()
-              .then((result) => {
+              // result 最小局部 shape 对齐 updateController.checkSucceeded 的本地
+              // 载荷类型 { version: string; releaseNotes: unknown }——与 UpdateCheckResult
+              // 结构兼容（逆变；releaseNotes 须可选=UpdateInfo 可选字段），类型缺席态
+              // 不引用其类型名（同 TS7006 收尾批）
+              .then((result: { isUpdateAvailable: boolean; updateInfo: { version: string; releaseNotes?: unknown } } | null) => {
                 if (result === null) {
                   controller.checkSucceeded(null)
                   return
