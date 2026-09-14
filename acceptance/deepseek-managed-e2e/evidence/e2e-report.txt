@@ -1,0 +1,7 @@
+gate: enabled=true provider=deepseek-official model=deepseek-v4-flash
+gate: binPath=D:\Apps\deepseek-harness\packages\examples\jsonrpc-demo\lib\bin.js
+sentinel-L1: bin present = true
+caps: mode=managed granted=reply evidence=deepseek managed face enabled (deepseek-official/deepseek-v4-flash): version sentinel layer-1 ok (bin present at D:\Apps\deepseek-harness\packages\examples\jsonrpc-demo\lib\bin.js); layer-2 initialize handshake identity check enforced at spawn; reply = live session/prompt or one-shot resume fallback (evidence distinguishes both states); NO wire cancel (SDK protocol has none; cancel semantics = process kill ladder); approval policy 'never' v1 (no remote approval channel; out-of-workspace ops auto-refused)
+T1 start: ok=false nativeId=undefined detail=deepseek managed turn start failed: dsh runtime request timeout or write failure: initialize spawnMs=30028
+E2E FAILED: Error: T1 startManagedSession failed
+    at file:///F:/Active_Project/DevHub/worktrees/dm-dsh-managed/acceptance/deepseek-managed-e2e/run-e2e.mjs:104:25

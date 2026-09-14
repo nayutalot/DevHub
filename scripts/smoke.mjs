@@ -16612,8 +16612,8 @@ if (isEntrypoint()) {
   //      （name/version 失配/畸形结果全拒）；cordis.yml 渲染物零凭据 + 必需插件面
   //      + workspace-write + approval never + 无 stdout logger + Windows 路径 YAML
   //      安全；原子写 + 幂等跳过。
-  registerCase('dsh-102: deepseek managed config source — settings whitelist roundtrip, default-off strict \'1\' gate, model route tri-state, version sentinel layers (bin presence + handshake name/version), cordis.yml render with zero credentials + workspace-write + approval never + no stdout logger, atomic idempotent write', async () => {
-    const { mkdtempSync, readFileSync, existsSync } = await import('node:fs')
+  registerCase('dsh-102: deepseek managed config source — settings whitelist roundtrip, default-off strict \'1\' gate, model route tri-state, version sentinel layers (bin presence + handshake name/version), cordis.yml render with zero credentials + workspace-write + approval never + no stdout logger, atomic idempotent write + node_modules junction resolution bridge', async () => {
+    const { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
     const { join } = await import('node:path')
     const settings = await import(new URL('../src/main/services/settingsService.ts', import.meta.url).href)
@@ -16636,7 +16636,6 @@ if (isEntrypoint()) {
     settings.setSetting(cfg.DEEPSEEK_MANAGED_ENABLED_SETTING_KEY, '1')
     const binDir = mkdtempSync(join(tmpdir(), 'devhub-dsh-102c-'))
     const binPath = join(binDir, 'bin.js')
-    const { writeFileSync } = await import('node:fs')
     writeFileSync(binPath, '// fixture bin')
     const gate = cfg.readDeepseekManagedGate({ binPath, configPath: join(binDir, 'cordis.yml'), workspacePath: join(binDir, 'ws'), homeDir: binDir })
     assert.equal(gate.enabled, true)
@@ -16692,7 +16691,31 @@ if (isEntrypoint()) {
     assert.equal(/DEEPSEEK_API_KEY\s*[:=]/.test(yml), false, 'rendered config never assigns any key value')
     assert.equal(/api[_-]?key\s*:/i.test(yml), false, 'rendered config carries zero credential fields')
 
-    // 原子写 + 幂等跳过
+    // 原子写 + 幂等跳过 + node_modules junction（launch-verify #1 实测结论桥接：
+    // DSH loader 从 config 目录解析裸说明符——DevHub 渲染目录内 junction 指向
+    // harness 官方解析根 examples/node_modules，零写 HROOT）
+    const fakeHarness = mkdtempSync(join(tmpdir(), 'devhub-dsh-102h-'))
+    mkdirSync(join(fakeHarness, 'examples', 'node_modules', '@deepseek-ai', 'dsh-fixture-pkg'), { recursive: true })
+    writeFileSync(join(fakeHarness, 'examples', 'node_modules', '@deepseek-ai', 'package.json'), '{"name":"@deepseek-ai"}')
+    writeFileSync(join(fakeHarness, 'examples', 'node_modules', '@deepseek-ai', 'dsh-fixture-pkg', 'package.json'), '{"name":"@deepseek-ai/dsh-fixture-pkg","version":"1.0.0","main":"index.js"}')
+    writeFileSync(join(fakeHarness, 'examples', 'node_modules', '@deepseek-ai', 'dsh-fixture-pkg', 'index.js'), "export const marker = 'fixture-resolves'\n")
+    const cfgDir2 = join(mkdtempSync(join(tmpdir(), 'devhub-dsh-102i-')), 'deepseek-managed')
+    const cfgPath2 = join(cfgDir2, 'cordis.yml')
+    const ensureWithRoot = cfg.ensureDeepseekCordisConfig({ workspacePath: wsWin, harnessRoot: fakeHarness }, { configPath: cfgPath2 })
+    assert.equal(ensureWithRoot.ok, true, `ensure with harnessRoot ok: ${ensureWithRoot.reason ?? ''}`)
+    assert.ok(existsSync(join(cfgDir2, 'node_modules')), 'node_modules junction created next to the rendered config')
+    // junction 端到端解析证明：config 目录内的模块文件可 import 裸说明符
+    const probeFile = join(cfgDir2, 'probe.mjs')
+    writeFileSync(probeFile, "import { marker } from '@deepseek-ai/dsh-fixture-pkg'; export default marker\n")
+    const resolved = await import(new URL(`${'file://'}${probeFile.replaceAll('\\', '/')}`).href)
+    assert.equal(resolved.default, 'fixture-resolves', 'bare specifier resolves from the rendered config directory through the junction')
+    const ensureAgain = cfg.ensureDeepseekCordisConfig({ workspacePath: wsWin, harnessRoot: fakeHarness }, { configPath: cfgPath2 })
+    assert.equal(ensureAgain.ok, true, 'second ensure stays ok (junction idempotent)')
+    // junction 目标缺失 = 结构化拒绝（安装根形态漂移——版本哨兵精神）
+    const missingRoot = cfg.ensureDeepseekCordisConfig({ workspacePath: wsWin, harnessRoot: join(binDir, 'no-such-root') }, { configPath: join(binDir, 'nm-probe', 'cordis.yml') })
+    assert.equal(missingRoot.ok, false)
+    assert.ok(missingRoot.reason.includes('plugin resolution root not found'), `missing resolution root refuses: ${missingRoot.reason}`)
+
     const cfgPath = join(binDir, 'deepseek-managed', 'cordis.yml')
     const first = cfg.ensureDeepseekCordisConfig({ workspacePath: wsWin }, { configPath: cfgPath })
     assert.equal(first.ok, true)
@@ -16761,6 +16784,7 @@ if (isEntrypoint()) {
     const cfg = await import(new URL('../src/main/services/agentControl/providers/deepseekManagedConfig.ts', import.meta.url).href)
 
     const dir = mkdtempSync(join(tmpdir(), 'devhub-dsh-104-'))
+    mkdirSync(join(dir, 'examples', 'node_modules'), { recursive: true }) // 夹具安装根布局（junction 目标在位）
     const logPath = join(dir, 'fixture-log.jsonl')
     const fixtureScript = join(dir, 'dsh-fake-runtime.mjs')
     const configPath = join(dir, 'cordis.yml')
@@ -16880,6 +16904,7 @@ if (isEntrypoint()) {
     const mod = await import(new URL('../src/main/services/agentControl/providers/deepseekProvider.ts', import.meta.url).href)
 
     const dir = mkdtempSync(join(tmpdir(), 'devhub-dsh-105-'))
+    mkdirSync(join(dir, 'examples', 'node_modules'), { recursive: true }) // 夹具安装根布局（junction 目标在位）
     const logPath = join(dir, 'fixture-log.jsonl')
     const fixtureScript = join(dir, 'dsh-fake-runtime.mjs')
     const configPath = join(dir, 'cordis.yml')
@@ -16975,6 +17000,7 @@ if (isEntrypoint()) {
     const mod = await import(new URL('../src/main/services/agentControl/providers/deepseekProvider.ts', import.meta.url).href)
 
     const dir = mkdtempSync(join(tmpdir(), 'devhub-dsh-106-'))
+    mkdirSync(join(dir, 'examples', 'node_modules'), { recursive: true }) // 夹具安装根布局（junction 目标在位）
     const fixtureScript = join(dir, 'dsh-fake-runtime.mjs')
     writeFileSync(fixtureScript, DMD_FAKE_RUNTIME_SCRIPT)
     mkdirSync(join(dir, 'ws'), { recursive: true }) // spawn cwd 必须在位

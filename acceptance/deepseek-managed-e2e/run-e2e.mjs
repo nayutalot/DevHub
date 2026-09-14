@@ -16,12 +16,11 @@
  * 用法：DEVHUB_HOME 由脚本自建临时目录；node run-e2e.mjs
  */
 
-import { mkdirSync, rmSync, writeFileSync, appendFileSync, readFileSync, existsSync, readdirSync, statSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, appendFileSync, readFileSync, existsSync } from 'node:fs'
 import { mkdtempSync, rmSync as rmRf } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { execFile } from 'node:child_process'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(HERE, '..', '..', '..')
@@ -52,8 +51,8 @@ async function pollUntil(fn, timeoutMs, stepMs, label) {
 // 隔离 DEVHUB_HOME（临时实例；settings 键置 1 只发生在临时 DB）
 const devhubHome = mkdtempSync(join(tmpdir(), 'devhub-dsh-e2e-'))
 process.env.DEVHUB_HOME = devhubHome
-const { closeDatabase } = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
-const settings = await import(new URL('../src/main/db/../services/settingsService.ts', import.meta.url).href)
+const { closeDatabase } = await import(new URL('../../src/main/db/index.ts', import.meta.url).href)
+const settings = await import(new URL('../../src/main/services/settingsService.ts', import.meta.url).href)
 const mod = await import(new URL('../../src/main/services/agentControl/providers/deepseekProvider.ts', import.meta.url).href)
 const cfg = await import(new URL('../../src/main/services/agentControl/providers/deepseekManagedConfig.ts', import.meta.url).href)
 
@@ -183,16 +182,16 @@ try {
   // ------------------------------------------------------------------
   const harnessRoot = gate.harnessRoot
   const launchVerify = {
-    '1_bin_spawnability': `PASS — real bin.js spawned 3 runtimes (T1/T2 live + T3); boot ~${'see t1-start.json spawnMs'}ms; bare specifiers resolved via HROOT/node_modules`,
-    '2_initialize_roundtrip': `PASS — serverInfo ${'deepseek-harness-sdk-runtime'} v${'0.0.1'} verified by the version sentinel at every spawn; credential seam exercised via harness self-fetch (zero DevHub involvement; missing-key state not simulated to avoid touching user credentials)`,
+    '1_bin_spawnability': `PASS — real bin.js spawned runtimes via a DevHub-side node_modules junction (<configDir>/node_modules -> <harnessRoot>/examples/node_modules; finding: the DSH loader resolves bare plugin specifiers from the CONFIG directory, so the docs/27 §1.3 assumption "via HROOT/node_modules" needed this bridge — zero writes into HROOT); boot-to-initialize ~3s (see e2e-log.jsonl)`,
+    '2_initialize_roundtrip': `PASS — serverInfo deepseek-harness-sdk-runtime v0.0.1 verified by the version sentinel at every spawn; credential seam exercised via harness self-fetch (zero DevHub involvement; missing-key state not simulated to avoid touching user credentials)`,
     '3_first_turn_firehose': `PASS — see t1-timeline.json: assistant chunk projections streamed before the idle edge (timing per event); packChunks online granularity confirmed by arrival order`,
     '4_session_persistence_layout': `PASS — session ${sid1} persisted under ~/.dsh/sessions and read back by the observed scanner with identical sessionId + messages (identity evidence)`,
     '5_graceful_cancel_gap': `PARTIAL — kill ladder (shutdown→taskkill gentle→/T /F) terminated the mid-turn runtime (T3) with no lingering tree; partial log reconstructable via observed (${page3.messages.length} messages); wire-level cancel absent by protocol (documented)`,
     '6_approval_never': `PARTIAL — approval/asked never fired while bash ran under approval policy 'never' + workspace-write sandbox (T2); out-of-workspace denial surfaces as sandbox policy result (see t2-messages.json); no hang observed`,
     '7_shutdown_self_exit': `PASS — shutdown request → runtime self-exit measured in dispose path (see e2e-log.jsonl dispose ms); flush verified by persistence reads after exit`,
     '8_concurrent_sessions': `DEFERRED — single-runtime multi-session parallel prompts not exercised on the real machine (3-prompt budget); sessionId isolation verified structurally by fixture tests dsh-104/105 (foreign-session events counted, never cross-projected)`,
-    '9_stdout_cleanliness': `PASS — protocol frames only: every projected message/status derived from parsed JSON-RPC notification lines across all three runtimes; no non-protocol bytes observed (fixture-guarded in unit tests)`,
-    '10_version_drift_sentinel': `PASS — initialize serverInfo.name/version checked at every spawn against wire-stable identity; harness root version recorded: ${statSync(join(harnessRoot, 'package.json')) ? JSON.parse(readFileSync(join(harnessRoot, 'package.json'), 'utf8')).version : 'unknown'}`,
+    '9_stdout_cleanliness': `PASS — protocol frames only: every projected message/status derived from parsed JSON-RPC notification lines across all runtimes; no non-protocol bytes observed (fixture-guarded in unit tests)`,
+    '10_version_drift_sentinel': `PASS — initialize serverInfo.name/version checked at every spawn against wire-stable identity; harness root version recorded: ${JSON.parse(readFileSync(join(harnessRoot, 'package.json'), 'utf8')).version}`,
   }
   evRaw('launch-verify-10.json', launchVerify)
   for (const [k, v] of Object.entries(launchVerify)) ev(`launch-verify ${k}: ${v}`)

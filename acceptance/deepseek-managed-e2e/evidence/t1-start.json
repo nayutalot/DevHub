@@ -1,0 +1,4 @@
+{
+  "ok": false,
+  "detail": "deepseek managed turn start failed: dsh runtime request timeout or write failure: initialize"
+}

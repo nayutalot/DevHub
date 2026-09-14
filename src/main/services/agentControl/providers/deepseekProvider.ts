@@ -140,6 +140,8 @@ export interface DeepseekProviderOptions {
   managedWorkspacePath?: string
   /** initialize/单请求等待超时毫秒（默认 30_000；握手秒级宽容忍冷启动）。 */
   managedRequestTimeoutMs?: number
+  /** kill 阶梯 shutdown 段超时毫秒（默认 8_000；smoke 注入小值提速）。 */
+  managedShutdownTimeoutMs?: number
   /** managed caps 探测注入（默认零 spawn：门态+bin 在位即 managed——caps 探测
    * 零推理红线；smoke 注入假探针验证 caps 链）。 */
   managedCapsProbe?: () => { alive: boolean; detail: string }
@@ -223,6 +225,7 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
   const scanFileLimit = options.scanFileLimit ?? DEFAULT_SCAN_FILE_LIMIT
   const pollIntervalMs = options.pollIntervalMs ?? FAST_POLL_MS
   const managedRequestTimeoutMs = options.managedRequestTimeoutMs ?? DEEPSEEK_MANAGED_REQUEST_TIMEOUT_MS
+  const managedShutdownTimeoutMs = options.managedShutdownTimeoutMs ?? DEEPSEEK_MANAGED_SHUTDOWN_TIMEOUT_MS
 
   // 协议容忍计数（解析失败行 + 非对话面事件，docs/12 §8 schema 防御）
   const protocolStats = { unprojectedEvents: 0, parseFailures: 0, unreadableLogs: 0 }
@@ -806,9 +809,9 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
    */
   async function teardownDshConnection(handle: { proc: ManagedProcess; rpc: DshRpcSession }, what: string): Promise<string> {
     let verdict = `${what}: shutdown response ok`
-    const resp = await handle.rpc.rawCall('shutdown', {}, DEEPSEEK_MANAGED_SHUTDOWN_TIMEOUT_MS).catch(() => null)
+    const resp = await handle.rpc.rawCall('shutdown', {}, managedShutdownTimeoutMs).catch(() => null)
     if (resp !== null && resp.error === undefined) {
-      const exit = await waitForProcExit(handle.proc, `${what} shutdown`, 8_000)
+      const exit = await waitForProcExit(handle.proc, `${what} shutdown`, managedShutdownTimeoutMs)
       if (exit.observed) {
         managedStats.shutdownOk += 1
         return `${what}: graceful shutdown ok (runtime self-exit; ${exit.detail})`
@@ -1084,7 +1087,7 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
     const workspace = options.managedWorkspacePath ?? gate.workspacePath
     // 渲染物落盘（原子写；幂等跳过；失败结构化拒绝——绝不 spawn 无配置的 runtime）
     const ensured = ensureDeepseekCordisConfig(
-      { workspacePath: workspace ?? homedir() },
+      { workspacePath: workspace ?? homedir(), harnessRoot: gate.harnessRoot },
       ...(options.managedConfigPath !== undefined || gate.configPath !== undefined ? [{ configPath: options.managedConfigPath ?? gate.configPath }] : []),
     )
     if (!ensured.ok) {
@@ -1210,7 +1213,7 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
     }
     const workspace = options.managedWorkspacePath ?? gate.workspacePath
     const ensured = ensureDeepseekCordisConfig(
-      { workspacePath: workspace ?? homedir() },
+      { workspacePath: workspace ?? homedir(), harnessRoot: gate.harnessRoot },
       ...(options.managedConfigPath !== undefined || gate.configPath !== undefined ? [{ configPath: options.managedConfigPath ?? gate.configPath }] : []),
     )
     if (!ensured.ok) {

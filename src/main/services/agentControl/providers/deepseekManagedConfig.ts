@@ -36,7 +36,7 @@
  * reason 只含静态字面量+键名+路径。electron-free；纯 Node 可加载。
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { getSetting } from '../../settingsService.ts'
 import { resolveHomeDir } from '../../apihub/adapters.ts'
@@ -203,6 +203,14 @@ export interface DeepseekCordisRenderInput {
 }
 
 /**
+ * ensure 输入：渲染输入 + 安装根（junction 目标定位用——见 ensureNodeModulesJunction）。
+ */
+export interface DeepseekCordisEnsureInput extends DeepseekCordisRenderInput {
+  /** 安装根（门态 harnessRoot；junction 目标 = <root>/examples/node_modules）。 */
+  harnessRoot?: string
+}
+
+/**
  * cordis.yml 渲染（docs/27 §4.2 骨架；插件矩阵逐条对源：examples/jsonrpc-agent/
  * cordis.yml + bundle/base/cordis.patch.yml + examples/acp-agent/cordis.yml 的
  * sandbox/approval 族）。渲染物零凭据（DEEPSEEK_API_KEY 由 harness credential
@@ -259,7 +267,7 @@ export function renderDeepseekCordisYml(input: DeepseekCordisRenderInput): strin
 - id: subprocess
   name: '@deepseek-ai/dsh-subprocess-local'
 
-# Workspace-write sandbox (v1 red line: never danger-full-access by default).
+# Workspace-write sandbox (v1 red line: never full-access by default).
 - id: sandbox
   name: '@deepseek-ai/dsh-sandbox-local'
 
@@ -336,15 +344,21 @@ function isEnoent(err: unknown): boolean {
 }
 
 /**
- * spawn 前置：渲染 cordis.yml 并原子写盘（已存在且内容一致 → 幂等跳过）。
- * 原子性：父目录 mkdir recursive → 同目录 tmp（`.tmp-<pid>-<ts>`）→ rename；
- * 任一步失败清理 tmp 后折叠为结构化 reason——绝不半写。
+ * spawn 前置：渲染 cordis.yml 并原子写盘（已存在且内容一致 → 幂等跳过）+
+ * 确保 config 目录内 node_modules junction（裸说明符解析桥，见
+ * ensureNodeModulesJunction 注）。原子性：父目录 mkdir recursive → 同目录 tmp
+ * （`.tmp-<pid>-<ts>`）→ rename；任一步失败清理 tmp 后折叠为结构化
+ * reason——绝不半写。
  */
 export function ensureDeepseekCordisConfig(
-  input: DeepseekCordisRenderInput,
+  input: DeepseekCordisEnsureInput,
   deps: { configPath?: string } = {},
 ): EnsureDeepseekCordisConfigResult {
   const filePath = deps.configPath ?? defaultDeepseekCordisConfigPath()
+  if (input.harnessRoot !== undefined && input.harnessRoot.trim().length > 0) {
+    const linked = ensureNodeModulesJunction(dirname(filePath), input.harnessRoot)
+    if (!linked.ok) return { ok: false, path: filePath, reason: linked.reason }
+  }
   const rendered = renderDeepseekCordisYml(input)
   let existing: string | null = null
   try {
@@ -377,6 +391,81 @@ function readTextOrNull(filePath: string): string | null {
   } catch (err) {
     if (isEnoent(err)) return null
     throw err
+  }
+}
+
+// ---------------------------------------------------------------------------
+// node_modules junction（launch-verify #1 实测结论的桥接）
+//
+// DSH loader 从 **config 文件所在目录**向上解析裸说明符（实测：config 在
+// DevHub 数据目录时 `@deepseek-ai/dsh-*` 全部 ERR_MODULE_NOT_FOUND）。harness
+// 侧权威解析根 = `<harnessRoot>/examples/node_modules`（官方 examples/*
+// cordis.yml 同款；实含全部 18 个待组合插件）。DevHub 在**自有**渲染目录内
+// 建 `node_modules` junction 指向它——零写 HROOT、零拷贝、HROOT 升级自动跟随。
+// ---------------------------------------------------------------------------
+
+/** junction 目标相对路径（官方 examples 配置解析根；实装复核 18/18 插件在位）。 */
+export const DEEPSEEK_EXAMPLES_NODE_MODULES_RELATIVE = 'examples/node_modules'
+
+function normalizeLinkTarget(value: string): string {
+  return value.replace(/^\\\\\?\\/, '').replace(/\\/g, '/').toLowerCase()
+}
+
+/**
+ * 确保 `<configDir>/node_modules` junction → `<harnessRoot>/examples/node_modules`。
+ * 幂等：链接已在且指向同目标 → 跳过；指向异目标 → 删链重建（rmSync 只摘链不
+ * 追目标）；不存在 → 创建（win32 junction 无需特权；POSIX dir symlink）。
+ * 目标目录不在位 → 结构化拒绝（安装根形态漂移——版本哨兵精神）。
+ */
+export function ensureNodeModulesJunction(
+  configDir: string,
+  harnessRoot: string,
+): { ok: true; linkPath: string; created: boolean } | { ok: false; reason: string } {
+  const target = join(harnessRoot, ...DEEPSEEK_EXAMPLES_NODE_MODULES_RELATIVE.split('/'))
+  try {
+    if (!statSyncNoFollowDir(target)) {
+      return { ok: false, reason: `version sentinel: harness plugin resolution root not found at ${target} (expected a harness checkout with examples/node_modules)` }
+    }
+  } catch (err) {
+    return { ok: false, reason: `version sentinel: harness plugin resolution root unreadable at ${target}: ${errMessage(err)}` }
+  }
+  const linkPath = join(configDir, 'node_modules')
+  let existing: string | null = null
+  let exists = false
+  try {
+    existing = readlinkSync(linkPath)
+    exists = true
+  } catch (err) {
+    if (isEnoent(err)) {
+      exists = false
+    } else {
+      // 非链接实体（真实目录/文件）：保留不动（非 DevHub 所建，绝不删除用户数据）
+      exists = true
+      existing = null
+    }
+  }
+  if (exists && existing === null) {
+    return { ok: true, linkPath, created: false } // 外来实体：不触碰
+  }
+  if (exists && existing !== null && normalizeLinkTarget(existing) === normalizeLinkTarget(target)) {
+    return { ok: true, linkPath, created: false } // 幂等：已指向同目标
+  }
+  try {
+    mkdirSync(configDir, { recursive: true })
+    if (exists) rmSync(linkPath, { recursive: true, force: true })
+    symlinkSync(target, linkPath, process.platform === 'win32' ? 'junction' : 'dir')
+  } catch (err) {
+    return { ok: false, reason: `node_modules junction create failed at ${linkPath} → ${target}: ${errMessage(err)}` }
+  }
+  return { ok: true, linkPath, created: true }
+}
+
+function statSyncNoFollowDir(path: string): boolean {
+  // 目录在位检查（不要求可写； junction 目标自身允许是目录）
+  try {
+    return statSync(path).isDirectory()
+  } catch {
+    return false
   }
 }
 
