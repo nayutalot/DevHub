@@ -200,6 +200,7 @@ a {
   font: inherit;
   cursor: pointer;
   white-space: nowrap;
+  transition: background-color 0.12s, border-color 0.12s;
 }
 
 .btn:hover {
@@ -1783,6 +1784,17 @@ table.table {
   padding: 16px;
   width: 440px;
   max-width: 92%;
+
+}
+
+/* 应用内统一确认弹窗正文（D5-M5 A5：window.confirm 全量迁移后的文本承载；
+   多行 impacts 文案换行原样 + 长行折行） */
+.confirm-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0 0 12px;
+  line-height: 1.55;
+  font-size: 12.5px;
 }
 
 /* 悬浮窗壳（#overlay hash 分流，OverlayApp）：
@@ -2045,4 +2057,22 @@ table.table {
 
 .review-meta-panel {
   margin-top: 10px;
+}
+
+/* ------------------------------------------------------------- transitions */
+/* A7（AUDIT D-Aud，D5-M5）：全站 hover/按钮态过渡——只过渡 background-color /
+   border-color 两个合成廉价属性（.12s），不含 width/height/transform 等布局
+   属性，防滚动掉帧（性能基线 169fps 不回退）；.btn 基础块已内联同款。 */
+.nav-item,
+.search-input,
+.input,
+select,
+textarea,
+.table tr.row-hit,
+.table tr.row-hit:hover,
+.agents-row-selected,
+.toast,
+.recent-item,
+.cp-modal-overlay {
+  transition: background-color 0.12s, border-color 0.12s;
 }

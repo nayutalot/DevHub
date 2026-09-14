@@ -25,6 +25,7 @@
 import { Component, Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
 import type { ComponentType, ReactNode } from 'react'
 import { Sidebar } from './components/Sidebar.tsx'
+import { ConfirmProvider } from './components/ConfirmDialog.tsx'
 import { ToastHost, ToastProvider } from './components/ToastProvider.tsx'
 import { AppContext, type ViewTarget } from './lib/appContext.ts'
 import { call } from './lib/ipc.ts'
@@ -229,31 +230,35 @@ function MainApp() {
     <AppContext.Provider value={appState}>
       {/* App 级唯一 toast 队列（AUDIT D-Aud I12，D5-M3）：主窗口全部视图共享，
           bottom-right 堆叠不再相互覆盖；OverlayApp 独立窗口不经此处（保持不动） */}
+      {/* 应用内统一确认弹窗（AUDIT D-Aud A5，D5-M5）：全部 window.confirm 调用点
+          迁移为 cp-modal 式 ConfirmProvider（确认时机语义零变化） */}
       <ToastProvider>
-        <div className="app">
-          <Topbar view={target.view} />
-          <aside className="sidebar">
-            <Sidebar current={target.view} onNavigate={navigate} />
-          </aside>
-          <main className="content">
-            {target.view === 'dashboard' && <LazyView load={loadDashboard} label="仪表盘" render={(V) => <V />} />}
-            {target.view === 'projects' && (
-              <LazyView load={loadProjects} label="项目" render={(V) => <V initialProjectId={target.projectId} />} />
-            )}
-            {target.view === 'environment' && <LazyView load={loadEnvironment} label="环境" render={(V) => <V />} />}
-            {target.view === 'services' && <LazyView load={loadServices} label="服务" render={(V) => <V />} />}
-            {target.view === 'skills' && <LazyView load={loadSkills} label="技能" render={(V) => <V />} />}
-            {target.view === 'apihub' && <LazyView load={loadApiHub} label="ApiHub" render={(V) => <V />} />}
-            {target.view === 'versions' && <LazyView load={loadVersions} label="版本" render={(V) => <V />} />}
-            {target.view === 'docker' && <LazyView load={loadDocker} label="Docker" render={(V) => <V />} />}
-            {target.view === 'archive' && <LazyView load={loadArchive} label="归档" render={(V) => <V />} />}
-            {target.view === 'agents' && <LazyView load={loadAgents} label="Agents" render={(V) => <V />} />}
-            {target.view === 'contest' && (
-              <LazyView load={loadContest} label="比赛" render={(V) => <V initialContestId={target.contestId} />} />
-            )}
-          </main>
-          <ToastHost />
-        </div>
+        <ConfirmProvider>
+          <div className="app">
+            <Topbar view={target.view} />
+            <aside className="sidebar">
+              <Sidebar current={target.view} onNavigate={navigate} />
+            </aside>
+            <main className="content">
+              {target.view === 'dashboard' && <LazyView load={loadDashboard} label="仪表盘" render={(V) => <V />} />}
+              {target.view === 'projects' && (
+                <LazyView load={loadProjects} label="项目" render={(V) => <V initialProjectId={target.projectId} />} />
+              )}
+              {target.view === 'environment' && <LazyView load={loadEnvironment} label="环境" render={(V) => <V />} />}
+              {target.view === 'services' && <LazyView load={loadServices} label="服务" render={(V) => <V />} />}
+              {target.view === 'skills' && <LazyView load={loadSkills} label="技能" render={(V) => <V />} />}
+              {target.view === 'apihub' && <LazyView load={loadApiHub} label="ApiHub" render={(V) => <V />} />}
+              {target.view === 'versions' && <LazyView load={loadVersions} label="版本" render={(V) => <V />} />}
+              {target.view === 'docker' && <LazyView load={loadDocker} label="Docker" render={(V) => <V />} />}
+              {target.view === 'archive' && <LazyView load={loadArchive} label="归档" render={(V) => <V />} />}
+              {target.view === 'agents' && <LazyView load={loadAgents} label="Agents" render={(V) => <V />} />}
+              {target.view === 'contest' && (
+                <LazyView load={loadContest} label="比赛" render={(V) => <V initialContestId={target.contestId} />} />
+              )}
+            </main>
+            <ToastHost />
+          </div>
+        </ConfirmProvider>
       </ToastProvider>
     </AppContext.Provider>
   )

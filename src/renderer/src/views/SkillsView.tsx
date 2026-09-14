@@ -18,6 +18,7 @@ import { Badge } from '../components/Badge.tsx'
 import type { BadgeTone } from '../components/Badge.tsx'
 import { SkillMetaFlags, reviewStatusTone } from '../components/LlmReview.tsx'
 import {EmptyState, ErrorState, Loading, Spinner,} from '../components/StateViews.tsx'
+import { useConfirm } from '../components/ConfirmDialog.tsx'
 import { useToast } from '../components/ToastProvider.tsx'
 import { useApp } from '../lib/appContext.ts'
 import { relativeTime } from '../lib/format.ts'
@@ -71,6 +72,7 @@ interface LoadData {
 export function SkillsView() {
   const { refreshKey } = useApp()
   const { show } = useToast()
+  const confirm = useConfirm()
   // D5-M4（AUDIT D-Aud F6）：订阅全局 1min tick——非轮询视图的 relativeTime 文案
   // （"刚刚"/"N 分钟前"）每分钟自动重算；format.ts 输出契约零触碰。
   useMinuteTick()
@@ -196,8 +198,8 @@ export function SkillsView() {
 
   const metaFlags: SkillMetaFlag[] = metaReview.result?.status === 'ok' ? (metaReview.result.flags ?? []) : []
 
-  function handleSync(): void {
-    if (!window.confirm('执行双侧同步（Windows commit/push → WSL companion sync → Windows pull）？')) return
+  async function handleSync(): Promise<void> {
+    if (!(await confirm({ body: '执行双侧同步（Windows commit/push → WSL companion sync → Windows pull）？' }))) return
     void runAction('同步', async () => {
       const r: SkillsSyncResult = await call('skills:sync', { confirmed: true })
       if (r.confirmRequired === true) {
@@ -215,8 +217,8 @@ export function SkillsView() {
     })
   }
 
-  function handleDeploy(): void {
-    if (!window.confirm('部署/更新 WSL companion（skm）到 /root/skill-vault/bin？')) return
+  async function handleDeploy(): Promise<void> {
+    if (!(await confirm({ body: '部署/更新 WSL companion（skm）到 /root/skill-vault/bin？' }))) return
     void runAction('部署', async () => {
       const r = await call('skills:companion.deploy', { confirmed: true })
       if (r.confirmRequired === true) return
@@ -228,14 +230,14 @@ export function SkillsView() {
     })
   }
 
-  function handleToggle(agent: SkillAgentScanView, skill: string, state: LinkState): void {
+  async function handleToggle(agent: SkillAgentScanView, skill: string, state: LinkState): Promise<void> {
     if (state === 'real-dir') return
     const enable = state !== 'linked'
     // D4-M2（AUDIT D-Aud I5）：linked↔missing 高频开关直接切换不再弹 native confirm；
     // 仅异常态（vault-missing / wrong-target，操作结果不可预期）保留一次确认。
     // 开关结果语义不变：toggleLink 载荷与 confirmed 原样，反馈/刷新路径不变。
     if (state === 'vault-missing' || state === 'wrong-target') {
-      if (!window.confirm(`${enable ? '建立' : '解除'}链接：${agent.name} / ${skill}（当前：${LINK_LABEL[state]}）？`)) return
+      if (!(await confirm({ body: `${enable ? '建立' : '解除'}链接：${agent.name} / ${skill}（当前：${LINK_LABEL[state]}）？`, danger: true }))) return
     }
     void runAction('切换链接', async () => {
       const r = await call('skills:toggleLink', { agentId: agent.id, skill, enable, confirmed: true })
@@ -245,8 +247,8 @@ export function SkillsView() {
     })
   }
 
-  function handleRepair(item: SkillDoctorItem): void {
-    if (!window.confirm(`执行修复「${item.fixId}」？\n${item.message}`)) return
+  async function handleRepair(item: SkillDoctorItem): Promise<void> {
+    if (!(await confirm({ body: `执行修复「${item.fixId}」？\n${item.message}`, danger: true }))) return
     void runAction('修复', async () => {
       const r = await call('skills:repair', { fixId: item.fixId ?? '', payload: item.payload, confirmed: true })
       if (r.manualRequired === true) {
@@ -298,13 +300,13 @@ export function SkillsView() {
           <button type="button" className="btn" disabled={busy !== null} onClick={handleScanWsl}>
             扫描 WSL
           </button>
-          <button type="button" className="btn" disabled={busy !== null} onClick={handleDeploy} title="部署/更新 WSL companion（skm）到 /root/skill-vault/bin">
+          <button type="button" className="btn" disabled={busy !== null} onClick={() => void handleDeploy()} title="部署/更新 WSL companion（skm）到 /root/skill-vault/bin">
             部署 Companion
           </button>
           <button type="button" className="btn" disabled={busy !== null} onClick={handleDoctor}>
             Doctor
           </button>
-          <button type="button" className="btn" disabled={busy !== null} onClick={handleSync}>
+          <button type="button" className="btn" disabled={busy !== null} onClick={() => void handleSync()}>
             Sync
           </button>
           <button type="button" className="btn" disabled={busy !== null} onClick={() => setImportOpen(true)}>
@@ -473,7 +475,7 @@ export function SkillsView() {
                           className={`link-cell link-${state}`}
                           disabled={busy !== null}
                           title={`${LINK_LABEL[state]} — 点击${state === 'linked' ? '解除' : '建立'}链接`}
-                          onClick={() => handleToggle(a, name, state)}
+                          onClick={() => void handleToggle(a, name, state)}
                         >
                           {LINK_LABEL[state]}
                         </button>

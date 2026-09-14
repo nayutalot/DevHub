@@ -17,6 +17,7 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Badge, stateTone } from '../components/Badge.tsx'
 import {ErrorState, Loading, Spinner,} from '../components/StateViews.tsx'
+import { useConfirm } from '../components/ConfirmDialog.tsx'
 import { useToast } from '../components/ToastProvider.tsx'
 import { NodeReminders, ReminderLogPanel } from '../components/ReminderPanels.tsx'
 import { useApp } from '../lib/appContext.ts'
@@ -68,6 +69,7 @@ export function ContestDetailView({
   // （"刚刚"/"N 分钟前"）每分钟自动重算；format.ts 输出契约零触碰。
   useMinuteTick()
   const { show } = useToast()
+  const confirm = useConfirm()
   const [editing, setEditing] = useState(false)
   const [nodeForm, setNodeForm] = useState<{ open: boolean; node: ContestNodeView | null }>({ open: false, node: null })
   const [deleteImpacts, setDeleteImpacts] = useState<{ nodes: number; materials: number; reminders: number } | null>(null)
@@ -161,7 +163,7 @@ export function ContestDetailView({
     try {
       const start = await call('contestpin:nodeDelete', { id: n.id })
       const reminders = start.confirmRequired === true ? start.impacts.reminders : 0
-      if (window.confirm(`删除节点「${n.label}」？${reminders > 0 ? `该节点下 ${reminders} 条提醒将一并删除。` : ''}`)) {
+      if (await confirm({ body: `删除节点「${n.label}」？${reminders > 0 ? `该节点下 ${reminders} 条提醒将一并删除。` : ''}`, danger: true, confirmLabel: '删除' })) {
         await call('contestpin:nodeDelete', { id: n.id, confirmed: true })
         detail.refresh()
         onChanged()

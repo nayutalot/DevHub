@@ -23,7 +23,10 @@ export function Loading({ label }: { label: string }) {
   )
 }
 
-/** 空态图标：内联 SVG（斜杠圆），无外部资源。 */
+/**
+ * 空态图标：内联 SVG（中性"空盒"——AUDIT D-Aud A6，D5-M5：原"禁止"斜杠圆语义
+ * 错位，空态应为"空"而非"禁"；无外部资源纪律不变）。
+ */
 export function EmptyState({
   title,
   hint,
@@ -37,8 +40,9 @@ export function EmptyState({
     <div className="empty">
       <span className="empty-icon">
         <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4">
-          <circle cx="12" cy="12" r="9" />
-          <line x1="5.6" y1="18.4" x2="18.4" y2="5.6" />
+          <path d="M3.5 8.2 12 4l8.5 4.2v7.6L12 20l-8.5-4.2Z" strokeLinejoin="round" />
+          <path d="M3.5 8.2 12 12.4l8.5-4.2" strokeLinejoin="round" />
+          <path d="M12 12.4V20" />
         </svg>
       </span>
       <span className="empty-title">{title}</span>

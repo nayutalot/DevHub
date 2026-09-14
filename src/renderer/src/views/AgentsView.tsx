@@ -30,6 +30,7 @@ import { Badge, stateTone } from '../components/Badge.tsx'
 import type { BadgeTone } from '../components/Badge.tsx'
 import { ExpandableText } from '../components/ExpandableText.tsx'
 import {EmptyState, ErrorState, InlineState, Loading, Spinner,} from '../components/StateViews.tsx'
+import { useConfirm } from '../components/ConfirmDialog.tsx'
 import { useToast } from '../components/ToastProvider.tsx'
 import { relativeTime, toMs } from '../lib/format.ts'
 import { call } from '../lib/ipc.ts'
@@ -892,6 +893,7 @@ function DevicesPanel({ devices, loading, error, onRetry, onChanged }: {
   onChanged: () => void
 }) {
   const { show } = useToast()
+  const confirm = useConfirm()
   const [busyId, setBusyId] = useState<number | null>(null)
 
   async function revoke(device: AgentDeviceView): Promise<void> {
@@ -905,7 +907,7 @@ function DevicesPanel({ devices, loading, error, onRetry, onChanged }: {
           `last seen: ${first.impacts.lastSeenAt !== undefined ? relativeTime(first.impacts.lastSeenAt) : '—'}`,
           first.impacts.note,
         ]
-        if (window.confirm(lines.join('\n'))) {
+        if (await confirm({ body: lines.join('\n'), danger: true })) {
           const done = await call('agents:deviceRevoke', { deviceId: device.id, confirmed: true })
           if (done.confirmRequired === true) return
           show(`设备 #${device.id} 已撤销（token 即拒 + 审计落库）`)
@@ -975,6 +977,7 @@ function GatewayPanel({ status, loading, error, onRetry, onChanged }: {
   onChanged: () => void
 }) {
   const { show } = useToast()
+  const confirm = useConfirm()
   const [busy, setBusy] = useState(false)
   const [pairing, setPairing] = useState<{ code: string; expiresAt: number } | null>(null)
   const [pairingBusy, setPairingBusy] = useState(false)
@@ -993,7 +996,7 @@ function GatewayPanel({ status, loading, error, onRetry, onChanged }: {
       const first = await call('agents:gatewayRestart', {})
       if (first.confirmRequired === true) {
         const lines = ['重启远程网关？', `活跃连接：${first.impacts.activeConnections}`, first.impacts.note]
-        if (window.confirm(lines.join('\n'))) {
+        if (await confirm({ body: lines.join('\n'), danger: true })) {
           const done = await call('agents:gatewayRestart', { confirmed: true })
           if (done.confirmRequired === true) return
           show(`网关已重启：端口 ${done.port} running=${done.running}`)

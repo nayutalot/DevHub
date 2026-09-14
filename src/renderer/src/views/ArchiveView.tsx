@@ -19,6 +19,7 @@ import { Badge, stateTone } from '../components/Badge.tsx'
 import { LlmReviewSettingsCard, ReviewAdvisoryBar, ReviewPostButton } from '../components/LlmReview.tsx'
 import { ZcodeManagedSettingsCard } from '../components/ZcodeManaged.tsx'
 import {EmptyState, ErrorState, Loading, Spinner,} from '../components/StateViews.tsx'
+import { useConfirm } from '../components/ConfirmDialog.tsx'
 import { useToast } from '../components/ToastProvider.tsx'
 import { useApp } from '../lib/appContext.ts'
 import { call, sleep } from '../lib/ipc.ts'
@@ -55,6 +56,7 @@ const PHASE_LABELS: Record<ArchivePhase, string> = {
 export function ArchiveView() {
   const { refreshKey, refreshAll } = useApp()
   const { show } = useToast()
+  const confirm = useConfirm()
 
   // --- 归档设置条：archive_dest_root（settings:get/set，003 种子键） ---
   const destSetting = useAsync(() => call('settings:get', { key: 'archive_dest_root' }), [refreshKey])
@@ -177,7 +179,7 @@ export function ArchiveView() {
           `${first.impacts.oldPath}  <-  ${first.impacts.newPath}`,
           `内容还原：${first.impacts.undoEntries} 处 · 注：${first.impacts.note}`,
         ]
-        if (window.confirm(lines.join('\n'))) {
+        if (await confirm({ body: lines.join('\n'), danger: true })) {
           const done = await call('archive:rollback', { runId, confirmed: true })
           if (done.confirmRequired === true) return // 理论不可达：已带 confirmed
           show(done.note)

@@ -11,6 +11,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Badge, originTone, stateTone } from '../components/Badge.tsx'
 import {ErrorState, Loading,} from '../components/StateViews.tsx'
+import { useConfirm } from '../components/ConfirmDialog.tsx'
 import { useToast } from '../components/ToastProvider.tsx'
 import { useApp } from '../lib/appContext.ts'
 import { formatCommandLine, relativeTime, truncate } from '../lib/format.ts'
@@ -37,6 +38,7 @@ export function ProjectDetailView({
   // （"刚刚"/"N 分钟前"）每分钟自动重算；format.ts 输出契约零触碰。
   useMinuteTick()
   const { show } = useToast()
+  const confirm = useConfirm()
   const [busyAction, setBusyAction] = useState<string | null>(null)
   // D4-M4（AUDIT D-Aud I9）：rescanGit 轮询循环的卸载取消标志——组件卸载（切换
   // 选中项目 / 离开视图）后不再空转 sleep+scan:status（setup 内复位兼容 StrictMode）
@@ -112,7 +114,7 @@ export function ProjectDetailView({
 
   async function removeProject() {
     if (busyAction !== null) return
-    if (!window.confirm(`移除项目「${p.name}」？关联关系将被清理。`)) return
+    if (!(await confirm({ body: `移除项目「${p.name}」？关联关系将被清理。`, danger: true, confirmLabel: '移除' }))) return
     setBusyAction('remove')
     try {
       await call('projects:remove', { id })

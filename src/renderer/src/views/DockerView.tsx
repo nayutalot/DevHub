@@ -12,6 +12,7 @@
 
 import { useState } from 'react'
 import { Badge, stateTone } from '../components/Badge.tsx'
+import { useConfirm } from '../components/ConfirmDialog.tsx'
 import { ExpandableText } from '../components/ExpandableText.tsx'
 import {EmptyState, ErrorState, Loading, Spinner,} from '../components/StateViews.tsx'
 import { useToast } from '../components/ToastProvider.tsx'
@@ -43,6 +44,7 @@ export function DockerView() {
   const { refreshKey } = useApp()
   const overview = useAsync(() => call('docker:overview', {}), [refreshKey])
   const { show } = useToast()
+  const confirm = useConfirm()
 
   /** 当前展开日志面板的容器名（null = 关闭）。 */
   const [logsName, setLogsName] = useState<string | null>(null)
@@ -71,7 +73,8 @@ export function DockerView() {
           setRemoveConfirm(first.impacts)
           return
         }
-        if (!window.confirm(buildConfirmText(action, first.impacts))) {
+        // A5（D5-M5）：native confirm → 应用内确认（同文案，取消不发 confirmed）
+        if (!(await confirm({ body: buildConfirmText(action, first.impacts), danger: action === 'stop' }))) {
           return
         }
         await executeConfirmed(name, action)
@@ -90,7 +93,7 @@ export function DockerView() {
     }
   }
 
-  /** 第二段：confirmed 重发（start/stop/restart 的 window.confirm 与 remove modal 通过后共用）。 */
+  /** 第二段：confirmed 重发（start/stop/restart 的应用内确认〔D5-M5 A5〕与 remove modal 通过后共用）。 */
   async function executeConfirmed(name: string, action: DockerActionName): Promise<void> {
     setBusy(`${name}:${action}`)
     try {

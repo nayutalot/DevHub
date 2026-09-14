@@ -16,6 +16,7 @@ import { useState } from 'react'
 import { Badge, type BadgeTone, stateTone } from '../components/Badge.tsx'
 import { ExpandableText } from '../components/ExpandableText.tsx'
 import {EmptyState, ErrorState, Loading, Spinner,} from '../components/StateViews.tsx'
+import { useConfirm } from '../components/ConfirmDialog.tsx'
 import { useToast } from '../components/ToastProvider.tsx'
 import { useApp } from '../lib/appContext.ts'
 import { normalizeSeverity, oneLine, severityClass, severityGlyph } from '../lib/format.ts'
@@ -325,6 +326,7 @@ function WslDistroCards() {
   const { refreshKey } = useApp()
   const stats = useAsync(() => call('wsl:distroStats', {}), [refreshKey])
   const { show } = useToast()
+  const confirm = useConfirm()
   const [busy, setBusy] = useState<string | null>(null)
 
   async function terminate(distro: string): Promise<void> {
@@ -340,7 +342,7 @@ function WslDistroCards() {
           .join(', ')
         const lines = [`确认终止 WSL 发行版「${imp.distro}」？`, `状态：${imp.state}`, `监听端口：${ports || '—'}`]
         if (imp.note !== undefined) lines.push(imp.note)
-        if (window.confirm(lines.join('\n'))) {
+        if (await confirm({ body: lines.join('\n'), danger: true })) {
           const done = await call('wsl:action', { distro, action: 'terminate', confirmed: true })
           if (done.confirmRequired === true) return
           if (!('distro' in done)) return
@@ -399,7 +401,7 @@ function WslDistroCards() {
           lines.push(`docker-desktop 系（由 Docker Desktop 管理）：${imp.dockerDesktopDistros.join(', ')}`)
         }
         if (imp.note !== undefined) lines.push(imp.note)
-        if (window.confirm(lines.join('\n'))) {
+        if (await confirm({ body: lines.join('\n'), danger: true })) {
           const done = await call('wsl:action', { action: 'shutdownAll', confirmed: true })
           if (done.confirmRequired === true) return
           if (!('runningBefore' in done)) return
