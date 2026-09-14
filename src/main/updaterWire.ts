@@ -209,13 +209,16 @@ export function initUpdaterWire(deps: UpdaterWireDeps): void {
                     : null,
                 )
               })
-              .catch((err) => controller.operationFailed('UPDATE_CHECK_FAILED', `${kind}: ${errorMessage(err)}`))
+              // err: unknown 显式注解——electron-updater 经 CJS 互操作回退路径类型可
+              // 退化为 any 链（TS7006 隐式 any 实录，主控合并复跑）；errorMessage
+              // 签名本就是 (err: unknown)，注解对齐后零 any 裸奔
+              .catch((err: unknown) => controller.operationFailed('UPDATE_CHECK_FAILED', `${kind}: ${errorMessage(err)}`))
           },
           download: () => {
             void autoUpdater
               .downloadUpdate()
               .then(() => controller.downloadSucceeded())
-              .catch((err) => controller.operationFailed('UPDATE_DOWNLOAD_FAILED', errorMessage(err)))
+              .catch((err: unknown) => controller.operationFailed('UPDATE_DOWNLOAD_FAILED', errorMessage(err)))
           },
           install: () => {
             // 用户三段确认后的唯一安装入口：quitAndInstall 先派生 detached 安装
