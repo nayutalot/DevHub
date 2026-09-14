@@ -1,8 +1,9 @@
-# 23. 证书轮换双指纹窗口设计（CERT 批 Phase A 产出，待主控裁决）
+# 23. 证书轮换双指纹窗口设计（CERT 批 Phase A 产出 → 主控裁决 → Phase B 实施记录）
 
-> 状态：**Phase A 侦察+设计书，未裁决未实现**。任务书 = docs/briefs/cert-dual-fingerprint.md；
-> 分支 agent/cert-dual（main=22cab48）。Phase B 须待主控对 §5 决策点 D1–D5 裁决后启动。
-> 纪律：本文全部 ECS 侧证据为 SSH 只读 + openssl 客户端侧取证所得；在役证书/caddy 零触碰；
+> 状态：**已裁决（2026-09-14 主控：D1–D5 全按本设计推荐项）**；Phase B 已实施——桌面 feed
+> 信任代码+单测门禁全绿、ECS 新证书已暂存（未部署）、App 侧零代码确认（§7.2）。
+> 任务书 = docs/briefs/cert-dual-fingerprint.md；分支 agent/cert-dual。
+> 纪律：ECS 侧证据为 SSH 只读侦察 + staging 目录内生成（在役证书/caddy 零触碰）；
 > 私钥零落仓零入日志（仅指纹/公钥面入册）。
 
 ## 0. 死线与结论速览
@@ -13,7 +14,7 @@
   |---|---|---|---|
   | App（pin-TM） | 自定义 TrustManager，叶 SPKI ∈ 配置指纹列表（任一匹配） | **代码+单测已全链就绪** | 用户在配置页追加第二枚指纹（纯数据操作） |
   | 桌面 host-leg wss | node:https 注入 `tls{ca, checkServerIdentity}` 双保险 | **已就绪**（pins 文件多行） | fingerprints 文件追加新 pin 行（+视 D2 更新 ca.pem） |
-  | 桌面 updater feed | **无**——Chromium net 栈拒私有 CA，X11 起静默检查即撞墙 | **唯一缺口，需新代码** | Phase B 实现 verify-proc pin（§3.3） |
+  | 桌面 updater feed | **无**——Chromium net 栈拒私有 CA，X11 起静默检查即撞墙 | **已补齐（Phase B §7.1：分区 session verify-proc pin，门禁全绿）** | 无需用户动作（读同一 fingerprints 物料；M2 换装即生效） |
 - **材料修正（重要）**：任务书候选解「`session.defaultSession.setCertificateVerifyProc`」经 electron-updater@6.6.4 原包取证，**覆盖不到 updater 流量**——6.6.4 全部更新请求走独立分区 session `session.fromPartition("electron-updater", {cache:false})`（§3.3 实证）。正确落点 = 对该分区 session 设 verify proc。方向不变、作用域修正。
 
 ## 1. ECS 证书现状实证（SSH 只读，2026-09-14）
@@ -148,3 +149,64 @@
 4. 在役用户 APK 是否已含双指纹字段无法从仓库实证（装机版本属运维面），列为 M2/M3 前置检查项（§3.5-②）。
 5. electron-updater verify proc 的回调码语义（0/非 0）与 fromPartition 先行创建的 session 复用行为，按 Electron 文档设计、Phase B 以 fake 夹具实测锚定（§2.3）。
 6. 本机 Node 多 PEM `ca` 实证用临时目录（/tmp），未入仓；测试 CA 即弃。
+
+## 6. 主控裁决落档（2026-09-14）
+
+主控裁决原文：「CERT D1-D5：**全按你的推荐**——D1=A 换新 key；D2=C 且明确取『**全新 CA**（新 key，有效期 5 年）+ 短叶 180d』；D3=A 仅 updater 分区 session 设 verify proc；D4=维持 ECDSA P-256；D5=叶 180d。」
+
+| 决策点 | 裁决 | 落地面 |
+|---|---|---|
+| D1 叶证书密钥 | **A 换新 key**（新 SPKI → 双指纹窗口真开） | ECS 暂存叶证书新密钥对（§7.3）；App/桌面窗口物料按 §3.5 排程 |
+| D2 CA 策略 | **C = 全新 CA（新 key，5 年 1825d）+ 短叶** | ECS 暂存新 CA（§7.3）；窗口期桌面 ca.pem = 旧 CA + 新 CA 双 PEM 拼接（Node 多 PEM `ca` 已实证）；收敛删旧 CA |
+| D3 feed pin | **A 仅 updater 分区 session** 设 verify proc | `session.fromPartition("electron-updater",{cache:false})`；defaultSession/renderer 零触碰（§7.1） |
+| D4 key 类型 | **维持 ECDSA P-256**（叶+CA 均 EC） | 暂存件按 P-256 生成 |
+| D5 叶有效期 | **180d** | 暂存叶 notBefore/notAfter 2026-09-14 → 2027-03-13 |
+
+**排程确认（M1–M5 挂历，§3.5 原文生效）**：M1 代码就绪（本批，2026-09-14 桌面面完成）→ M2 发布换装（≤10 月中，App 双指纹版 + 桌面 feed-pin 版；含在役 APK 能力核实）→ M3 **≤2026-11-20 开窗**（客户端写入旧+新双指纹 + 双 CA ca.pem）→ M4 **≤2026-12-01 轮换部署**（notAfter 12-04 19:28 GMT 前 ≥3 天；caddy 切载 + reload）→ M5 观察 ≥1 周收敛回单指纹/单 CA。
+
+## 7. Phase B 实施记录（2026-09-14）
+
+### 7.1 桌面 feed TLS 信任（唯一代码面）
+
+- 新增 `src/main/services/updateCenter/feedTrustProc.ts`（纯 Node，零 electron/electron-updater import，smoke 系统 Node 直载同款）：`createFeedCertVerifyProc({feedHost, loadPins, log?, nowSec?})`——非 feed host **原样回放 `errorCode`**（成功 0 回放 0 / 失败码逐位回放；不依赖未文档化码）；feed host：pin 集现读（热装载）→ 叶证书 PEM（`certificate.data`）→ SPKI sha256 ∈ pins → 有效期窗（`validStart/validExpiry` epoch 秒，界缺失 fail-closed）→ 接受/拒绝。回调码 = Electron 官方语义 `callback(0)` 接受 / `callback(-2)` 拒绝（node_modules/electron/electron.d.ts:13338-13345）。
+- 接线 `src/main/updaterWire.ts`：打包态（dev 禁用门之后、动态 import 之前）对 **`session.fromPartition("electron-updater", {cache:false})`** 挂 proc——分区名按锁版 electron-updater@6.6.4 取证锚定（`out/electronHttpExecutor.js:6,8,54-56`；包根不 re-export，**升版须复核**，失配 = fail-closed 撞墙可诊断绝不静默放行）；pin 源与 host-leg **同源同解析**（`relayClient/config.ts` 的 `parseRelayFingerprintFile` 读同一 `%LOCALAPPDATA%\DevHub\relay\fingerprints`，多行 = 双指纹窗口任一匹配）；失败结构化日志非阻塞。
+- fake 证书夹具（公开物料，`src/main/services/updateCenter/__fixtures__/feedtrust/`：ca-a/leaf-a、ca-b/leaf-b，EC P-256）+ smoke 新增 4 用例（fast 档，零真网络）：
+  1. 三态核心：pin 命中接受(0) / pin 不符拒绝(-2) / 非 feed host 透传 errorCode（含 loader 零调用证明——分流在先）；
+  2. 双指纹窗口：旧+新任一命中即过 / 仅旧集新叶拒（开窗前）/ 仅新集旧叶拒（收敛后）；
+  3. 有效期窗：过期拒 / 未生效拒 / 界缺失 fail-closed（nowSec 注入）；
+  4. fail-closed：pin 集缺失/空/坏 PEM/缺 data 拒 + host 归一。
+- 产物验证：`out/main/index.js` 含分区串与安装日志串（bundle 命中）。
+
+### 7.2 App 侧零代码确认（裁决口径：双指纹五层已就绪，不写代码）
+
+| 层 | 实证（文件:行号） |
+|---|---|
+| 存储 | `android/app/src/main/java/com/devhub/mobile/data/db/DevHubDb.kt:27,39`（`pinFingerprints TEXT` 多值）；migration :290（v3） |
+| 录入 UI | `android/app/src/main/java/com/devhub/mobile/ui/screens/GatewayConfigScreen.kt:207-225`（多行高级字段，label「逗号/换行分隔；双指纹轮换窗口」）；空值引导 :190-201 |
+| 保存门 | `android/app/src/main/java/com/devhub/mobile/data/PinFingerprintSaveGate.kt:35-49`；双条目单测 `PinFingerprintSaveGateTest.kt:71` |
+| 连接层 | `ConnectionManager.kt:430-440` → `android/core/src/main/kotlin/com/devhub/mobile/core/TlsPinning.kt:25-42`（任一匹配）→ `TlsPinningOkHttp.kt:64-75`（PinTrustManager 叶 SPKI ∈ pins） |
+| 单测 | `TlsPinningTest.kt:57` / `TlsPinningOkHttpTest.kt:54`（双指纹窗口断言在档） |
+
+**用户操作口径（M3 开窗动作，纯数据操作）**：设置 → 网关配置（relay 模式）→「证书指纹（高级，可选）」→ 在既有指纹后**追加**一行新叶 SPKI 指纹（§7.3 的 `sha256/b18a84…` 或其 base64 形 `sYqEM0IJ…`，两种形态均接受）→ 保存（保存门归一化两枚并存）→ 重连即生效。收敛（M5）：删除旧指纹行。
+
+### 7.3 ECS 新证书暂存物料清单（/root/cert-rotation-staging/，未部署）
+
+生成日期 2026-09-14；目录 0700；私钥 `ca.key`/`server.key` 0600 仅存 ECS（零外传零入日志）。参数：新 CA（新 key，EC P-256，1825d）、新叶（新 key，EC P-256，180d，SAN=`IP:59.110.149.11`，EKU serverAuth）。
+
+| 物料 | 值（公开物料可入册） |
+|---|---|
+| **新叶 SPKI sha256（开窗新增 pin）** | `sha256/b18a843342098a917ce9956d8bd6801edcf76972caa6e47a699ce1bb968a66fc` |
+| 新叶 SPKI base64（App 可直贴形态） | `sYqEM0IJipF86ZVti9aAHtz3aXLKpuR6aZzhu5aKZvw=` |
+| 新叶证书整体 sha256（人工核对用，勿入 pin） | `sha256/3879ee11f53333c45a74f375f877d41b3b8c7f8644a62f0a13fc4cb6e5a971d5` |
+| 新叶有效期 | 2026-09-14 07:06:41 GMT → 2027-03-13 07:06:41 GMT（180d） |
+| 新 CA SPKI sha256 | `sha256/634356a5ee2af49cf27f899327d1005e6e56f57060af9915035bacae738a0bec` |
+| 新 CA 证书整体 sha256 | `sha256/0eb41cb213d213319143b9bc988600db5b4ca0080228949d1a80f6c118d58fc2` |
+| 新 CA 有效期 | 2026-09-14 07:06:41 GMT → 2031-09-13 07:06:41 GMT（5y） |
+| **旧叶 SPKI sha256（在役，窗口期保留 pin）** | `sha256/a07f7ab77bc2f21ba8d5e868cad30156d721aa11a8b85843973575a672aa50d0`（base64 = `oH96t3vC8huo1ehoytMBVtchqhGouFhDlzV1pnKqUNA=`） |
+| 旧 CA 证书整体 sha256（在役，收敛期移除） | `sha256/938bb1483954c530090aea73e6a8c0f63f20ad990d7c3099e7aa188f35e79ada`（整体指纹面；旧 CA SPKI 未单独入册——桌面 ca.pem 以 PEM 文件整体替换/拼接，不消费 CA SPKI 数值） |
+| 暂存件 sha256（公开 7 件，SHA256SUMS 在档） | ca.crt `d49a1aa0…` / server.crt `d323a74b…` / server.csr `e0b5331d…` / spki-sha256.txt `5a4dc073…` / cert-sha256.txt `451e6047…` / ca-spki-sha256.txt `7bbbf5fa…` / ca-cert-sha256.txt `ac20c1d3…` |
+
+校验：`openssl verify -CAfile ca.crt server.crt` = OK；SAN/EKU/CA:FALSE 逐项核过。
+在役面零触碰实证：服务器本机 `openssl s_client -connect 127.0.0.1:443` 仍回**旧叶**（`93:8B:B1:48:…:9A:DA`，notAfter 2026-12-04）；`/etc/devhub-relay/tls/` mtime 仍 2026-09-06 未动；caddy 未 reload。
+
+**部署时点提醒（M4 ≤2026-12-01，另行批次）**：备份 `/etc/devhub-relay/tls/` → 换载暂存 server.crt/server.key + 新 ca.crt 备分发 → `systemctl reload caddy` → 三消费面验证 → 观察期收敛。窗口期桌面 `ca.pem` = 旧 CA + 新 CA 双 PEM 拼接（Node 多 PEM `ca` 已实证），App 与 feed-proc 均不消费 CA。
