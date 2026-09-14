@@ -1,4 +1,15 @@
-# DevHub 会话交接文档（2026-09-14 深夜——「全做」mega-session+DeepSeek/Kimi 适配批+X12 换装收官：桌面清单清零+自动更新在役+本地命令协议②+证书双指纹+Kimi 真机 managed+DeepSeek observed 全部在役；main=04c7c7c，常驻 X12 版 PID 21256，最终 APK cd6d8caf）
+# DevHub 会话交接文档（2026-09-15 凌晨——手机远程对话 PASS+App 消费级交互重设计三层收官：RD 实证/KC spawn/UX-R→P1→P2→P3 全链落地；main=20db75b，常驻 X14 版 PID 26992，最终 APK a01f8649）
+
+> **✅ 手机远程对话线（09-14 深夜~09-15 凌晨，用户问「能不能做手机远程对话」）——端到端 PASS**：RD run1 定位阻断（管道全 PASS：配对/中继/200 会话投影/命令面；**kimi 无 startManagedSession=SPAWN_REJECTED**）→ KC 批补齐（选型 B「spawn 即带首条消息一次性物化」，与 codex/zcode 同构；真机自证 spawn 1s+sendReply 13s executed）→ RD run2 **PASS**：模拟器经真实 Relay→spawn executed→会话 managed→输入门开放→**3 条真实 Kimi 推理回流上屏**（10.5-13.4s/条）+上下文追问命中+桌面投影逐字一致；**顺手修真缺陷**（relay 模式 session_list detail 不带 capabilities→输入门恒关，hostLegRequests 收窄+caps 投影，纯列表路径逐字节不变）；X14 换装进常驻（PID 26992）。P2 观察项留档：App 转录非实时推送（需重进会话刷新）、RelayEndpoint 404 陷阱已修、Kimi 推理消耗全程最小 prompt。
+
+> **✅ App 消费级交互重设计（09-14 深夜~09-15 凌晨，用户裁决「交互反人类/术语天书/参考微信 QQ」）——UX-R→P1→P2→P3 四批全落地**：
+> - **UX-R 设计批**：docs/24 规范（词表终稿+三态可判断性矩阵+IA 线框+组件态矩阵+落地路线）+docs/25 术语清点 181 条（129 改写）+docs/26 IA 详案；主控裁决：三改名（会话→对话/配对→连接/撤销→解绑）/定名「云端连接」/attached ⓘ 归类照准/扫码即连不立项。
+> - **P1 文案层**：★ 项 157 行条目全销——常驻通知零协议词零数值、三态互斥文案+动作出口、指令回执人话（commandId/幂等进折叠）、唤醒/401/诊断 key=value 人话化、:core 常量词表联动；grep 自检协议词直出 0。
+> - **P2 导航 IA**：底栏四→三（**对话｜助手｜我的**）+MineScreen（连接状态卡+开发者选项三级折叠零吞码）+状态 chip 五态（琥珀降级显性保留）+对话列表微信形态（头像+尾条预览+待办角标+X2 徽章隐藏）+助手页二态+开始对话主按钮；深链零破坏（旧 tab 值兼容映射）；:app 163/:core 315+走查 12 张。
+> - **P3 流程引导**：**连接电脑单页流**（两页合一：选方式→填地址→输码→连接；高级折叠全保；显式选择+wss 强制不损失）+开始对话一键化（想让它先做什么？→正在创建→跳气泡流）+空态全带 CTA+唤醒联动；**首装 funnel 3 次输入≤5 达标**+三态 e2e 真实命中+深链回归 PASS；走查 29 张。
+> - 终态门禁：:app **176**/:core **316** 全绿；**最终 APK a01f8649** 落 dist（含 P1-P3 全部）；规范/证据=docs/24-26+acceptance/{mobile-chat-relay-e2e,uxp2-ia-walkthrough,uxp3-flows-walkthrough}/。
+> - 留档候选：ChildSessionsScreen ModeBadge 未隐藏（scope 外待裁）、App 转录实时推送（P2 观察项）、扫码即连（跨端另裁）、uxp3 走查发现桌面 Codex turn 停滞（模型后端问题非 App）。
+
 
 > **✅ DeepSeek/Kimi 适配批（09-14 深夜，用户 /goal「推进对 deepseekharness，kimicode 的适配」=known-limitations §1.2/§1.5 等待的授权落地）——KM/DS 双批全收，main 合并树门禁 typecheck 0+fast 129（新基线）/full 224/build 过**：
 > 1. **KM（Kimi Code 真机 managed 接入）**：settings 键 `kimi_managed_enabled` 授权门（ALLOWED_KEYS，默认 0=停用，键 0 行为逐字节不变）+kimiManagedConfig 生产 wiring；**0.36→0.42 漂移七项复核**（-p/-S/--output-format stream-json/doctor/acp 新托管面、resume 强制 cwd=会话 workDir 已对齐、TUI+管道 stdin 有 workspace 信任门不可托管→定案一次性 argv 模板 `['-S','{sessionId}','-p','{prompt}','--output-format','stream-json']`、失败重试退避至 ~34s）；**真机 E2E 全序列**（capabilities observed→managed→真实 sendReply 11772ms executed→wire.jsonl 增长 sha256 双证→键 0 可撤销回归；推理消耗 2 次最小 prompt 如实；app 级 dev 实例投影翻转同证；单实例窗口纪律 health×3 同 PID 33704）；**known-limitations §1.5 收口**。证据=acceptance/kimi-managed-e2e/（零凭据入册）。
