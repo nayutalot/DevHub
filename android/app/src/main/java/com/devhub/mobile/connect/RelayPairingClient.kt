@@ -94,7 +94,7 @@ object RelayPairingClient {
         val config = runCatching { DevHubDb.get(context).gatewayConfigDao().get() }.getOrNull()
             ?: return@withContext Outcome.Failure(
                 "BAD_CONFIG",
-                "未找到 Gateway 配置：请先在「Gateway 配置」页选择 Relay 模式并保存",
+                "还没有连接设置：请先在「连接设置」页选择云端连接并保存", // UX-P1（网关/Relay 词退出用户面）
             )
         if (config.mode != "relay") {
             return@withContext Outcome.Failure(

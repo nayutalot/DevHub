@@ -109,6 +109,6 @@ class EventNotificationMapperTest {
             sessionTitle = null,
             sessionId = 42,
         )
-        assertEquals("会话 #42 等待你的输入", n!!.body)
+        assertEquals("对话 #42 等待你的输入", n!!.body)
     }
 }

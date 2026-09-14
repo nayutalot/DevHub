@@ -62,7 +62,7 @@ object EventNotificationMapper {
             EVENT_STATUS_CHANGED -> statusChangedTo?.let { terminalLabels[it] }
             else -> null
         } ?: return null
-        val subject = sessionTitle?.takeIf { it.isNotBlank() } ?: (sessionId?.let { "会话 #$it" } ?: "会话")
+        val subject = sessionTitle?.takeIf { it.isNotBlank() } ?: (sessionId?.let { "对话 #$it" } ?: "对话") // UX-P1（会话→对话随行）
         val title = "DevHub：$label"
         val body = summary?.takeIf { it.isNotBlank() } ?: (subject + " " + label)
         return EventNotification(
