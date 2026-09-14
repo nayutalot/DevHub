@@ -7028,7 +7028,7 @@ if (isEntrypoint()) {
       const caps = JSON.parse(row.capabilities_json)
       assert.equal(caps.mode, 'observed')
       assert.deepEqual(caps.granted, [], 'capabilities empty set (control channels unverified, never fabricated)')
-      assert.ok(caps.evidence.includes('never verified'), `evidence carries the unverified-control note: ${caps.evidence}`)
+      assert.ok(caps.evidence.includes('gated off by default'), `evidence carries the gated-off managed note (DM 批就地更新，两态如实): ${caps.evidence}`)
       assert.equal(db.prepare("SELECT COUNT(*) AS c FROM agent_sessions s JOIN agent_providers p ON p.id = s.provider_id WHERE p.provider = 'deepseek'").get().c, 0, 'zero deepseek sessions on empty fixture home (never fabricated)')
 
       assert.deepEqual(await provider.listSessions(), [])
@@ -7041,7 +7041,7 @@ if (isEntrypoint()) {
       const diag = provider.describeDiagnostics()
       assert.equal(diag.dataSource.kind, 'session-jsonl-zstd')
       assert.equal(diag.dataSource.readable, false, 'empty fixture data home is not readable as a session source')
-      assert.ok(diag.control.note.includes('never verified'), `control note carries the unverified-control wording: ${diag.control.note}`)
+      assert.ok(diag.control.note.includes('gated off by default'), `control note carries the gated-off wording (DM 批就地更新): ${diag.control.note}`)
 
       // 缺失根 → unavailable + 结构化降级文案
       const missing = dsMod.createDeepseekProvider({ harnessRoot: join(fixtureRoot, 'no-such-root'), dshHome: fixtureDshHome })
@@ -15472,7 +15472,7 @@ if (isEntrypoint()) {
     await makeTempHome('devhub-t2z-110-')
     try {
       assert.equal(settings.allowedSettingKeys().includes('zcode_managed_model'), true, 'whitelist carries the T2 key (18→19)')
-      assert.equal(settings.allowedSettingKeys().length, 20, 'ALLOWED_KEYS 19→20 (KM 批就地更新：尾追 kimi_managed_enabled 授权门键，docs/briefs/km-kimi-managed.md Phase B；km-1 锁新键语义)')
+      assert.equal(settings.allowedSettingKeys().length, 22, 'ALLOWED_KEYS 20→22 (DM 批就地更新：尾追 deepseek_managed_enabled/deepseek_managed_model 两键，docs/briefs/dm-dsh-managed.md §1.2；dsh-102 锁新键语义)')
       assert.throws(() => settings.setSetting('zcode_managed_not_a_key', 'x'), /not allowed/, 'non-whitelisted keys still rejected')
       assert.equal(cfg.zcodeManagedModelSetting(), '', 'absence = empty = disabled')
       settings.setSetting('zcode_managed_model', 'dummyhub/dummy-model')
@@ -16447,6 +16447,591 @@ if (isEntrypoint()) {
     const tolerant = makeProc({ ok: true, pins: ['00'] }, ' 59.110.149.11'.toUpperCase().trim() + ' ')
     assert.equal(tolerant(feedReq()), trust.FEED_CERT_REJECT, 'hostname normalization reaches pin judgment (reject on wrong pin)')
   }, 'fast')
+
+  // ==================================================================
+  // DM 批（docs/briefs/dm-dsh-managed.md §1.5）：DeepSeek Harness SDK jsonrpc
+  // 直连 managed 面。协议事实全部以 docs/27 §1.2/§1.6 + 本机 HROOT 源码为源；
+  // fast = 纯函数/夹具库/门态，full = fake dsh runtime 子进程（零联网零真实
+  // harness——真实推理只在授权的真机验证序列发生）。计数动态计算（R1 批设计）。
+  // ==================================================================
+
+  /** DeepSeek Harness SDK runtime fake dsh（DM smoke 夹具）：ndjson JSON-RPC 2.0
+   *  over stdio（jsonrpc:'2.0' 帧形）、initialize/session.prompt/shutdown 三方法、
+   *  session.event firehose（assistant/chunk 三段错峰流式 + assistant/message +
+   *  turn/end + agent/inbox/spliced 回执）+ session.status running→idle。
+   *  行为开关 DSH_FIXTURE_MODE = 'happy'（默认全链）| 'stall'（turn/start 后静默
+   *  ——pause/kill 阶梯面）| 'badversion'（握手 version 9.9.9——版本哨兵拒）|
+   *  'badname'（serverInfo.name 错——哨兵 name 核对拒）。
+   *  全部交互落 DSH_FIXTURE_LOG（env 位只记布尔/路径——DEEPSEEK_API_KEY 值绝不
+   *  记录，令牌三零断言面）。 */
+  const DMD_FAKE_RUNTIME_SCRIPT = [
+    "import { appendFileSync } from 'node:fs'",
+    "const logPath = process.env.DSH_FIXTURE_LOG",
+    "const mode = process.env.DSH_FIXTURE_MODE ?? 'happy'",
+    "const log = (entry) => { try { appendFileSync(logPath, JSON.stringify(entry) + '\\n') } catch {} }",
+    "log({ boot: { pid: process.pid, mode, dshCordisConfig: process.env.DSH_CORDIS_CONFIG ?? null, deepseekApiKeySet: Boolean(process.env.DEEPSEEK_API_KEY), cwd: process.cwd() } })",
+    "const send = (frame) => process.stdout.write(JSON.stringify(frame) + '\\n')",
+    "const notify = (method, params) => send({ jsonrpc: '2.0', method, params })",
+    "const respond = (id, result) => send({ jsonrpc: '2.0', id, result })",
+    "let seq = 0",
+    "let messageId = 'msg-0'",
+    "let lastSid = 'session-fixture'",
+    "const emitEvent = (sessionId, type, data) => { seq += 1; notify('session.event', { sessionId, event: { type, seq, time: Date.now(), data } }) }",
+    "const emitStatus = (sessionId, status) => notify('session.status', { sessionId, status })",
+    "const runTurn = (sessionId, text, base) => {",
+    "  setTimeout(() => { emitStatus(sessionId, 'running'); emitEvent(sessionId, 'turn/start', { turn: 1 }) }, base + 10)",
+    "  setTimeout(() => emitEvent(sessionId, 'agent/inbox/spliced', { messages: [{ id: messageId }] }), base + 30)",
+    "  setTimeout(() => emitEvent(sessionId, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'Hello ' } }), base + 60)",
+    "  setTimeout(() => emitEvent(sessionId, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'from ' } }), base + 110)",
+    "  setTimeout(() => emitEvent(sessionId, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: text } }), base + 160)",
+    "  setTimeout(() => emitEvent(sessionId, 'assistant/message', { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'Hello from ' + text }] } }), base + 210)",
+    "  setTimeout(() => emitEvent(sessionId, 'turn/end', { turn: 1, reason: 'completed' }), base + 240)",
+    "  setTimeout(() => emitStatus(sessionId, 'idle'), base + 270)",
+    "}",
+    "const handleLine = (line) => {",
+    "  if (!line.trim()) return",
+    "  let m = null",
+    "  try { m = JSON.parse(line) } catch { return }",
+    "  if (m.id !== undefined && m.method) {",
+    "    log({ request: { id: m.id, method: m.method, params: m.params ?? null } })",
+    "    if (m.method === 'initialize') {",
+    "      if (mode === 'badversion') { respond(m.id, { serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '9.9.9' } }); return }",
+    "      if (mode === 'badname') { respond(m.id, { serverInfo: { name: 'not-the-runtime', version: '0.0.1' } }); return }",
+    "      respond(m.id, { serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' } }); return",
+    "    }",
+    "    if (m.method === 'session/prompt') {",
+    "      const p = m.params ?? {}",
+    "      lastSid = typeof p.sessionId === 'string' ? p.sessionId : lastSid",
+    "      messageId = 'msg-' + Date.now() + '-' + Math.floor(Math.random() * 1e6)",
+    "      respond(m.id, { messageId })",
+    "      const text = (Array.isArray(p.contentBlocks) && p.contentBlocks[0] && p.contentBlocks[0].text) || 'x'",
+    "      if (mode === 'stall') { setTimeout(() => { emitStatus(lastSid, 'running'); emitEvent(lastSid, 'turn/start', { turn: 1 }) }, 10); return }",
+    "      runTurn(lastSid, String(text), 0)",
+    "      return",
+    "    }",
+    "    if (m.method === 'shutdown') { respond(m.id, {}); setTimeout(() => process.exit(0), 30); return }",
+    "    send({ jsonrpc: '2.0', id: m.id, error: { code: -32601, message: 'method not found: ' + m.method } })",
+    "    return",
+    "  }",
+    "}",
+    "let buf = ''",
+    "process.stdin.setEncoding('utf8')",
+    "process.stdin.on('data', (d) => { buf += d; let i; while ((i = buf.indexOf('\\n')) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1); handleLine(l) } })",
+    "process.stdin.on('end', () => process.exit(0))",
+    "process.stdin.on('close', () => process.exit(0))",
+  ].join('\n')
+
+  // 101. 协议纯函数（fast）：出站帧 jsonrpc 2.0 合规 + req_ id；入站帧解析（复用
+  //      parseZcodeFrame——docs/27 §1.6「DSH 入站帧可被现有解析器零改动解析」直锁）；
+  //      serverInfo/messageId 宽容提取；session.event 的 event→payload 槽薄适配；
+  //      session.status 两值枚举；subagent.* 通知；turn/end reason 六值判态 +
+  //      idle 收尾沿判定。
+  registerCase('dsh-101: deepseek protocol frames — outbound jsonrpc 2.0 with req_ id, inbound frames parsed by the shared zcode parser with zero changes (docs/27 §1.6), serverInfo/messageId extraction, session.event event-slot adaptation, session.status two-value enum, subagent notices, turn/end reason table + idle terminal edge', async () => {
+    const proto = await import(new URL('../src/main/services/agentControl/providers/deepseekProtocol.ts', import.meta.url).href)
+    const zproto = await import(new URL('../src/main/services/agentControl/providers/zcodeProtocol.ts', import.meta.url).href)
+
+    // 出站：jsonrpc 2.0 字段在位（SDK transport.ts:121-123 形态）；id 形态 req_<hex>
+    const line = proto.encodeDshRequest('req_abc123', 'initialize', { cwd: 'C:\\w', provider: 'deepseek-official', model: 'deepseek-v4-flash' })
+    const obj = JSON.parse(line)
+    assert.equal(obj.jsonrpc, '2.0')
+    assert.equal(obj.id, 'req_abc123')
+    assert.equal(obj.method, 'initialize')
+    assert.equal(obj.params.provider, 'deepseek-official')
+    // shutdown 请求无 params 键（types.ts:104 params: undefined）
+    const sd = JSON.parse(proto.encodeDshShutdown('req_x'))
+    assert.equal(sd.method, 'shutdown')
+    assert.equal('params' in sd, false)
+
+    // 入站：SDK 服务器帧（带 jsonrpc 字段）被共享 zcode 解析器零改动解析
+    const resp = proto.parseDshFrame('{"jsonrpc":"2.0","id":"req_abc123","result":{"serverInfo":{"name":"deepseek-harness-sdk-runtime","version":"0.0.1"}}}')
+    assert.equal(resp.kind, 'response')
+    const sharedNote = zproto.parseZcodeFrame('{"jsonrpc":"2.0","method":"session.event","params":{"sessionId":"s1"}}')
+    assert.equal(sharedNote.kind, 'notification', 'docs/27 §1.6: the shared zcode parser consumes SDK frames with zero changes')
+    const err = proto.parseDshFrame('{"jsonrpc":"2.0","id":7,"error":{"code":-32601,"message":"method not found: x"}}')
+    assert.equal(err.kind, 'error')
+    assert.equal(err.error.code, -32601)
+    const note = proto.parseDshFrame('{"jsonrpc":"2.0","method":"session.status","params":{"sessionId":"s1","status":"idle"}}')
+    assert.equal(note.kind, 'notification')
+    // 畸形行 invalid 绝不抛（SDK transport 静默忽略同款容忍）
+    assert.equal(proto.parseDshFrame('garbage').kind, 'invalid')
+
+    // serverInfo / messageId 宽容提取（形态漂移 → null 绝不抛）
+    assert.deepEqual(proto.extractDshServerInfo(resp.result), { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' })
+    assert.equal(proto.extractDshServerInfo({ nope: 1 }), null)
+    assert.equal(proto.extractDshServerInfo(null), null)
+    assert.equal(proto.extractDshMessageId({ messageId: 'msg-1' }), 'msg-1')
+    assert.equal(proto.extractDshMessageId({}), null)
+
+    // session.event：event 槽顶替 zcode payload 槽（docs/27 §1.6 对照表）
+    const ev = proto.extractDshSessionEvent('session.event', { sessionId: 's1', event: { type: 'assistant/chunk', seq: 3, time: 1234, data: { turn: 1 } } })
+    assert.equal(ev.sessionId, 's1')
+    assert.equal(ev.type, 'assistant/chunk')
+    assert.equal(ev.seq, 3)
+    assert.equal(ev.timeMs, 1234)
+    assert.deepEqual(ev.data, { turn: 1 })
+    assert.equal(proto.extractDshSessionEvent('session.event', { sessionId: 's1' }).type, null, 'missing event envelope → null-typed fields (never guesses)')
+    assert.equal(proto.extractDshSessionEvent('session.event', { event: { type: 'x' } }), null, 'missing sessionId → null')
+    assert.equal(proto.extractDshSessionEvent('other.method', { sessionId: 's1' }), null)
+
+    // session.status 两值枚举（非 idle/running → null 绝不猜）
+    assert.deepEqual(proto.extractDshSessionStatus('session.status', { sessionId: 's1', status: 'idle' }), { sessionId: 's1', status: 'idle' })
+    assert.equal(proto.extractDshSessionStatus('session.status', { sessionId: 's1', status: 'weird' }), null)
+
+    // subagent.* 血缘通知
+    const started = proto.extractDshSubagentNotice('subagent.started', { parentSessionId: 'p', childSessionId: 'c' })
+    assert.equal(started.kind, 'started')
+    const finished = proto.extractDshSubagentNotice('subagent.finished', { parentSessionId: 'p', childSessionId: 'c', provider: 'spawn', status: 'ok', stopReason: 'end_turn' })
+    assert.equal(finished.kind, 'finished')
+    assert.equal(finished.payload.status, 'ok')
+    assert.equal(proto.extractDshSubagentNotice('subagent.started', { parentSessionId: 'p' }), null)
+
+    // turn/end reason 六值判态表（docs/27 §4.3-4；zcode 判定表平移）
+    assert.equal(proto.evalDshEventStatus('turn/start', {}), 'running')
+    assert.equal(proto.evalDshEventStatus('approval/asked', {}), 'approval_required')
+    assert.equal(proto.evalDshEventStatus('approval/decided', {}), 'running')
+    assert.equal(proto.evalDshEventStatus('turn/end', { reason: 'completed' }), 'waiting_input')
+    assert.equal(proto.evalDshEventStatus('turn/end', { reason: 'max-tokens' }), 'waiting_input')
+    assert.equal(proto.evalDshEventStatus('turn/end', { reason: 'aborted' }), 'paused')
+    assert.equal(proto.evalDshEventStatus('turn/end', { reason: 'interrupted' }), 'paused')
+    assert.equal(proto.evalDshEventStatus('turn/end', { reason: 'blocked' }), 'failed')
+    assert.equal(proto.evalDshEventStatus('turn/end', { reason: 'error' }), 'failed')
+    assert.equal(proto.evalDshEventStatus('turn/end', { reason: 'future-reason' }), 'unknown', 'unregistered reason → unknown (never guesses)')
+    assert.equal(proto.evalDshEventStatus('assistant/message', {}), null, 'content events carry no status evidence')
+    assert.ok(proto.DSH_TURN_END_REASONS.includes('max-tokens'))
+
+    // 收尾沿：turn/end 事件 或 session.status idle（SDK 权威信号）
+    assert.equal(proto.isDshTurnTerminalNotice('session.event', { sessionId: 's', event: { type: 'turn/end', seq: 1, time: 1, data: { reason: 'completed' } } }), true)
+    assert.equal(proto.isDshTurnTerminalNotice('session.status', { sessionId: 's', status: 'idle' }), true)
+    assert.equal(proto.isDshTurnTerminalNotice('session.status', { sessionId: 's', status: 'running' }), false)
+    assert.equal(proto.isDshTurnTerminalNotice('session.event', { sessionId: 's', event: { type: 'assistant/chunk', seq: 1, time: 1, data: {} } }), false)
+  }, 'fast')
+
+  // 102. managed config 源（fast）：settings 白名单新增两键往返；缺行/'0'/'true'
+  //      = 停用（绝不宽松解析）；模型路由键三态（缺行=runtime 默认/合规/形态不符
+  //      结构化拒）；版本哨兵第一层（bin 不在位拒绝）+ 第二层 verifyDeepseekHandshake
+  //      （name/version 失配/畸形结果全拒）；cordis.yml 渲染物零凭据 + 必需插件面
+  //      + workspace-write + approval never + 无 stdout logger + Windows 路径 YAML
+  //      安全；原子写 + 幂等跳过。
+  registerCase('dsh-102: deepseek managed config source — settings whitelist roundtrip, default-off strict \'1\' gate, model route tri-state, version sentinel layers (bin presence + handshake name/version), cordis.yml render with zero credentials + workspace-write + approval never + no stdout logger, atomic idempotent write', async () => {
+    const { mkdtempSync, readFileSync, existsSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const settings = await import(new URL('../src/main/services/settingsService.ts', import.meta.url).href)
+    const cfg = await import(new URL('../src/main/services/agentControl/providers/deepseekManagedConfig.ts', import.meta.url).href)
+
+    await makeTempHome('devhub-dsh-102-')
+    assert.ok(settings.allowedSettingKeys().includes(cfg.DEEPSEEK_MANAGED_ENABLED_SETTING_KEY), 'settings whitelist contains the gate key')
+    assert.ok(settings.allowedSettingKeys().includes(cfg.DEEPSEEK_MANAGED_MODEL_SETTING_KEY), 'settings whitelist contains the optional model key')
+    assert.equal(settings.getSetting(cfg.DEEPSEEK_MANAGED_ENABLED_SETTING_KEY), undefined, 'no seed row: absence = disabled')
+
+    // 缺行 = 停用；'0'/'true'/'yes' 一律停用（绝不宽松解析）
+    const off = cfg.readDeepseekManagedGate({ harnessRoot: 'D:/nowhere', binPath: 'D:/nowhere/bin.js', configPath: join(mkdtempSync(join(tmpdir(), 'devhub-dsh-102b-')), 'cordis.yml') })
+    assert.equal(off.enabled, false)
+    assert.ok(off.reason.includes(cfg.DEEPSEEK_MANAGED_ENABLED_SETTING_KEY), `structured reason names the settings key: ${off.reason}`)
+    for (const v of ['0', 'true', 'yes', ' 1 0']) {
+      settings.setSetting(cfg.DEEPSEEK_MANAGED_ENABLED_SETTING_KEY, v)
+      assert.equal(cfg.readDeepseekManagedGate({ binPath: 'D:/nowhere/bin.js' }).enabled, false, `value ${JSON.stringify(v)} stays disabled`)
+    }
+    // 恰 '1'（trim 后）+ bin 在位 → 门开
+    settings.setSetting(cfg.DEEPSEEK_MANAGED_ENABLED_SETTING_KEY, '1')
+    const binDir = mkdtempSync(join(tmpdir(), 'devhub-dsh-102c-'))
+    const binPath = join(binDir, 'bin.js')
+    const { writeFileSync } = await import('node:fs')
+    writeFileSync(binPath, '// fixture bin')
+    const gate = cfg.readDeepseekManagedGate({ binPath, configPath: join(binDir, 'cordis.yml'), workspacePath: join(binDir, 'ws'), homeDir: binDir })
+    assert.equal(gate.enabled, true)
+    assert.equal(gate.provider, 'deepseek-official', 'model route defaults to the runtime default provider (api.ts:40-41)')
+    assert.equal(gate.model, 'deepseek-v4-flash')
+    assert.deepEqual(gate.spawnEnv, { DSH_CORDIS_CONFIG: join(binDir, 'cordis.yml') }, 'spawn env carries the config path only (zero credentials)')
+    assert.equal(gate.managedIdleTimeoutMs, cfg.DEEPSEEK_MANAGED_IDLE_TIMEOUT_MS)
+
+    // 模型路由键：合规值解析；形态不符 = 结构化拒（门关，绝不猜）
+    settings.setSetting(cfg.DEEPSEEK_MANAGED_MODEL_SETTING_KEY, 'deepseek-official/deepseek-v4-pro')
+    assert.deepEqual(cfg.resolveManagedModelRoute(), { ok: true, provider: 'deepseek-official', model: 'deepseek-v4-pro' })
+    settings.setSetting(cfg.DEEPSEEK_MANAGED_MODEL_SETTING_KEY, 'no-slash')
+    const badRoute = cfg.readDeepseekManagedGate({ binPath, configPath: join(binDir, 'cordis.yml') })
+    assert.equal(badRoute.enabled, false)
+    assert.ok(badRoute.reason.includes(cfg.DEEPSEEK_MANAGED_MODEL_SETTING_KEY), 'non-conforming model ref refuses the gate with a structured reason')
+    settings.setSetting(cfg.DEEPSEEK_MANAGED_MODEL_SETTING_KEY, '')
+
+    // 版本哨兵第一层：bin 不在位 → 结构化拒绝（文件在位检查，绝不 spawn 探测）
+    settings.setSetting(cfg.DEEPSEEK_MANAGED_ENABLED_SETTING_KEY, '1')
+    const noBin = cfg.readDeepseekManagedGate({ binPath: join(binDir, 'missing-bin.js') })
+    assert.equal(noBin.enabled, false)
+    assert.ok(noBin.reason.includes('version sentinel') && noBin.reason.includes('not found'), `bin sentinel reason: ${noBin.reason}`)
+
+    // 版本哨兵第二层：握手核对（name wire-stable + version 预期值）
+    const okV = cfg.verifyDeepseekHandshake({ serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' } })
+    assert.equal(okV.ok, true)
+    assert.equal(cfg.verifyDeepseekHandshake({ serverInfo: { name: 'not-the-runtime', version: '0.0.1' } }).ok, false, 'wrong runtime name refused')
+    const drift = cfg.verifyDeepseekHandshake({ serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '9.9.9' } })
+    assert.equal(drift.ok, false)
+    assert.ok(drift.reason.includes('re-run launch-verify'), 'version drift names the sentinel remedy (docs/27 §5 #10)')
+    assert.equal(cfg.verifyDeepseekHandshake({ broken: 1 }).ok, false, 'malformed handshake result refused')
+
+    // cordis.yml 渲染：零凭据 + 必需插件面 + workspace-write + approval never +
+    // 无 stdout logger + Windows 路径 YAML 单引号安全
+    const wsWin = 'C:\\Users\\test user\\ws'
+    const yml = cfg.renderDeepseekCordisYml({ workspacePath: wsWin })
+    for (const required of [
+      "id: sdk-jsonrpc-server", "name: '@deepseek-ai/dsh-sdk-jsonrpc-server'",
+      "name: '@deepseek-ai/dsh-agent-spine-demo'", "name: '@deepseek-ai/dsh-llm-deepseek'",
+      "root: !!js dshHomePath('sessions')",
+      "name: '@deepseek-ai/dsh-sandbox-policy'", "mode: 'workspace-write'",
+      "name: '@deepseek-ai/dsh-bash-sandbox'",
+      "name: '@deepseek-ai/dsh-user-approval'", "policy: 'never'",
+      "name: '@deepseek-ai/dsh-credentials-local'", "name: '@deepseek-ai/dsh-settings-file'",
+      "name: '@deepseek-ai/dsh-token-meter'", "name: '@deepseek-ai/dsh-compaction-basic'",
+    ]) {
+      assert.ok(yml.includes(required), `rendered config contains: ${required}`)
+    }
+    assert.ok(yml.includes(`'${wsWin}'`), 'windows workspace path embedded via yaml single-quoted scalar')
+    assert.equal(yml.includes('danger-full-access'), false, 'danger-full-access never appears (v1 red line)')
+    assert.equal(/console.*logger|logger.*stdout/i.test(yml), false, 'no stdout logger anywhere in the rendered config')
+    // 凭据三零：渲染物零 key 字段（credential seam 自取，DevHub 零注入）
+    assert.equal(/DEEPSEEK_API_KEY\s*[:=]/.test(yml), false, 'rendered config never assigns any key value')
+    assert.equal(/api[_-]?key\s*:/i.test(yml), false, 'rendered config carries zero credential fields')
+
+    // 原子写 + 幂等跳过
+    const cfgPath = join(binDir, 'deepseek-managed', 'cordis.yml')
+    const first = cfg.ensureDeepseekCordisConfig({ workspacePath: wsWin }, { configPath: cfgPath })
+    assert.equal(first.ok, true)
+    assert.equal(first.wrote, true)
+    assert.ok(existsSync(cfgPath))
+    assert.equal(readFileSync(cfgPath, 'utf8'), first.rendered)
+    const second = cfg.ensureDeepseekCordisConfig({ workspacePath: wsWin }, { configPath: cfgPath })
+    assert.equal(second.ok, true)
+    assert.equal(second.wrote, false, 'identical content skips the rewrite (idempotent)')
+    assert.ok(first.rendered.includes('dshHomePath'), 'rendered text retained on the idempotent path')
+    settings.setSetting(cfg.DEEPSEEK_MANAGED_ENABLED_SETTING_KEY, '0')
+  }, 'fast')
+
+  // 103. provider 门停逐字节不变（fast）：legacy provider（无门注入）vs 门停注入
+  //      ——caps/reply/pause/diagnostics 四面全等（键=0 行为不变断言，km-2 同款）；
+  //      startManagedSession 门停零 spawn 结构化拒（reason 带键名）。
+  registerCase('dsh-103: deepseek gate-off byte identity — legacy vs gate-disabled provider agree byte-for-byte on caps/reply/pause/diagnostics; startManagedSession refuses with the settings key named and zero spawns', async () => {
+    const settings = await import(new URL('../src/main/services/settingsService.ts', import.meta.url).href)
+    const mod = await import(new URL('../src/main/services/agentControl/providers/deepseekProvider.ts', import.meta.url).href)
+    const cfg = await import(new URL('../src/main/services/agentControl/providers/deepseekManagedConfig.ts', import.meta.url).href)
+
+    await makeTempHome('devhub-dsh-103-')
+    settings.setSetting(cfg.DEEPSEEK_MANAGED_ENABLED_SETTING_KEY, '0')
+    const legacy = mod.createDeepseekProvider({ dshHome: join(process.env.DEVHUB_HOME, 'dsh') })
+    const gatedOff = mod.createDeepseekProvider({
+      dshHome: join(process.env.DEVHUB_HOME, 'dsh'),
+      managedGate: () => ({ enabled: false, reason: `settings key ${cfg.DEEPSEEK_MANAGED_ENABLED_SETTING_KEY} is not '1' (managed face disabled by default)` }),
+    })
+    const ref = { providerId: 'deepseek', nativeId: 'session-x' }
+    const capsLegacy = await legacy.getCapabilities(ref)
+    const capsOff = await gatedOff.getCapabilities(ref)
+    assert.deepEqual({ ...capsOff, verifiedAt: 0 }, { ...capsLegacy, verifiedAt: 0 }, 'caps shape byte-identical (evidence = the shared control note)')
+    assert.equal(capsOff.evidence, mod.DEEPSEEK_CONTROL_NOTE)
+    const replyOff = await gatedOff.sendReply(ref, 'hi')
+    const replyLegacy = await legacy.sendReply(ref, 'hi')
+    assert.equal(replyOff.ok, replyLegacy.ok)
+    assert.equal(replyOff.status, replyLegacy.status)
+    assert.equal(replyOff.errorCode, replyLegacy.errorCode)
+    assert.equal(replyOff.detail, replyLegacy.detail, 'gate off: unsupported detail byte-identical')
+    const pauseOff = await gatedOff.pause(ref)
+    const pauseLegacy = await legacy.pause(ref)
+    assert.equal(pauseOff.status, pauseLegacy.status)
+    assert.equal(pauseOff.detail, pauseLegacy.detail, 'gate off: pause detail byte-identical')
+    assert.equal(gatedOff.describeDiagnostics().control?.note, legacy.describeDiagnostics().control?.note, 'gate off: diagnostics note byte-identical')
+    // startManagedSession：门停零 spawn（detail 带键名；两 provider 皆拒）
+    for (const p of [legacy, gatedOff]) {
+      const refused = await p.startManagedSession('task', {})
+      assert.equal(refused.ok, false)
+      assert.ok(refused.detail.includes(cfg.DEEPSEEK_MANAGED_ENABLED_SETTING_KEY), `refusal names the settings key: ${refused.detail}`)
+      assert.equal(refused.nativeId, undefined, 'zero spawn: no nativeId on refusal')
+    }
+  }, 'fast')
+
+  // 104. startManagedSession 五段主链（full，fake dsh runtime）：spawn（env 零注入
+  //      ——DSH_CORDIS_CONFIG 配置路径位 + DEEPSEEK_API_KEY 不设位）→ initialize 握手
+  //      （params cwd/provider/model + 哨兵过）→ prompt 惰性 create（nativeId 即
+  //      sessionId）→ firehose 流式（chunk 三段先于 idle 到达 + assistant/message 投影
+  //      + 状态沿 running→waiting_input）→ idle 收尾 + 续聊 live prompt 第二条 →
+  //      dispose = shutdown 优雅收尾（夹具日志 shutdown 请求 + 进程退出）。
+  registerCase('dsh-104: deepseek managed live session over fake dsh runtime — spawn env zero-injection, initialize handshake with sentinel pass, lazy create+prompt in one, firehose chunks stream into the projection before idle (timing evidence), status edges, second reply on the live connection, dispose = graceful shutdown', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, readFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+    const mod = await import(new URL('../src/main/services/agentControl/providers/deepseekProvider.ts', import.meta.url).href)
+    const cfg = await import(new URL('../src/main/services/agentControl/providers/deepseekManagedConfig.ts', import.meta.url).href)
+
+    const dir = mkdtempSync(join(tmpdir(), 'devhub-dsh-104-'))
+    const logPath = join(dir, 'fixture-log.jsonl')
+    const fixtureScript = join(dir, 'dsh-fake-runtime.mjs')
+    const configPath = join(dir, 'cordis.yml')
+    const ws = join(dir, 'ws')
+    mkdirSync(ws, { recursive: true }) // spawn cwd 必须在位（不存在 → spawn ENOENT）
+    writeFileSync(fixtureScript, DMD_FAKE_RUNTIME_SCRIPT)
+    // 夹具 env 位 save/restore（t2z-107 同款纪律：宿主环境敏感位先剥除再 spawn，
+    // finally 归还宿主原值）
+    const savedEnv = ['DSH_FIXTURE_LOG', 'DSH_FIXTURE_MODE', 'DSH_CORDIS_CONFIG', 'DEEPSEEK_API_KEY'].map((k) => [k, process.env[k]])
+    for (const [k] of savedEnv) delete process.env[k]
+    process.env['DSH_FIXTURE_LOG'] = logPath
+    await makeTempHome('devhub-dsh-104-home-')
+    try {
+      const provider = mod.createDeepseekProvider({
+        dshHome: join(dir, 'dsh-home'),
+        managedGate: () => ({
+          enabled: true,
+          harnessRoot: dir,
+          binPath: fixtureScript,
+          configPath,
+          workspacePath: ws,
+          provider: 'deepseek-official',
+          model: 'deepseek-v4-flash',
+          spawnCommand: process.execPath,
+          spawnArgs: [fixtureScript],
+          spawnEnv: { DSH_CORDIS_CONFIG: configPath },
+          managedIdleTimeoutMs: 15_000,
+          managedLifetimeTimeoutMs: 60_000,
+          dshHome: join(dir, 'dsh-home'),
+        }),
+        managedCommand: process.execPath,
+        managedArgs: [fixtureScript],
+        managedConfigPath: configPath,
+        managedWorkspacePath: ws,
+        managedRequestTimeoutMs: 10_000,
+        managedShutdownTimeoutMs: 3_000,
+      })
+      const seen = { discovered: [], statuses: [], messages: [] }
+      const sink = {
+        onSessionDiscovered: (_p, snap) => seen.discovered.push(snap),
+        onStatusChanged: (ref, from, to, detail) => seen.statuses.push({ at: Date.now(), nativeId: ref.nativeId, from, to, detail }),
+        onMessageAppended: (ref, msg) => seen.messages.push({ at: Date.now(), nativeId: ref.nativeId, msg }),
+      }
+      const start = await provider.startManagedSession('fixture turn one', sink)
+      assert.equal(start.ok, true, `startManagedSession ok: ${start.detail ?? ''}`)
+      assert.ok(String(start.nativeId).startsWith('session-'), 'nativeId is the DevHub-generated session-<uuid>')
+      const ref = { providerId: 'deepseek', nativeId: start.nativeId }
+      assert.equal(seen.discovered.length, 1, 'managed snapshot discovered exactly once')
+      assert.equal(seen.discovered[0].mode, 'managed', 'snapshot carries mode managed')
+      assert.equal(seen.discovered[0].nativeId, ref.nativeId)
+
+      // 流式时序证据：三条 chunk 消息按发出序到达、且全部先于 waiting_input 状态沿
+      await pollUntil(() => seen.statuses.some((s) => s.nativeId === ref.nativeId && s.to === 'waiting_input'), 8000, 20, 'turn settled to waiting_input')
+      const chunkMsgs = seen.messages.filter((m) => m.nativeId === ref.nativeId && m.msg.contentRedacted.startsWith && (m.msg.contentRedacted === 'Hello ' || m.msg.contentRedacted === 'from ' || m.msg.contentRedacted === 'fixture turn one'))
+      assert.equal(chunkMsgs.length, 3, `three streaming chunk messages projected: ${chunkMsgs.length}`)
+      assert.deepEqual(chunkMsgs.map((m) => m.msg.contentRedacted), ['Hello ', 'from ', 'fixture turn one'], 'chunks arrive in emission order (firehose, not a final-state batch)')
+      const idleAt = seen.statuses.find((s) => s.to === 'waiting_input').at
+      assert.ok(chunkMsgs.every((m) => m.at < idleAt), 'every chunk landed in the projection strictly before the idle edge (streaming, launch-verify #3 shape)')
+      const committed = seen.messages.find((m) => m.msg.contentRedacted === 'Hello from fixture turn one')
+      assert.ok(committed !== undefined, 'assistant/message projected (committed text)')
+      const running = seen.statuses.find((s) => s.to === 'running')
+      assert.ok(running !== undefined && running.nativeId === ref.nativeId, 'running edge projected')
+      const waiting = seen.statuses.find((s) => s.to === 'waiting_input')
+      assert.equal(waiting.from, 'running', 'waiting_input follows running')
+      assert.ok(waiting.detail.includes('completed'), `turn/end reason carried faithfully: ${waiting.detail}`)
+
+      // 夹具日志：env 零注入（配置路径位在、DEEPSEEK_API_KEY 不设）+ 方法序
+      const entries = readFileSync(logPath, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+      const boot = entries.find((e) => e.boot !== undefined)
+      assert.equal(boot.boot.dshCordisConfig, configPath, 'DSH_CORDIS_CONFIG env points at the rendered config path')
+      assert.equal(boot.boot.deepseekApiKeySet, false, 'zero key injection: DEEPSEEK_API_KEY absent from the spawn env')
+      assert.equal(boot.boot.cwd, ws, 'spawn cwd = managed workspace')
+      const initReq = entries.find((e) => e.request !== undefined && e.request.method === 'initialize')
+      assert.deepEqual(initReq.request.params, { cwd: ws, provider: 'deepseek-official', model: 'deepseek-v4-flash' }, 'initialize params = cwd/provider/model (types.ts:19-31)')
+      const promptReqs = entries.filter((e) => e.request !== undefined && e.request.method === 'session/prompt')
+      assert.equal(promptReqs.length, 1)
+      assert.equal(promptReqs[0].request.params.sessionId, ref.nativeId, 'lazy create+prompt in one: prompt carries the DevHub session id')
+      assert.deepEqual(promptReqs[0].request.params.contentBlocks, [{ type: 'text', text: 'fixture turn one' }])
+      // 渲染物红线（spawn 前 ensureDeepseekCordisConfig 写盘）
+      const rendered = readFileSync(configPath, 'utf8')
+      assert.ok(rendered.includes("policy: 'never'"), 'approval never rendered')
+      assert.ok(rendered.includes("mode: 'workspace-write'"), 'workspace-write rendered')
+      assert.equal(/DEEPSEEK_API_KEY\s*[:=]/.test(rendered), false, 'rendered config never assigns any key value (mentions in comments are documentation, values are the red line)')
+
+      // 续聊：live 连接上第二条 prompt（同一 sessionId）
+      const reply = await provider.sendReply(ref, 'fixture turn two')
+      assert.equal(reply.ok, true, `live sendReply executed: ${reply.detail ?? ''}`)
+      assert.equal(reply.status, 'executed')
+      await pollUntil(() => readFileSync(logPath, 'utf8').includes('fixture turn two'), 8000, 20, 'second prompt reached the runtime')
+      const prompts2 = readFileSync(logPath, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((e) => e.request !== undefined && e.request.method === 'session/prompt')
+      assert.equal(prompts2.length, 2, 'two prompts on the same live connection')
+      assert.ok(prompts2.every((e) => e.request.params.sessionId === ref.nativeId), 'both prompts carry the same session id (identity)')
+
+      // dispose = kill 阶梯优雅段（shutdown 请求 → 夹具自退）
+      await provider.dispose()
+      await pollUntil(() => entries.concat(readFileSync(logPath, 'utf8').trim().split('\n').map((l) => JSON.parse(l))).some((e) => e.request !== undefined && e.request.method === 'shutdown'), 8000, 20, 'shutdown request issued on dispose')
+      const logNow = readFileSync(logPath, 'utf8')
+      assert.equal(logNow.includes('DEEPSEEK_API_KEY'), false, 'token red line: the log never names a key value')
+    } finally {
+      for (const [k, v] of savedEnv) {
+        if (v === undefined) delete process.env[k]
+        else process.env[k] = v
+      }
+      dbModule.closeDatabase()
+    }
+  }, 'full')
+
+  // 105. kill 阶梯 + 死会话 one-shot resume（full）：stall 会话（turn/start 后静默）
+  //      pause = 无 wire cancel 如实（kill 阶梯终止进程 + 幂等收尾）；死会话 sendReply
+  //      回退 one-shot resume——新 runtime + 同 sessionId（同一性）+ 回执/idle 确认，
+  //      evidence 诚实区分两态。
+  registerCase('dsh-105: deepseek kill ladder + dead-session one-shot resume — pause terminates the process honestly (no wire cancel), a later sendReply spawns a fresh runtime with the SAME sessionId and confirms receipt+idle, evidence distinguishes live-prompt vs one-shot-resume', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, readFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+    const mod = await import(new URL('../src/main/services/agentControl/providers/deepseekProvider.ts', import.meta.url).href)
+
+    const dir = mkdtempSync(join(tmpdir(), 'devhub-dsh-105-'))
+    const logPath = join(dir, 'fixture-log.jsonl')
+    const fixtureScript = join(dir, 'dsh-fake-runtime.mjs')
+    const configPath = join(dir, 'cordis.yml')
+    const ws = join(dir, 'ws')
+    mkdirSync(ws, { recursive: true }) // spawn cwd 必须在位（不存在 → spawn ENOENT）
+    writeFileSync(fixtureScript, DMD_FAKE_RUNTIME_SCRIPT)
+    const savedEnv105 = ['DSH_FIXTURE_LOG', 'DSH_FIXTURE_MODE', 'DSH_CORDIS_CONFIG', 'DEEPSEEK_API_KEY'].map((k) => [k, process.env[k]])
+    for (const [k] of savedEnv105) delete process.env[k]
+    process.env['DSH_FIXTURE_LOG'] = logPath
+    process.env['DSH_FIXTURE_MODE'] = 'stall'
+    await makeTempHome('devhub-dsh-105-home-')
+    try {
+      const provider = mod.createDeepseekProvider({
+        dshHome: join(dir, 'dsh-home'),
+        managedGate: () => ({
+          enabled: true,
+          harnessRoot: dir,
+          binPath: fixtureScript,
+          configPath,
+          workspacePath: ws,
+          provider: 'deepseek-official',
+          model: 'deepseek-v4-flash',
+          spawnCommand: process.execPath,
+          spawnArgs: [fixtureScript],
+          spawnEnv: { DSH_CORDIS_CONFIG: configPath },
+          managedIdleTimeoutMs: 15_000,
+          managedLifetimeTimeoutMs: 60_000,
+          dshHome: join(dir, 'dsh-home'),
+        }),
+        managedCommand: process.execPath,
+        managedArgs: [fixtureScript],
+        managedConfigPath: configPath,
+        managedWorkspacePath: ws,
+        managedRequestTimeoutMs: 10_000,
+        managedShutdownTimeoutMs: 3_000,
+      })
+      const statuses = []
+      const sink = {
+        onSessionDiscovered: () => {},
+        onStatusChanged: (ref, from, to, detail) => statuses.push({ nativeId: ref.nativeId, from, to, detail }),
+      }
+      const start = await provider.startManagedSession('stall task', sink)
+      assert.equal(start.ok, true, `stall session started: ${start.detail ?? ''}`)
+      const ref = { providerId: 'deepseek', nativeId: start.nativeId }
+      await pollUntil(() => statuses.some((s) => s.nativeId === ref.nativeId && s.to === 'running'), 8000, 20, 'stall turn running')
+
+      // pause = kill 阶梯（无 wire cancel 如实呈现）
+      const stopped = await provider.pause(ref)
+      assert.equal(stopped.ok, true)
+      assert.equal(stopped.status, 'executed')
+      assert.ok(stopped.detail.includes('no wire-level cancel'), `pause detail is honest about the missing wire cancel: ${stopped.detail}`)
+      await pollUntil(() => readFileSync(logPath, 'utf8').includes('"method":"shutdown"'), 8000, 20, 'kill ladder graceful segment issued the shutdown request')
+      // 死会话再 pause：结构化失败（无 live 连接）
+      const pauseAgain = await provider.pause(ref)
+      assert.equal(pauseAgain.ok, false)
+      assert.equal(pauseAgain.status, 'failed')
+
+      // 死会话 sendReply → one-shot resume（同 sessionId）
+      process.env['DSH_FIXTURE_MODE'] = 'happy'
+      const reply = await provider.sendReply(ref, 'resume after kill')
+      assert.equal(reply.ok, true, `one-shot resume executed: ${reply.detail ?? ''}`)
+      assert.equal(reply.status, 'executed')
+      assert.ok(reply.detail.includes('one-shot resume ok'), `evidence honestly names the resume state: ${reply.detail}`)
+      assert.ok(reply.detail.includes(ref.nativeId), 'evidence carries the same sessionId (identity across runtime processes)')
+      const entries = readFileSync(logPath, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+      const boots = entries.filter((e) => e.boot !== undefined)
+      assert.equal(boots.length, 2, `two runtime processes (live + one-shot resume): ${boots.length}`)
+      const prompts = entries.filter((e) => e.request !== undefined && e.request.method === 'session/prompt')
+      assert.equal(prompts.length, 2)
+      assert.ok(prompts.every((e) => e.request.params.sessionId === ref.nativeId), 'both runtimes prompted with the identical sessionId')
+      // 第二个进程（one-shot）的 idle 收尾在回执之后（消费收尾语义）
+      const resumeBootIdx = entries.findIndex((e) => e.boot !== undefined && e !== boots[0])
+      await pollUntil(() => readFileSync(logPath, 'utf8').trim().split('\n').slice(resumeBootIdx).map((l) => { try { return JSON.parse(l) } catch { return {} } }).some((e) => e.request !== undefined && e.request.method === 'shutdown'), 8000, 20, 'one-shot resume tears down with the kill ladder graceful segment')
+
+      await provider.dispose()
+    } finally {
+      for (const [k, v] of savedEnv105) {
+        if (v === undefined) delete process.env[k]
+        else process.env[k] = v
+      }
+      dbModule.closeDatabase()
+    }
+  }, 'full')
+
+  // 106. 版本哨兵集成拒 + 门纪律（full）：握手 version 漂移 → startManagedSession
+  //      结构化拒（detail 带哨兵措辞 + 实测版本）；name 错 → 拒；task 校验；
+      //      dispose 后拒绝新 spawn。
+  registerCase('dsh-106: deepseek version sentinel integration + gate discipline — handshake version drift and wrong server name refuse startManagedSession with structured sentinel reasons, task validation refuses empty/oversized text, disposed provider refuses new spawns', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+    const mod = await import(new URL('../src/main/services/agentControl/providers/deepseekProvider.ts', import.meta.url).href)
+
+    const dir = mkdtempSync(join(tmpdir(), 'devhub-dsh-106-'))
+    const fixtureScript = join(dir, 'dsh-fake-runtime.mjs')
+    writeFileSync(fixtureScript, DMD_FAKE_RUNTIME_SCRIPT)
+    mkdirSync(join(dir, 'ws'), { recursive: true }) // spawn cwd 必须在位
+    const savedEnv106 = ['DSH_FIXTURE_LOG', 'DSH_FIXTURE_MODE', 'DSH_CORDIS_CONFIG', 'DEEPSEEK_API_KEY'].map((k) => [k, process.env[k]])
+    for (const [k] of savedEnv106) delete process.env[k]
+    await makeTempHome('devhub-dsh-106-home-')
+    const makeProvider = (mode) => mod.createDeepseekProvider({
+      dshHome: join(dir, 'dsh-home'),
+      managedGate: () => ({
+        enabled: true,
+        harnessRoot: dir,
+        binPath: fixtureScript,
+        configPath: join(dir, `cordis-${mode}.yml`),
+        workspacePath: join(dir, 'ws'),
+        provider: 'deepseek-official',
+        model: 'deepseek-v4-flash',
+        spawnCommand: process.execPath,
+        spawnArgs: [fixtureScript],
+        spawnEnv: { DSH_CORDIS_CONFIG: join(dir, `cordis-${mode}.yml`) },
+        managedIdleTimeoutMs: 10_000,
+        managedLifetimeTimeoutMs: 30_000,
+        dshHome: join(dir, 'dsh-home'),
+      }),
+      managedCommand: process.execPath,
+      managedArgs: [fixtureScript],
+      managedConfigPath: join(dir, `cordis-${mode}.yml`),
+      managedWorkspacePath: join(dir, 'ws'),
+      managedRequestTimeoutMs: 5_000,
+      managedShutdownTimeoutMs: 2_000,
+    })
+    try {
+      for (const [mode, marker] of [['badversion', 'version sentinel'], ['badname', 'version sentinel']]) {
+        process.env['DSH_FIXTURE_MODE'] = mode
+        const provider = makeProvider(mode)
+        const start = await provider.startManagedSession('probe', { onSessionDiscovered: () => {} })
+        assert.equal(start.ok, false, `${mode}: start refused`)
+        assert.ok(start.detail.includes(marker), `${mode}: structured sentinel reason: ${start.detail}`)
+        assert.ok(start.detail.includes(mode === 'badversion' ? '9.9.9' : 'not-the-runtime'), `${mode}: refusal carries the observed value`)
+        await provider.dispose()
+      }
+      // task 校验 + disposed 拒绝
+      process.env['DSH_FIXTURE_MODE'] = 'happy'
+      const provider = makeProvider('happy')
+      const emptyTask = await provider.startManagedSession('   ', { onSessionDiscovered: () => {} })
+      assert.equal(emptyTask.ok, false)
+      assert.ok(emptyTask.detail.includes('non-empty'), 'empty task refused')
+      const disposedStart = await (async () => { await provider.dispose(); return provider.startManagedSession('after dispose', { onSessionDiscovered: () => {} }) })()
+      assert.equal(disposedStart.ok, false)
+      assert.ok(disposedStart.detail.includes('disposed'), 'disposed provider refuses managed spawns (anti-orphan guard)')
+    } finally {
+      for (const [k, v] of savedEnv106) {
+        if (v === undefined) delete process.env[k]
+        else process.env[k] = v
+      }
+      dbModule.closeDatabase()
+    }
+  }, 'full')
 
   await run(parseTierArg())
 }
