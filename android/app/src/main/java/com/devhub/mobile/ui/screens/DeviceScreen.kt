@@ -68,9 +68,15 @@ fun DeviceScreen() {
     var revoking by remember { mutableStateOf(false) }
 
     // R5.3：事件驱动为主（refreshSignal 变化即立即拉取服务端状态）+ 120s 低频兜底（原 3s 退役）
+    // W2（briefs/w2-relay-devices-copy）：relay 模式 ECS relay REST 面无 GET /v1/devices
+    // （HANDOFF 09-11 实证：结构化 NOT_FOUND；WS 路径不受影响）——必 404 轮询退役：
+    // 不再打端点，serverRow 保持 null、无 error，「服务端状态」区改诚实说明；
+    // 直连模式轮询/错误呈现行为零变化。
     val refreshSignal by ConnectionManager.refreshSignal.collectAsState()
+    val relayMode = !shouldQueryServerRow(ConnectionManager.configuredMode())
     LaunchedEffect(refreshSignal) {
         own = withContext(Dispatchers.IO) { db.deviceDao().get() }
+        if (relayMode) return@LaunchedEffect
         val ownId = own?.deviceId ?: SecureStore.loadDeviceId(context)
         while (ownId != null && isActive) {
             try {
@@ -118,6 +124,17 @@ fun DeviceScreen() {
             Text("网关：${o.gatewayName}", fontSize = 13.sp)
         }
 
+        if (relayMode) {
+            // W2：relay 模式「服务端状态」区位置改一行诚实说明（不提供设备列表查询，
+            // 非错误——error 保持 null；撤销走 WS command 不受影响）。
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("服务端状态", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Text(
+                    "中继接入不提供设备列表查询：本设备以配对信息为准，撤销操作不受影响。",
+                    fontSize = 13.sp,
+                )
+            }
+        }
         serverRow?.let { row ->
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text("服务端状态", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
@@ -232,3 +249,11 @@ fun DeviceScreen() {
 
 private fun formatSec(sec: Long): String =
     SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(sec * 1000))
+
+/**
+ * W2（briefs/w2-relay-devices-copy）：设备页「服务端状态」轮询闸门纯函数。
+ * ECS relay REST 面无 GET /v1/devices（HANDOFF 09-11 实证：结构化 NOT_FOUND；WS
+ * 路径不受影响）——mode=="relay" 必 404，跳过轮询（serverRow 保持 null、无 error）；
+ * 直连（LAN 网关）与未配置（null 等）保留原轮询，行为零变化。
+ */
+internal fun shouldQueryServerRow(mode: String?): Boolean = mode != "relay"
