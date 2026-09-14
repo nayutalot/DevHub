@@ -44,31 +44,31 @@ class InteractionHonestyTest {
     fun `zcode reason mentions no official control channel`() {
         val r = InteractionHonesty.observedReason("zcode")
         assertTrue(r!!.contains("ZCode"))
-        assertTrue(r.contains("控制通道"))
-        assertTrue(r.contains("观察"))
+        assertTrue(r.contains("控制"))
+        assertTrue(r.contains("只能查看"))
     }
 
     @Test
-    fun `claude reason mentions hooks no input injection`() {
+    fun `claude reason mentions no reliable reply channel`() {
         val r = InteractionHonesty.observedReason("claude-code")
         assertTrue(r!!.contains("Claude"))
-        assertTrue(r.contains("hooks"))
-        assertTrue(r.contains("输入注入"))
+        assertTrue(r.contains("回复"))
+        assertTrue(r.contains("只能查看"))
     }
 
     @Test
-    fun `kimi reason mentions managed channel pending user authorization`() {
+    fun `kimi reason mentions control capability not yet enabled`() {
         val r = InteractionHonesty.observedReason("kimi")
         assertTrue(r!!.contains("Kimi"))
-        assertTrue(r.contains("托管通道"))
-        assertTrue(r.contains("裁决"))
+        assertTrue(r.contains("尚未开通"))
+        assertTrue(r.contains("只能查看"))
     }
 
     @Test
     fun `deepseek reason mentions not integrated`() {
         val r = InteractionHonesty.observedReason("deepseek")
         assertTrue(r!!.contains("DeepSeek"))
-        assertTrue(r.contains("未接入"))
+        assertTrue(r.contains("还没接入"))
     }
 
     // —— R7.1：displayName 兜底路径（/v1/agents 投影无 providerKey，Agents 卡用） ——
@@ -139,10 +139,12 @@ class InteractionHonestyTest {
 
     @Test
     fun `zcode display entry copy stays honest about read-only transcript`() {
-        // 入口文案诚实纪律：转录只读、控制经 ZCode 遥控页，绝不显示为 DevHub 可控
-        assertTrue(InteractionHonesty.ZCODE_REMOTE_DETAIL_NOTE.contains("只读"))
-        assertTrue(InteractionHonesty.ZCODE_REMOTE_DETAIL_NOTE.contains("ZCode 遥控"))
+        // 入口文案诚实纪律（UX-P1 H10-H14 人话化）：仍如实说明「只能看内容」、
+        // 操作在 ZCode 侧页面（自家登录页），绝不显示为 DevHub 可控
+        assertTrue(InteractionHonesty.ZCODE_REMOTE_DETAIL_NOTE.contains("只能看"))
+        assertTrue(InteractionHonesty.ZCODE_REMOTE_DETAIL_NOTE.contains("ZCode"))
         assertTrue(InteractionHonesty.ZCODE_REMOTE_SESSION_BUTTON.contains("ZCode"))
-        assertTrue(InteractionHonesty.ZCODE_REMOTE_AGENTS_BUTTON.contains("遥控"))
+        assertTrue(InteractionHonesty.ZCODE_REMOTE_AGENTS_BUTTON.contains("电脑页面"))
+        assertTrue(InteractionHonesty.ZCODE_REMOTE_AGENTS_NOTE.contains("ZCode"))
     }
 }

@@ -46,16 +46,17 @@ object ErrorPresent {
     /**
      * IOException 族 → 人话分类。匹配顺序敏感：SocketTimeout（超时）/
      * SSL（证书）→ UnknownHost（解析）→ Connect（拒绝）→ 其他 IOException。
-     * 非 IO 异常（不应到达此处，防御兜底）→ 通用人话；technical 原样保留。
+     * UX-P1（docs/25 X7 微调 + 网关词退出用户面）：SSL 句按 G10 人话化；
+     * 「网关/Gateway」→「电脑」。technical 恒携带原始异常（翻译不删除）。
      */
     fun io(err: Throwable): Presentable = when (err) {
         is SocketTimeoutException -> Presentable(
-            "连接超时：请检查网络或网关地址后重试",
+            "连接超时：请检查网络或电脑地址后重试",
             err.toString(),
         )
 
         is SSLException -> Presentable(
-            "TLS/证书校验失败：自签证书需在「证书指纹（高级，可选）」配置 SPKI sha256 指纹",
+            "TLS/证书校验失败：服务器用了自签证书——需在连接设置 → 高级里填证书指纹",
             err.toString(),
         )
 
@@ -65,7 +66,7 @@ object ErrorPresent {
         )
 
         is ConnectException -> Presentable(
-            "无法建立连接：请确认桌面 Gateway 已启用、地址与端口正确",
+            "无法建立连接：请确认电脑已开机且 DevHub 已开启手机连接，地址与端口正确",
             err.toString(),
         )
 
@@ -96,20 +97,21 @@ object ErrorPresent {
 
             code in AUTH_CODES -> "登录已失效：请重新配对"
 
-            code == "BAD_PAYLOAD" -> "请求被网关拒绝：App 与网关版本可能不匹配"
+            // UX-P1 X8：「请求被网关拒绝」→ 人话点因（网关词退出用户面）
+            code == "BAD_PAYLOAD" -> "电脑没接受这个请求：App 与电脑上的 DevHub 版本可能不匹配"
 
             code == "COMMAND_NOT_EXECUTABLE" -> "当前会话未授予该操作能力"
 
-            code == "AGENT_CAPABILITY_MISSING" -> "能力未验证或已过期：请先在桌面端重新探测"
+            code == "AGENT_CAPABILITY_MISSING" -> "能力未验证或已过期：请先在电脑端重新探测"
 
             code == "COMMAND_EXPIRED" -> "指令已过期：请重试"
 
-            code == "ZCODE_LINK_UNAVAILABLE" -> "桌面暂无法获取 ZCode 工作区链接（ZCode 未运行或凭据不可读）"
+            code == "ZCODE_LINK_UNAVAILABLE" -> "电脑暂无法获取 ZCode 页面链接（ZCode 未运行或凭据不可读）"
 
             else -> when (surface) {
-                Surface.COMMAND -> "指令被网关拒绝"
-                Surface.RELAY_PROBE -> "Relay 可达但返回错误"
-                Surface.GATEWAY_PROBE -> "网关可达但返回错误"
+                Surface.COMMAND -> "电脑没接受这个指令"
+                Surface.RELAY_PROBE -> "云端连接可达，但服务器返回了错误"
+                Surface.GATEWAY_PROBE -> "电脑可达，但返回了错误"
                 else -> "请求未成功，请稍后重试"
             }
         }

@@ -32,10 +32,10 @@ class SessionListOpsTest {
     @Test
     fun `delete confirm text states local-projection-only`() {
         val text = SessionListOps.deleteConfirmText("UX 重构会话")
-        assertTrue(text.contains("仅移除 DevHub 记录"))
+        assertTrue(text.contains("仅移除手机里的记录"))
         assertTrue(text.contains("源文件"))
         assertTrue(text.contains("UX 重构会话"))
-        assertTrue(SessionListOps.deleteConfirmText(null).contains("该会话"))
+        assertTrue(SessionListOps.deleteConfirmText(null).contains("该对话"))
     }
 
     @Test
@@ -93,7 +93,7 @@ class SessionListOpsTest {
 
     @Test
     fun `child level label`() {
-        assertEquals("L1 子会话", SessionListOps.childLevelLabel(1))
-        assertEquals("L2 子会话", SessionListOps.childLevelLabel(2))
+        assertEquals("第 1 层", SessionListOps.childLevelLabel(1))
+        assertEquals("第 2 层", SessionListOps.childLevelLabel(2))
     }
 }

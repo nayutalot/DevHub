@@ -50,6 +50,6 @@ object MessageSegments {
     /** 折叠行字数（按 code point 计数，emoji/增补平面按 1 计）。 */
     fun thinkingCharCount(content: String): Int = content.codePointCount(0, content.length)
 
-    /** 折叠行文案：「💭 思维链 · N 字」。 */
-    fun thinkingFoldLabel(content: String): String = "💭 思维链 · ${thinkingCharCount(content)} 字"
+    /** 折叠行文案（UX-P1 X4：「思维链」→「思考过程」）：「💭 思考过程 · N 字」。 */
+    fun thinkingFoldLabel(content: String): String = "💭 思考过程 · ${thinkingCharCount(content)} 字"
 }

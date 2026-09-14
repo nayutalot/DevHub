@@ -14,7 +14,7 @@ class WaitingInputBadgeHonestyTest {
     @Test
     fun `observed waiting_input is relabeled with read-only lock semantics`() {
         assertEquals(
-            "等待输入 · 只读",
+            "等电脑回复 · 本机只读",
             InteractionHonesty.waitingInputBadge(
                 status = "waiting_input",
                 sessionMode = "observed",
@@ -26,7 +26,7 @@ class WaitingInputBadgeHonestyTest {
     @Test
     fun `session mode observed alone is sufficient`() {
         assertEquals(
-            "等待输入 · 只读",
+            "等电脑回复 · 本机只读",
             InteractionHonesty.waitingInputBadge(
                 status = "waiting_input",
                 sessionMode = "observed",
@@ -35,7 +35,7 @@ class WaitingInputBadgeHonestyTest {
         )
         // caps 单门命中（与 SessionDetail observed 原因卡同口径）
         assertEquals(
-            "等待输入 · 只读",
+            "等电脑回复 · 本机只读",
             InteractionHonesty.waitingInputBadge(
                 status = "waiting_input",
                 sessionMode = "attached",

@@ -29,12 +29,14 @@ object CapabilitiesExplain {
 
     /**
      * mode 译码（服务端 SessionMode 全集 = managed | attached | observed；
+     * UX-P1 D22：主显示二态化「可以对话/仅查看」，attached 译名「电脑上接入」进 ⓘ 弹层
+     * （docs/24 §2.1 capabilities 映射；判定真值零改动，只换说法）；
      * CP5 缺省投影 = 空串 → 「能力未探测」；其他未知值 → 未知，绝不猜）。
      */
     fun modeLabel(mode: String): String = when (mode) {
-        "managed" -> "托管接入"
-        "attached" -> "已挂接（hooks）"
-        "observed" -> "观察模式（只读）"
+        "managed" -> "可以对话"
+        "attached" -> "电脑上接入"
+        "observed" -> "仅查看"
         "" -> "能力未探测"
         else -> "能力状态未知"
     }

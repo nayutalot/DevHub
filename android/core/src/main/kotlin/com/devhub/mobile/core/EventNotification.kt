@@ -24,13 +24,14 @@ object EventNotificationMapper {
     const val EVENT_WAITING_INPUT = "session.waiting_input"
     const val EVENT_STATUS_CHANGED = "session.status_changed"
 
+    // UX-P1（docs/25 N5-N7）：「等待你的输入」终稿锁定；N6/N7 人话化（语义不变）。
     private val waitingLabels = mapOf(
         "waiting_input" to "等待你的输入",
-        "approval_required" to "等待工具批准",
+        "approval_required" to "请求你批准一个操作",
     )
     private val terminalLabels = mapOf(
-        "completed" to "会话已完成",
-        "failed" to "会话已失败",
+        "completed" to "任务已完成",
+        "failed" to "任务已失败",
     )
 
     /**

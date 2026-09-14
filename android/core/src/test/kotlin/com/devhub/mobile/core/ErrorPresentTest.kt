@@ -24,7 +24,7 @@ class ErrorPresentTest {
     fun `socket timeout maps to human headline with network and address hint`() {
         val p = ErrorPresent.io(SocketTimeoutException("failed to connect to /10.0.2.15 (port 443)"))
         assertTrue(p.headline.contains("连接超时"))
-        assertTrue(p.headline.contains("网关地址"))
+        assertTrue(p.headline.contains("电脑地址"))
         assertFalse(p.headline.contains("SocketTimeout"))
         assertFalse(p.headline.contains("10.0.2.15"))
         // 绝不吞码：原始异常收技术细节
@@ -35,7 +35,7 @@ class ErrorPresentTest {
     fun `connect exception mentions gateway enabled and port`() {
         val p = ErrorPresent.io(ConnectException("Connection refused"))
         assertTrue(p.headline.contains("无法建立连接"))
-        assertTrue(p.headline.contains("Gateway"))
+        assertTrue(p.headline.contains("DevHub"))
         assertTrue(p.technical!!.contains("ConnectException"))
     }
 
@@ -51,7 +51,8 @@ class ErrorPresentTest {
     fun `ssl exception points to spki fingerprint config`() {
         val p = ErrorPresent.io(SSLException("Trust anchor not found"))
         assertTrue(p.headline.contains("TLS"))
-        assertTrue(p.headline.contains("SPKI"))
+        assertTrue(p.headline.contains("自签证书"))
+        assertTrue(p.headline.contains("证书指纹"))
         assertTrue(p.technical!!.contains("SSLException"))
     }
 
@@ -108,9 +109,9 @@ class ErrorPresentTest {
     @Test
     fun `unknown code on probe surfaces says reachable but error`() {
         val relay = ErrorPresent.api("SOME_NEW_CODE", "?", ErrorPresent.Surface.RELAY_PROBE)
-        assertTrue(relay.headline.contains("Relay"))
+        assertTrue(relay.headline.contains("云端连接"))
         val gw = ErrorPresent.api("SOME_NEW_CODE", "?", ErrorPresent.Surface.GATEWAY_PROBE)
-        assertTrue(gw.headline.contains("网关"))
+        assertTrue(gw.headline.contains("电脑"))
         // 未知码 headline 不带原码，technical 兜底
         assertNotEquals(-1, gw.technical!!.indexOf("SOME_NEW_CODE"))
     }
