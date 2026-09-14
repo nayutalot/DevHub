@@ -85,7 +85,21 @@ export function initUpdaterWire(deps: UpdaterWireDeps): void {
     setUpdateController(controller)
 
     void import('electron-updater')
-      .then(({ autoUpdater }) => {
+      .then((mod) => {
+        // CJS 互操作兜底（X11 首验实证缺陷修复）：electron-updater 的 autoUpdater
+        // 经 Object.defineProperty 惰性 getter 导出，Node 原生 import() 的
+        // cjs-module-lexer 探测不到该命名导出 → 命名空间只带 default（打包实例
+        // 实测 'Cannot set properties of undefined (setting autoDownload)'）。
+        // 双形态：命名导出直取（require 改写场景）+ default.autoUpdater 回退
+        // （原生 import() 场景）；两态皆空 = 模块形状意外，结构化失败绝不带病接线。
+        const shaped = mod as unknown as {
+          autoUpdater?: typeof mod.autoUpdater
+          default?: { autoUpdater: typeof mod.autoUpdater }
+        }
+        const autoUpdater = shaped.autoUpdater ?? shaped.default?.autoUpdater
+        if (autoUpdater === undefined) {
+          throw new Error('electron-updater: autoUpdater export missing after CJS interop (unexpected module shape)')
+        }
         // 三重「绝不」配置（任务书红线）：绝不自动下载 / 退出链绝不携带安装 /
         // 不收预发布版
         autoUpdater.autoDownload = false
