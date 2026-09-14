@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">DevHub</string>
-    <!-- 前台服务常驻通知（docs/11 §7：前台服务维持 WS 长连） -->
+    <!-- 前台服务常驻通知（docs/11 §7：前台服务维持 WS 长连；UX-P1 N2/N3 人话化） -->
     <string name="notif_channel_connection">连接状态</string>
-    <string name="notif_channel_events">会话事件</string>
-    <string name="notif_connection_title">DevHub Agent 连接中</string>
+    <string name="notif_channel_events">消息提醒</string>
+    <string name="notif_connection_title">DevHub 运行中</string>
 </resources>
