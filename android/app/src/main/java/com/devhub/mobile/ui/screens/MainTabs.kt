@@ -1,5 +1,6 @@
 package com.devhub.mobile.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,10 +10,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 // AC7b 编译修复：移除 internal 符号 import（RowColumnParentData.weight）；
 // Modifier.weight 为 RowScope/ColumnScope 成员扩展，无需 import。
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -25,7 +26,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -38,11 +38,12 @@ import com.devhub.mobile.connect.ConnectionManager
 import com.devhub.mobile.connect.ConnState
 
 /**
- * 主框架：底部四标签（会话 / Agents / 诊断 / 设备）+ 顶部连接状态条。
- * T1 批：独立「远程工作区」tab 撤销——ZCode 遥控入口并入会话/Agent 流
- * （会话页顶部智能卡 + zcode 会话详情按钮 + zcode Agent 卡按钮），
- * 条目管理屏（RemoteWorkspaceScreen）改为可路由目的地（remote-manage），
- * 从智能卡管理入口可达。
+ * 主框架：底部三标签（对话 / 助手 / 我的）+ 顶部状态 chip（UX-P2 导航 IA 重排，docs/24 §3）。
+ * - 四→三：原「诊断」「设备」tab 挂载点移入「我的」（屏本体保留，路由 connection-status/device）；
+ * - 顶部连接状态条降级为状态 chip（五态；点开=「电脑连接状态」页）——P1 三态可判断性
+ *   文案语义原样迁入（docs/24 §2.2），relay 降级态保持琥珀显性异常（不伪造状态红线）；
+ * - 旧 tab 值（diagnostics/device）经 [normalizeTab] 兼容映射进「我的」，main?tab= 深链零破坏。
+ * T1 批沿革：独立「远程工作区」tab 撤销——ZCode 遥控入口并入会话/Agent 流。
  */
 @Composable
 fun MainTabs(
@@ -51,10 +52,12 @@ fun MainTabs(
     onGatewayConfig: () -> Unit,
     onOpenRemoteEntry: (Long) -> Unit = {},
     onManageRemote: () -> Unit = {},
+    onOpenConnectionStatus: () -> Unit = {},
+    onOpenDevice: () -> Unit = {},
 ) {
     // Q 批：rememberSaveable——跳「远程工作区」全屏 WebView 后返回，选中 tab 不再
     // 丢失回默认会话（main 条目在返回栈上，状态随 SavedStateRegistry 存续）。
-    var selected by rememberSaveable { mutableStateOf(initialTab) }
+    var selected by rememberSaveable { mutableStateOf(normalizeTab(initialTab)) }
 
     Scaffold(
         // 视觉打磨批 D：顶部 inset 单计——外层 DevHubRoot Scaffold 已把状态栏 inset
@@ -75,18 +78,11 @@ fun MainTabs(
                     icon = { Icon(Icons.Filled.Star, contentDescription = "助手") },
                     label = { Text("助手") },
                 )
-                // T1 批：独立「远程工作区」tab 撤销（用户裁决）——遥控入口并入会话/Agent 流
                 NavigationBarItem(
-                    selected = selected == "diagnostics",
-                    onClick = { selected = "diagnostics" },
-                    icon = { Icon(Icons.Filled.Info, contentDescription = "诊断") },
-                    label = { Text("诊断") },
-                )
-                NavigationBarItem(
-                    selected = selected == "device",
-                    onClick = { selected = "device" },
-                    icon = { Icon(Icons.Filled.Place, contentDescription = "设备") },
-                    label = { Text("设备") },
+                    selected = selected == "mine",
+                    onClick = { selected = "mine" },
+                    icon = { Icon(Icons.Filled.Person, contentDescription = "我的") },
+                    label = { Text("我的") },
                 )
             }
         },
@@ -96,7 +92,11 @@ fun MainTabs(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            ConnectionStatusBar(onGatewayConfig = onGatewayConfig)
+            // UX-P2：状态 chip（五态；点开=「电脑连接状态」页；异常态带一步动作出口）
+            ConnectionStatusChip(
+                onOpenConnectionStatus = onOpenConnectionStatus,
+                onGoConnect = onGatewayConfig,
+            )
             when (selected) {
                 // 批次 C R6.2：Agents 页「启动托管会话」→ 202 后跳入新会话详情
                 // T1 批：zcode provider 卡加「打开遥控」→ remote/{entryId}
@@ -104,10 +104,14 @@ fun MainTabs(
                     onOpenSession = onOpenSession,
                     onOpenRemoteEntry = onOpenRemoteEntry,
                 )
+                // UX-P2：「我的」页（诊断/设备挂载点移入；电脑连接状态卡+入口列表+开发者折叠）
+                "mine" -> MineScreen(
+                    onOpenConnectionStatus = onOpenConnectionStatus,
+                    onGatewayConfig = onGatewayConfig,
+                    onOpenDevice = onOpenDevice,
+                    onManageRemote = onManageRemote,
+                )
                 // T1 批：会话页顶部「ZCode 工作区」智能卡（点击开遥控 / 管理入口进条目管理屏）
-                "diagnostics" -> DiagnosticsScreen()
-                // UX-P1 De2：「去连接」动作出口复用既有连接设置路由（零结构改动）
-                "device" -> DeviceScreen(onGoConnect = onGatewayConfig)
                 else -> SessionsScreen(
                     onOpenSession = onOpenSession,
                     onOpenRemoteEntry = onOpenRemoteEntry,
@@ -118,55 +122,83 @@ fun MainTabs(
     }
 }
 
-/** 顶部连接状态条：三态可判断性（docs/24 §2.2 矩阵逐格）——还没连接电脑 / 连不上 / 电脑不在线互斥文案；
- * 心跳等数值全部移出常态面（技术原值在连接帮助「技术详情」折叠，docs/25 M5-M12 人话化）。 */
+/**
+ * UX-P2：main?tab= 旧值兼容映射（纯函数，:app 单测直锁）。
+ * 三标签取值 = sessions | agents | mine；P2 前的旧 tab 值 diagnostics/device
+ * （挂载点已移入「我的」）映射到 mine——外部导航（gateway 页「诊断连接问题」等）
+ * 与任何历史 main?tab= 深链零破坏；未知值回退 sessions（原 else 分支语义）。
+ */
+internal fun normalizeTab(tab: String?): String = when (tab) {
+    "agents" -> "agents"
+    "mine", "diagnostics", "device" -> "mine"
+    else -> "sessions"
+}
+
+/**
+ * UX-P2：顶部状态 chip——五态（docs/24 §3）：●已连接 / ◌连接中 / ↻重试中(第n次) /
+ * ✕未连接 / ⚠云端连接已连上，电脑不在线。P1 三态可判断性文案语义原样迁入
+ * （docs/24 §2.2：还没连接电脑 / 连不上 / 电脑不在线互斥），心跳等数值移出常态面；
+ * chip 点开=「电脑连接状态」页；还没连接/未连接附「去连接」、连不上附「诊断连接问题」
+ * 一步动作出口（M10/M11/G16 出口不回退）。relay 降级态保持琥珀底显性异常（红线 #1）。
+ */
 @Composable
-private fun ConnectionStatusBar(onGatewayConfig: () -> Unit) {
+private fun ConnectionStatusChip(
+    onOpenConnectionStatus: () -> Unit,
+    onGoConnect: () -> Unit,
+) {
     val state by ConnectionManager.state.collectAsState()
     val activeMode by ConnectionManager.activeMode.collectAsState()
     val upstreamBeacon by ConnectionManager.upstreamBeacon.collectAsState()
-    // 打磨批 D：钉深色主题后默认文字为主题浅色，与浅色状态底对比失效 →
-    // 各状态显式配对 fg 色（取色与 StatusBadge 同源语义）。
-    // M2-R3（docs/19 §7.3）：relay 降级态（upstream disconnected）=「云端连接已连上，但电脑
-    // 不在线」结构化文案，琥珀底高亮，绝不显示为正常态——容错降级纪律（不伪造状态红线）。
-    val (bg, fg, label) = when (val s = state) {
+
+    data class ChipSpec(val bg: Color, val fg: Color, val label: String, val action: String?, val actionIsGoConnect: Boolean)
+
+    val spec = when (val s = state) {
         is ConnState.Connected -> when {
+            // M2-R3（docs/19 §7.3）：relay 降级态=「云端连接已连上，但电脑不在线」
+            // 琥珀 chip 显性异常，绝不显示为正常态——容错降级纪律（不伪造状态红线）。
             activeMode == "relay" && upstreamBeacon == "disconnected" ->
-                Triple(
-                    Color(0xFFFFECB3),
-                    Color(0xFF7A4F00),
-                    "云端连接已连上，但电脑不在线——消息会在电脑上线后自动送达",
-                )
+                ChipSpec(Color(0xFFFFECB3), Color(0xFF7A4F00), "⚠ 云端连接已连上，电脑不在线", "查看", false)
 
             activeMode == "relay" ->
-                Triple(Color(0xFFDDEBDD), Color(0xFF1B5E20), "已连接（云端连接）")
+                ChipSpec(Color(0xFFDDEBDD), Color(0xFF1B5E20), "● 已连接（云端连接）", null, false)
 
-            else -> Triple(Color(0xFFDDEBDD), Color(0xFF1B5E20), "已连接")
+            else -> ChipSpec(Color(0xFFDDEBDD), Color(0xFF1B5E20), "● 已连接", null, false)
         }
 
-        is ConnState.Connecting -> Triple(Color(0xFFFFECB3), Color(0xFF7A4F00), "连接中…")
+        is ConnState.Connecting -> ChipSpec(Color(0xFFFFECB3), Color(0xFF7A4F00), "◌ 连接中", null, false)
         is ConnState.Backing ->
-            Triple(
-                Color(0xFFFFAB91),
-                Color(0xFF7A2400),
-                "连不上：请检查手机网络或电脑是否开机（第 ${s.attempt} 次重试，约 ${s.nextDelayMs / 1000} 秒后）",
+            ChipSpec(
+                Color(0xFFFFAB91), Color(0xFF7A2400),
+                "↻ 连不上：重试中（第 ${s.attempt} 次）", "诊断连接问题", false,
             )
-        is ConnState.Unpaired -> Triple(Color(0xFFFFCDD2), Color(0xFFB71C1C), "还没连接电脑：先在电脑上生成配对码")
-        ConnState.Idle -> Triple(Color(0xFFE0E0E0), Color(0xFF37474F), "未连接")
+        is ConnState.Unpaired ->
+            ChipSpec(Color(0xFFFFCDD2), Color(0xFFB71C1C), "✕ 还没连接电脑", "去连接", true)
+        ConnState.Idle -> ChipSpec(Color(0xFFE0E0E0), Color(0xFF37474F), "✕ 未连接", "去连接", true)
     }
-    // 三态动作出口（docs/24 §2.2）：还没连接电脑/未连接 → 「去连接」直达连接流程入口
-    // （连接设置 → 连接电脑）；其余状态保持「连接设置」。「诊断连接问题」出口在
-    // 诊断 tab 与连接设置页（G16）——状态条直连诊断的接线归 P2 IA。
-    val actionLabel = if (state is ConnState.Unpaired || state == ConnState.Idle) "去连接" else "连接设置"
-    Surface(color = bg, modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Surface(
+            color = spec.bg,
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier.clickable { onOpenConnectionStatus() },
         ) {
-            Text(label, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = fg)
-            Spacer(Modifier.weight(1f))
-            TextButton(onClick = onGatewayConfig) {
-                Text(actionLabel, fontSize = 12.sp, color = fg)
+            Text(
+                spec.label,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = spec.fg,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            )
+        }
+        Spacer(Modifier.weight(1f))
+        spec.action?.let { action ->
+            TextButton(onClick = if (spec.actionIsGoConnect) onGoConnect else onOpenConnectionStatus) {
+                Text(action, fontSize = 12.sp, color = spec.fg)
             }
         }
     }

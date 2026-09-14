@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -25,6 +27,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -53,9 +56,11 @@ import java.util.Locale
  * 页面 9：设备管理页（docs/11 §7）。
  * 显示本设备（deviceId / 设备名 / 配对时间 / 最近在线 / tokenVersion）
  * + 撤销自己（DELETE /v1/devices/{id}，docs/14 §B.1 仅自撤销）→ 清 Token 回配对页。
+ * UX-P2 IA：自底栏 tab 移为路由目的地（device）——「我的→这台手机」可达；
+ * onBack 时渲染返回钮（返回栈回归纪律）。
  */
 @Composable
-fun DeviceScreen(onGoConnect: () -> Unit = {}) {
+fun DeviceScreen(onGoConnect: () -> Unit = {}, onBack: (() -> Unit)? = null) {
     val context = LocalContext.current
     val db = remember { DevHubDb.get(context) }
     val scope = rememberCoroutineScope()
@@ -107,6 +112,17 @@ fun DeviceScreen(onGoConnect: () -> Unit = {}) {
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text("这台手机", style = MaterialTheme.typography.titleLarge) // UX-P1 De1
+        if (onBack != null) {
+            // UX-P2 IA：路由目的地形态补返回导航（tab 形态 onBack=null 不渲染，零行为变化）
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.IconButton(onClick = onBack) {
+                    androidx.compose.material3.Icon(
+                        Icons.Filled.ArrowBack,
+                        contentDescription = "返回",
+                    )
+                }
+            }
+        }
         val o = own
         if (o == null) {
             // UX-P1 De2：空态 = 一句事实 + 一步动作（去连接 → 连接设置入口，零结构改动）

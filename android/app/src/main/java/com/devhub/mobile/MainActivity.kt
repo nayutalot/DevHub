@@ -32,6 +32,8 @@ import com.devhub.mobile.core.NotificationPermissionPolicy
 import com.devhub.mobile.notify.NotificationPermissionStore
 import com.devhub.mobile.ui.AppState
 import com.devhub.mobile.ui.screens.ChildSessionsScreen
+import com.devhub.mobile.ui.screens.DeviceScreen
+import com.devhub.mobile.ui.screens.DiagnosticsScreen
 import com.devhub.mobile.ui.screens.GatewayConfigScreen
 import com.devhub.mobile.ui.screens.MainTabs
 import com.devhub.mobile.ui.screens.PairingScreen
@@ -46,7 +48,7 @@ import com.devhub.mobile.ui.theme.DevHubTheme
  * - deep link：devhub://session/{id}（事件通知点击直达会话详情；onNewIntent 热路径同样生效）；
  * - 401（撤销/失效）：ConnState.Unpaired → 清凭据已由 ConnectionManager 完成 → 回配对页；
  * - 通知权限：API 33+ 启动时请求一次（POST_NOTIFICATIONS）；U1-M5：拒绝一次即记录，
- *   之后冷启动不再自动弹（改 GatewayConfig「通知权限」入口承载）；
+ *   之后冷启动不再自动弹（UX-P2 起改「我的→消息提醒」入口承载；UX-P1 期为 GatewayConfig 入口）；
  * - windowSoftInputMode=adjustResize（Q 批）：WebView 页软键盘局部处理，输入焦点正常落 WebView；
  * - T1 批：独立「远程工作区」tab 撤销——ZCode 遥控入口并入会话/Agent 流
  *   （会话页智能卡 / zcode 会话详情 / zcode Agent 卡 → remote/{entryId}，语义不动）；
@@ -165,7 +167,7 @@ fun DevHubRoot(startSessionId: Long?, onLinkConsumed: () -> Unit) {
                             navController.navigate("pairing")
                         }
                     },
-                    onDiagnostics = { navController.navigate("main?tab=diagnostics") },
+                    onDiagnostics = { navController.navigate("connection-status") },
                     onDemoMode = {
                         navController.navigate("main") {
                             popUpTo("gateway") { inclusive = true }
@@ -198,6 +200,23 @@ fun DevHubRoot(startSessionId: Long?, onLinkConsumed: () -> Unit) {
                     onOpenRemoteEntry = { id -> navController.navigate("remote/$id") },
                     // T1 批：智能卡管理入口 → 条目管理屏（手工 URL 条目功能不丢）
                     onManageRemote = { navController.navigate("remote-manage") },
+                    // UX-P2 IA：状态 chip/电脑卡点击 → 「电脑连接状态」页（现诊断页人话化本体，
+                    // 挂载点自底栏 tab 移为路由目的地；main?tab=diagnostics 旧深链经 normalizeTab 兼容）
+                    onOpenConnectionStatus = { navController.navigate("connection-status") },
+                    // UX-P2 IA：「我的→这台手机」→ 设备屏路由目的地（底栏 tab 撤销，本体保留）
+                    onOpenDevice = { navController.navigate("device") },
+                )
+            }
+            // UX-P2 IA：电脑连接状态页（DiagnosticsScreen 本体，挂载点自底栏移出——
+            // 状态 chip、「我的」电脑卡/入口、连接设置页 G16 三处可达）
+            composable("connection-status") {
+                DiagnosticsScreen(onBack = { navController.popBackStack() })
+            }
+            // UX-P2 IA：这台手机（DeviceScreen 本体，挂载点自底栏移出，「我的」入口可达）
+            composable("device") {
+                DeviceScreen(
+                    onGoConnect = { navController.navigate("gateway") },
+                    onBack = { navController.popBackStack() },
                 )
             }
             composable(
