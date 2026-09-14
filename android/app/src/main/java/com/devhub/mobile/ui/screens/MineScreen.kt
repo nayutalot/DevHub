@@ -163,6 +163,11 @@ fun MineScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    // UX-P3（docs/26 §4.3「我的-电脑」空态）：未连接 → [去连接] 一步动作
+                    //（出口=连接设置/连接电脑单页流入口，真实存在的功能，非伪造入口）
+                    if (online == ComputerOnlineState.UNCONNECTED) {
+                        androidx.compose.material3.Button(onClick = onGatewayConfig) { Text("去连接", fontSize = 13.sp) }
+                    }
                     TextButton(onClick = onGatewayConfig) { Text("连接设置", fontSize = 13.sp) }
                     TextButton(onClick = onOpenConnectionStatus) { Text("诊断连接问题", fontSize = 13.sp) } // P1 G16
                 }

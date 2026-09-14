@@ -127,7 +127,11 @@ fun ChildSessionsScreen(
                 presentable = error ?: com.devhub.mobile.core.ErrorPresent.Presentable("加载失败"),
                 headlinePrefix = "加载失败：",
             )
-            list.isEmpty() -> Text("这个对话没有子任务", fontSize = 13.sp) // UX-P1 C2
+            // UX-P1 C2 + UX-P3（docs/26 §4.3）：空态 = 一句事实 + 一步动作（返回对话）
+            list.isEmpty() -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("这个对话没有子任务", fontSize = 13.sp) // UX-P1 C2
+                TextButton(onClick = onBack) { Text("返回对话") }
+            }
             else -> {
                 // R2 排序：活跃在前、已结束在后（core.SessionListOps 纯逻辑）
                 val ordered = SessionListOps.sortChildren(

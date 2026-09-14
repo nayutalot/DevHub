@@ -142,6 +142,13 @@ fun DiagnosticsScreen(onBack: (() -> Unit)? = null) {
             )
         }
 
+        // —— UX-P3 唤醒联动（docs/briefs/uxp3-flows.md §1.4）：状态 chip「⚠ 电脑不在线」
+        // 的动作出口（查看/诊断连接问题）落在本页 → 接共享 WakeHostCard（接线不重写，
+        // 六态人话/禁用态/冷却原样；仅 relay 且电脑未确认在线时出现）——
+        if (com.devhub.mobile.ui.components.wakeCardNeeded(activeMode, connState is com.devhub.mobile.connect.ConnState.Connected, upstreamBeacon)) {
+            com.devhub.mobile.ui.components.WakeHostCard()
+        }
+
         // —— 桌面诊断投影 ——
         Text("电脑那头", fontWeight = FontWeight.SemiBold, fontSize = 14.sp) // UX-P1 Dg5
         val d = diag

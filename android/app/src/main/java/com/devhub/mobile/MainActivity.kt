@@ -32,21 +32,23 @@ import com.devhub.mobile.core.NotificationPermissionPolicy
 import com.devhub.mobile.notify.NotificationPermissionStore
 import com.devhub.mobile.ui.AppState
 import com.devhub.mobile.ui.screens.ChildSessionsScreen
+import com.devhub.mobile.ui.screens.ConnectComputerScreen
 import com.devhub.mobile.ui.screens.DeviceScreen
 import com.devhub.mobile.ui.screens.DiagnosticsScreen
 import com.devhub.mobile.ui.screens.GatewayConfigScreen
 import com.devhub.mobile.ui.screens.MainTabs
-import com.devhub.mobile.ui.screens.PairingScreen
 import com.devhub.mobile.ui.screens.RemoteWorkspaceScreen
 import com.devhub.mobile.ui.screens.RemoteWorkspaceWebViewScreen
 import com.devhub.mobile.ui.screens.SessionDetailScreen
 import com.devhub.mobile.ui.theme.DevHubTheme
 
 /**
- * 入口：导航 = gateway 配置 → pairing 配对 → main（会话/Agents/诊断/设备）→
- * session/{id} 详情 / remote/{id} 全屏 WebView / remote-manage 条目管理屏。
+ * 入口：导航 = 连接电脑单页流（UX-P3：connect 单页；旧 pairing 路由兼容渲染同一单页）→
+ * main（对话/助手/我的三标签）→ session/{id} 详情 / children/{id} / remote/{id} 全屏
+ * WebView / remote-manage 条目管理屏 / connection-status / device / gateway（连接设置本体）。
  * - deep link：devhub://session/{id}（事件通知点击直达会话详情；onNewIntent 热路径同样生效）；
- * - 401（撤销/失效）：ConnState.Unpaired → 清凭据已由 ConnectionManager 完成 → 回配对页；
+ * - 401（撤销/失效）：ConnState.Unpaired → 清凭据已由 ConnectionManager 完成 → 回
+ *   「连接电脑」单页（pairing 路由兼容渲染）；
  * - 通知权限：API 33+ 启动时请求一次（POST_NOTIFICATIONS）；U1-M5：拒绝一次即记录，
  *   之后冷启动不再自动弹（UX-P2 起改「我的→消息提醒」入口承载；UX-P1 期为 GatewayConfig 入口）；
  * - windowSoftInputMode=adjustResize（Q 批）：WebView 页软键盘局部处理，输入焦点正常落 WebView；
@@ -112,7 +114,7 @@ fun DevHubRoot(startSessionId: Long?, onLinkConsumed: () -> Unit) {
     val paired = remember {
         mutableStateOf(SecureStore.loadToken(context) != null || FixtureMode.enabled(context))
     }
-    val startDestination = if (paired.value) "main" else "gateway"
+    val startDestination = if (paired.value) "main" else "connect"
 
     // 已配对：拉起前台服务（WS 长连 + 通知）；401 → 回配对页（结构化提示）
     LaunchedEffect(state) {
@@ -175,15 +177,45 @@ fun DevHubRoot(startSessionId: Long?, onLinkConsumed: () -> Unit) {
                     },
                 )
             }
-            composable("pairing") {
-                PairingScreen(
+            // UX-P3（docs/briefs/uxp3-flows.md §1.1）：「连接电脑」单页流（gateway+pairing 两页合一，
+            // 首装咽喉 funnel ≤5 输入）。首装未配对冷启直达本页；旧 pairing 路由（401 全局流转
+            // navigate("pairing")，popUpTo(0)）渲染同一单页——旧路由深链兼容重定向，零破坏。
+            composable("connect") {
+                // U1-M6/P2#9 语义沿用：本页属堆叠推送时补返回导航；首装冷启动（start destination，
+                // 返回栈空）不显示返回钮
+                val canGoBack = navController.previousBackStackEntry != null
+                ConnectComputerScreen(
+                    onBack = if (canGoBack) {
+                        { navController.popBackStack() }
+                    } else {
+                        null
+                    },
                     onPaired = {
                         paired.value = true
                         ConnectionManager.start()
                         GatewayConnectionService.start(context)
-                        navController.navigate("main") {
-                            popUpTo("gateway") { inclusive = true }
-                        }
+                        // 单页流成功收束：清栈进主框架（对话 tab 空态引导「去助手开始第一个对话」）
+                        navController.navigate("main") { popUpTo(0) }
+                    },
+                    onDiagnostics = { navController.navigate("connection-status") },
+                    onDemoMode = {
+                        navController.navigate("main") { popUpTo(0) }
+                    },
+                )
+            }
+            // UX-P3 旧路由兼容：pairing → 同一单页（401 流转 navigate("pairing") 零破坏；
+            // 语义=重定向到单页配对码折叠区，配置已预填、直接输码）
+            composable("pairing") {
+                ConnectComputerScreen(
+                    onPaired = {
+                        paired.value = true
+                        ConnectionManager.start()
+                        GatewayConnectionService.start(context)
+                        navController.navigate("main") { popUpTo(0) }
+                    },
+                    onDiagnostics = { navController.navigate("connection-status") },
+                    onDemoMode = {
+                        navController.navigate("main") { popUpTo(0) }
                     },
                 )
             }
