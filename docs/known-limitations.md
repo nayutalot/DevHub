@@ -20,17 +20,21 @@
 - **解除路径**：需 ZCode 官方公开控制通道或输入注入 API（第三方无法自造）；
   语料出现 pending 形态后判定表按现有映射自动生效，无需改判定逻辑。
 
-### 1.2 DeepSeek Harness：仅骨架检测显示未接入
+### 1.2 DeepSeek Harness：observed 会话投影已实接；控制通道仍未验证（2026-09-14 ds 批更新）
 
-- **现状**：provider 为骨架 + 能力检测（目录存在性/版本线索 → health）；
-  `getCapabilities` 恒 observed + 空集；显式文案
-  `DEEPSEEK_NOT_INTEGRATED_NOTE`（"not integrated: harness source tree detected
-  but no session/control interface verified (never fabricated)"），
-  `deepseekProvider.ts` 头注释与本机实态（源码重建形态 monorepo，无用户侧
-  sessions 目录）一致。
-- **影响面**：DeepSeek Harness 在 Agents 视图显示「未接入」，无会话/消息投影。
-- **解除路径**：等 DeepSeek Harness 出现可验证的会话数据源或控制接口后新批次
-  接入（需用户授权真机探测 + 新判定语料）。
+- **现状（2026-09-14 ds 批，真机只读侦察 + 最小 observed 适配）**：确认用户侧
+  数据根 `~/.dsh`（env `DSH_HOME` 可覆盖，dsh-home-paths 约定）实存会话事实源：
+  `sessions/<projectKey>/session-<uuid>/session.jsonl.zstd`（拼接 zstd 帧容器，
+  首帧 header + 事件批次 JSONL）+ `storages/session_projcache.json`（title/
+  createdAt/cwd/lastPromptAt 投影缓存）。deepseekProvider 已按真实布局实装
+  observed 只读投影（listSessions/readMessages/startMonitor；zstd 解码走
+  `node:zlib` 内建 API，零新依赖、零子进程；未知事件容忍计数；残尾帧跳过）。
+  控制通道（harness 源码 packages/acp 的 ACP-stdio 与 packages/sdk 的 stdio
+  JSON-RPC）在位但**未真机验证**（验证需启动 harness 进程，红线禁止）→
+  getCapabilities 恒 observed + 空集；sendReply/pause/resume 结构化 unsupported。
+- **影响面**：会话列表/消息投影/监控可用；回复注入、暂停/恢复、托管启动不可用。
+- **解除路径**：新批次获用户授权真机运行 harness 后，按 zcode app-server 同
+  口径验证 ACP/SDK 通道（握手 + 方法探测），再评估 managed 接入。
 
 ### 1.3 Grok CLI：本机存在但本期未接入（预留位）
 
