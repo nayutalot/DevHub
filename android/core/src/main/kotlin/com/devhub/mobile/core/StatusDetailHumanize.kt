@@ -37,6 +37,31 @@ object StatusDetailHumanize {
         "error" to "本轮出错结束",
     )
 
+    /**
+     * UX-Z3 运行态层（任务书 #4 收尾人话）：终态族补全——zcode managed 面
+     * （zcodeProvider.handleManagedEvent 实产两形态）：
+     * ① 「turn completed (resultType: <rt>)」（evalZcodeEventStatus resultType 实产七值）；
+     * ② 「zcode event: <type>」（非 turn.completed 事件沿）。
+     * 词表只收 zcodeProtocol 实产取值；表外原样透出（零吞码纪律不变）。
+     */
+    private val zcodeResultTypeLabels: Map<String, String> = mapOf(
+        "success" to "本轮已完成",
+        "cancelled" to "本轮已取消",
+        "error_max_turns" to "本轮出错结束：达到轮次上限",
+        "error_max_budget" to "本轮出错结束：达到预算上限",
+        "error_during_execution" to "本轮执行中出错",
+        "error_max_tool_calls" to "本轮出错结束：达到工具调用次数上限",
+    )
+
+    private val zcodeEventLabels: Map<String, String> = mapOf(
+        "turn.started" to "新一轮任务开始",
+        "turn.completed" to "本轮已结束",
+        "turn.failed" to "本轮出错结束",
+        "permission.requested" to "等待工具批准",
+        "userInput.requested" to "等待你的输入",
+        "session.closed" to "会话已关闭",
+    )
+
     fun display(detail: String?): String? {
         if (detail.isNullOrBlank()) return null
         val trimmed = detail.trim()
@@ -55,10 +80,22 @@ object StatusDetailHumanize {
         dshEventShape.find(trimmed)?.let { m ->
             return seqEventLabels[m.groupValues[1]]?.let { "$it" } ?: trimmed
         }
+        // ④ 「turn completed (resultType: <rt>)」形态（zcode managed 终态族；
+        // 未登录取值 → 人话兜底不猜因）
+        zcodeTurnCompletedShape.find(trimmed)?.let { m ->
+            val rt = m.groupValues[1].trim()
+            return zcodeResultTypeLabels[rt] ?: "本轮已结束"
+        }
+        // ⑤ 「zcode event: <type>」形态（zcode managed 非 turn.completed 事件沿）
+        zcodeEventShape.find(trimmed)?.let { m ->
+            return zcodeEventLabels[m.groupValues[1]]?.let { "$it" } ?: trimmed
+        }
         return trimmed
     }
 
     private val seqShape = Regex("^([A-Za-z][A-Za-z0-9_./]*) \\(seq (\\d+)\\)$")
     private val turnEndShape = Regex("^turn ended \\(reason:\\s*([^)]+)\\)$")
     private val dshEventShape = Regex("^dsh event:\\s*([A-Za-z][A-Za-z0-9_./]*)$")
+    private val zcodeTurnCompletedShape = Regex("^turn completed \\(resultType:\\s*([A-Za-z0-9_-]+)\\)$")
+    private val zcodeEventShape = Regex("^zcode event:\\s*([A-Za-z][A-Za-z0-9_.]*)$")
 }
