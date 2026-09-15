@@ -1,0 +1,15 @@
+{
+  "t1IdleAt": 1789454365383,
+  "staleSimulatedAt": 1789454449769,
+  "attempt1RejectedAt": 1789454449772,
+  "rejectionCode": "AGENT_CAPABILITY_MISSING",
+  "probeAt": 1789454449773,
+  "probeDoneAt": 1789454449975,
+  "probeMs": 202,
+  "retryAt": 1789454449976,
+  "retryExecutedAt": 1789454450116,
+  "t2FirstStreamAt": 1789454450654,
+  "t2IdleAt": 1789454450664,
+  "chainMs": 892,
+  "retryToFirstStreamMs": 538
+}

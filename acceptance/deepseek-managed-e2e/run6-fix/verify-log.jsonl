@@ -1,0 +1,57 @@
+{"t":1789451266513,"line":"gate: enabled=true idle=1800000ms lifetime=7200000ms (production defaults, no overrides)"}
+{"t":1789451267857,"line":"orphan baseline: deepseek-harness node processes = 0"}
+{"t":1789451268644,"line":"T1 start: ok=true nativeId=session-a13552ad-7307-4e51-aa6f-549d922c156f spawnMs=785 detail=dsh runtime spawned + initialize handshake ok (serverInfo deepseek-harness-sdk-runtime v0.0.1); lazy create+prompt in one (turn in flight; 44-type firehose streams to idle)"}
+{"t":1789451270492,"line":"T1 evidence: bubble=assistant-t1s1 increments=3 (texts: [\"第一\",\"第一回合\",\"第一回合\"]) wire={\"file\":\"session.jsonl.zstd\",\"mtimeMs\":1789451270491.2783,\"size\":4708}"}
+{"t":1789451270493,"line":"RUN6-FIX VERIFY FAILED: Error: session row missing\n    at file:///F:/Active_Project/DevHub/worktrees/dm2-capsws/acceptance/deepseek-managed-e2e/run6-fix-verify.mjs:144:39"}
+{"t":1789452645364,"line":"gate: enabled=true idle=1800000ms lifetime=7200000ms (production defaults, no overrides)"}
+{"t":1789452646698,"line":"orphan baseline: deepseek-harness node processes = 0"}
+{"t":1789452647654,"line":"T1 start: ok=true nativeId=session-184628b6-fad2-461a-b01f-177ed8612b28 spawnMs=956 detail=dsh runtime spawned + initialize handshake ok (serverInfo deepseek-harness-sdk-runtime v0.0.1); lazy create+prompt in one (turn in flight; 44-type firehose streams to idle)"}
+{"t":1789452648692,"line":"T1 evidence: bubble=assistant-t1s1 increments=3 (texts: [\"第一\",\"第一回合\",\"第一回合\"]) wire={\"file\":\"session.jsonl.zstd\",\"mtimeMs\":1789452647715.3997,\"size\":4208}"}
+{"t":1789452648693,"line":"RUN6-FIX VERIFY FAILED: Error: session row missing\n    at file:///F:/Active_Project/DevHub/worktrees/dm2-capsws/acceptance/deepseek-managed-e2e/run6-fix-verify.mjs:147:39"}
+{"t":1789453187286,"line":"gate: enabled=true idle=1800000ms lifetime=7200000ms (production defaults, no overrides)"}
+{"t":1789453188578,"line":"orphan baseline: deepseek-harness node processes = 0"}
+{"t":1789453189414,"line":"T1 start: ok=true nativeId=session-a3a85da4-b039-415b-bb07-66671d87edf4 spawnMs=836 detail=dsh runtime spawned + initialize handshake ok (serverInfo deepseek-harness-sdk-runtime v0.0.1); lazy create+prompt in one (turn in flight; 44-type firehose streams to idle)"}
+{"t":1789453190445,"line":"T1 evidence: bubble=assistant-t1s1 increments=3 (texts: [\"第一\",\"第一回合\",\"第一回合\"]) wire={\"file\":\"session.jsonl.zstd\",\"mtimeMs\":1789453189475.2805,\"size\":4215}"}
+{"t":1789453190446,"line":"session row: id=1 mode=managed"}
+{"t":1789453190449,"line":"monitor started (wire-scan refresh path live, production-identical sink)"}
+{"t":1789453272656,"line":"probe0 (caps seeded): at=1789453190450 mode=managed granted=reply verifiedAtSec=undefined"}
+{"t":1789453272659,"line":"caps staleness simulated: verifiedAtSec=undefined (age=NaNs > 300s TTL)"}
+{"t":1789453272661,"line":"① attempt1 rejected (App-visible): code=AGENT_CAPABILITY_MISSING at=1789453272660 (+82267ms after T1 idle) message=sessionAction: capabilities for session 1 are not verified or stale (>300s), re-probe required"}
+{"t":1789453272663,"line":"① self-heal probe: at=1789453272662 doneAt=1789453272663 probeMs=1 mode=managed granted=reply verifiedAtSec=undefined fresh=false"}
+{"t":1789453272664,"line":"RUN6-FIX VERIFY FAILED: Error: self-heal probe did not refresh caps\n    at file:///F:/Active_Project/DevHub/worktrees/dm2-capsws/acceptance/deepseek-managed-e2e/run6-fix-verify.mjs:195:21"}
+{"t":1789454176149,"line":"gate: enabled=true idle=1800000ms lifetime=7200000ms (production defaults, no overrides)"}
+{"t":1789454177480,"line":"orphan baseline: deepseek-harness node processes = 0"}
+{"t":1789454178341,"line":"T1 start: ok=true nativeId=session-521acfc9-4650-4b68-9644-c5640d04298a spawnMs=860 detail=dsh runtime spawned + initialize handshake ok (serverInfo deepseek-harness-sdk-runtime v0.0.1); lazy create+prompt in one (turn in flight; 44-type firehose streams to idle)"}
+{"t":1789454179367,"line":"T1 evidence: bubble=assistant-t1s1 increments=3 (texts: [\"第一\",\"第一回合\",\"第一回合\"]) wire={\"file\":\"session.jsonl.zstd\",\"mtimeMs\":1789454178393.071,\"size\":4216}"}
+{"t":1789454179368,"line":"session row: id=1 mode=managed"}
+{"t":1789454264778,"line":"probe0 (caps seeded): at=1789454179369 mode=managed granted=reply verifiedAt=1789454261"}
+{"t":1789454264782,"line":"monitor started (wire-scan refresh path live, production-identical sink)"}
+{"t":1789454264784,"line":"caps staleness simulated: verifiedAt=1789453864 (age=400s > 300s TTL; last_probe_at rewound 61s)"}
+{"t":1789454264786,"line":"① attempt1 rejected (App-visible): code=AGENT_CAPABILITY_MISSING at=1789454264785 (+85459ms after T1 idle) message=sessionAction: capabilities for session 1 are not verified or stale (>300s), re-probe required"}
+{"t":1789454266888,"line":"① self-heal probe: at=1789454264787 doneAt=1789454266888 probeMs=2101 mode=managed granted=reply verifiedAt=1789454264 fresh=true"}
+{"t":1789454266900,"line":"① retry: at=1789454266889 executed=true commandId=cmd-f07f663a-1a8f-4d93-8f4a-c7c3af0abde6 detailMs=11"}
+{"t":1789454268436,"line":"① self-heal chain timing: reject→probe→retry→stream→idle = {\"t1IdleAt\":1789454179326,\"staleSimulatedAt\":1789454264782,\"attempt1RejectedAt\":1789454264785,\"rejectionCode\":\"AGENT_CAPABILITY_MISSING\",\"probeAt\":1789454264787,\"probeDoneAt\":1789454266888,\"probeMs\":2101,\"retryAt\":1789454266889,\"retryExecutedAt\":1789454266900,\"t2FirstStreamAt\":1789454268200,\"t2IdleAt\":1789454268209,\"chainMs\":3424,\"retryToFirstStreamMs\":1300}"}
+{"t":1789454268440,"line":"T2 evidence: bubble=assistant-t2s1 increments=3 (texts: [\"第二\",\"第二回合\",\"第二回合\"]) wire={\"file\":\"session.jsonl.zstd\",\"mtimeMs\":1789454267957.2449,\"size\":5825}"}
+{"t":1789454271709,"line":"② dedup rows: actual=5 expected=4 dupGroups=0 legacyKeys=0"}
+{"t":1789454271710,"line":"② rows: [{\"nid\":\"4\",\"role\":\"user\",\"sourceRef\":\"session.jsonl.zstd#seq=4\"},{\"nid\":\"5\",\"role\":\"user\",\"sourceRef\":\"session.jsonl.zstd#seq=5\"},{\"nid\":\"assistant-t1s1\",\"role\":\"assistant\",\"sourceRef\":\"session.jsonl.zstd#seq=15\"},{\"nid\":\"22\",\"role\":\"user\",\"sourceRef\":\"session.jsonl.zstd#seq=22\"},{\"nid\":\"assistant-t2s1\",\"role\":\"assistant\",\"sourceRef\":\"session.jsonl.zstd#seq=29\"}]"}
+{"t":1789454271711,"line":"RUN6-FIX VERIFY FAILED: Error: row count mismatch: 5 != 4\n    at file:///F:/Active_Project/DevHub/worktrees/dm2-capsws/acceptance/deepseek-managed-e2e/run6-fix-verify.mjs:261:66\n    at runNextTicks (node:internal/process/task_queues:65:5)\n    at process.processTimers (node:internal/timers:538:9)"}
+{"t":1789454362391,"line":"gate: enabled=true idle=1800000ms lifetime=7200000ms (production defaults, no overrides)"}
+{"t":1789454363715,"line":"orphan baseline: deepseek-harness node processes = 0"}
+{"t":1789454364482,"line":"T1 start: ok=true nativeId=session-91cfb69f-c768-4280-8f1b-8b0b9f8c7318 spawnMs=767 detail=dsh runtime spawned + initialize handshake ok (serverInfo deepseek-harness-sdk-runtime v0.0.1); lazy create+prompt in one (turn in flight; 44-type firehose streams to idle)"}
+{"t":1789454365502,"line":"T1 evidence: bubble=assistant-t1s1 increments=3 (texts: [\"第一\",\"第一回合\",\"第一回合\"]) wire={\"file\":\"session.jsonl.zstd\",\"mtimeMs\":1789454364537.0615,\"size\":4211}"}
+{"t":1789454365503,"line":"session row: id=1 mode=managed"}
+{"t":1789454449764,"line":"probe0 (caps seeded): at=1789454365503 mode=managed granted=reply verifiedAt=1789454447"}
+{"t":1789454449769,"line":"monitor started (wire-scan refresh path live, production-identical sink)"}
+{"t":1789454449771,"line":"caps staleness simulated: verifiedAt=1789454049 (age=400s > 300s TTL; last_probe_at rewound 61s)"}
+{"t":1789454449772,"line":"① attempt1 rejected (App-visible): code=AGENT_CAPABILITY_MISSING at=1789454449772 (+84389ms after T1 idle) message=sessionAction: capabilities for session 1 are not verified or stale (>300s), re-probe required"}
+{"t":1789454449975,"line":"① self-heal probe: at=1789454449773 doneAt=1789454449975 probeMs=202 mode=managed granted=reply verifiedAt=1789454449 fresh=true"}
+{"t":1789454450116,"line":"① retry: at=1789454449976 executed=true commandId=cmd-00783c66-0fcb-4af0-a6c9-f774b7628ae9 detailMs=140"}
+{"t":1789454450961,"line":"① self-heal chain timing: reject→probe→retry→stream→idle = {\"t1IdleAt\":1789454365383,\"staleSimulatedAt\":1789454449769,\"attempt1RejectedAt\":1789454449772,\"rejectionCode\":\"AGENT_CAPABILITY_MISSING\",\"probeAt\":1789454449773,\"probeDoneAt\":1789454449975,\"probeMs\":202,\"retryAt\":1789454449976,\"retryExecutedAt\":1789454450116,\"t2FirstStreamAt\":1789454450654,\"t2IdleAt\":1789454450664,\"chainMs\":892,\"retryToFirstStreamMs\":538}"}
+{"t":1789454450964,"line":"T2 evidence: bubble=assistant-t2s1 increments=3 (texts: [\"第二\",\"第二回合\",\"第二回合\"]) wire={\"file\":\"session.jsonl.zstd\",\"mtimeMs\":1789454450756.9524,\"size\":5807}"}
+{"t":1789454455878,"line":"② dedup rows: wireScanDistinct=5 actual=5 dupGroups=0 legacyKeys=0 allInScanKeySet=true"}
+{"t":1789454455879,"line":"② rows: [{\"nid\":\"4\",\"role\":\"user\",\"sourceRef\":\"session.jsonl.zstd#seq=4\"},{\"nid\":\"5\",\"role\":\"user\",\"sourceRef\":\"session.jsonl.zstd#seq=5\"},{\"nid\":\"assistant-t1s1\",\"role\":\"assistant\",\"sourceRef\":\"session.jsonl.zstd#seq=15\"},{\"nid\":\"22\",\"role\":\"user\",\"sourceRef\":\"session.jsonl.zstd#seq=22\"},{\"nid\":\"assistant-t2s1\",\"role\":\"assistant\",\"sourceRef\":\"session.jsonl.zstd#seq=29\"}]"}
+{"t":1789454456018,"line":"dispose (kill ladder): done in 138ms"}
+{"t":1789454458836,"line":"orphan check: baseline=0 after=0 (zero orphans)"}
+{"t":1789454458838,"line":"revert: key=0 → caps mode=observed granted=0 (byte-identical legacy observed shape)"}
+{"t":1789454463144,"line":"resident health×3: PASS (resident instance untouched; uptime monotonic) (uptime=8853, uptime=8855, uptime=8857)"}
+{"t":1789454463145,"line":"RUN6-FIX VERIFY COMPLETE: 2 real prompts (T1 spawn + T2 self-heal retry); zero credentials read/injected/logged"}

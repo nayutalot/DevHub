@@ -113,6 +113,10 @@ fun SessionDetailScreen(
     var submitStatus by remember { mutableStateOf<com.devhub.mobile.core.ErrorPresent.Presentable?>(null) }
     // U1-M3：指令被拒 → 统一呈现体（人话 + 原码「技术细节」折叠），不再直出 [code] msg
     var submitError by remember { mutableStateOf<com.devhub.mobile.core.ErrorPresent.Presentable?>(null) }
+    // DM2 批（docs/briefs/dm2-capsws.md §1）：caps 过期一次性自愈——重探+重发期间按钮
+    // 人话态「正在重新验证能力…」；状态机本体在 :core CapsSelfHeal（单测直锁）。
+    var capsHealing by remember { mutableStateOf(false) }
+    val capsSelfHeal = remember { com.devhub.mobile.core.CapsSelfHeal.OneShot() }
     var scrubFraction by remember { mutableStateOf<Float?>(null) }
     // U2-M1（AUDIT P3#7）：capabilities ⓘ 弹层开关（详情页头部常态 = 一行摘要）
     var showCapsInfo by remember { mutableStateOf(false) }
@@ -217,6 +221,16 @@ fun SessionDetailScreen(
                 }
             }
             delay(ConnectionManager.FALLBACK_POLL_MS)
+            // DM2 批兜底面（取舍见 :core CapsSelfHeal 头注释）：managed 会话详情打开
+            // 期间 ≥120s 低频 caps 重探——本循环周期 = FALLBACK_POLL_MS = 120s，探针
+            // 置于 delay 之后 = 打开满 120s 才首探（0~120s 窗口由一次性自愈主修面承担，
+            // 两机制窗口互补）。探针 = agents 列表既有通道（桌面 probeWiredProviders
+            // → caps 过期重验），真实探测绝不伪造；失败容忍，绝不打断详情轮询。
+            if (detail?.session?.sessionMode == "managed" || detail?.capabilities?.mode == "managed") {
+                runCatching {
+                    withContext(Dispatchers.IO) { ApiProvider.projection(context).agents() }
+                }
+            }
         }
     }
 
@@ -400,7 +414,48 @@ fun SessionDetailScreen(
                             submitStatus = null
                             submitError = null
                             try {
-                                submitStatus = when (val r = ConnectionManager.submitReply(sessionId, text)) {
+                                // DM2 批（docs/briefs/dm2-capsws.md §1）：caps 过期一次性自愈——
+                                // 首发被拒且拒绝码 = caps 过期族（:core CapsSelfHeal 判定，一次性
+                                // 语义由 OneShot 锁定）→ 经既有探针通道（agents 列表 → 桌面
+                                // probeWiredProviders → caps 过期重验）真实重探一次；探针成功
+                                // （verifiedAt 落入新鲜窗口，绝不伪造）才自动重发原消息一次；
+                                // 重试仍拒 → 既有错误呈现，绝不循环。非 caps 族拒绝不触发、
+                                // 不消费一次性机会。
+                                var r = ConnectionManager.submitReply(sessionId, text)
+                                if (r is SubmitResult.Rejected && capsSelfHeal.shouldRetry(r.code)) {
+                                    capsHealing = true
+                                    try {
+                                        android.util.Log.i(
+                                            UX_LOG_TAG,
+                                            "caps_heal_start sessionId=$sessionId code=${r.code} atMs=${System.currentTimeMillis()}",
+                                        )
+                                        val agents = withContext(Dispatchers.IO) {
+                                            ApiProvider.projection(context).agents()
+                                        }
+                                        val caps = agents
+                                            .firstOrNull { it.id == d.session.providerId }
+                                            ?.capabilities
+                                        val fresh = caps != null &&
+                                            com.devhub.mobile.core.CapsSelfHeal.capsFreshNow(
+                                                caps.verifiedAtSec,
+                                                System.currentTimeMillis() / 1000,
+                                            )
+                                        android.util.Log.i(
+                                            UX_LOG_TAG,
+                                            "caps_heal_probe providerId=${d.session.providerId} fresh=$fresh atMs=${System.currentTimeMillis()}",
+                                        )
+                                        if (fresh && caps != null) {
+                                            r = ConnectionManager.submitReply(sessionId, text)
+                                            android.util.Log.i(
+                                                UX_LOG_TAG,
+                                                "caps_heal_retry atMs=${System.currentTimeMillis()}",
+                                            )
+                                        }
+                                    } finally {
+                                        capsHealing = false
+                                    }
+                                }
+                                submitStatus = when (r) {
                                     is SubmitResult.Accepted -> {
                                         // R5.1 端侧打点：reply 提交→回流往返样本的起点标记
                                         android.util.Log.i(
@@ -435,8 +490,8 @@ fun SessionDetailScreen(
                             replyText = ""
                         }
                     },
-                    enabled = replyText.isNotBlank(),
-                ) { Text("发送") }
+                    enabled = replyText.isNotBlank() && !capsHealing,
+                ) { Text(if (capsHealing) "正在重新验证能力…" else "发送") }
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 4.dp)) {

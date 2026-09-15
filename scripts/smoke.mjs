@@ -17430,6 +17430,169 @@ if (isEntrypoint()) {
     dbModule.closeDatabase()
   }, 'fast')
 
+  // ==================================================================
+  // DM2 批（docs/briefs/dm2-capsws.md §2）：投影双写去重。dm2-201（full，专用
+  //       fake runtime）：run6 实证缺陷（同回合 firehose 与 wire-scan 各写一份
+  //       user/assistant 行 → App 双气泡，agent_messages 29392-29395）根修锁定——
+  //       ① firehose 路径 user/tool-result 行身份键 = <seq>（去前缀对齐 wire-scan）；
+  //       ② managed 在册会话的 wire-scan（readMessages/projectEvent 同面）assistant
+  //         行同源派生 assistant-t<turn>s<step>（observed 会话恒 <seq> 逐字节不变）；
+  //       ③ 双路径同键 → persistMessage upsert 端到端去重（行数恒定）。
+  registerCase('dm2-201: deepseek projection dual-write dedup (DM2) — firehose user/tool-result ids converge to <seq>, managed wire-scan re-derives the assistant turn/step bubble id so both paths share one identity key, persistMessage upsert keeps one row per turn message end-to-end, observed sessions keep legacy seq ids byte-identical', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+    const svc = await import(new URL('../src/main/services/agentControl/agentControlService.ts', import.meta.url).href)
+    const mod = await import(new URL('../src/main/services/agentControl/providers/deepseekProvider.ts', import.meta.url).href)
+
+    const dir = mkdtempSync(join(tmpdir(), 'devhub-dm2-201-'))
+    mkdirSync(join(dir, 'examples', 'node_modules'), { recursive: true })
+    const fixtureScript = join(dir, 'dsh-dm2-fake-runtime.mjs')
+    const configPath = join(dir, 'cordis.yml')
+    const ws = join(dir, 'ws')
+    mkdirSync(ws, { recursive: true })
+    // 专用 fake runtime（不共用 DMD_FAKE_RUNTIME_SCRIPT——零触碰既有用例夹具）：
+    // 本回合发射 user/message（无 turn/step——真实 wire 形态）+ chunk/committed
+    // assistant + tool/result，seq 1..6。
+    writeFileSync(
+      fixtureScript,
+      [
+        "const send = (frame) => process.stdout.write(JSON.stringify(frame) + '\\n')",
+        "const notify = (method, params) => send({ jsonrpc: '2.0', method, params })",
+        "const respond = (id, result) => send({ jsonrpc: '2.0', id, result })",
+        'let seq = 0',
+        "const emit = (sid, type, data) => { seq += 1; notify('session.event', { sessionId: sid, event: { type, seq, time: 1750000300000 + seq * 1000, data } }) }",
+        'const handleLine = (line) => {',
+        '  if (!line.trim()) return',
+        '  let m = null',
+        '  try { m = JSON.parse(line) } catch { return }',
+        '  if (m.id !== undefined && m.method) {',
+        "    if (m.method === 'initialize') { respond(m.id, { serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' } }); return }",
+        "    if (m.method === 'session/prompt') {",
+        '      const sid = (m.params ?? {}).sessionId',
+        "      respond(m.id, { messageId: 'msg-dm2' })",
+        '      setTimeout(() => {',
+        "        notify('session.status', { sessionId: sid, status: 'running' })",
+        "        emit(sid, 'turn/start', { turn: 1 })",
+        "        emit(sid, 'user/message', { content: [{ type: 'text', text: 'dm2 fixture question' }], role: 'user', id: 'u1' })",
+        "        emit(sid, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'Hi ' } })",
+        "        emit(sid, 'assistant/message', { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'Hi there' }], id: 'a1' } })",
+        "        emit(sid, 'tool/result', { turn: 1, step: 1, message: { content: [], role: 'user', id: 'tr1' } })",
+        "        emit(sid, 'turn/end', { turn: 1, reason: { kind: 'completed' } })",
+        "        notify('session.status', { sessionId: sid, status: 'idle' })",
+        '      }, 20)',
+        '      return',
+        '    }',
+        "    if (m.method === 'shutdown') { respond(m.id, {}); setTimeout(() => process.exit(0), 20); return }",
+        "    send({ jsonrpc: '2.0', id: m.id, error: { code: -32601, message: 'method not found' } })",
+        '  }',
+        '}',
+        "let buf = ''",
+        "process.stdin.setEncoding('utf8')",
+        "process.stdin.on('data', (d) => { buf += d; let i; while ((i = buf.indexOf('\\n')) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1); handleLine(l) } })",
+        "process.stdin.on('end', () => process.exit(0))",
+        "process.stdin.on('close', () => process.exit(0))",
+      ].join('\n'),
+    )
+    await makeTempHome('devhub-dm2-201-home-')
+    const dshHome = join(dir, 'dsh-home')
+    try {
+      const provider = mod.createDeepseekProvider({
+        dshHome,
+        managedGate: () => ({
+          enabled: true,
+          harnessRoot: dir,
+          binPath: fixtureScript,
+          configPath,
+          workspacePath: ws,
+          provider: 'deepseek-official',
+          model: 'deepseek-v4-flash',
+          spawnCommand: process.execPath,
+          spawnArgs: [fixtureScript],
+          spawnEnv: { DSH_CORDIS_CONFIG: configPath },
+          managedIdleTimeoutMs: 15_000,
+          managedLifetimeTimeoutMs: 60_000,
+          dshHome,
+        }),
+        managedCommand: process.execPath,
+        managedArgs: [fixtureScript],
+        managedConfigPath: configPath,
+        managedWorkspacePath: ws,
+        managedRequestTimeoutMs: 10_000,
+        managedShutdownTimeoutMs: 3_000,
+      })
+      const seen = { messages: [] }
+      const sink = {
+        onMessageAppended: (ref, msg) => seen.messages.push({ nativeId: ref.nativeId, msg }),
+      }
+      const start = await provider.startManagedSession('dm2 fixture turn', sink)
+      assert.equal(start.ok, true, `startManagedSession ok: ${start.detail ?? ''}`)
+      const nativeId = start.nativeId
+      await pollUntil(() => seen.messages.some((m) => m.nativeId === nativeId && m.msg.nativeMsgId === 'assistant-t1s1' && m.msg.contentRedacted === 'Hi there'), 8000, 20, 'managed turn settled (committed overwrite on the bubble id)')
+
+      // ① firehose 键收敛：user/tool-result = <seq>（旧 user-message-N/tool-result-N
+      //    前缀键退役），assistant 保持 run5-fix 单气泡键 assistant-t1s1
+      const live = seen.messages.filter((m) => m.nativeId === nativeId)
+      const liveUser = live.find((m) => m.msg.role === 'user')
+      const liveBubble = live.filter((m) => m.msg.nativeMsgId === 'assistant-t1s1')
+      const liveTool = live.find((m) => m.msg.role === 'tool' && m.msg.contentRedacted === '[tool_result]')
+      assert.ok(liveUser !== undefined, 'user/message projected from firehose')
+      assert.equal(liveUser.msg.nativeMsgId, '2', 'firehose user id = <seq> (dual-write key convergence with wire-scan)')
+      assert.equal(liveBubble.length, 2, 'ONE bubble id carries the streaming increment + the committed overwrite (run5-fix semantics intact)')
+      assert.deepEqual(liveBubble.map((m) => m.msg.contentRedacted), ['Hi ', 'Hi there'], 'bubble grows then settles')
+      assert.ok(liveTool !== undefined, 'tool/result projected from firehose')
+      assert.equal(liveTool.msg.nativeMsgId, '5', 'firehose tool-result id = <seq> (dual-write key convergence)')
+
+      // ② wire-scan 路径同键：把同一回合事件写成会话日志（与 firehose 同 seq/同
+      //    data），managed 在册会话的 assistant 行同源派生 assistant-t1s1、user/tool
+      //    行 = <seq> —— 两路径对同回合产出完全相同的身份键（persistMessage upsert
+      //    去重生效的前提）。
+      const sessionDir = join(dshHome, 'sessions', 'dm2proj', nativeId)
+      mkdirSync(sessionDir, { recursive: true })
+      const header = { type: 'session', version: 0, id: nativeId, createdAt: 1750000300000, cwd: ws, delegationDepth: 0, agentPreset: 'minimal' }
+      const logEvents = [
+        { type: 'turn/start', seq: 1, time: 1750000300001, data: { turn: 1 } },
+        { type: 'user/message', seq: 2, time: 1750000300002, data: { content: [{ type: 'text', text: 'dm2 fixture question' }], role: 'user', id: 'u1' } },
+        { type: 'assistant/message', seq: 4, time: 1750000300004, data: { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'Hi there' }], id: 'a1' } } },
+        { type: 'tool/result', seq: 5, time: 1750000300005, data: { turn: 1, step: 1, message: { content: [], role: 'user', id: 'tr1' } } },
+      ]
+      writeFileSync(join(sessionDir, 'session.jsonl'), Buffer.concat([Buffer.from(JSON.stringify(header) + '\n', 'utf8'), Buffer.from(logEvents.map((e) => JSON.stringify(e)).join('\n') + '\n', 'utf8')]))
+      const scanPage = await provider.readMessages({ providerId: 'deepseek', nativeId })
+      assert.deepEqual(
+        scanPage.messages.map((m) => m.nativeMsgId),
+        ['2', 'assistant-t1s1', '5'],
+        'wire-scan ids converge with firehose ids for the managed session (assistant re-derived from turn/step; user/tool = seq)',
+      )
+
+      // ③ 端到端去重：双路径行同键落库 → UNIQUE(session_id, native_msg_id) upsert
+      //    各一行（行数恒定；run6 29392-29395 双写根修）。
+      svc.ensureAgentProviderRows() // 临时库无 provider 行：先补 catalog 行（persistMessage 前置）
+      for (const m of [liveUser.msg, liveBubble[0].msg, liveTool.msg]) svc.persistMessage('deepseek', nativeId, m)
+      const afterLive = Number(dbModule.getDatabase().prepare('SELECT COUNT(*) AS c FROM agent_messages').get().c)
+      assert.equal(afterLive, 3, 'three firehose rows (user + one growing bubble + tool)')
+      for (const m of scanPage.messages) svc.persistMessage('deepseek', nativeId, m)
+      const afterScan = Number(dbModule.getDatabase().prepare('SELECT COUNT(*) AS c FROM agent_messages').get().c)
+      assert.equal(afterScan, 3, 'wire-scan replay of the same turn adds ZERO rows (dual-write dedup)')
+
+      // ④ observed 回归零变化：非在册会话的 assistant 行恒 <seq>（绝不派生
+      //    turn/step 键——存量 observed 行零重投影回归），user/tool 同旧形态。
+      const obsId = 'session-obs-dm2'
+      const obsDir = join(dshHome, 'sessions', 'dm2proj', obsId)
+      mkdirSync(obsDir, { recursive: true })
+      writeFileSync(join(obsDir, 'session.jsonl'), Buffer.concat([Buffer.from(JSON.stringify(header) + '\n', 'utf8'), Buffer.from(logEvents.map((e) => JSON.stringify(e)).join('\n') + '\n', 'utf8')]))
+      const obsPage = await provider.readMessages({ providerId: 'deepseek', nativeId: obsId })
+      assert.deepEqual(
+        obsPage.messages.map((m) => m.nativeMsgId),
+        ['2', '4', '5'],
+        'observed session ids stay legacy seq byte-identical (five-provider projection regression zero change)',
+      )
+      await provider.dispose()
+    } finally {
+      dbModule.closeDatabase()
+    }
+  }, 'full')
+
   await run(parseTierArg())
 }
 
