@@ -376,7 +376,9 @@ if (isEntrypoint()) {
   // 终值仍 8（007 应用后置 7，008 应用后置 8）；已处 user_version=8 的存量库
   // （ContestPin 批次预迁真实库）不会再应用 007（7 > 8 为假）——advisory 层按
   // 列在场性优雅降级为无缓存模式，存量真实库需主控手工补 007（主控待办已声明）。
-  registerCase('step3: fresh db migrates to user_version 8 (LR1 就地更新：applied 7→8，终值仍 8), idempotent re-run', async () => {
+  // MEM 批次 note（009_memory_graph.sql，docs/briefs/mem-mcp.md 授权的同一模式
+  // 就地更新）：009 加入后，全新库一次迁移应用 9 个文件并升到 user_version 9。
+  registerCase('step3: fresh db migrates to user_version 9 (MEM 就地更新：applied 8→9), idempotent re-run', async () => {
     const { mkdtempSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
     const { join } = await import('node:path')
@@ -385,9 +387,9 @@ if (isEntrypoint()) {
     const db = dbModule.openDatabase(join(dir, 'test.db'))
     try {
       const applied = dbModule.migrate(db)
-      assert.equal(applied, 8, '001..008 migrations applied on fresh db (LR1 批次就地更新 7→8：007 插入 006/008 之间)')
+      assert.equal(applied, 9, '001..009 migrations applied on fresh db (MEM 批次就地更新 8→9：009_memory_graph 并入)')
       const row = db.prepare('PRAGMA user_version').get()
-      assert.equal(Number(row.user_version), 8, 'user_version after migrate (latest = 8，终值不变：007 置 7、008 置 8)')
+      assert.equal(Number(row.user_version), 9, 'user_version after migrate (latest = 9，009 置 9)')
       const appliedAgain = dbModule.migrate(db)
       assert.equal(appliedAgain, 0, 'second migrate run applies nothing')
       // LR1 批次并入（007 列 + 种子存在性，就地扩展同 cp1-migration-fresh 先例）：
@@ -400,6 +402,13 @@ if (isEntrypoint()) {
         assert.ok(seeded !== undefined, `007 seed settings.${key} present`)
         assert.equal(seeded.value, '', `007 seed settings.${key} defaults to empty (= 停用)`)
       }
+      // MEM 批次并入（009 三表存在性，就地扩展同 cp1-migration-fresh 先例）
+      const memTables = new Set(
+        db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name),
+      )
+      for (const t of ['memory_entities', 'memory_observations', 'memory_relations']) {
+        assert.ok(memTables.has(t), `009 table ${t} exists on fresh db (mem-migration-fresh 并入本用例)`)
+      }
     } finally {
       db.close()
     }
@@ -410,9 +419,10 @@ if (isEntrypoint()) {
   // AC2 批次 note（docs/13 §4 授权的同一模式就地更新）：004_agent_control.sql
   // 新增 8 张 AC 域表，业务表总数 19 → 27。
   // CP1 批次 note（ContestPin，docs/22 §2 授权的同一模式就地更新）：
-  // 008_contestpin.sql 新增 7 张 ContestPin 域表，业务表总数 27 → 34
-  // （= cp1-migration-fresh 的 7 表存在性检查并入本用例，docs/22 §2.1）。
-  registerCase('step3: all 34 business tables exist after migration (CP1 就地更新 27→34)', async () => {
+  // 008_contestpin.sql 新增 7 张 ContestPin 域表，业务表总数 27 → 34。
+  // MEM 批次 note（009_memory_graph.sql，docs/briefs/mem-mcp.md 授权的同一模式
+  // 就地更新）：009 新增 3 张记忆域表，业务表总数 34 → 37。
+  registerCase('step3: all 37 business tables exist after migration (MEM 就地更新 34→37)', async () => {
     const { mkdtempSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
     const { join } = await import('node:path')
@@ -461,9 +471,13 @@ if (isEntrypoint()) {
         'contest_reminders',
         'contestpin_configs',
         'contests',
+        // MEM 批次（记忆域知识图谱，docs/briefs/mem-mcp.md）：009 新增 3 张
+        'memory_entities',
+        'memory_observations',
+        'memory_relations',
       ].sort()
-      assert.equal(names.length, 34, `expected 34 tables (14 phase-1 + 5 merge + 8 AC + 7 contestpin, CP1 就地更新 27→34), got ${names.length}: ${names.join(',')}`)
-      assert.deepEqual(names, expected, 'table set must match docs/03 + docs/13 §4 + docs/22 §2.1 exactly')
+      assert.equal(names.length, 37, `expected 37 tables (14 phase-1 + 5 merge + 8 AC + 7 contestpin + 3 memory, MEM 就地更新 34→37), got ${names.length}: ${names.join(',')}`)
+      assert.deepEqual(names, expected, 'table set must match docs/03 + docs/13 §4 + docs/22 §2.1 + docs/briefs/mem-mcp.md exactly')
     } finally {
       db.close()
     }
@@ -722,18 +736,23 @@ if (isEntrypoint()) {
     const { join } = await import('node:path')
     const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
 
-    // -- 全新库：migrate → user_version 8（001..008，LR1 批次 007 插序 006/008 之间，
-    //    终值仍 8）；同名工具双 path 并存落库，同 path 仍拒绝；cp1-migration-fresh 并入：
-    //    008 的 7 张 ContestPin 表存在性检查（docs/22 §2.1，本用例就地扩展）
+    // -- 全新库：migrate → user_version 9（001..009，MEM 批次 009_memory_graph 并入，
+    //    LR1 批次 007 插序 006/008 之间的历史保持不变）；同名工具双 path 并存落库，
+    //    同 path 仍拒绝；cp1-migration-fresh 并入：008 的 7 张 ContestPin 表存在性
+    //    检查（docs/22 §2.1）；mem-migration-fresh 并入：009 的 3 张记忆域表存在性
+    //    检查（docs/briefs/mem-mcp.md，本用例就地扩展）
     const dir = mkdtempSync(join(tmpdir(), 'devhub-mig-'))
     const db = dbModule.openDatabase(join(dir, 'fresh.db'))
     try {
       const applied = dbModule.migrate(db)
-      assert.equal(applied, 8, '001..008 applied on fresh db (LR1 批次就地更新 7→8：007 插入 006/008 之间)')
-      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 8, 'fresh db at user_version 8 (终值不变：007 置 7、008 置 8；LR1 就地注记)')
+      assert.equal(applied, 9, '001..009 applied on fresh db (MEM 批次就地更新 8→9：009_memory_graph 并入)')
+      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 9, 'fresh db at user_version 9 (009 置 9；MEM 就地注记)')
       const cpTables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name))
       for (const t of ['contests', 'contest_nodes', 'contest_reminders', 'contest_reminder_log', 'contest_materials', 'contest_import_jobs', 'contestpin_configs']) {
         assert.ok(cpTables.has(t), `008 table ${t} exists on fresh db (cp1-migration-fresh 并入本用例)`)
+      }
+      for (const t of ['memory_entities', 'memory_observations', 'memory_relations']) {
+        assert.ok(cpTables.has(t), `009 table ${t} exists on fresh db (mem-migration-fresh 并入本用例)`)
       }
 
       db.prepare("INSERT INTO environments (name, kind, detected_at, created_at, updated_at) VALUES ('windows', 'windows', 0, 0, 0)").run()
@@ -767,8 +786,8 @@ if (isEntrypoint()) {
       ).run()
 
       const applied = dbModule.migrate(db2)
-      assert.equal(applied, 7, 'only 002..008 apply to the v1 library (LR1 批次就地更新 6→7：007 按序纳入)')
-      assert.equal(Number(db2.prepare('PRAGMA user_version').get().user_version), 8, 'v1 upgraded to user_version 8 (终值不变：007 置 7、008 置 8)')
+      assert.equal(applied, 8, 'only 002..009 apply to the v1 library (MEM 批次就地更新 7→8：009 按序纳入)')
+      assert.equal(Number(db2.prepare('PRAGMA user_version').get().user_version), 9, 'v1 upgraded to user_version 9 (009 置 9；MEM 就地注记)')
       const seedAfter = db2.prepare("SELECT value FROM settings WHERE key = 'scan_root'").get()
       assert.ok(seedAfter && seedAfter.value === 'F:\\Active_Project', 'settings seed survived the table rebuild')
       const toolRow = db2.prepare("SELECT path, version FROM environment_tools WHERE environment_id = 1 AND tool = 'python'").get()
@@ -791,7 +810,7 @@ if (isEntrypoint()) {
     await makeTempHome('devhub-scan-')
     try {
       const db = dbModule.getDatabase()
-      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 8, 'home db migrated to 8 (终值不变：LR1 007 已按序纳入 001..008)')
+      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 9, 'home db migrated to 9 (MEM 批次就地更新 8→9：009_memory_graph 按序纳入 001..009)')
 
       const root = mkdtempSync(join(tmpdir(), 'devhub-projects-'))
       await withFixtureProject(root, 'alpha-web', { marker: 'package.json', git: true })
@@ -1077,6 +1096,271 @@ if (isEntrypoint()) {
   })
 
   // ------------------------------------------------------------------
+  // MEM 批次（docs/briefs/mem-mcp.md）：记忆域知识图谱存储层单测。
+  // 九操作语义与原型 @modelcontextprotocol/server-memory dist/index.js 逐一对齐；
+  // 全部临时库夹具（DEVHUB_HOME 隔离）→ fast 档。
+  // ------------------------------------------------------------------
+  registerCase('mem-1: migration 009 schema — three memory tables, PK dedup keys, FK cascade on observations/from-side relations, to-side relations deliberately FK-free (prototype allows dangling to)', async () => {
+    const { mkdtempSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+    const dir = mkdtempSync(join(tmpdir(), 'devhub-mem-schema-'))
+    const db = dbModule.openDatabase(join(dir, 'test.db'))
+    try {
+      assert.equal(dbModule.migrate(db), 9, '001..009 applied')
+      // PK 键即去重键：观察 (entity,content)、关系 (from,to,type)
+      const obsCols = db.prepare('PRAGMA table_info(memory_observations)').all().map((c) => c.name)
+      assert.deepEqual(obsCols, ['entity_name', 'content', 'created_at'], 'memory_observations columns')
+      const relCols = db.prepare('PRAGMA table_info(memory_relations)').all().map((c) => c.name)
+      assert.deepEqual(relCols, ['from_name', 'to_name', 'relation_type', 'created_at'], 'memory_relations columns')
+      // FK 语义：observations 与 relations.from_name 对 entities ON DELETE CASCADE；
+      // to_name 无 FK（原型允许关系指向未建实体）
+      const fkLists = db.prepare('PRAGMA foreign_key_list(memory_relations)').all().map((r) => r)
+      assert.equal(fkLists.length, 1, 'memory_relations has exactly one FK (from_name)')
+      assert.equal(fkLists[0].table, 'memory_entities', 'relations FK targets memory_entities')
+      assert.equal(fkLists[0].from, 'from_name', 'relations FK column is from_name')
+      const obsFks = db.prepare('PRAGMA foreign_key_list(memory_observations)').all().map((r) => r)
+      assert.equal(obsFks.length, 1, 'memory_observations has exactly one FK')
+      assert.equal(obsFks[0].from, 'entity_name', 'observations FK column is entity_name')
+      db.prepare("INSERT INTO memory_entities (name, entity_type, created_at) VALUES ('fk-a', 't', 1)").run()
+      db.prepare("INSERT INTO memory_observations (entity_name, content, created_at) VALUES ('fk-a', 'o1', 1)").run()
+      db.prepare("INSERT INTO memory_relations (from_name, to_name, relation_type, created_at) VALUES ('fk-a', 'ghost', 'knows', 1)").run()
+      assert.ok(db.prepare("SELECT 1 FROM memory_relations WHERE to_name = 'ghost'").get() !== undefined, 'dangling to-side relation stored (no FK on to_name)')
+      db.prepare("DELETE FROM memory_entities WHERE name = 'fk-a'").run()
+      assert.equal(db.prepare('SELECT COUNT(*) AS c FROM memory_observations').get().c, 0, 'observations cascaded away with the entity')
+      assert.equal(db.prepare('SELECT COUNT(*) AS c FROM memory_relations').get().c, 0, 'from-side relations cascaded away with the entity')
+    } finally {
+      db.close()
+    }
+  }, 'fast')
+
+  registerCase('mem-2: createEntities idempotent by name + addObservations dedup + missing entity NOT_FOUND — prototype semantics (existing entity skipped wholesale incl. its observations)', async () => {
+    const svc = await import(new URL('../src/main/services/memoryGraphService.ts', import.meta.url).href)
+    const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+    await makeTempHome('devhub-mem-create-')
+    try {
+      const first = svc.createMemoryEntities([
+        { name: 'Alice', entityType: 'person', observations: ['likes tea', 'runs DevHub'] },
+        { name: 'DevHub', entityType: 'project', observations: [] },
+      ])
+      assert.equal(first.length, 2, 'both fresh entities created')
+      assert.deepEqual(first.map((e) => e.name), ['Alice', 'DevHub'], 'created returns the new entities in input order')
+      assert.deepEqual(first[0].observations, ['likes tea', 'runs DevHub'], 'observations stored with the entity')
+      // create 幂等：同名实体整条跳过（含 observations——原型 filter-push 完整新实体的语义）
+      const second = svc.createMemoryEntities([
+        { name: 'Alice', entityType: 'person', observations: ['likes coffee'] },
+        { name: 'Bob', entityType: 'person', observations: [] },
+      ])
+      assert.deepEqual(second.map((e) => e.name), ['Bob'], 'existing entity skipped entirely, new one created')
+      const graph = svc.readMemoryGraph()
+      const alice = graph.entities.find((e) => e.name === 'Alice')
+      assert.deepEqual(alice.observations, ['likes tea', 'runs DevHub'], 'skipped entity kept its original observations (no coffee leak)')
+      // addObservations 去重：重复内容跳过，只加新内容
+      const added = svc.addMemoryObservations([
+        { entityName: 'Alice', contents: ['likes tea', 'likes coffee', 'owns a cat'] },
+        { entityName: 'DevHub', contents: [] },
+      ])
+      assert.deepEqual(added[0].addedObservations, ['likes coffee', 'owns a cat'], 'duplicate observation skipped, new ones added')
+      assert.deepEqual(added[1].addedObservations, [], 'empty contents → empty addition')
+      assert.throws(
+        () => svc.addMemoryObservations([{ entityName: 'Ghost', contents: ['x'] }]),
+        (err) => err.code === 'NOT_FOUND' && err.message === 'Entity with name Ghost not found',
+        'missing entity → NOT_FOUND with the prototype message',
+      )
+    } finally {
+      dbModule.closeDatabase()
+    }
+  }, 'fast')
+
+  registerCase('mem-3: relations — triple dedup, from-side FK enforcement (NOT_FOUND), to-side dangling allowed, delete semantics per prototype filters', async () => {
+    const svc = await import(new URL('../src/main/services/memoryGraphService.ts', import.meta.url).href)
+    const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+    await makeTempHome('devhub-mem-rel-')
+    try {
+      svc.createMemoryEntities([
+        { name: 'A', entityType: 't', observations: [] },
+        { name: 'B', entityType: 't', observations: [] },
+      ])
+      const created = svc.createMemoryRelations([
+        { from: 'A', to: 'B', relationType: 'knows' },
+        { from: 'A', to: 'ghost', relationType: 'mentions' }, // to 可悬空（原型语义保真）
+      ])
+      assert.equal(created.length, 2, 'both relations created')
+      const again = svc.createMemoryRelations([{ from: 'A', to: 'B', relationType: 'knows' }])
+      assert.equal(again.length, 0, 'exact (from,to,type) duplicate skipped')
+      assert.throws(
+        () => svc.createMemoryRelations([{ from: 'ghost', to: 'A', relationType: 'haunts' }]),
+        (err) => err.code === 'NOT_FOUND',
+        'dangling from-side rejected (schema FK per task book; NOT_FOUND mirrors prototype addObservations error style)',
+      )
+      // deleteObservations / deleteRelations：缺失目标静默跳过（原型 filter 语义）
+      assert.equal(svc.deleteMemoryObservations([{ entityName: 'Ghost', observations: ['x'] }]).removed, 0, 'missing entity silently ignored')
+      assert.equal(svc.deleteMemoryRelations([{ from: 'A', to: 'B', relationType: 'hates' }]).removed, 0, 'missing relation silently ignored')
+      assert.equal(svc.deleteMemoryObservations([{ entityName: 'A', observations: [] }]).removed, 0, 'empty list removes nothing')
+      // deleteRelations 精确三元组
+      svc.createMemoryRelations([{ from: 'A', to: 'B', relationType: 'mentors' }])
+      assert.equal(svc.deleteMemoryRelations([{ from: 'A', to: 'B', relationType: 'mentors' }]).removed, 1, 'exact triple removed')
+      assert.equal(svc.readMemoryGraph().relations.length, 2, 'other relations untouched')
+    } finally {
+      dbModule.closeDatabase()
+    }
+  }, 'fast')
+
+  registerCase('mem-4: deleteEntities cascade — observations + relations both directions (from via FK, to via explicit delete), missing names silently ignored', async () => {
+    const svc = await import(new URL('../src/main/services/memoryGraphService.ts', import.meta.url).href)
+    const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+    await makeTempHome('devhub-mem-del-')
+    try {
+      svc.createMemoryEntities([
+        { name: 'hub', entityType: 'project', observations: ['o1', 'o2'] },
+        { name: 'agent', entityType: 'tool', observations: ['o3'] },
+        { name: 'lone', entityType: 'misc', observations: ['o4'] },
+      ])
+      svc.createMemoryRelations([
+        { from: 'hub', to: 'agent', relationType: 'hosts' },
+        { from: 'agent', to: 'hub', relationType: 'runs_in' },
+        { from: 'agent', to: 'ghost', relationType: 'mentions' },
+      ])
+      const result = svc.deleteMemoryEntities(['hub', 'not-there'])
+      assert.equal(result.deleted, 1, 'one entity deleted (missing name ignored)')
+      const graph = svc.readMemoryGraph()
+      assert.deepEqual(graph.entities.map((e) => e.name).sort(), ['agent', 'lone'], 'hub gone, others remain')
+      // hub 的两侧关系（hosts/from-side、runs_in/to-side）都被清除；agent→ghost 保留
+      assert.deepEqual(graph.relations, [{ from: 'agent', to: 'ghost', relationType: 'mentions' }], 'both directions of hub relations cascaded')
+      assert.equal(dbModule.getDatabase().prepare('SELECT COUNT(*) AS c FROM memory_observations WHERE entity_name = ?').get('hub').c, 0, 'hub observations cascaded')
+      assert.equal(svc.deleteMemoryEntities(['hub']).deleted, 0, 'deleting an already-deleted entity is a no-op (idempotent)')
+    } finally {
+      dbModule.closeDatabase()
+    }
+  }, 'fast')
+
+  registerCase('mem-5: searchNodes substring over name/type/observations (case-insensitive) + single-endpoint neighborhood; openNodes exact-match — prototype semantics byte-for-byte', async () => {
+    const svc = await import(new URL('../src/main/services/memoryGraphService.ts', import.meta.url).href)
+    const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+    await makeTempHome('devhub-mem-search-')
+    try {
+      svc.createMemoryEntities([
+        { name: 'Alice', entityType: 'person', observations: ['drives a Tesla'] },
+        { name: 'Bob', entityType: 'Person', observations: ['likes tea'] },
+        { name: 'Tesla Model 3', entityType: 'car', observations: [] },
+        { name: 'DevHub', entityType: 'project', observations: ['electron app'] },
+      ])
+      svc.createMemoryRelations([
+        { from: 'Alice', to: 'Tesla Model 3', relationType: 'drives' },
+        { from: 'DevHub', to: 'Bob', relationType: 'serves' },
+      ])
+      // 名称子串（大小写不敏感）
+      const byName = svc.searchMemoryNodes('alice')
+      assert.deepEqual(byName.entities.map((e) => e.name), ['Alice'], 'name substring matched case-insensitively')
+      // 邻域：命中实体的单端点关系带出图外节点（Tesla Model 3）
+      assert.deepEqual(byName.relations, [{ from: 'Alice', to: 'Tesla Model 3', relationType: 'drives' }], 'neighborhood keeps single-endpoint relations')
+      // 类型子串
+      const byType = svc.searchMemoryNodes('CAR')
+      assert.deepEqual(byType.entities.map((e) => e.name), ['Tesla Model 3'], 'entityType substring matched')
+      assert.deepEqual(byType.relations, [{ from: 'Alice', to: 'Tesla Model 3', relationType: 'drives' }], 'type-hit neighborhood includes the other endpoint relation')
+      // 观察内容子串
+      const byObs = svc.searchMemoryNodes('electron')
+      assert.deepEqual(byObs.entities.map((e) => e.name), ['DevHub'], 'observation content substring matched')
+      // 无命中 → 空图
+      assert.equal(svc.searchMemoryNodes('zebra').entities.length, 0, 'no match → empty entities')
+      assert.equal(svc.searchMemoryNodes('zebra').relations.length, 0, 'no match → empty relations')
+      // openNodes 精确点名（case-sensitive），邻域同款
+      const opened = svc.openMemoryNodes(['Bob'])
+      assert.deepEqual(opened.entities.map((e) => e.name), ['Bob'], 'exact name match only')
+      assert.deepEqual(opened.relations, [{ from: 'DevHub', to: 'Bob', relationType: 'serves' }], 'openNodes neighborhood pulls the relation to the unrequested endpoint')
+      assert.deepEqual(svc.openMemoryNodes(['bob']).entities, [], 'openNodes is case-sensitive (no bob)')
+      assert.deepEqual(svc.openMemoryNodes([]).entities, [], 'empty names → empty result')
+    } finally {
+      dbModule.closeDatabase()
+    }
+  }, 'fast')
+
+  registerCase('mem-6: importJsonl — counts, create-semantics idempotent re-import, two-pass entity-before-relation ordering, malformed line + unknown from-entity atomic abort (BAD_PAYLOAD/NOT_FOUND), source file never written', async () => {
+    const { mkdtempSync, readFileSync, writeFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const svc = await import(new URL('../src/main/services/memoryGraphService.ts', import.meta.url).href)
+    const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+    await makeTempHome('devhub-mem-import-')
+    const dir = mkdtempSync(join(tmpdir(), 'devhub-mem-jsonl-'))
+    const file = join(dir, 'memory.jsonl')
+    // relation 行先于其实体行（原型逐行 append 的真实形态，两遍导入语义覆盖）
+    writeFileSync(file, [
+      JSON.stringify({ type: 'relation', from: 'Alice', to: 'DevHub', relationType: 'maintains' }),
+      JSON.stringify({ type: 'entity', name: 'Alice', entityType: 'person', observations: ['likes tea', 'likes tea'] }),
+      '',
+      JSON.stringify({ type: 'entity', name: 'DevHub', entityType: 'project', observations: [] }),
+      JSON.stringify({ type: 'relation', from: 'Alice', to: 'ghost', relationType: 'mentions' }),
+    ].join('\n'), 'utf8')
+    const before = readFileSync(file, 'utf8')
+    try {
+      const first = svc.importMemoryJsonl(file)
+      assert.equal(first.totalLines, 4, 'totalLines counts non-empty lines (blank line skipped like the prototype loader)')
+      assert.equal(first.entityLines, 2, 'two entity lines')
+      assert.equal(first.relationLines, 2, 'two relation lines')
+      assert.equal(first.entitiesCreated, 2, 'both entities created')
+      assert.equal(first.relationsCreated, 2, 'both relations created (relation-before-entity line ordering handled)')
+      const graph = svc.readMemoryGraph()
+      assert.deepEqual(graph.entities.find((e) => e.name === 'Alice').observations, ['likes tea'], 'duplicate observation line content deduped')
+      // create 语义幂等：重导入零新增
+      const second = svc.importMemoryJsonl(file)
+      assert.equal(second.entitiesCreated, 0, 're-import creates zero entities')
+      assert.equal(second.relationsCreated, 0, 're-import creates zero relations')
+      assert.equal(svc.readMemoryGraph().entities.length, 2, 'graph unchanged after re-import')
+      // 坏行 → BAD_PAYLOAD（原子：不留下半应用状态）
+      const bad = join(dir, 'bad.jsonl')
+      writeFileSync(bad, [
+        JSON.stringify({ type: 'entity', name: 'X', entityType: 't', observations: [] }),
+        '{not json',
+      ].join('\n'), 'utf8')
+      assert.throws(() => svc.importMemoryJsonl(bad), (err) => err.code === 'BAD_PAYLOAD' && /line 2/.test(err.message), 'malformed JSON line → BAD_PAYLOAD with line number')
+      assert.equal(svc.readMemoryGraph().entities.some((e) => e.name === 'X'), false, 'aborted import left no partial rows')
+      // 未知 from 实体 → NOT_FOUND（原子）
+      const dangling = join(dir, 'dangling.jsonl')
+      writeFileSync(dangling, [
+        JSON.stringify({ type: 'entity', name: 'Y', entityType: 't', observations: [] }),
+        JSON.stringify({ type: 'relation', from: 'nope', to: 'Y', relationType: 'r' }),
+      ].join('\n'), 'utf8')
+      assert.throws(() => svc.importMemoryJsonl(dangling), (err) => err.code === 'NOT_FOUND', 'unknown from-entity → NOT_FOUND')
+      assert.equal(svc.readMemoryGraph().entities.some((e) => e.name === 'Y'), false, 'aborted import rolled back the entity line too')
+      // 源文件零触碰（只读导入）
+      assert.equal(readFileSync(file, 'utf8'), before, 'source JSONL never written back')
+    } finally {
+      dbModule.closeDatabase()
+    }
+  }, 'fast')
+
+  registerCase('mem-7: WAL two-connection concurrency — service singleton and a second raw DatabaseSync on the same file: journal_mode=wal, cross-connection visibility after commit, interleaved writes never lose rows (busy_timeout)', async () => {
+    const { mkdtempSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const svc = await import(new URL('../src/main/services/memoryGraphService.ts', import.meta.url).href)
+    const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+    await makeTempHome('devhub-mem-wal-')
+    let raw = null
+    try {
+      // 触发单例建库+迁移，然后开第二连接指向同一文件
+      svc.createMemoryEntities([{ name: 'via-service', entityType: 't', observations: ['o1'] }])
+      const { openDatabase } = dbModule
+      const { getDbPath } = await import(new URL('../src/main/core/paths.ts', import.meta.url).href)
+      raw = openDatabase(getDbPath())
+      assert.equal(raw.prepare('PRAGMA journal_mode').get().journal_mode, 'wal', 'journal_mode is WAL on the second connection')
+      // 第二连接能看到服务连接已提交的数据（WAL 读可见性）
+      assert.ok(raw.prepare("SELECT 1 FROM memory_entities WHERE name = 'via-service'").get() !== undefined, 'second connection sees committed service writes')
+      // 交错写：第二连接直写 + 服务连接再写，双连接行都不丢（busy_timeout=5000 防锁死）
+      raw.prepare("INSERT INTO memory_entities (name, entity_type, created_at) VALUES ('via-raw', 't', 1)").run()
+      svc.addMemoryObservations([{ entityName: 'via-service', contents: ['o2'] }])
+      assert.ok(raw.prepare("SELECT 1 FROM memory_entities WHERE name = 'via-raw'").get() !== undefined, 'raw write persisted')
+      assert.equal(svc.readMemoryGraph().entities.find((e) => e.name === 'via-service').observations.length, 2, 'service write after raw write persisted')
+      assert.equal(raw.prepare('SELECT COUNT(*) AS c FROM memory_observations').get().c, 2, 'second connection sees both service observations')
+    } finally {
+      if (raw !== null) raw.close()
+      dbModule.closeDatabase()
+    }
+  }, 'fast')
+
+  // ------------------------------------------------------------------
   // Step 6: IPC handler registry + gateway dispatch（纯模块，零 electron）
   // 说明：未注册 channel 的稳定错误码按 docs/04 §1 / docs/02 §3 取
   // CHANNEL_NOT_ALLOWED（文档权威原则，约束 #6）。
@@ -1339,6 +1623,17 @@ if (isEntrypoint()) {
     'devhub.skills.list',
     'devhub.versions.list',
     'devhub.archives.list',
+    // MEM 批次（docs/briefs/mem-mcp.md 授权的同一模式就地更新 16→26）：记忆域 10 工具
+    'devhub.memory.create_entities',
+    'devhub.memory.create_relations',
+    'devhub.memory.add_observations',
+    'devhub.memory.delete_entities',
+    'devhub.memory.delete_observations',
+    'devhub.memory.delete_relations',
+    'devhub.memory.read_graph',
+    'devhub.memory.search_nodes',
+    'devhub.memory.open_nodes',
+    'devhub.memory.import_jsonl',
   ].sort()
 
   /** isError 结果的 JSON 帧（{ code, message }）。 */
@@ -1364,25 +1659,45 @@ if (isEntrypoint()) {
     )
   }
 
-  registerCase('m2-t01: server wires exactly 16 dotted tools; permission table covers exactly those, all READ_ONLY（夜间#2 四只读工具授权更新 12→16，docs/09 §10）', async () => {
+  registerCase('m2-t01: server wires exactly 26 dotted tools; permission table covers exactly those, 16 READ_ONLY + 10 memory（夜间#2 四只读工具授权更新 12→16；MEM 批次就地更新 16→26：读三类 READ_ONLY，写六类+import=SAFE Phase B 首批，docs/briefs/mem-mcp.md）', async () => {
     const permissions = await import(new URL('../src/main/mcp/permissions.ts', import.meta.url).href)
 
     await makeTempHome('devhub-m2-t01-')
     const { client, server } = await openMcp()
     try {
       const tools = await client.listTools()
-      assert.equal(tools.tools.length, 16, `exactly 16 tools, got ${tools.tools.length}`)
-      assert.deepEqual(tools.tools.map((t) => t.name).sort(), M2_TOOL_NAMES, 'all 16 dotted names, no drift')
+      assert.equal(tools.tools.length, 26, `exactly 26 tools, got ${tools.tools.length}`)
+      assert.deepEqual(tools.tools.map((t) => t.name).sort(), M2_TOOL_NAMES, 'all 26 dotted names, no drift')
       for (const tool of tools.tools) {
         assert.equal(tool.inputSchema.type, 'object', `inputSchema object for ${tool.name}`)
         assert.equal(typeof tool.description, 'string', `description present for ${tool.name}`)
       }
 
-      // 权限分类表覆盖且仅覆盖 16 个 tool，值全为 READ_ONLY（docs/08 §9.2；夜间#2 扩 12→16）
+      // 权限分类表覆盖且仅覆盖 26 个 tool（docs/08 §9.2；夜间#2 扩 12→16；MEM 批次扩 16→26）：
+      // 16 个既定工具 READ_ONLY；记忆域读三类 READ_ONLY、写六类+import=SAFE（Phase B 首批启用）
+      const MEMORY_SAFE_TOOLS = [
+        'devhub.memory.create_entities',
+        'devhub.memory.create_relations',
+        'devhub.memory.add_observations',
+        'devhub.memory.delete_entities',
+        'devhub.memory.delete_observations',
+        'devhub.memory.delete_relations',
+        'devhub.memory.import_jsonl',
+      ]
+      const MEMORY_READ_TOOLS = ['devhub.memory.read_graph', 'devhub.memory.search_nodes', 'devhub.memory.open_nodes']
       assert.deepEqual(Object.keys(permissions.TOOL_PERMISSIONS).sort(), M2_TOOL_NAMES, 'permission table exact coverage')
       for (const name of M2_TOOL_NAMES) {
-        assert.equal(permissions.TOOL_PERMISSIONS[name], 'READ_ONLY', `${name} is READ_ONLY`)
+        if (MEMORY_SAFE_TOOLS.includes(name)) {
+          assert.equal(permissions.TOOL_PERMISSIONS[name], 'SAFE', `${name} is SAFE (memory write tools, Phase B first batch)`)
+        } else if (MEMORY_READ_TOOLS.includes(name)) {
+          assert.equal(permissions.TOOL_PERMISSIONS[name], 'READ_ONLY', `${name} is READ_ONLY`)
+        } else {
+          assert.equal(permissions.TOOL_PERMISSIONS[name], 'READ_ONLY', `${name} is READ_ONLY`)
+        }
       }
+      // assertPermission 放行语义：SAFE 与 READ_ONLY 同样放行（docs/08 §9.1）
+      permissions.assertPermission('devhub.memory.read_graph')
+      permissions.assertPermission('devhub.memory.create_entities')
 
       // 表外名称 → PERMISSION_DENIED（等价 BLOCKED）
       assert.throws(
@@ -1926,13 +2241,13 @@ if (isEntrypoint()) {
     const { join } = await import('node:path')
     const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
 
-    // -- 全新库：直接迁到 8（CP1 就地更新 6→8）；003 的 5 张新表全部存在且列齐全
+    // -- 全新库：直接迁到 9（MEM 就地更新 8→9）；003 的 5 张新表全部存在且列齐全
     const dir = mkdtempSync(join(tmpdir(), 'devhub-s1-40-'))
     const db = dbModule.openDatabase(join(dir, 'fresh.db'))
     try {
       const applied = dbModule.migrate(db)
-      assert.equal(applied, 8, '001..008 applied on fresh db (LR1 批次就地更新 7→8：007 插入 006/008 之间)')
-      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 8, 'fresh db at user_version 8 (终值不变：007 置 7、008 置 8；LR1 就地注记)')
+      assert.equal(applied, 9, '001..009 applied on fresh db (MEM 批次就地更新 8→9：009_memory_graph 并入)')
+      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 9, 'fresh db at user_version 9 (009 置 9；MEM 就地注记)')
 
       const columnsOf = (table) => db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name)
       assert.deepEqual(columnsOf('skill_agents'), ['id', 'name', 'platform', 'skills_dir', 'agents_dir', 'include_json', 'enabled', 'created_at', 'updated_at'], 'skill_agents columns')
@@ -1994,8 +2309,8 @@ if (isEntrypoint()) {
       ).run(now, now)
 
       const applied = dbModule.migrate(db2)
-      assert.equal(applied, 6, 'only 003..008 apply to the v2 library (LR1 批次就地更新 5→6：007 按序纳入)')
-      assert.equal(Number(db2.prepare('PRAGMA user_version').get().user_version), 8, 'v2 upgraded to user_version 8 (CP1 批次就地更新 6→8)')
+      assert.equal(applied, 7, 'only 003..009 apply to the v2 library (MEM 批次就地更新 6→7：009 按序纳入)')
+      assert.equal(Number(db2.prepare('PRAGMA user_version').get().user_version), 9, 'v2 upgraded to user_version 9 (MEM 批次就地更新 8→9)')
 
       const proj = db2.prepare('SELECT name, win_path FROM projects WHERE id = 1').get()
       assert.ok(proj && proj.name === 'legacy-proj', 'projects row survived')
@@ -2265,7 +2580,9 @@ if (isEntrypoint()) {
       // （007=LR1 序号跳过；真实库在新版进程首次打开后前移到 8）。
       // LR1 批次就地注记：007 落地后 user_version 终值仍 8（007 对已 8 的存量库
       // 不再自动应用，真实库列补齐归主控待办），断言值不变。
-      assert.equal(migrated, 8, `real db at user_version 8, got ${migrated} (终值不变：LR1 007 插序落地)`)
+      // MEM 批次就地更新（docs/briefs/mem-mcp.md 授权的同一模式）：009 落地后跟随
+      // 最新版本 8 → 9（真实库在新版进程首次打开后前移到 9）。
+      assert.equal(migrated, 9, `real db at user_version 9, got ${migrated} (MEM 009_memory_graph 落地)`)
       const agents = Number(db.prepare('SELECT COUNT(*) AS c FROM skill_agents').get().c)
       const runs = Number(db.prepare('SELECT COUNT(*) AS c FROM archive_runs').get().c)
       assert.ok(agents >= 1, `real import landed skill_agents rows, got ${agents}`)
@@ -4581,8 +4898,8 @@ if (isEntrypoint()) {
     const db = dbModule.openDatabase(join(dir, 'fresh.db'))
     try {
       const applied = dbModule.migrate(db)
-      assert.equal(applied, 8, '001..008 applied on fresh db (LR1 批次就地更新 7→8：007 插入 006/008 之间)')
-      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 8, 'fresh db at user_version 8 (终值不变：007 置 7、008 置 8；LR1 就地注记)')
+      assert.equal(applied, 9, '001..009 applied on fresh db (MEM 批次就地更新 8→9：009_memory_graph 并入)')
+      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 9, 'fresh db at user_version 9 (009 置 9；MEM 就地注记)')
 
       const tables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name))
       for (const t of [
@@ -4673,8 +4990,8 @@ if (isEntrypoint()) {
       assert.ok(before.settings.length >= 5, 'v3 settings carry 001/003 seeds + custom row')
 
       const applied = dbModule.migrate(db2)
-      assert.equal(applied, 5, 'only 004..008 apply to the v3 library (LR1 批次就地更新 4→5：007 按序纳入)')
-      assert.equal(Number(db2.prepare('PRAGMA user_version').get().user_version), 8, 'v3 upgraded to user_version 8 (CP1 批次就地更新 6→8)')
+      assert.equal(applied, 6, 'only 004..009 apply to the v3 library (MEM 批次就地更新 5→6：009 按序纳入)')
+      assert.equal(Number(db2.prepare('PRAGMA user_version').get().user_version), 9, 'v3 upgraded to user_version 9 (MEM 批次就地更新 8→9)')
 
       for (const t of LEGACY_TABLES) {
         const after = db2.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all()
@@ -9873,8 +10190,8 @@ if (isEntrypoint()) {
     const db = dbModule.openDatabase(join(dir, 'fresh.db'))
     try {
       const applied = dbModule.migrate(db)
-      assert.equal(applied, 8, '001..008 applied on fresh db (LR1 批次就地更新 7→8：007 插入 006/008 之间)')
-      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 8, 'user_version = 8 (CP1 批次就地更新 6→8)')
+      assert.equal(applied, 9, '001..009 applied on fresh db (MEM 批次就地更新 8→9：009_memory_graph 并入)')
+      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 9, 'user_version = 9 (MEM 批次就地更新 8→9)')
       const sessionCols = db.prepare('PRAGMA table_info(agent_sessions)').all().map((c) => c.name)
       assert.ok(sessionCols.includes('parent_session_id'), 'agent_sessions.parent_session_id present')
       assert.ok(sessionCols.includes('archived_at'), 'agent_sessions.archived_at present')
@@ -9900,8 +10217,8 @@ if (isEntrypoint()) {
       db2.prepare("INSERT INTO agent_providers (provider, display_name, created_at, updated_at) VALUES ('zcode', 'ZCode', ?, ?)").run(now, now)
       db2.prepare("INSERT INTO agent_sessions (provider_id, native_id, session_mode, status, created_at, updated_at) VALUES (1, 'sess_v4_keep', 'observed', 'running', ?, ?)").run(now, now)
       const applied = dbModule.migrate(db2)
-      assert.equal(applied, 4, 'only 005+006+007+008 apply to the v4 library (LR1 批次就地更新 3→4：007 按序纳入)')
-      assert.equal(Number(db2.prepare('PRAGMA user_version').get().user_version), 8, 'v4 upgraded to 8 (CP1 批次就地更新 6→8)')
+      assert.equal(applied, 5, 'only 005+006+007+008+009 apply to the v4 library (MEM 批次就地更新 4→5：009 按序纳入)')
+      assert.equal(Number(db2.prepare('PRAGMA user_version').get().user_version), 9, 'v4 upgraded to 9 (MEM 批次就地更新 8→9)')
       const row = db2.prepare("SELECT native_id, parent_session_id, archived_at FROM agent_sessions WHERE native_id = 'sess_v4_keep'").get()
       assert.ok(row !== undefined, 'v4 session row survived the upgrade')
       assert.equal(row.parent_session_id, null, 'parent_session_id NULL for pre-005 rows')
@@ -9923,10 +10240,14 @@ if (isEntrypoint()) {
         migrateMod.setUserVersionLiteral(db3, 8) // CP1 批次：case-8 已注册
         assert.equal(Number(db3.prepare('PRAGMA user_version').get().user_version), 8, 'case-8 literal statement works (CP1 批次)')
         // LR1 批次就地更新（同一负向护栏模式）：case-7 已注册（007_llm_review.sql 落地），
-        // 负向样例顺延 7 → 9（下一未注册序号；运行期缺字面量仍必须显式抛错）
+        // LR1 批次就地更新（同一负向护栏模式）：case-7 已注册（007_llm_review.sql 落地），
+        // 负向样例顺延 7 → 9 → 10（MEM 批次 case-9 已注册，009_memory_graph.sql 落地；
+        // 下一未注册序号；运行期缺字面量仍必须显式抛错）
         migrateMod.setUserVersionLiteral(db3, 7)
         assert.equal(Number(db3.prepare('PRAGMA user_version').get().user_version), 7, 'case-7 literal statement works (LR1 批次)')
-        assert.throws(() => migrateMod.setUserVersionLiteral(db3, 9), /no literal user_version statement/, 'unregistered version throws (009 未注册，负向样例顺延)')
+        migrateMod.setUserVersionLiteral(db3, 9) // MEM 批次：case-9 已注册（009_memory_graph.sql）
+        assert.equal(Number(db3.prepare('PRAGMA user_version').get().user_version), 9, 'case-9 literal statement works (MEM 批次)')
+        assert.throws(() => migrateMod.setUserVersionLiteral(db3, 10), /no literal user_version statement/, 'unregistered version throws (010 未注册，负向样例顺延)')
       } finally {
         db3.close()
       }
@@ -12023,7 +12344,7 @@ if (isEntrypoint()) {
     const db = m.dbModule.getDatabase()
     try {
       // migration 006 append-only 到位
-      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 8, 'migration 006/008 registered (user_version=8, CP1 批次就地更新 6→8)')
+      assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 9, 'migration 006/009 registered (user_version=9, MEM 批次就地更新 8→9)')
       const cols = db.prepare("SELECT name FROM pragma_table_info('remote_devices')").all().map((r) => r.name)
       assert.ok(cols.includes('previous_token_hash'), 'previous_token_hash column exists')
       assert.ok(cols.includes('rotated_at'), 'rotated_at column exists')
