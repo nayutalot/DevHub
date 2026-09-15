@@ -299,6 +299,24 @@ fun SessionDetailScreen(
             ModeBadge(d.session.sessionMode)
             if (d.session.stale) Text("信息可能不是最新", fontSize = 11.sp, color = Color(0xFFC7A008)) // UX-P1 D3
         }
+        // —— UX-Z3 运行态层（docs/28 §6）：运行状态条（E16 计时器 + E19a 活动 pill）——
+        // 详情轮询投影喂锚点登记（WS 漏沿补偿；沿去重同轨）。observed 无 turn 概念整块不显。
+        val runStatus = remember(d.session.status) { com.devhub.mobile.core.SessionStatusCore.normalize(d.session.status) }
+        val regVersion by com.devhub.mobile.connect.SessionRunRegistry.version.collectAsState()
+        LaunchedEffect(runStatus) {
+            // 状态值变化 = 一次潜在沿（重复沿由 registry 去重）
+            com.devhub.mobile.connect.SessionRunRegistry.observeStatus(sessionId, d.session.status, System.currentTimeMillis())
+        }
+        val runTurn = remember(regVersion, runStatus) {
+            com.devhub.mobile.connect.SessionRunRegistry.get(sessionId)
+        }
+        if (!isObservedSession(d)) {
+            RunStatusStrip(
+                status = runStatus,
+                turn = runTurn,
+                messages = messages,
+            )
+        }
         // UX-Z2 结构层（任务书 §2.4 杂项）：statusDetail 工程串人话化收口（走查词表
         // 漏网「turn/end (seq 806)」等）——core.StatusDetailHumanize 纯查表翻译；
         // 未命中原样透出（零吞码，U2-M1 同纪律：翻译不删除）
@@ -405,7 +423,16 @@ fun SessionDetailScreen(
                 OutlinedTextField(
                     value = replyText,
                     onValueChange = { replyText = it.take(4000) },
-                    label = { Text("输入消息…") }, // UX-P1 D7
+                    label = {
+                        // UX-Z3 运行态层（docs/28 §6.3 E21）：running 期间 composer 保持可用，
+                        // 占位=「提出后续修改要求」（v4 形态）；其余沿用「输入消息…」（UX-P1 D7）。
+                        // 既有 reply 通道/门语义原样（不加新语义）。
+                        if (runStatus == com.devhub.mobile.core.RunTurnClock.STATUS_RUNNING) {
+                            Text("提出后续修改要求")
+                        } else {
+                            Text("输入消息…") // UX-P1 D7
+                        }
+                    },
                     supportingText = {
                         // 仅当接近 4000 上限时显示剩余计数（D7：常态零密度）
                         if (replyText.length >= 3600) {
@@ -856,4 +883,112 @@ private fun segmentsToJson(segments: List<SegmentDto>?): String? {
         }
         arr.toString()
     }.getOrNull()
+}
+
+/** UX-Z3 运行态层：observed 双门判定（sessionMode/capsMode 任一 observed 即整块不显计时器/pill）。 */
+private fun isObservedSession(d: SessionDetailDto): Boolean =
+    d.session.sessionMode == "observed" || d.capabilities.mode == "observed"
+
+/**
+ * UX-Z3 运行状态条（docs/28 §6：E16 计时器 + E19a 活动 pill；任务书 #1/#2）。
+ *
+ * - E16：running + 锚点可考 → 「已工作 X 分 Y 秒」每秒走字；running + 锚点不可考 →
+ *   降级「运行中…」无数字（绝不伪造）；停沿后冻结区间值；无据整行不画；
+ * - E19a：turn 窗口 [开始沿, 停沿] 内 toolInvocation 段按 ToolActivityPill 白名单口径
+ *   聚合（deepseek/zcode 双载体裁定，单测锁口径）；running 期「已进行 N 次文件操作 /
+ *   运行中 · 第 N 步」，停沿转场「本轮完成 · N 次操作 / 本轮出错结束 / 本轮已取消」；
+ *   无锚点（窗口不可归属）或无 tool 行 → 不画数字（不伪造、无据不画）。
+ */
+@Composable
+private fun RunStatusStrip(
+    status: String,
+    turn: com.devhub.mobile.connect.SessionRunRegistry.Turn,
+    messages: List<MessageCacheEntity>,
+) {
+    var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(status, turn.anchorAtMs) {
+        nowMs = System.currentTimeMillis()
+        if (status == com.devhub.mobile.core.RunTurnClock.STATUS_RUNNING && turn.anchorAtMs != null) {
+            while (true) {
+                delay(1000)
+                nowMs = System.currentTimeMillis()
+            }
+        }
+    }
+    val timer = com.devhub.mobile.core.RunTurnClock.display(
+        status = status,
+        anchorAtMs = turn.anchorAtMs,
+        frozenElapsedSec = turn.frozenElapsedSec,
+        nowMs = nowMs,
+    )
+    // turn 窗口（秒级）：[anchorSec, stopEdgeSec]；running 期右端开窗（stopEdge=null）
+    val anchorSec = turn.anchorAtMs?.let { it / 1000L }
+    val endSec: Long? = if (status == com.devhub.mobile.core.RunTurnClock.STATUS_RUNNING) {
+        null
+    } else {
+        turn.frozenElapsedSec?.let { anchorSec?.plus(it) }
+    }
+    val pillRows = remember(messages, anchorSec, endSec) {
+        if (anchorSec == null) {
+            emptyList()
+        } else {
+            messages
+                .filter { m ->
+                    val t = m.occurredAtSec ?: return@filter false
+                    t >= anchorSec && (endSec == null || t <= endSec)
+                }
+                .map { m ->
+                    com.devhub.mobile.core.ToolActivityPill.Row(
+                        role = m.role,
+                        toolLabels = com.devhub.mobile.ui.components.parseSegments(m.segmentsJson)
+                            ?.filterIsInstance<com.devhub.mobile.core.MessageSegments.Segment.ToolInvocation>()
+                            ?.map { it.label.orEmpty() }
+                            .orEmpty(),
+                    )
+                }
+        }
+    }
+    val counts = com.devhub.mobile.core.ToolActivityPill.counts(pillRows)
+    val timerText = when (timer) {
+        is com.devhub.mobile.core.RunTurnClock.Display.Worked -> com.devhub.mobile.core.RunTurnClock.formatWorked(timer.elapsedSec)
+        com.devhub.mobile.core.RunTurnClock.Display.RunningNoAnchor -> "运行中…"
+        null -> null
+    }
+    val pillText = when {
+        // 无 tool 数据：不画 pill（无据不画；「运行中…」降级语义由计时器行承载）
+        counts == null -> null
+        // running 但锚点不可考：窗口不可归属 → 不画数字（不伪造）
+        status == com.devhub.mobile.core.RunTurnClock.STATUS_RUNNING && anchorSec == null -> null
+        status == com.devhub.mobile.core.RunTurnClock.STATUS_RUNNING ->
+            com.devhub.mobile.core.ToolActivityPill.runningText(counts)
+        // 停沿后：窗口真实测得 → 转场文案（waiting_input/completed/paused/failed/connection_lost）
+        anchorSec != null -> com.devhub.mobile.core.ToolActivityPill.stopText(status, counts)
+        else -> null
+    }
+    if (timerText == null && pillText == null) return
+    Column(Modifier.fillMaxWidth().padding(top = 2.dp)) {
+        timerText?.let {
+            Text(
+                it,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFF1B6B3A),
+            )
+        }
+        pillText?.let {
+            Surface(
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.padding(top = 2.dp),
+            ) {
+                Text(
+                    it,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+        }
+    }
 }
