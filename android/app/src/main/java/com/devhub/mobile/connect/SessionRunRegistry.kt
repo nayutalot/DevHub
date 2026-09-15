@@ -61,23 +61,28 @@ object SessionRunRegistry {
 
             RunTurnClock.isStartEdge(status) -> {
                 changed = true
-                if (prev.anchorAtMs != null) {
-                    // 已在 running 区间（重复沿/approval_required 回归）：锚点保持首观测值
-                    prev.copy(lastStatus = status)
-                } else if (prev.lastStatus != null) {
-                    // 真实沿：观测到 非 running → running 的翻转才起锚（±1s 与状态沿一致）
-                    Turn(anchorAtMs = nowMs, lastStatus = status)
-                } else {
-                    // 首观测即 running（进程启动后本会话从未见过其他状态）：锚点不可考
-                    // → 降级「运行中…」（绝不伪造——spec §6.1 兜底条款）
-                    Turn(lastStatus = status)
+                when {
+                    prev.lastStatus != null && !RunTurnClock.isStopEdge(prev.lastStatus) ->
+                        // 同一活跃 turn 内的回归沿（approval_required→running / 重复沿）：锚点保持
+                        prev.copy(lastStatus = status)
+
+                    prev.lastStatus == null ->
+                        // 首观测即 running（进程启动后本会话从未见过其他状态）：锚点不可考
+                        // → 降级「运行中…」（绝不伪造——spec §6.1 兜底条款）
+                        Turn(lastStatus = status)
+
+                    else ->
+                        // 真实沿：非 running（含停沿后新 turn）→ running 翻转，起锚开新区间
+                        Turn(anchorAtMs = nowMs, lastStatus = status)
                 }
             }
 
             RunTurnClock.isStopEdge(status) -> {
                 changed = true
+                // 冻结实测区间；锚点保留（停沿转场 pill 的窗口右端 = anchor + frozen），
+                // 下一次开始沿覆盖为新区间。
                 val frozen = prev.anchorAtMs?.let { (nowMs - it).coerceAtLeast(0L) / 1000L }
-                Turn(frozenElapsedSec = frozen, lastStatus = status)
+                Turn(anchorAtMs = prev.anchorAtMs, frozenElapsedSec = frozen, lastStatus = status)
             }
 
             else -> { // 集外/unknown 等非沿状态：不构成任何沿，仅记账

@@ -34,11 +34,11 @@ class SessionRunRegistryTest {
     }
 
     @Test
-    fun `stop edge freezes measured interval`() {
+    fun `stop edge freezes measured interval and keeps anchor for turn window`() {
         SessionRunRegistry.observeStatus(3, "waiting_input", 1_000L)
         SessionRunRegistry.observeStatus(3, "running", 10_000L)
         val t = SessionRunRegistry.observeStatus(3, "waiting_input", 73_500L)
-        assertNull(t.anchorAtMs)
+        assertEquals(10_000L, t.anchorAtMs) // 锚点保留：停沿转场 pill 的窗口右端 = anchor + frozen
         assertEquals(63L, t.frozenElapsedSec) // (73500-10000)/1000 floor
     }
 
