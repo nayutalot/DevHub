@@ -88,6 +88,15 @@ const ALLOWED_KEYS: readonly string[] = [
   // 用户自管已存在目录（不存在 = 结构化拒绝绝不静默创建）。零凭据语义（目录路径
   // 非凭据）；无种子行零迁移。22→23。
   'deepseek_managed_workspace',
+  // DSN 批（DeepSeek managed spawn 载体解析链一级=显式键，docs/briefs/dsn-carrier.md
+  // §1；run4 决定性隔离实验：electron 内置 node 被 harness cordis loader 拒，plain
+  // node 秒答——打包常驻 spawn 载体必须优先系统 Node.js）：缺行 = 解析链二级
+  // `where.exe node` 单源探测（AC9 npm 解析同款单源纪律）；显式键 = 开发者兜旋钮，
+  // 指向一个已存在的 node 可执行文件（`~` 前缀经 resolveHomeDir 既有边界展开；
+  // 不存在 = 结构化拒绝）。解析结果与命中级别进 caps evidence/诊断面；二级不可用
+  // → 降级 ELECTRON_RUN_AS_NODE（caps/诊断如实标注，绝不静默）。零凭据语义
+  // （本机路径非凭据）；无种子行零迁移。23→24。
+  'deepseek_managed_node',
 ]
 
 function assertAllowedKey(key: string): void {

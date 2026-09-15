@@ -9,13 +9,29 @@
  * observed-only，provider 行为与现状逐字节一致。真实语义（本键存在的理由）：
  * 真实推理消耗 + `~/.dsh` 会话写入必然发生——默认停用、显式授权、键回 0 即撤销。
  *
- * spawn 载体（docs/27 §1.3/§4.2）：Electron 主进程内置 node（process.execPath）+
+ * spawn 载体（docs/27 §1.3/§4.2 + DSN 批 docs/briefs/dsn-carrier.md §1 载体解析链）：
  * `<deepseekHarnessRoot>/packages/examples/jsonrpc-demo/lib/bin.js`（同机 checkout
  * 已构建 bin 实证）；配置经 `DSH_CORDIS_CONFIG` env 指向 DevHub 渲染的 cordis.yml
  * （runner.ts:24-29 env 优先于 argv）。安装根解析：deps 显式 > settings
  * `deepseekHarnessRoot` > 默认 D:/Apps/deepseek-harness（deepseekProvider 同源）。
  * home 边界复用 apihub/adapters.resolveHomeDir 既有阶梯（explicit → APIHUB_HOME →
  * homedir——Mimosa 纪律：边界函数归位既有模块，绝不另写一份）。
+ *
+ * 载体解析链三级（DSN 批；run4 决定性隔离实验：electron 内置 node v24.19 被
+ * harness cordis loader 拒 `failed to apply loader entry include (cordis:include)`，
+ * plain node v24.15 秒答 initialize——打包常驻 spawn 载体必须优先系统 Node.js）：
+ * 1. 显式键 `deepseek_managed_node`（ALLOWED_KEYS；路径存在性校验在门读取同步做，
+ *    `~` 前缀经 resolveHomeDir 既有 env→path 边界展开；可执行校验 = spawn 前哨兵
+ *    `node --version`）——开发者兜底旋钮；
+ * 2. 系统 node 探测：`where.exe node` 单一来源（对齐 versionCenter/npm.ts AC9
+ *    单源先例：取首个结果 + 绝对路径/basename 收口校验，**勿做多候选回退**）；
+ *    spawn 前哨兵校验（`node --version` 一次成功后可缓存；失败/超时结构化拒绝，
+ *    绝不静默滑落降级）；
+ * 3. 降级：前两级不可用 → 回落 process.execPath + ELECTRON_RUN_AS_NODE='1' 现状
+ *    尝试，且 caps evidence/诊断面**如实标注** DEEPSEEK_CARRIER_DEGRADATION_NOTE
+ *    ——绝不静默用必败载体。
+ * 生效载体命令、命中级别与解析细节进 caps evidence 与诊断投影（provider 侧消费
+ * resolveDeepseekSpawnCarrier；本模块只提供解析，绝不自作主张写盘/起 runtime）。
  *
  * 工作区旋钮（DSW 批 docs/briefs/dsw-workspace.md §1；run3 阻断修复：旧默认
  * workspacePath=resolveHomeDir()=用户 home 根 → dsh 沙箱 temp-root 撞 Windows ACL
@@ -48,6 +64,7 @@
 
 import { existsSync, mkdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { run } from '../../../core/exec.ts'
 import { getSetting } from '../../settingsService.ts'
 import { resolveHomeDir } from '../../apihub/adapters.ts'
 import { getDataDir } from '../../../core/paths.ts'
@@ -70,6 +87,24 @@ export const DEEPSEEK_MANAGED_MODEL_SETTING_KEY = 'deepseek_managed_model'
  * 用户自管已存在目录——不存在结构化拒绝不静默创建）。
  */
 export const DEEPSEEK_MANAGED_WORKSPACE_SETTING_KEY = 'deepseek_managed_workspace'
+
+/**
+ * settings 键名：spawn 载体显式键（DSN 批载体解析链一级；缺行 = 二级系统 node
+ * 探测；非空 = 指向已存在的 node 可执行文件——不存在门读取即结构化拒绝）。
+ */
+export const DEEPSEEK_MANAGED_NODE_SETTING_KEY = 'deepseek_managed_node'
+
+/** where.exe 探测超时（快命令；npm 解析 NPM_WHERE_TIMEOUT_MS 同款先例值）。 */
+export const DEEPSEEK_NODE_WHERE_TIMEOUT_MS = 15_000
+
+/** node --version 哨兵超时（快命令；失败/超时结构化拒绝——绝不带病 spawn）。 */
+export const DEEPSEEK_NODE_SENTINEL_TIMEOUT_MS = 15_000
+
+/**
+ * 降级如实标注文案（DSN 批任务书 §1-3 逐字；caps evidence 与诊断面在降级载体上
+ * 必带——run4 实证该载体 initialize 必败，绝不静默用必败载体）。
+ */
+export const DEEPSEEK_CARRIER_DEGRADATION_NOTE = '载体降级：需系统 Node.js（harness loader 不兼容 Electron 内置运行时）'
 
 /**
  * 默认工作区目录名（DSW 批；恒挂 DevHub 数据目录内——`<data>/dsh-workspace`，
@@ -130,7 +165,11 @@ export interface DeepseekManagedGateState {
   provider?: string
   /** initialize 的 model 路由（enabled=true 必有）。 */
   model?: string
-  /** spawn 命令（Electron 内置 node；enabled=true 必有）。 */
+  /**
+   * spawn 命令（enabled=true 必有）：显式键命中 = 展开后路径；否则降级形态
+   * process.execPath（生产面 provider 在 spawn/caps 前经异步载体解析链改写——
+   * 系统 node 命中即纯 node；DSN 批）。
+   */
   spawnCommand?: string
   /** spawn argv 模板（[binPath]；DSH_CORDIS_CONFIG 经 env 传递非 argv）。 */
   spawnArgs?: string[]
@@ -230,11 +269,21 @@ function isExistingDir(path: string): boolean {
   }
 }
 
+/** 文件在位判定（存在且是普通文件；显式 node 键的路径存在性校验用）。 */
+function isExistingFile(path: string): boolean {
+  try {
+    return statSync(path).isFile()
+  } catch {
+    return false
+  }
+}
+
 /**
- * settings 显式键的 `~` 前缀展开（Mimosa 纪律：env→path 归位 resolveHomeDir
+ * settings 显式值的 `~` 前缀展开（Mimosa 纪律：env→path 归位 resolveHomeDir
  * 既有边界函数——explicit/APIHUB_HOME/homedir 阶梯原样复用，勿新内联）。
+ * 工作区键（DSW 批）与显式 node 键（DSN 批）共用同一边界。
  */
-function expandWorkspaceHome(value: string, homeDir?: string): string {
+function expandHomePath(value: string, homeDir?: string): string {
   if (value === '~') return resolveHomeDir(homeDir)
   if (value.startsWith('~/') || value.startsWith('~\\')) return join(resolveHomeDir(homeDir), value.slice(2))
   return value
@@ -262,7 +311,7 @@ export function resolveManagedWorkspace(deps: { workspacePath?: string; homeDir?
     configured = null // settings 不可用（无库上下文）：默认安全目录兜底
   }
   if (configured !== null) {
-    const resolved = expandWorkspaceHome(configured, deps.homeDir)
+    const resolved = expandHomePath(configured, deps.homeDir)
     if (!isExistingDir(resolved)) {
       return {
         ok: false,
@@ -296,6 +345,183 @@ export function ensureDeepseekManagedWorkspaceDir(path: string): EnsureDeepseekM
     return { ok: false, path, reason: `managed workspace directory still missing after create at ${path}` }
   }
   return { ok: true, path, created: true }
+}
+
+// ---------------------------------------------------------------------------
+// spawn 载体解析链（DSN 批；run4 决定性隔离实验的正面修法——见模块头注释）
+// ---------------------------------------------------------------------------
+
+/**
+ * spawn 载体解析结果：ok=true 携带生效命令 + 该级 env 增量 + 解析细节（诊断面
+ * 如实投影哪一级命中）；fallback 级必带 degradation 如实标注；ok=false = 结构化
+ * 拒绝（哨兵失败/显式键指向缺失文件——绝不带病 spawn，绝不静默滑落降级）。
+ * env 增量零凭据（ELECTRON_RUN_AS_NODE 是运行时开关非凭据）。
+ */
+export type DeepseekSpawnCarrier =
+  | {
+      ok: true
+      /** 命中级别（1=显式键 2=系统 node 3=降级；诊断投影如实）。 */
+      level: 'explicit' | 'system' | 'fallback'
+      /** 生效 spawn 命令（绝对路径或 process.execPath）。 */
+      command: string
+      /** 该级 env 增量（explicit/system = 纯 node 零开关；fallback = ELECTRON_RUN_AS_NODE）。 */
+      env: Record<string, string>
+      /** 解析细节（级别 + 命令 + 来源 + 哨兵版本；零凭据可入 evidence）。 */
+      detail: string
+      /** 降级标注（仅 fallback 级；DEEPSEEK_CARRIER_DEGRADATION_NOTE 逐字）。 */
+      degradation?: string
+    }
+  | { ok: false; reason: string }
+
+/** 显式键解析中间态（raw = settings 原值；path = `~` 展开后）。 */
+interface ExplicitNodeSetting {
+  raw: string
+  path: string
+}
+
+/**
+ * 显式键读取（每调用读取；trim 后非空才生效——工作区键同款纪律）。`~` 前缀经
+ * expandHomePath → resolveHomeDir 既有 env→path 边界展开（Mimosa 纪律勿新内联）。
+ */
+export function resolveExplicitNodeSetting(homeDir?: string): ExplicitNodeSetting | null {
+  let raw: string | null = null
+  try {
+    const value = getSetting(DEEPSEEK_MANAGED_NODE_SETTING_KEY)
+    if (value !== undefined && value.trim().length > 0) raw = value.trim()
+  } catch {
+    raw = null // settings 不可用（无库上下文）：视为缺行
+  }
+  if (raw === null) return null
+  return { raw, path: expandHomePath(raw, homeDir) }
+}
+
+/**
+ * where.exe 首个结果的收口校验（npm 解析 isTrustedNpmCmdPath 同款纪律：绝对路径
+ * + basename 恰为期望名——`where.exe node` 在标准安装下命中 `node.exe`；不收口
+ * = PATH 投毒面）。单一来源纪律：只看首个结果，**勿做多候选回退**（AC9 先例）。
+ */
+function isTrustedNodeExePath(p: string): boolean {
+  const normalized = p.replaceAll('/', '\\')
+  return /^(?:[a-zA-Z]:)?\\/.test(normalized) && basename(normalized).toLowerCase() === 'node.exe'
+}
+
+function basename(p: string): string {
+  const idx = p.lastIndexOf('\\')
+  return idx >= 0 ? p.slice(idx + 1) : p
+}
+
+/** node --version 成功缓存（命令 → 版本；一次成功后可缓存——任务书 §1-2）。 */
+const nodeSentinelCache = new Map<string, string>()
+
+/**
+ * 哨兵真实执行：`node --version`（core/exec run 唯一 spawn 入口；输出必须匹配
+ * `v<数字>` 形态——真实 node 判据，WindowsApps 商店 stub 等假命中在此暴露）。
+ * 成功写缓存；失败/超时结构化拒绝（不缓存失败——装好 node 后无需重启即恢复）。
+ */
+async function runNodeSentinel(command: string, timeoutMs: number): Promise<{ ok: true; version: string } | { ok: false; detail: string }> {
+  const cached = nodeSentinelCache.get(command)
+  if (cached !== undefined) return { ok: true, version: cached }
+  const r = await run(command, ['--version'], { timeoutMs })
+  if (r.timedOut) {
+    return { ok: false, detail: `node --version timed out after ${timeoutMs}ms at ${command}` }
+  }
+  const match = /^v(\d+(?:\.\d+)+)/m.exec(r.stdout.trim())
+  if (r.code !== 0 || match === null) {
+    const tail = `${r.stdout.trim()} ${r.stderr.trim()}`.replaceAll('\n', ' ').slice(0, 160)
+    return { ok: false, detail: `node --version failed at ${command} (exit=${r.code}; output=${tail || 'empty'})` }
+  }
+  nodeSentinelCache.set(command, match[1])
+  return { ok: true, version: match[1] }
+}
+
+/** where.exe node 真实查找（单一来源；首个结果；失败/超时结构化 detail）。 */
+async function whereNodeFirst(timeoutMs: number): Promise<{ ok: true; first: string } | { ok: false; detail: string }> {
+  const r = await run('where.exe', ['node'], { timeoutMs })
+  if (r.timedOut) return { ok: false, detail: `where.exe node timed out after ${timeoutMs}ms` }
+  if (r.code !== 0) return { ok: false, detail: `where.exe node found nothing (exit=${r.code})` }
+  const first = r.stdout
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .find(Boolean)
+  if (first === undefined) return { ok: false, detail: 'where.exe node returned no lines' }
+  return { ok: true, first }
+}
+
+/** resolveDeepseekSpawnCarrier 依赖注入缝（smoke/夹具隔离真实 where/哨兵子进程）。 */
+export interface DeepseekCarrierDeps {
+  /** where.exe 查找覆盖（默认 whereNodeFirst 真实探测）。 */
+  whereNode?: (timeoutMs: number) => Promise<{ ok: true; first: string } | { ok: false; detail: string }>
+  /** 哨兵执行覆盖（默认 runNodeSentinel 真实执行；注入时绕过成功缓存）。 */
+  sentinel?: (command: string) => Promise<{ ok: true; version: string } | { ok: false; detail: string }>
+  /** where 超时毫秒（默认 DEEPSEEK_NODE_WHERE_TIMEOUT_MS）。 */
+  whereTimeoutMs?: number
+  /** 哨兵超时毫秒（默认 DEEPSEEK_NODE_SENTINEL_TIMEOUT_MS）。 */
+  sentinelTimeoutMs?: number
+  /** 降级载体命令覆盖（默认 process.execPath；夹具断言用）。 */
+  fallbackCommand?: string
+}
+
+/**
+ * 载体解析链三级（每调用读取；DSN 批任务书 §1）：
+ * 1. 显式键 `deepseek_managed_node` 非空 → `~` 展开 → 文件在位（门读取已同步
+ *    校验，此处复核竞态）→ 哨兵 `node --version`（可执行校验）→ 命中；
+ * 2. 缺行 → `where.exe node` 单源首个结果 → 收口校验（绝对路径 + node.exe）→
+ *    哨兵 → 命中；**where 无命中/首结果不可信 → 直接降级（不做多候选回退）；
+ *    哨兵失败 → 结构化拒绝（绝不静默滑落降级——必败载体不做第二枪）**；
+ * 3. 降级 → process.execPath + ELECTRON_RUN_AS_NODE='1' 现状尝试，degradation
+ *    必带如实标注（绝不静默用必败载体）。
+ */
+export async function resolveDeepseekSpawnCarrier(deps: DeepseekCarrierDeps = {}): Promise<DeepseekSpawnCarrier> {
+  const whereTimeoutMs = deps.whereTimeoutMs ?? DEEPSEEK_NODE_WHERE_TIMEOUT_MS
+  const sentinelTimeoutMs = deps.sentinelTimeoutMs ?? DEEPSEEK_NODE_SENTINEL_TIMEOUT_MS
+  const sentinel = deps.sentinel ?? ((command: string) => runNodeSentinel(command, sentinelTimeoutMs))
+  // 一级：显式键（开发者兜底旋钮）
+  const explicit = resolveExplicitNodeSetting()
+  if (explicit !== null) {
+    if (!isExistingFile(explicit.path)) {
+      return {
+        ok: false,
+        reason: `spawn carrier: settings key ${DEEPSEEK_MANAGED_NODE_SETTING_KEY} points to a missing file: ${explicit.path} (managed face refused; point it at an existing Node.js executable or clear the key)`,
+      }
+    }
+    const check = await sentinel(explicit.path)
+    if (!check.ok) {
+      return { ok: false, reason: `spawn carrier sentinel: ${check.detail} (settings key ${DEEPSEEK_MANAGED_NODE_SETTING_KEY}=${explicit.raw}; managed face refused)` }
+    }
+    return {
+      ok: true,
+      level: 'explicit',
+      command: explicit.path,
+      env: {},
+      detail: `level 1 explicit settings key ${DEEPSEEK_MANAGED_NODE_SETTING_KEY} → ${explicit.path} (node v${check.version})`,
+    }
+  }
+  // 二级：系统 node 单源探测（where.exe node；AC9 npm 解析同款单源纪律）
+  const found = await (deps.whereNode ?? ((ms: number) => whereNodeFirst(ms)))(whereTimeoutMs)
+  if (found.ok && isTrustedNodeExePath(found.first)) {
+    const check = await sentinel(found.first)
+    if (!check.ok) {
+      return { ok: false, reason: `spawn carrier sentinel: ${check.detail} (system node via where.exe; managed face refused — fix the Node.js install or set ${DEEPSEEK_MANAGED_NODE_SETTING_KEY} explicitly)` }
+    }
+    return {
+      ok: true,
+      level: 'system',
+      command: found.first,
+      env: {},
+      detail: `level 2 system node via where.exe → ${found.first} (node v${check.version})`,
+    }
+  }
+  const whereDetail = found.ok ? `where.exe node first result failed the trust check: ${found.first}` : found.detail
+  // 三级：降级（现状尝试 + 如实标注——绝不静默用必败载体）
+  const fallbackCommand = deps.fallbackCommand ?? process.execPath
+  return {
+    ok: true,
+    level: 'fallback',
+    command: fallbackCommand,
+    env: { ELECTRON_RUN_AS_NODE: '1' },
+    detail: `level 3 fallback to the Electron built-in runtime at ${fallbackCommand} (${whereDetail})`,
+    degradation: DEEPSEEK_CARRIER_DEGRADATION_NOTE,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -637,10 +863,14 @@ function extractServerInfoLoose(result: unknown): { name: string; version: strin
  * 1. settings 键 ≠ '1' → 停用（默认态）；
  * 2. 模型路由键形态不符 → 停用；
  * 3. bin.js 不存在 → 版本哨兵第一层拒绝；
- * 4. 工作区显式键指向不存在目录 → 结构化拒绝（绝不静默创建——DSW 批）。
+ * 4. 工作区显式键指向不存在目录 → 结构化拒绝（绝不静默创建——DSW 批）；
+ * 5. spawn 载体显式键 `deepseek_managed_node` 指向不存在文件 → 结构化拒绝
+ *    （DSN 批；可执行校验归 spawn 前哨兵——本函数零 spawn 纪律不变）。
  * 就绪面：spawn 载体 + 渲染物路径 + 路由 + 超时全量携带（渲染物写盘由 provider
  * 在 spawn 前经 ensureDeepseekCordisConfig 执行——本函数零写盘，纯读取+判定；
  * 默认工作区目录的按需创建同理归 provider spawn 前置 ensureDeepseekManagedWorkspaceDir）。
+ * 本函数保持同步零子进程：显式键（一级）在此做路径存在性校验；二级 where.exe
+ * 探测与哨兵归异步 resolveDeepseekSpawnCarrier（provider spawn/caps 前调用）。
  */
 export function readDeepseekManagedGate(deps: DeepseekManagedGateDeps = {}): DeepseekManagedGateState {
   if (!gateEnabledBySettings()) {
@@ -673,9 +903,22 @@ export function readDeepseekManagedGate(deps: DeepseekManagedGateDeps = {}): Dee
     // 显式键指向不存在目录：结构化拒绝（绝不静默创建在奇怪位置——DSW 批红线）
     return { enabled: false, reason: workspace.reason }
   }
+  // 载体一级显式键：路径存在性校验（门读取同步拒；`~` 展开走 resolveHomeDir
+  // 既有边界——DSN 批）。可执行校验归 spawn 前哨兵（resolveDeepseekSpawnCarrier）。
+  const explicitNode = resolveExplicitNodeSetting(deps.homeDir)
+  if (explicitNode !== null && !isExistingFile(explicitNode.path)) {
+    return {
+      enabled: false,
+      reason: `settings key ${DEEPSEEK_MANAGED_NODE_SETTING_KEY} points to a missing file: ${explicitNode.path} (spawn carrier refused; point it at an existing Node.js executable, or clear the key to let the resolver probe the system node via where.exe)`,
+    }
+  }
   const workspacePath = workspace.path
   const configPath = deps.configPath ?? defaultDeepseekCordisConfigPath()
-  const spawnCommand = deps.spawnCommand ?? process.execPath
+  // 默认 spawn 载体 = 降级形态（Electron 内置 runtime + ELECTRON_RUN_AS_NODE；
+  // deps.spawnCommand 注入缝优先）。生产面 provider 在 spawn/caps 前经异步
+  // resolveDeepseekSpawnCarrier 按三级解析链改写（显式键/系统 node 命中 →
+  // 纯 node 命令 + 零开关 env；降级 → 本形态原样 + degradation 如实标注）。
+  const spawnCommand = explicitNode !== null ? explicitNode.path : (deps.spawnCommand ?? process.execPath)
   return {
     enabled: true,
     harnessRoot,
@@ -690,7 +933,10 @@ export function readDeepseekManagedGate(deps: DeepseekManagedGateDeps = {}): Dee
     // 零凭据零 key（凭据三零红线）。ELECTRON_RUN_AS_NODE=1：打包常驻里
     // process.execPath=electron.exe，直接派生会作为第二个 GUI 实例被单实例锁
     // 静默秒退 → initialize 永不应答（RD run4 实证 30s 超时 COMMAND_NOT_
-    // EXECUTABLE）；该开关强制其以纯 node 运行 bin.js（plain node 下无副作用）。
+    // EXECUTABLE）；且 electron 内置 node 被 harness cordis loader 拒（run4 隔离
+    // 实验）——该开关形态仅是解析链三级降级载体，caps/诊断面必带如实标注；
+    // 一/二级命中（plain node）时 provider 侧改写为纯 env（零开关，plain node
+    // 下 ELECTRON_RUN_AS_NODE 无副作用但非所需）。
     spawnEnv: { DSH_CORDIS_CONFIG: configPath, ELECTRON_RUN_AS_NODE: '1' },
     managedIdleTimeoutMs: DEEPSEEK_MANAGED_IDLE_TIMEOUT_MS,
     managedLifetimeTimeoutMs: DEEPSEEK_MANAGED_LIFETIME_TIMEOUT_MS,

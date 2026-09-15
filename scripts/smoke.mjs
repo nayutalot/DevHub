@@ -15472,7 +15472,7 @@ if (isEntrypoint()) {
     await makeTempHome('devhub-t2z-110-')
     try {
       assert.equal(settings.allowedSettingKeys().includes('zcode_managed_model'), true, 'whitelist carries the T2 key (18→19)')
-      assert.equal(settings.allowedSettingKeys().length, 23, 'ALLOWED_KEYS 22→23 (DSW 批就地更新：尾追 deepseek_managed_workspace 托管工作区旋钮，docs/briefs/dsw-workspace.md §1；dsh-102 锁新键语义)')
+      assert.equal(settings.allowedSettingKeys().length, 24, 'ALLOWED_KEYS 23→24 (DSN 批就地更新：尾追 deepseek_managed_node spawn 载体显式键，docs/briefs/dsn-carrier.md §1；dsh-107 锁新键语义)')
       assert.throws(() => settings.setSetting('zcode_managed_not_a_key', 'x'), /not allowed/, 'non-whitelisted keys still rejected')
       assert.equal(cfg.zcodeManagedModelSetting(), '', 'absence = empty = disabled')
       settings.setSetting('zcode_managed_model', 'dummyhub/dummy-model')
@@ -17114,6 +17114,220 @@ if (isEntrypoint()) {
       dbModule.closeDatabase()
     }
   }, 'full')
+
+  // 107. spawn 载体解析链（DSN 批，fast）：一级显式键（存在性+`~` 展开+真哨兵+
+  //      不触 where）→ 二级 where.exe 单源命中（收口校验+真哨兵；首结果不可信
+  //      直接降级——不做多候选回退）→ 三级降级（ELECTRON_RUN_AS_NODE +「载体降级」
+  //      如实标注）；二级哨兵失败 = 结构化拒绝绝不滑落降级；门读取同步拒缺失文件
+  //      + spawnCommand 透传；provider 投影：caps evidence/诊断面/哨兵拒 → observed
+  //      + startManagedSession 零 spawn 拒；spawn 实际骑解析链载体（夹具记录
+  //      ELECTRON_RUN_AS_NODE 位=空）；键清零 → gate-off 面逐字节不变（dsh-103 口径）。
+  registerCase('dsh-107: deepseek spawn carrier resolution chain (DSN) — level 1 explicit key (existence + ~ expansion + real sentinel, where.exe never probed), level 2 where.exe single-source hit with trust check, level 3 fallback with honest degradation note, sentinel failure = structured refusal with zero silent fallback, gate sync-refusal + spawnCommand pass-through, caps/diagnostics projection, spawn rides the resolved carrier, key cleared → gate-off byte identity', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, readFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+    const settings = await import(new URL('../src/main/services/settingsService.ts', import.meta.url).href)
+    const cfg = await import(new URL('../src/main/services/agentControl/providers/deepseekManagedConfig.ts', import.meta.url).href)
+    const mod = await import(new URL('../src/main/services/agentControl/providers/deepseekProvider.ts', import.meta.url).href)
+
+    const dir = mkdtempSync(join(tmpdir(), 'devhub-dsh-107-'))
+    mkdirSync(join(dir, 'examples', 'node_modules'), { recursive: true }) // 夹具安装根布局（ride 段 junction 目标在位）
+    await makeTempHome('devhub-dsh-107-home-')
+
+    // —— 二级命中：where.exe 单源（注入返回真实 node 路径；真哨兵执行 + 版本入 detail）——
+    const sysCarrier = await cfg.resolveDeepseekSpawnCarrier({ whereNode: async () => ({ ok: true, first: process.execPath }) })
+    assert.equal(sysCarrier.ok, true, `system carrier ok: ${sysCarrier.reason ?? ''}`)
+    assert.equal(sysCarrier.level, 'system', `level 2 hit: ${sysCarrier.detail}`)
+    assert.equal(sysCarrier.command, process.execPath)
+    assert.deepEqual(sysCarrier.env, {}, 'system hit: plain-node env (no ELECTRON_RUN_AS_NODE)')
+    assert.ok(sysCarrier.detail.startsWith('level 2 system node via where.exe'), `detail names the level/source: ${sysCarrier.detail}`)
+    assert.ok(/node v\d/.test(sysCarrier.detail), `sentinel version in detail: ${sysCarrier.detail}`)
+
+    // —— 首结果收口校验失败 → 直接降级（不做多候选回退——AC9 npm 单源先例）——
+    const untrusted = await cfg.resolveDeepseekSpawnCarrier({ whereNode: async () => ({ ok: true, first: 'node-from-poisoned-PATH' }), fallbackCommand: 'FIXTURE-ELECTRON-EXE' })
+    assert.equal(untrusted.ok, true)
+    assert.equal(untrusted.level, 'fallback', 'untrusted first result never becomes the carrier')
+    assert.equal(untrusted.command, 'FIXTURE-ELECTRON-EXE')
+    assert.deepEqual(untrusted.env, { ELECTRON_RUN_AS_NODE: '1' }, 'fallback env carries the electron-as-node switch')
+    assert.ok(untrusted.detail.includes('trust check') && untrusted.detail.includes('node-from-poisoned-PATH'), `detail quotes the discarded line: ${untrusted.detail}`)
+
+    // —— 三级降级：where 无命中 → ELECTRON_RUN_AS_NODE + 如实标注（逐字文案）——
+    const fb = await cfg.resolveDeepseekSpawnCarrier({ whereNode: async () => ({ ok: false, detail: 'fixture: nothing on PATH' }), fallbackCommand: 'FIXTURE-ELECTRON-EXE' })
+    assert.equal(fb.ok, true)
+    assert.equal(fb.level, 'fallback')
+    assert.equal(fb.degradation, cfg.DEEPSEEK_CARRIER_DEGRADATION_NOTE, 'fallback always carries the exact degradation note')
+    assert.equal(fb.degradation, '载体降级：需系统 Node.js（harness loader 不兼容 Electron 内置运行时）', 'note matches the brief verbatim')
+    assert.ok(fb.detail.includes('fixture: nothing on PATH'), `fallback detail carries the where failure: ${fb.detail}`)
+
+    // —— 二级哨兵失败 = 结构化拒绝（绝不静默滑落降级——必败载体不做第二枪）——
+    const sentinelFail = await cfg.resolveDeepseekSpawnCarrier({ whereNode: async () => ({ ok: true, first: process.execPath }), sentinel: async () => ({ ok: false, detail: 'fixture sentinel boom' }) })
+    assert.equal(sentinelFail.ok, false, 'sentinel failure refuses')
+    assert.ok(sentinelFail.reason.includes('spawn carrier sentinel') && sentinelFail.reason.includes('fixture sentinel boom'), `structured refusal: ${sentinelFail.reason}`)
+    assert.ok(sentinelFail.reason.includes('where.exe') || sentinelFail.reason.includes('system node'), `refusal names the system-node provenance: ${sentinelFail.reason}`)
+
+    // —— 一级显式键命中：真哨兵通过 + where 永不被探测 ——
+    settings.setSetting(cfg.DEEPSEEK_MANAGED_NODE_SETTING_KEY, process.execPath)
+    let whereProbed = false
+    const explicitCarrier = await cfg.resolveDeepseekSpawnCarrier({ whereNode: async () => { whereProbed = true; return { ok: true, first: process.execPath } } })
+    assert.equal(whereProbed, false, 'level 1 hit short-circuits: where.exe never probed')
+    assert.equal(explicitCarrier.ok, true)
+    assert.equal(explicitCarrier.level, 'explicit')
+    assert.equal(explicitCarrier.command, process.execPath)
+    assert.deepEqual(explicitCarrier.env, {}, 'explicit hit: plain-node env')
+    assert.ok(explicitCarrier.detail.includes(cfg.DEEPSEEK_MANAGED_NODE_SETTING_KEY) && explicitCarrier.detail.includes('level 1'), `detail names key + level: ${explicitCarrier.detail}`)
+
+    // —— 一级哨兵失败：显式键指向非 node 文件 → 结构化拒绝（点名键名）——
+    const junkNode = join(dir, 'not-a-node.exe')
+    writeFileSync(junkNode, 'definitely not an executable')
+    settings.setSetting(cfg.DEEPSEEK_MANAGED_NODE_SETTING_KEY, junkNode)
+    const explicitFail = await cfg.resolveDeepseekSpawnCarrier({ sentinel: async () => ({ ok: false, detail: 'fixture explicit boom' }) })
+    assert.equal(explicitFail.ok, false)
+    assert.ok(explicitFail.reason.includes(cfg.DEEPSEEK_MANAGED_NODE_SETTING_KEY) && explicitFail.reason.includes('fixture explicit boom'), `explicit sentinel refusal names the key: ${explicitFail.reason}`)
+
+    // —— 一级 `~` 展开：门读取同步拒缺失文件（resolveHomeDir 既有边界展开）——
+    settings.setSetting(cfg.DEEPSEEK_MANAGED_ENABLED_SETTING_KEY, '1')
+    const binPath = join(dir, 'bin.js')
+    writeFileSync(binPath, '// fixture bin')
+    settings.setSetting(cfg.DEEPSEEK_MANAGED_NODE_SETTING_KEY, '~/no-such-node-fixture.exe')
+    const missingGate = cfg.readDeepseekManagedGate({ binPath, configPath: join(dir, 'cordis.yml') })
+    assert.equal(missingGate.enabled, false, 'explicit node key to a missing file refuses the gate (sync, zero spawn)')
+    assert.ok(missingGate.reason.includes(cfg.DEEPSEEK_MANAGED_NODE_SETTING_KEY), `refusal names the key: ${missingGate.reason}`)
+    assert.ok(missingGate.reason.includes('no-such-node-fixture.exe'), `refusal names the path: ${missingGate.reason}`)
+    const missingCarrier = await cfg.resolveDeepseekSpawnCarrier({})
+    assert.equal(missingCarrier.ok, false, 'resolver re-checks existence (race-proof)')
+    assert.ok(missingCarrier.reason.includes('no-such-node-fixture.exe'))
+
+    // —— 一级命中 → 门 spawnCommand 透传（开发者兜底旋钮生效面）——
+    settings.setSetting(cfg.DEEPSEEK_MANAGED_NODE_SETTING_KEY, process.execPath)
+    const gateWithNode = cfg.readDeepseekManagedGate({ binPath, configPath: join(dir, 'cordis.yml'), workspacePath: join(dir, 'ws') })
+    assert.equal(gateWithNode.enabled, true)
+    assert.equal(gateWithNode.spawnCommand, process.execPath, 'explicit key wins the gate spawnCommand')
+
+    // —— provider 投影共用夹具 ——
+    const enabledGate = () => ({ enabled: true, workspacePath: join(dir, 'ws'), provider: 'deepseek-official', model: 'deepseek-v4-flash', binPath })
+    const ref = { providerId: 'deepseek', nativeId: 'carrier-x' }
+
+    // —— provider 投影：显式命中 evidence（level 1 如实；真实哨兵版本入 detail）——
+    const explicitProvider = mod.createDeepseekProvider({
+      dshHome: join(dir, 'dsh-home'),
+      managedGate: enabledGate,
+      managedCarrierDeps: { whereNode: async () => { throw new Error('where must not be probed on a level 1 hit') } },
+    })
+    const explicitCaps = await explicitProvider.getCapabilities(ref)
+    assert.equal(explicitCaps.mode, 'managed')
+    assert.ok(explicitCaps.evidence.includes('spawn carrier: level 1 explicit settings key') && explicitCaps.evidence.includes(process.execPath), `caps evidence names the explicit hit: ${explicitCaps.evidence}`)
+    settings.setSetting(cfg.DEEPSEEK_MANAGED_NODE_SETTING_KEY, '') // 清键：后续投影段走注入 where 缝
+
+    // —— provider 投影：降级 → caps evidence + 诊断面必带如实标注 ——
+    const fbProvider = mod.createDeepseekProvider({
+      dshHome: join(dir, 'dsh-home'),
+      managedGate: enabledGate,
+      managedCarrierDeps: { whereNode: async () => ({ ok: false, detail: 'fixture: nothing on PATH' }), fallbackCommand: 'FIXTURE-ELECTRON-EXE' },
+    })
+    const fbCaps = await fbProvider.getCapabilities(ref)
+    assert.equal(fbCaps.mode, 'managed', 'fallback stays managed (attempt with honest label, not silent)')
+    assert.ok(fbCaps.evidence.includes('spawn carrier: level 3 fallback'), `caps evidence carries the carrier line: ${fbCaps.evidence}`)
+    assert.ok(fbCaps.evidence.includes(cfg.DEEPSEEK_CARRIER_DEGRADATION_NOTE), 'caps evidence carries the exact degradation note')
+    assert.equal(fbCaps.workspace, join(dir, 'ws'), 'workspace field still carried on fallback caps')
+    assert.ok(fbProvider.describeDiagnostics().control.note.includes(cfg.DEEPSEEK_CARRIER_DEGRADATION_NOTE), 'diagnostics note carries the degradation note')
+
+    // —— provider 投影：系统命中 evidence（level 2 如实）——
+    const sysProvider = mod.createDeepseekProvider({
+      dshHome: join(dir, 'dsh-home'),
+      managedGate: enabledGate,
+      managedCarrierDeps: { whereNode: async () => ({ ok: true, first: process.execPath }) },
+    })
+    const sysCaps = await sysProvider.getCapabilities(ref)
+    assert.equal(sysCaps.mode, 'managed')
+    assert.ok(sysCaps.evidence.includes('spawn carrier: level 2 system node via where.exe'), `caps evidence names the system hit: ${sysCaps.evidence}`)
+    assert.equal(sysCaps.evidence.includes(cfg.DEEPSEEK_CARRIER_DEGRADATION_NOTE), false, 'no degradation note on a system hit')
+
+    // —— provider 投影：哨兵拒 → caps observed + startManagedSession 零 spawn 结构化拒 ——
+    const refusedProvider = mod.createDeepseekProvider({
+      dshHome: join(dir, 'dsh-home'),
+      managedGate: enabledGate,
+      managedCarrierDeps: { whereNode: async () => ({ ok: true, first: process.execPath }), sentinel: async () => ({ ok: false, detail: 'fixture sentinel boom' }) },
+    })
+    const refusedCaps = await refusedProvider.getCapabilities(ref)
+    assert.equal(refusedCaps.mode, 'observed', 'sentinel refusal degrades caps to observed honestly')
+    assert.ok(refusedCaps.evidence.includes('spawn carrier refused') && refusedCaps.evidence.includes('fixture sentinel boom'), `refusal evidence: ${refusedCaps.evidence}`)
+    const refusedStart = await refusedProvider.startManagedSession('task', {})
+    assert.equal(refusedStart.ok, false)
+    assert.equal(refusedStart.nativeId, undefined, 'zero spawn: no nativeId on carrier refusal')
+    assert.ok(refusedStart.detail.includes('spawn carrier refused') && refusedStart.detail.includes('fixture sentinel boom'), `refusal detail: ${refusedStart.detail}`)
+
+    // —— spawn 实际骑解析链载体：无 managedCommand 注入 → 解析链命令上膛；夹具记录
+    //     ELECTRON_RUN_AS_NODE 位（系统命中 → 位空 = 纯 node env）——
+    mkdirSync(join(dir, 'ws'), { recursive: true })
+    const logPath = join(dir, 'carrier-fixture-log.jsonl')
+    const fixtureScript = join(dir, 'dsh-carrier-fixture.mjs')
+    writeFileSync(fixtureScript, [
+      "import { appendFileSync } from 'node:fs'",
+      "const log = (e) => { try { appendFileSync(process.env.DSH107_LOG, JSON.stringify(e) + '\\n') } catch {} }",
+      "log({ boot: { electronRunAsNode: process.env.ELECTRON_RUN_AS_NODE ?? null, cwd: process.cwd() } })",
+      "const send = (f) => process.stdout.write(JSON.stringify(f) + '\\n')",
+      "let buf = ''",
+      "process.stdin.setEncoding('utf8')",
+      "process.stdin.on('data', (d) => { buf += d; let i; while ((i = buf.indexOf('\\n')) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1); if (!l.trim()) continue; let m = null; try { m = JSON.parse(l) } catch { continue } if (m.method === 'initialize') { send({ jsonrpc: '2.0', id: m.id, result: { serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' } } }) } else if (m.method === 'session/prompt') { send({ jsonrpc: '2.0', id: m.id, result: { messageId: 'm1' } }) } else if (m.method === 'shutdown') { send({ jsonrpc: '2.0', id: m.id, result: {} }); setTimeout(() => process.exit(0), 20) } else { send({ jsonrpc: '2.0', id: m.id, error: { code: -32601, message: 'nope' } }) } } })",
+      "process.stdin.on('end', () => process.exit(0))",
+      "process.stdin.on('close', () => process.exit(0))",
+    ].join('\n'))
+    const savedEnv107 = ['DSH107_LOG', 'DSH_CORDIS_CONFIG', 'DEEPSEEK_API_KEY'].map((k) => [k, process.env[k]])
+    for (const [k] of savedEnv107) delete process.env[k]
+    process.env['DSH107_LOG'] = logPath
+    try {
+      const rideProvider = mod.createDeepseekProvider({
+        dshHome: join(dir, 'dsh-home'),
+        managedGate: () => ({
+          enabled: true,
+          harnessRoot: dir,
+          binPath: fixtureScript,
+          configPath: join(dir, 'cordis-ride.yml'),
+          workspacePath: join(dir, 'ws'),
+          provider: 'deepseek-official',
+          model: 'deepseek-v4-flash',
+          spawnCommand: 'SHOULD-NOT-BE-USED',
+          spawnArgs: [fixtureScript],
+          spawnEnv: { DSH_CORDIS_CONFIG: join(dir, 'cordis-ride.yml'), ELECTRON_RUN_AS_NODE: '1' },
+          managedIdleTimeoutMs: 10_000,
+          managedLifetimeTimeoutMs: 30_000,
+          dshHome: join(dir, 'dsh-home'),
+        }),
+        // 无 managedCommand：解析链生效（门态 SHOULD-NOT-BE-USED 必须被改写）
+        managedArgs: [fixtureScript],
+        managedConfigPath: join(dir, 'cordis-ride.yml'),
+        managedWorkspacePath: join(dir, 'ws'),
+        managedRequestTimeoutMs: 10_000,
+        managedShutdownTimeoutMs: 3_000,
+        managedCarrierDeps: { whereNode: async () => ({ ok: true, first: process.execPath }) },
+      })
+      const rideStart = await rideProvider.startManagedSession('carrier ride', {})
+      assert.equal(rideStart.ok, true, `start rides the resolved carrier: ${rideStart.detail ?? ''}`)
+      const boot = readFileSync(logPath, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).find((e) => e.boot !== undefined)
+      assert.ok(boot !== undefined, 'fixture booted')
+      assert.equal(boot.boot.electronRunAsNode, null, 'system carrier: ELECTRON_RUN_AS_NODE absent from the spawn env (plain node)')
+      assert.equal(boot.boot.cwd, join(dir, 'ws'), 'spawn cwd = managed workspace')
+      await rideProvider.dispose()
+    } finally {
+      for (const [k, v] of savedEnv107) {
+        if (v === undefined) delete process.env[k]
+        else process.env[k] = v
+      }
+    }
+
+    // —— 键清零 → gate-off 面逐字节不变（dsh-103 同口径：enabled 键=0）——
+    settings.setSetting(cfg.DEEPSEEK_MANAGED_NODE_SETTING_KEY, '')
+    settings.setSetting(cfg.DEEPSEEK_MANAGED_ENABLED_SETTING_KEY, '0')
+    const offProvider = mod.createDeepseekProvider({ dshHome: join(dir, 'dsh-home'), managedGate: () => cfg.readDeepseekManagedGate() })
+    const offCaps = await offProvider.getCapabilities(ref)
+    assert.equal(offCaps.evidence, mod.DEEPSEEK_CONTROL_NOTE, 'gate-off caps evidence byte-identical (key=0 whole chain untouched)')
+    assert.equal('workspace' in offCaps, false, 'gate-off caps carry no workspace key')
+    const offStart = await offProvider.startManagedSession('task', {})
+    assert.equal(offStart.ok, false)
+    assert.ok(offStart.detail.includes(cfg.DEEPSEEK_MANAGED_ENABLED_SETTING_KEY), 'gate-off spawn refusal names the enabled key')
+    dbModule.closeDatabase()
+  }, 'fast')
 
   await run(parseTierArg())
 }
