@@ -1,0 +1,13 @@
+{"t":1789444104458,"line":"gate: enabled=true idle=1800000ms lifetime=7200000ms (production defaults, no overrides)"}
+{"t":1789444104678,"line":"caps: mode=managed granted=reply"}
+{"t":1789444105512,"line":"T1 start: ok=true nativeId=session-9c172304-b7c8-47c3-b4ef-751f5165cc88 spawnMs=833 detail=dsh runtime spawned + initialize handshake ok (serverInfo deepseek-harness-sdk-runtime v0.0.1); lazy create+prompt in one (turn in flight; 44-type firehose streams to idle)"}
+{"t":1789444107154,"line":"T1 evidence: bubble=assistant-t1s1 increments=3 (texts: [\"第一\",\"第一回合\",\"第一回合\"]) allBeforeIdle=false wire=session.jsonl.zstd@1789444105562.9575/4215B observedSeqCursor=8 observedMsgs=2"}
+{"t":1789444107159,"line":"T2 sendReply: ok=true status=executed detail=live session/prompt ok (turn in flight on the existing connection; firehose streams to the projection)"}
+{"t":1789444107793,"line":"T2 evidence: bubble=assistant-t2s1 increments=3 (texts: [\"第二\",\"第二回合\",\"第二回合\"]) allBeforeIdle=false wire=session.jsonl.zstd@1789444107166.1765/5260B observedSeqCursor=22 observedMsgs=4"}
+{"t":1789444107796,"line":"T3 sendReply: ok=true status=executed detail=live session/prompt ok (turn in flight on the existing connection; firehose streams to the projection)"}
+{"t":1789444108827,"line":"T3 evidence: bubble=assistant-t3s1 increments=3 (texts: [\"第三\",\"第三回合\",\"第三回合\"]) allBeforeIdle=false wire=session.jsonl.zstd@1789444107801.382/6214B observedSeqCursor=36 observedMsgs=6"}
+{"t":1789444108828,"line":"THREE-TURN CROSS-CHECK: wire mtime advanced each turn AND event-seq cursor advanced each turn AND every streaming increment landed before its idle edge — all replies really processed on the same live session"}
+{"t":1789444108829,"line":"defect-C: assistant bubble ids = [\"assistant-t1s1\",\"assistant-t2s1\",\"assistant-t3s1\"] (one per turn, grown in place — no per-delta bubbles)"}
+{"t":1789444108851,"line":"dispose (kill ladder): done in 22ms"}
+{"t":1789444108856,"line":"revert: key=0 → caps mode=observed granted=0 (byte-identical legacy observed shape)"}
+{"t":1789444108858,"line":"RUN5-FIX VERIFY COMPLETE: 3 real prompts (one per turn); zero credentials read/injected/logged"}

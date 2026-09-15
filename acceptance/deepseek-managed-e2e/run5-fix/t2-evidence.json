@@ -1,0 +1,26 @@
+{
+  "turn": 2,
+  "bubbleId": "assistant-t2s1",
+  "increments": [
+    {
+      "at": 1789444107592,
+      "text": "第二"
+    },
+    {
+      "at": 1789444107593,
+      "text": "第二回合"
+    },
+    {
+      "at": 1789444107594,
+      "text": "第二回合"
+    }
+  ],
+  "allBeforeIdle": false,
+  "wire": {
+    "file": "session.jsonl.zstd",
+    "mtimeMs": 1789444107166.1765,
+    "size": 5260
+  },
+  "observedCursorMaxSeq": "22",
+  "observedMessageCount": 4
+}

@@ -1,0 +1,26 @@
+{
+  "turn": 1,
+  "bubbleId": "assistant-t1s1",
+  "increments": [
+    {
+      "at": 1789444106955,
+      "text": "第一"
+    },
+    {
+      "at": 1789444106955,
+      "text": "第一回合"
+    },
+    {
+      "at": 1789444106958,
+      "text": "第一回合"
+    }
+  ],
+  "allBeforeIdle": false,
+  "wire": {
+    "file": "session.jsonl.zstd",
+    "mtimeMs": 1789444105562.9575,
+    "size": 4215
+  },
+  "observedCursorMaxSeq": "8",
+  "observedMessageCount": 2
+}

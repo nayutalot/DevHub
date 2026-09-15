@@ -1,0 +1,26 @@
+{
+  "turn": 3,
+  "bubbleId": "assistant-t3s1",
+  "increments": [
+    {
+      "at": 1789444108801,
+      "text": "第三"
+    },
+    {
+      "at": 1789444108801,
+      "text": "第三回合"
+    },
+    {
+      "at": 1789444108802,
+      "text": "第三回合"
+    }
+  ],
+  "allBeforeIdle": false,
+  "wire": {
+    "file": "session.jsonl.zstd",
+    "mtimeMs": 1789444107801.382,
+    "size": 6214
+  },
+  "observedCursorMaxSeq": "36",
+  "observedMessageCount": 6
+}

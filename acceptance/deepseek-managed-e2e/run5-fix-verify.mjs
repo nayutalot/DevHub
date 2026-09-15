@@ -54,10 +54,10 @@ function wireFile(sid) {
   return null
 }
 
-const { closeDatabase } = await import(new URL('../../../src/main/db/index.ts', import.meta.url).href)
-const settings = await import(new URL('../../../src/main/services/settingsService.ts', import.meta.url).href)
-const mod = await import(new URL('../../../src/main/services/agentControl/providers/deepseekProvider.ts', import.meta.url).href)
-const cfg = await import(new URL('../../../src/main/services/agentControl/providers/deepseekManagedConfig.ts', import.meta.url).href)
+const { closeDatabase } = await import(new URL('../../src/main/db/index.ts', import.meta.url).href)
+const settings = await import(new URL('../../src/main/services/settingsService.ts', import.meta.url).href)
+const mod = await import(new URL('../../src/main/services/agentControl/providers/deepseekProvider.ts', import.meta.url).href)
+const cfg = await import(new URL('../../src/main/services/agentControl/providers/deepseekManagedConfig.ts', import.meta.url).href)
 
 try {
   // 键置 1 → 门开 → caps managed
