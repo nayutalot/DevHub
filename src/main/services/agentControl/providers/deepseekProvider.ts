@@ -51,6 +51,15 @@
  *   显式键必须已存在（不存在结构化拒绝不静默创建）。生效路径经 caps `workspace`
  *   字段与 spawn 表单/详情 ⓘ 用户面可见（「工作区：<路径>」）。
  *
+ * - **投影双写去重（DM2 批，docs/briefs/dm2-capsws.md §2）**：managed 会话同回合
+ *   消息的 firehose 路径（projectDshLiveEvent）与 wire-scan 刷新路径（projectEvent）
+ *   统一回合内消息身份键——assistant = `assistant-t<turn>s<step>`（run5-fix 单气泡
+ *   身份；managed wire-scan 同源派生），user/tool-result = `<seq>`（firehose 侧
+ *   去前缀对齐）——双路径同键 → persistMessage upsert 去重生效（run6 实证双写
+ *   29392-29395 的 App 双气泡缺陷根修）。observed 会话投影键逐字节不变（五家既有
+ *   投影回归零变化）；存量双写行（旧前缀键与旧 seq 键并存）不在本批清理范围。
+ *   键契约与取舍详见两函数头注释。
+ *
  * 纪律：`~/.dsh/**` 只读（`.credentials.yaml` 绝不读取）；未知事件类型容忍
  * 丢弃 + 计数；脏尾帧（torn write）跳过；解析失败结构化降级绝不抛穿。
  *
@@ -235,6 +244,26 @@ interface DecodedLog {
 }
 
 const ZSTD_MAGIC = 0xfd2fb528
+
+/** data 的对象形态宽容收窄（非对象 → null；投影层各分支共用）。 */
+function recordOf(data: unknown): Record<string, unknown> | null {
+  return data !== null && typeof data === 'object' && !Array.isArray(data) ? (data as Record<string, unknown>) : null
+}
+
+/**
+ * assistant 事件 data 的 turn/step 身份键提取（纯函数；run5-fix 单气泡身份的模块级
+ * 形态，DM2 批起 firehose 与 wire-scan 刷新双路径共用）。data.turn/data.step 均为
+ * 安全整数 → `assistant-t<turn>s<step>`；缺失/形态漂移 → null（调用方回退逐事件
+ * 身份，绝不猜合并）。
+ */
+function turnStepKeyOf(data: unknown): string | null {
+  const record = recordOf(data)
+  const turn = record?.['turn']
+  const step = record?.['step']
+  return typeof turn === 'number' && Number.isSafeInteger(turn) && typeof step === 'number' && Number.isSafeInteger(step)
+    ? `assistant-t${turn}s${step}`
+    : null
+}
 
 export function createDeepseekProvider(options: DeepseekProviderOptions = {}): AgentProvider {
   const messageTextCap = options.messageTextCap ?? DEFAULT_MESSAGE_TEXT_CAP
@@ -605,12 +634,23 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
    * 会话事件 → 消息投影（claude/codex 同款脱敏惯例）：
    * - user/message → role 'user'（content[].text）；
    * - assistant/message → role 'assistant'（text 块 + tool-call 块折叠
-   *   `[tool_call <name>]` 标记，thinking/reasoning 块不投影）；
+     `[tool_call <name>]` 标记，thinking/reasoning 块不投影）；
    * - tool/result → role 'tool' 固定 `[tool_result]`（内容不投影，sourceRef 指回）。
    * - 其余事件类型（approval/policy、request/header、session/title、chunk 流、
-   *   packed chunk 行等）非对话面 → 不投影；未知类型容忍计数。
+     packed chunk 行等）非对话面 → 不投影；未知类型容忍计数。
+   *
+   * DM2 批（docs/briefs/dm2-capsws.md §2 投影双写去重）：`sessionId` 在场且该会话
+   * 属 DevHub 亲自发起的托管会话（managedSessionIds 在册）时，assistant 行身份键
+   * 与 firehose 路径（projectDshLiveEvent）**同源派生** `assistant-t<turn>s<step>`
+   * （data 携 turn/step 时）——同回合双路径同键 → persistMessage upsert 去重生效
+   * （run6 实证缺陷：firehose 键 assistant-t1s1 与 wire-scan 键 <seq> 并存 → App
+   * 双气泡）。observed 会话（不在册）恒 `<seq>` 逐字节不变（存量 observed 行零
+   * 重投影回归）。turn/step 缺失（形态漂移）→ 回退 `<seq>`（绝不猜合并；此漂移
+   * 形态下与 firehose 漂移回退键 assistant-message-<seq> 的分歧如实保留——两路径
+   * 各自诚实降级）。user/tool 行两路径天然同键 `<seq>`（firehose 侧 DM2 批已对齐）。
+   * 存量双写行（旧 firehose 前缀键与旧 seq 键并存）不在本批清理范围。
    */
-  function projectEvent(event: Record<string, unknown>, file: string): RedactedMessage | null {
+  function projectEvent(event: Record<string, unknown>, file: string, sessionId?: string): RedactedMessage | null {
     const type = event['type']
     const seq = seqOf(event)
     if (seq === null) return null
@@ -627,7 +667,8 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
       return { role: 'user', contentRedacted: redactText(text).slice(0, messageTextCap), ...base }
     }
     if (type === 'assistant/message') {
-      const message = (event['data'] as { message?: unknown } | null)?.message
+      const data = event['data']
+      const message = (data as { message?: unknown } | null)?.message
       const content = (message as { content?: unknown } | null)?.content
       if (!Array.isArray(content)) return null
       const parts: string[] = []
@@ -638,7 +679,11 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
         else if (c.type === 'tool-call' && typeof c.name === 'string' && c.name.length > 0) parts.push(`[tool_call ${c.name}]`)
       }
       if (parts.length === 0) return null
-      return { role: 'assistant', contentRedacted: redactText(parts.join('\n')).slice(0, messageTextCap), ...base }
+      // DM2 双写去重：managed 会话与 firehose 同源 turn/step 身份键（base.nativeMsgId
+      // 为 <seq> 缺省，managed 且 data 携 turn/step 时覆盖为 assistant-t<turn>s<step>）
+      const managedScan = sessionId !== undefined && managedSessionIds.has(sessionId)
+      const nativeMsgId = managedScan ? (turnStepKeyOf(data) ?? String(seq)) : String(seq)
+      return { role: 'assistant', contentRedacted: redactText(parts.join('\n')).slice(0, messageTextCap), ...base, nativeMsgId }
     }
     if (type === 'tool/result') {
       return { role: 'tool', contentRedacted: '[tool_result]', ...base }
@@ -663,7 +708,7 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
       if (seq === null || seq <= cursor) continue
       cursor = seq
       if (seq <= from) continue
-      const message = projectEvent(event, file)
+      const message = projectEvent(event, file, ref.nativeId)
       if (message !== null) messages.push(message)
     }
     return { messages, cursor: String(cursor), hasMore: false }
@@ -884,13 +929,23 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
    * persistMessage upsert 单气泡增长，对齐 zcode 流式形态），committed 到达时
    * 以最终全文+segments 覆盖同一条。turn/step 缺失（形态漂移）→ 回退逐事件
    * 独立身份（绝不猜合并）。
+   * DM2 批（docs/briefs/dm2-capsws.md §2 投影双写去重）键对齐：user/tool-result
+   * 行身份键从 `user-message-<seq>`/`tool-result-<seq>` 收敛为 **`<seq>`**——
+   * 与 wire-scan 刷新路径（projectEvent）天然同键（事件 seq 为会话日志内唯一
+   * 身份），同回合双路径同键 → persistMessage upsert 去重生效（run6 实证：
+   * 旧键两路径各写一份 → App 双气泡，agent_messages 29392-29395）。assistant
+   * 行保持 turn/step 键不变（单气泡身份为 run5-fix 既有语义；对侧 managed
+   * wire-scan 已同源派生）。键收敛方向取 firehose→seq 而非 wire-scan→前缀键：
+   * managed 存量行两键并存，新键落库撞既有 wire-scan 行 → upsert 覆盖零新增；
+   * observed 存量行只持 seq 键，零触碰。
    * 投影面（判定源 = 44 型词表内可验证结构）：
    * - user/message → role 'user'（content[].text）；
    * - assistant/chunk（text-delta）→ role 'assistant' 累积投影（流式增长）；
    *   reasoning-delta/usage/finish 等 chunk 变体不投影（内部推理/记账面）；
    * - assistant/message → role 'assistant'（text 块 + tool-call 块折叠
    *   `[tool_call <name>]`；tool-call 块映射 toolInvocation 段，label=name）；
-   * - tool/call → role 'tool' `[tool_call <name>]`（callId 配对 tool/result）；
+   * - tool/call → role 'tool' `[tool_call <name>]`（callId 配对 tool/result；
+   *   wire-scan 不投影 tool/call——本行无双路径对偶，键保持前缀形态零冲突）；
    * - tool/result → role 'tool' `[tool_result]`（内容不投影，与 observed 同口径）；
    * - 其余类型 → null（非对话面；容忍计数由调用方做）。
    */
@@ -898,30 +953,23 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
     if (ev.type === null) return null
     const data = ev.data
     const seqTag = ev.seq !== null ? String(ev.seq) : 'na'
-    const record = data !== null && typeof data === 'object' && !Array.isArray(data) ? (data as Record<string, unknown>) : null
-    const turnStepKey = (): string | null => {
-      const turn = record?.['turn']
-      const step = record?.['step']
-      return typeof turn === 'number' && Number.isSafeInteger(turn) && typeof step === 'number' && Number.isSafeInteger(step)
-        ? `assistant-t${turn}s${step}`
-        : null
-    }
     const baseOf = (nativeMsgId: string): { nativeMsgId: string; occurredAt?: number; sourceRef: string } => ({
       nativeMsgId,
       ...(ev.timeMs !== null && Number.isFinite(ev.timeMs) ? { occurredAt: Math.floor(ev.timeMs / 1000) } : {}),
       sourceRef: `${file}#seq=${seqTag}`,
     })
     if (ev.type === 'user/message') {
-      const text = textFromContentBlocks(record?.['content'])
+      const text = textFromContentBlocks(recordOf(data)?.['content'])
       if (text.length === 0) return null
-      return { role: 'user', contentRedacted: redactText(text).slice(0, messageTextCap), ...baseOf(`user-message-${seqTag}`) }
+      // DM2 双写去重：键 = <seq>（与 wire-scan 刷新路径同键；『na』容态与旧前缀键同容忍度）
+      return { role: 'user', contentRedacted: redactText(text).slice(0, messageTextCap), ...baseOf(seqTag) }
     }
     if (ev.type === 'assistant/chunk') {
-      const chunk = record?.['chunk']
+      const chunk = recordOf(data)?.['chunk']
       if (chunk === null || typeof chunk !== 'object' || Array.isArray(chunk)) return null
       const c = chunk as Record<string, unknown>
       if (c['type'] !== 'text-delta' || typeof c['text'] !== 'string' || c['text'].length === 0) return null
-      const key = turnStepKey()
+      const key = turnStepKeyOf(data)
       if (key === null) {
         // turn/step 缺失：形态漂移 → 逐 delta 独立身份（绝不猜合并）
         return { role: 'assistant', contentRedacted: redactText(c['text']).slice(0, messageTextCap), ...baseOf(`assistant-chunk-${seqTag}`) }
@@ -940,6 +988,7 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
       }
     }
     if (ev.type === 'assistant/message') {
+      const record = recordOf(data)
       const message = record?.['message']
       const content = message !== null && typeof message === 'object' && !Array.isArray(message) ? (message as Record<string, unknown>)['content'] : undefined
       if (!Array.isArray(content)) return null
@@ -959,7 +1008,7 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
       if (parts.length === 0) return null
       const segments = buildSegments(blocks, messageTextCap)
       // 与同 turn+step 的流式累积投影共用身份（单气泡：committed 终态覆盖流式态）
-      const key = turnStepKey() ?? `assistant-message-${seqTag}`
+      const key = turnStepKeyOf(data) ?? `assistant-message-${seqTag}`
       if (handle.streaming !== null && handle.streaming.key === key) handle.streaming = null // 该步流式收束
       return {
         role: 'assistant',
@@ -969,6 +1018,7 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
       }
     }
     if (ev.type === 'tool/call') {
+      const record = recordOf(data)
       const name = typeof record?.['name'] === 'string' ? record['name'] : null
       if (name === null || name.length === 0) return null
       const segments = buildSegments([{ kind: 'toolInvocation', label: name, content: typeof record?.['arguments'] === 'string' ? record['arguments'] : '' }], messageTextCap)
@@ -980,7 +1030,8 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
       }
     }
     if (ev.type === 'tool/result') {
-      return { role: 'tool', contentRedacted: '[tool_result]', ...baseOf(`tool-result-${seqTag}`) }
+      // DM2 双写去重：键 = <seq>（与 wire-scan 刷新路径同键）
+      return { role: 'tool', contentRedacted: '[tool_result]', ...baseOf(seqTag) }
     }
     return null
   }
@@ -1537,7 +1588,7 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
       const seq = seqOf(event)
       if (seq === null || seq <= t.lastSeq) continue
       t.lastSeq = seq
-      const message = projectEvent(event, t.file)
+      const message = projectEvent(event, t.file, t.sessionId)
       if (message !== null) sink.onMessageAppended?.(ref, message)
       const status = evalDeepseekEventStatus(event['type'])
       if (status !== null && status !== t.lastStatus) {
