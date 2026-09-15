@@ -10,7 +10,8 @@
 //   A01      initialize 握手 serverInfo.name==='devhub' + stderr 纪律（M3-A01/A02）
 //   A01-raw  原始 stdio 探针：stdout 每行合法 JSON、非法 JSON 行→协议错误帧不退
 //            出、stdin 关闭→退出码 0（M3-A01/A08/A11）
-//   A02      tools/list 恰 16 个点分名，全部 READ_ONLY（annotations 或权限表声明）（M3-A03）
+//   A02      tools/list 恰 26 个点分名，16 只读 + 10 memory（annotations 或权限表
+//            声明 READ_ONLY/SAFE）（M3-A03；MEM 批次就地更新 16→26）
 //   A03      resources/list 6 个；environment/dashboard Markdown 含真实数据标志（M3-A06）
 //   A04…A12 environment.detect / doctor / projects.list / projects.get /
 //            services.list / services.inspect / docker.* / wsl.* / git.status 真实断言
@@ -23,6 +24,11 @@
 //            A18 断言 limit 默认 20 上限 100 与 IPC archive:history 同口径、
 //            A19 断言 daemon 降级语义且绝不起引擎）
 //   A20      权限表外名拒绝语义不回归（4 个新 tool READ_ONLY；变更动作名绝不注册）
+//   A21…A23 memory 记忆域 10 工具（MEM 批次，docs/briefs/mem-mcp.md）：
+//            A21 注册面+权限分类（读三类 READ_ONLY；写六类+import=SAFE Phase B 首批；
+//            严格 schema 拒未知键）；A22 全链 create→add→search→open→relations→
+//            delete 级联（隔离 DEVHUB_HOME，不触真实库）；A23 import_jsonl 原型
+//            JSONL 一次性导入（relation 行先于实体行、幂等重导入、坏行结构化拒绝）
 //   E01…E05 异常注入流（每项后跟随一次正常调用证明 server 存活）
 //
 // 末尾把"环境体检"场景原始输出落盘 acceptance/mcp-scenario-report.json。
@@ -30,7 +36,7 @@
 
 import { strict as assert } from 'node:assert'
 import { spawn } from 'node:child_process'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { createInterface } from 'node:readline'
 import { dirname, join, resolve } from 'node:path'
@@ -228,7 +234,7 @@ registerCase('A01-raw', '原始 stdio 探针：stdout 全部为合法 JSON-RPC �
     })
   })
   assert.equal(Array.isArray(listResponse.result?.tools), true, 'server still answers tools/list after an invalid JSON line')
-  assert.equal(listResponse.result.tools.length, 16, 'tools/list answers with the full 16-tool registry (process alive)')
+  assert.equal(listResponse.result.tools.length, 26, 'tools/list answers with the full 26-tool registry (process alive; MEM 批次就地更新 16→26)')
 
   // 优雅退出：stdin 关闭 → 退出码 0（M3-A11）
   const exitCode = await new Promise((resolveExit) => {
@@ -249,24 +255,24 @@ registerCase('A01-raw', '原始 stdio 探针：stdout 全部为合法 JSON-RPC �
   assert.equal(exitCode, 0, `graceful exit code after stdin close, got ${exitCode}`)
 })
 
-registerCase('A02', 'tools/list 恰 16 个点分名，全部 READ_ONLY（annotations 或权限表声明）；有参 tool 严格 schema', async () => {
+registerCase('A02', 'tools/list 恰 26 个点分名（16 READ_ONLY + 10 memory），全部入权限分类表（READ_ONLY 或 SAFE）；有参 tool 严格 schema（MEM 批次就地更新 16→26）', async () => {
   const tools = await ctx.mcp.client.listTools()
-  assert.equal(tools.tools.length, 16, `exactly 16 tools, got ${tools.tools.length}`)
+  assert.equal(tools.tools.length, 26, `exactly 26 tools, got ${tools.tools.length}`)
   const names = tools.tools.map((t) => t.name)
   for (const name of names) {
-    assert.match(name, /^devhub\.[a-z]+\.[a-zA-Z]+$/, `dotted name: ${name}`)
+    assert.match(name, /^devhub\.[a-z]+\.[a-zA-Z_]+$/, `dotted name: ${name}`)
   }
-  assert.equal(new Set(names).size, 16, 'no duplicate tool names')
+  assert.equal(new Set(names).size, 26, 'no duplicate tool names')
 
-  // 只读标注：优先 annotations.readOnlyHint；否则核对 server 权限分类表声明
+  // 只读/SAFE 标注：优先 annotations.readOnlyHint；否则核对 server 权限分类表声明
   const permissions = await import(pathToFileURL(join(ROOT, 'src/main/mcp/permissions.ts')).href)
   const table = permissions.TOOL_PERMISSIONS
   for (const tool of tools.tools) {
     const annotated = tool.annotations?.readOnlyHint === true
-    const declared = table[tool.name] === 'READ_ONLY'
+    const declared = table[tool.name] === 'READ_ONLY' || table[tool.name] === 'SAFE'
     assert.ok(
       annotated || declared,
-      `${tool.name} must be declared read-only (annotations.readOnlyHint or TOOL_PERMISSIONS READ_ONLY)`,
+      `${tool.name} must be declared READ_ONLY or SAFE (annotations.readOnlyHint or TOOL_PERMISSIONS)`,
     )
     assert.equal(typeof tool.description, 'string', `description present for ${tool.name}`)
   }
@@ -283,7 +289,7 @@ registerCase('A02', 'tools/list 恰 16 个点分名，全部 READ_ONLY（annotat
     assert.equal(tool.inputSchema.type, 'object', `inputSchema object for ${tool.name}`)
     assert.equal(tool.inputSchema.additionalProperties, false, `strict schema rejects unknown keys for ${tool.name}`)
   }
-  note(`12 dotted tools, all READ_ONLY; arg tools: ${argTools.map((t) => t.name).join(', ')}`)
+  note(`26 dotted tools (16 READ_ONLY + 10 memory); arg tools: ${argTools.length}`)
 })
 
 registerCase('A03', 'resources/list 恰 6 个；devhub://environment 与 devhub://dashboard 含真实数据标志', async () => {
@@ -858,6 +864,186 @@ registerCase('A20', '权限表外名拒绝语义不回归：4 个新 tool 已入
     assert.ok(!names.includes(banned), `change action ${banned} must not be a registered tool (MCP stays read-only)`)
   }
   await liveness(ctx.mcp.client, 'A20')
+})
+
+// ---------------------------------------------------------------------------
+// memory 记忆域 10 工具（MEM 批次，docs/briefs/mem-mcp.md）
+// A22/A23 的写链路全部跑在 DEVHUB_HOME 隔离库上（A15 同款第二连接）：
+// 真实 %APPDATA% 库零写入污染；import 的 JSONL 路径由用例显式给临时文件，
+// 验证 DevHub 零硬编码用户路径。
+// ---------------------------------------------------------------------------
+
+/** 隔离 DEVHUB_HOME 的 MCP 连接（A15 同款：真实库零触碰）。 */
+async function connectIsolatedMcp(tag) {
+  const isolatedHome = mkdtempSync(join(tmpdir(), `devhub-mcp-acceptance-${tag}-`))
+  const mcp = await connectMcp({ ...process.env, DEVHUB_HOME: isolatedHome })
+  return { mcp, isolatedHome }
+}
+
+const MEMORY_TOOL_NAMES = [
+  'devhub.memory.create_entities',
+  'devhub.memory.create_relations',
+  'devhub.memory.add_observations',
+  'devhub.memory.delete_entities',
+  'devhub.memory.delete_observations',
+  'devhub.memory.delete_relations',
+  'devhub.memory.read_graph',
+  'devhub.memory.search_nodes',
+  'devhub.memory.open_nodes',
+  'devhub.memory.import_jsonl',
+]
+const MEMORY_SAFE_TOOLS = [
+  'devhub.memory.create_entities',
+  'devhub.memory.create_relations',
+  'devhub.memory.add_observations',
+  'devhub.memory.delete_entities',
+  'devhub.memory.delete_observations',
+  'devhub.memory.delete_relations',
+  'devhub.memory.import_jsonl',
+]
+
+registerCase('A21', 'memory 工具注册面+权限分类：10 个 devhub.memory.* 全注册；读三类 READ_ONLY、写六类+import=SAFE（Phase B 首批启用，docs/08 §9 注记）；strict schema 拒未知键；表外/原型链名仍 PERMISSION_DENIED', async () => {
+  const tools = await ctx.mcp.client.listTools()
+  const byName = new Map(tools.tools.map((t) => [t.name, t]))
+  for (const name of MEMORY_TOOL_NAMES) {
+    assert.ok(byName.has(name), `memory tool ${name} registered`)
+  }
+  const permissions = await import(pathToFileURL(join(ROOT, 'src/main/mcp/permissions.ts')).href)
+  for (const name of MEMORY_TOOL_NAMES) {
+    const expected = MEMORY_SAFE_TOOLS.includes(name) ? 'SAFE' : 'READ_ONLY'
+    assert.equal(permissions.TOOL_PERMISSIONS[name], expected, `${name} classified ${expected}`)
+    permissions.assertPermission(name) // READ_ONLY 与 SAFE 均放行（docs/08 §9.1 dispatch 语义）
+  }
+  // 防注册漂移：memory 域之外的变更动作名绝不因 SAFE 首批而松动
+  for (const name of ['devhub.memory.execute', 'devhub.memory.run', 'toString', 'constructor']) {
+    assert.throws(() => permissions.assertPermission(name), (err) => err.code === 'PERMISSION_DENIED', `off-table name denied: ${name}`)
+  }
+  // import_jsonl 的 path 是显式入参（DevHub 零硬编码用户路径）；strict schema 拒未知键
+  const importTool = byName.get('devhub.memory.import_jsonl')
+  assert.ok(importTool.inputSchema.properties.path, 'import_jsonl exposes the caller-provided path parameter')
+  assert.equal(importTool.inputSchema.additionalProperties, false, 'import_jsonl schema is strict')
+  await liveness(ctx.mcp.client, 'A21')
+})
+
+registerCase('A22', 'memory 全链（隔离 DEVHUB_HOME）：create 幂等→add 去重+NOT_FOUND→relations 去重+悬空 to→search 子串+邻域→open 精确→read_graph→delete_observations→delete_relations→delete_entities 级联（两侧关系+观察清空）；错误后 server 存活', async () => {
+  const { mcp } = await connectIsolatedMcp('chain')
+  try {
+    // create_entities：幂等（同名实体整条跳过，含 observations）
+    const first = await callOk(mcp.client, 'devhub.memory.create_entities', {
+      entities: [
+        { name: 'mem-acc-alice', entityType: 'person', observations: ['plays chess'] },
+        { name: 'mem-acc-bob', entityType: 'person', observations: [] },
+      ],
+    })
+    assert.equal(first.createdCount, 2, 'two entities created')
+    const dup = await callOk(mcp.client, 'devhub.memory.create_entities', {
+      entities: [{ name: 'mem-acc-alice', entityType: 'person', observations: ['should-not-leak'] }],
+    })
+    assert.equal(dup.createdCount, 0, 'duplicate entity skipped (idempotent)')
+    // add_observations：去重；缺实体 → 结构化 NOT_FOUND
+    const added = await callOk(mcp.client, 'devhub.memory.add_observations', {
+      observations: [{ entityName: 'mem-acc-alice', contents: ['plays chess', 'drinks espresso'] }],
+    })
+    assert.equal(added.addedCount, 1, 'duplicate observation deduped, one added')
+    const missing = await callErr(mcp.client, 'devhub.memory.add_observations', {
+      observations: [{ entityName: 'mem-acc-ghost', contents: ['x'] }],
+    })
+    assert.equal(missing.code, 'NOT_FOUND', 'missing entity → structured NOT_FOUND')
+    assert.match(missing.message, /Entity with name mem-acc-ghost not found/, 'prototype error message preserved')
+    // create_relations：三元组去重；to 可悬空（原型语义）
+    const rels = await callOk(mcp.client, 'devhub.memory.create_relations', {
+      relations: [
+        { from: 'mem-acc-alice', to: 'mem-acc-bob', relationType: 'knows' },
+        { from: 'mem-acc-alice', to: 'mem-acc-unbuilt', relationType: 'mentions' },
+      ],
+    })
+    assert.equal(rels.createdCount, 2, 'two relations created (dangling to allowed)')
+    const relDup = await callOk(mcp.client, 'devhub.memory.create_relations', {
+      relations: [{ from: 'mem-acc-alice', to: 'mem-acc-bob', relationType: 'knows' }],
+    })
+    assert.equal(relDup.createdCount, 0, 'duplicate relation skipped')
+    // search_nodes：观察内容子串命中 + 邻域带出对端；大小写不敏感
+    const found = await callOk(mcp.client, 'devhub.memory.search_nodes', { query: 'chess' })
+    assert.deepEqual(found.entities.map((e) => e.name), ['mem-acc-alice'], 'observation substring match')
+    assert.ok(found.relations.some((r) => r.to === 'mem-acc-bob' || r.from === 'mem-acc-alice'), 'neighborhood keeps relations of the hit')
+    const byName = await callOk(mcp.client, 'devhub.memory.search_nodes', { query: 'MEM-ACC-ALICE' })
+    assert.equal(byName.entities.length, 1, 'name match is case-insensitive')
+    // open_nodes：精确点名 + 单端点邻域
+    const opened = await callOk(mcp.client, 'devhub.memory.open_nodes', { names: ['mem-acc-bob'] })
+    assert.deepEqual(opened.entities.map((e) => e.name), ['mem-acc-bob'], 'exact name open')
+    assert.equal(opened.relationCount, 1, 'single-endpoint relation pulled in')
+    // read_graph：全量
+    const graph = await callOk(mcp.client, 'devhub.memory.read_graph')
+    assert.equal(graph.entityCount, 2, 'read_graph sees both entities')
+    assert.equal(graph.relationCount, 2, 'read_graph sees both relations')
+    // delete_observations / delete_relations：精确删除
+    const removedObs = await callOk(mcp.client, 'devhub.memory.delete_observations', {
+      deletions: [{ entityName: 'mem-acc-alice', observations: ['drinks espresso'] }],
+    })
+    assert.equal(removedObs.removed, 1, 'one observation removed')
+    const removedRel = await callOk(mcp.client, 'devhub.memory.delete_relations', {
+      relations: [{ from: 'mem-acc-alice', to: 'mem-acc-unbuilt', relationType: 'mentions' }],
+    })
+    assert.equal(removedRel.removed, 1, 'one relation removed')
+    // delete_entities：级联（观察 + 两侧关系）
+    const deleted = await callOk(mcp.client, 'devhub.memory.delete_entities', { entityNames: ['mem-acc-alice'] })
+    assert.equal(deleted.deletedEntities, 1, 'alice deleted')
+    const after = await callOk(mcp.client, 'devhub.memory.read_graph')
+    assert.deepEqual(after.entities.map((e) => e.name), ['mem-acc-bob'], 'only bob remains')
+    assert.deepEqual(after.relations, [], 'alice-side relations cascaded (both directions)')
+    // 错误注入后 server 存活（liveness 等价：read_graph 再通一次）
+    const alive = await callOk(mcp.client, 'devhub.memory.read_graph')
+    assert.equal(alive.entityCount, 1, 'server alive after NOT_FOUND injection')
+    note(`chain on isolated home: create→add→search→open→read→delete_obs→delete_rel→delete cascade all OK`)
+  } finally {
+    await mcp.close()
+  }
+})
+
+registerCase('A23', 'memory.import_jsonl：原型 JSONL 一次性导入（relation 行先于实体行、悬空 to 保真）→计数正确→幂等重导入零新增→坏行 BAD_PAYLOAD 行号报错且原子不留半应用→源文件只读不回写；错误后 server 存活', async () => {
+  const { mcp, isolatedHome } = await connectIsolatedMcp('import')
+  const jsonlPath = join(isolatedHome, 'prototype-memory.jsonl')
+  const lines = [
+    JSON.stringify({ type: 'relation', from: 'mem-imp-alice', to: 'mem-imp-devhub', relationType: 'maintains' }),
+    JSON.stringify({ type: 'entity', name: 'mem-imp-alice', entityType: 'person', observations: ['likes tea'] }),
+    '',
+    JSON.stringify({ type: 'entity', name: 'mem-imp-devhub', entityType: 'project', observations: [] }),
+    JSON.stringify({ type: 'relation', from: 'mem-imp-alice', to: 'mem-imp-ghost', relationType: 'mentions' }),
+  ]
+  writeFileSync(jsonlPath, lines.join('\n'), 'utf8')
+  try {
+    const first = await callOk(mcp.client, 'devhub.memory.import_jsonl', { path: jsonlPath })
+    assert.equal(first.totalLines, 4, 'four non-empty lines counted')
+    assert.equal(first.entitiesCreated, 2, 'two entities imported (relation-before-entity ordering handled)')
+    assert.equal(first.relationsCreated, 2, 'two relations imported')
+    const graph = await callOk(mcp.client, 'devhub.memory.read_graph')
+    const alice = graph.entities.find((e) => e.name === 'mem-imp-alice')
+    assert.deepEqual(alice.observations, ['likes tea'], 'entity observations landed')
+    assert.equal(graph.relations.filter((r) => r.to === 'mem-imp-ghost').length, 1, 'dangling to-relation imported (prototype semantics)')
+
+    const second = await callOk(mcp.client, 'devhub.memory.import_jsonl', { path: jsonlPath })
+    assert.equal(second.entitiesCreated, 0, 're-import creates zero entities (create semantics idempotent)')
+    assert.equal(second.relationsCreated, 0, 're-import creates zero relations')
+
+    // 坏行 → BAD_PAYLOAD + 行号；原子导入（无半应用行）
+    const badPath = join(isolatedHome, 'bad.jsonl')
+    writeFileSync(badPath, [
+      JSON.stringify({ type: 'entity', name: 'mem-imp-x', entityType: 't', observations: [] }),
+      '{not json',
+    ].join('\n'), 'utf8')
+    const bad = await callErr(mcp.client, 'devhub.memory.import_jsonl', { path: badPath })
+    assert.equal(bad.code, 'BAD_PAYLOAD', 'malformed line → BAD_PAYLOAD')
+    assert.match(bad.message, /line 2/, 'error carries the line number')
+    const afterBad = await callOk(mcp.client, 'devhub.memory.read_graph')
+    assert.equal(afterBad.entities.some((e) => e.name === 'mem-imp-x'), false, 'aborted import left no partial rows')
+
+    // 源文件只读：导入不回写
+    assert.equal(readFileSync(jsonlPath, 'utf8'), lines.join('\n'), 'source JSONL never written back')
+    await liveness(mcp.client, 'A23')
+    note(`import on isolated home: 2 entities + 2 relations, idempotent re-import, atomic abort on bad line`)
+  } finally {
+    await mcp.close()
+  }
 })
 
 // ---------------------------------------------------------------------------
