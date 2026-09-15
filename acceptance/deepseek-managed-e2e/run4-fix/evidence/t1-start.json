@@ -1,0 +1,7 @@
+{
+  "ok": true,
+  "nativeId": "session-603f4a94-f3d6-4289-8026-d78481d71bbc",
+  "detail": "dsh runtime spawned + initialize handshake ok (serverInfo deepseek-harness-sdk-runtime v0.0.1); lazy create+prompt in one (turn in flight; 44-type firehose streams to idle)",
+  "totalMs": 781,
+  "carrierCommand": "C:\\Program Files\\nodejs\\node.exe"
+}

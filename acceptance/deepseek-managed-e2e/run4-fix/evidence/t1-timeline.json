@@ -1,0 +1,62 @@
+[
+  {
+    "at": 1789436076440,
+    "kind": "discovered",
+    "snap": {
+      "nativeId": "session-603f4a94-f3d6-4289-8026-d78481d71bbc",
+      "mode": "managed",
+      "workdir": "C:\\Users\\sakuya\\AppData\\Local\\Temp\\devhub-dsn-fix-23emZb\\dsh-workspace",
+      "lastActivityAt": 1789436076
+    }
+  },
+  {
+    "at": 1789436076452,
+    "kind": "status",
+    "nativeId": "session-603f4a94-f3d6-4289-8026-d78481d71bbc",
+    "to": "running",
+    "detail": "session.status running"
+  },
+  {
+    "at": 1789436076494,
+    "kind": "msg",
+    "nativeId": "session-603f4a94-f3d6-4289-8026-d78481d71bbc",
+    "role": "user",
+    "text": "请直接回复：收到。不要使用任何工具。"
+  },
+  {
+    "at": 1789436076495,
+    "kind": "msg",
+    "nativeId": "session-603f4a94-f3d6-4289-8026-d78481d71bbc",
+    "role": "user",
+    "text": "Current runtime context. This snapshot supersedes earlier runtime-context snapsh"
+  },
+  {
+    "at": 1789436077588,
+    "kind": "msg",
+    "nativeId": "session-603f4a94-f3d6-4289-8026-d78481d71bbc",
+    "role": "assistant",
+    "text": "收到"
+  },
+  {
+    "at": 1789436077588,
+    "kind": "msg",
+    "nativeId": "session-603f4a94-f3d6-4289-8026-d78481d71bbc",
+    "role": "assistant",
+    "text": "。"
+  },
+  {
+    "at": 1789436077591,
+    "kind": "msg",
+    "nativeId": "session-603f4a94-f3d6-4289-8026-d78481d71bbc",
+    "role": "assistant",
+    "text": "收到。"
+  },
+  {
+    "at": 1789436077591,
+    "kind": "status",
+    "nativeId": "session-603f4a94-f3d6-4289-8026-d78481d71bbc",
+    "from": "running",
+    "to": "waiting_input",
+    "detail": "turn ended (reason: completed)"
+  }
+]
