@@ -1,4 +1,8 @@
-# DevHub 会话交接文档（2026-09-15 ——DeepSeek Harness 远程控制收官（zcode 对标全链 PASS）+App 消费级交互三层落地+Kimi 真机 managed；main 见 git log，常驻 X19 版 PID 17592，最终 APK 9d2a2abf）
+# DevHub 会话交接文档（2026-09-15 晚——记忆 MCP 并入 DevHub（10 工具+SQLite 009）+DeepSeek Harness 远程控制收官+消费级交互三层；main 见 git log，常驻 X20 版 PID 41980，可验收 APK 9d2a2abf）
+
+> **✅ 记忆 MCP 并入 DevHub（09-15 晚，用户令「记忆 mcp 已有雏形，完善并并入 devhub」）——MEM+X20 两批收官，MCP 验收 30/30**：雏形=官方 server-memory（JSONL 存储）→并入 DevHub 自有 MCP 服务器（`node scripts/run-mcp.mjs` 独立 stdio 入口，与桌面分进程共享真库——与原型接入方式同构）：**migration 009** 三表（memory_entities/observations/relations；from FK CASCADE+to 悬空保真对齐原型）+memoryGraphService（node:sqlite WAL 九操作，语义逐条对齐原型：create 幂等/observations 去重/relations 去重/级联删除/search 邻域）+**10 工具 `devhub.memory.*`**（九原型工具+`import_jsonl` 原型记忆导入通道；工具面 16→26）；权限裁决=读三类 READ_ONLY/写七类 SAFE（docs/08 §9 Phase B SAFE 首批启用+注记）；mcp 验收 27→**30**（A21-A23 全链+导入原子性）；存储层单测七条（幂等/去重/级联/搜索邻域/WAL 双连接）。门禁 typecheck 0+fast **140**/full **242**+build。**架构注记**：MCP 服务器=独立 stdio 入口（scripts/run-mcp.mjs），不在 electron 常驻依赖图（X20 实证 tree-shake 属设计现状）——第三方 MCP 客户端注册该命令即用，与原型接入方式一致；打包化 MCP 入口（免仓路径）留候选。**本机真库 user_version 已 009**（MEM 验收前移，X20 旧兼容打开实证无损）。
+
+
 
 > **✅ DeepSeek Harness 远程控制线（09-15，用户目标「深挖系统文件+上 GitHub 找，无论什么方式必须实现类似 zcode 的远程控制」）——七批接力全链 PASS（run7 终验）**：
 > - **DSH-SCOUT**：控制面协议地图（acp=Zed ACP 单变体 NO-GO/host 重量级 NO-GO/**SDK jsonrpc 直连 GO**：44/44 事件 firehose+流式 delta+parseZcodeFrame 可零改动复用；spawn 载体=本地已构建 jsonrpc-demo bin.js；harness 凭据自取 DEEPSEEK_API_KEY 零接线）+docs/27 设计全案；主控裁决批准。
