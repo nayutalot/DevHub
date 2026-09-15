@@ -1,0 +1,29 @@
+# RD run7 手机发起 DeepSeek 对话全链终验 打点（epoch 秒；本地=UTC+8）
+# 产物=dist/win-unpacked DevHub.exe PID 17592（X19，18:46:32 启动，含 DM2/DSW 全部修复）
+# APK=android/app/build/outputs/apk/debug/app-debug.apk（sha256 前 16=9d2a2abfe3cc8e85，从 HEAD 794a265 构建 19:25）
+# 注：dist/DevHub-Android-0.1.0-debug.apk（02:52 构建）早于 DSW(07:34)/DM2(13:39) 提交，缺 workspace 解析与 caps 自愈状态机，已弃用
+
+# 会话 890（provider deepseek，managed，native session-1cecfd94-99de-4655-9b1e-395b28fea2d5）
+spawn_tap=1789471681.243535800          # 19:28:01 tap 开始对话（task=Say one short sentence about the sea.）
+rc176_created=1789471681                # remote_commands#176 action=spawn created（ECS audit 2526 同秒）
+rc176_executed=1789471682               # status=executed ≈1s；result nativeId/sessionId=890
+msg1_reply_committed=1789471690         # agent_messages 29534 assistant-t1s1（App 可见 19:28:09.060，logcat R5.1）
+msg2_tap_send=1789471940.393573600      # 19:32:20（msg2=Reply with exactly: RUN7-MSG2-OK）
+msg2_cmd201_executed=1789471940         # remote_commands#177 action=reply executed 同秒；首发遭遇 WS 半开竞态入离线队列→幂等补发回流（已知观察项）；tap→回复可见≈3.5s
+msg2_reply_visible=1789471940.749000    # logcat msg_visible 29536 assistant-t2s1 "RUN7-MSG2-OK"
+caps_stale_freeze_killed=1789472150     # 19:35:50 杀 App（自愈场景准备）
+msg3_tap_send=1789472725.981242000      # 19:45:25（msg3=What adjective did you use for the sea?...）间隔 msg2→msg3=13.1min >5min
+msg3_cmd197_executed=1789472726         # 直接过 executed（caps 未过期：11:41:19 在途探针刷新，未构成 >300s）；回复 assistant-t3s1 "I used the adjective \"patient.\""（上下文回指 msg1 ✓）
+app_killed_t2=1789472845.312396600      # 19:47:25 杀 App
+msg4_send=1789474054.283360500          # 20:07:34（msg4=Which exact words did you reply two turns ago?...）间隔 msg3→msg4=22.1min >5min；cmd201/executed 同秒
+msg4_send=1789474172.829255100          # 20:09:32（同一问题的第二次发送，构成 t5 回合；cmd202/executed 同秒）
+# 回复对（真实 DeepSeek 推理，五回合全 executed）
+# t1 sea → t2 RUN7-MSG2-OK → t3 patient → t4 "RUN7-MSG2-OK" → t5 "I used the adjective 'patient.'"
+# agent_messages 键契约（DM2）：user=<seq>(4/5/33/125/144/382) assistant=assistant-t<turn>s<step>；零双写行
+
+# caps 门轨迹（agent_providers.deepseek.capabilities_json.verifiedAt）
+# 19:01:15 observed（键翻 '1' 前）→ 键翻 '1'=19:02:35 → 19:06:03 managed（240s 重验阈值+60s 探测节流后自愈）
+# → App 存活期实测 age 峰值 ~245-250s（list/detail 120s 探针网）< 300s TTL → 5 回合零拒绝
+# → 键归 '0'=20:13:10 → ~20:15:2x observed（可撤销门恢复；App 卡回「仅查看/还没接入手机端」）
+
+# health×3（E2E 毕）：GET /v1/health ×3 → ok, uptimeSec=5424（同一秒三次），PID 17592 同进程

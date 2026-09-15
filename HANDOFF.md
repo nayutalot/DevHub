@@ -1,4 +1,16 @@
-# DevHub 会话交接文档（2026-09-15 凌晨——手机远程对话 PASS+App 消费级交互重设计三层收官：RD 实证/KC spawn/UX-R→P1→P2→P3 全链落地；main=20db75b，常驻 X14 版 PID 26992，最终 APK a01f8649）
+# DevHub 会话交接文档（2026-09-15 ——DeepSeek Harness 远程控制收官（zcode 对标全链 PASS）+App 消费级交互三层落地+Kimi 真机 managed；main 见 git log，常驻 X19 版 PID 17592，最终 APK 9d2a2abf）
+
+> **✅ DeepSeek Harness 远程控制线（09-15，用户目标「深挖系统文件+上 GitHub 找，无论什么方式必须实现类似 zcode 的远程控制」）——七批接力全链 PASS（run7 终验）**：
+> - **DSH-SCOUT**：控制面协议地图（acp=Zed ACP 单变体 NO-GO/host 重量级 NO-GO/**SDK jsonrpc 直连 GO**：44/44 事件 firehose+流式 delta+parseZcodeFrame 可零改动复用；spawn 载体=本地已构建 jsonrpc-demo bin.js；harness 凭据自取 DEEPSEEK_API_KEY 零接线）+docs/27 设计全案；主控裁决批准。
+> - **DM 实装**：deepseekProtocol（入站复用 parseZcodeFrame）+deepseekManagedConfig（`deepseek_managed_enabled` 授权门/cordis.yml 渲染无 stdout logger/版本哨兵/junction 桥接 loader）+provider managed 接线；真机流式 43 段 delta 时序实锤+observed 同根同一性+键 0 可撤销；fast 132/full 232。
+> - **RD run3→DSW**：手机真验定位 home workspace×Windows ACL 确定性失败→DSW 工作区生产旋钮（`deepseek_managed_workspace` 默认安全目录 <data>/dsh-workspace，绝不 home 根；initialize 30000ms 超时→587ms ~51×）。
+> - **RD run4→DSN**：定位**electron 内置 node 被 harness cordis loader 拒**（plain node 秒答的决定性隔离实验）→DSN 载体解析链三级（显式键 deepseek_managed_node>where.exe node 单源〔AC9 先例〕>RUN_AS_NODE 降级+如实标注）；真机命中系统 node v24.15.0、spawn→应答 582ms。
+> - **RD run5→run5-fix**：spawn ≈1s executed+首回合 13 段 delta 上屏；暴露 live 多回合断链三层根因（idle 180s 树杀 runtime@251s 间隔/one-shot resume 假回退撞 harness 持久化日志守卫=假 executed/投影 noticeRoute 不接 sink）→修复（idle 1800s/lifetime 7200s+**假回退整体废除死会话显式失败**+单气泡增长 upsert+事件指纹）；多回合三证交叉全过。
+> - **RD run6→DM2**：spawn/回合 1-2/单气泡/live 12min+ 全 PASS；留证 caps 过期无自愈+投影双写→DM2（caps 过期族自愈：自动重探+一次性重发+managed 详情 ≥120s 低频探针；投影身份键统一 firehose→seq 双路径 upsert 去重；自愈全链 892ms/5 事件恰 5 行）。
+> - **RD run7 终验 PASS（模拟器经真实 Relay）**：spawn ≈1s→**5 回合全 executed+真实 DeepSeek 推理回流上屏**（间隔 13.1/22.1min 直过=自愈网生效；跨多回合记忆实证「两回合前你回的是什么」答对）+单气泡零重复+observed 同根同一性+键 0 可撤销+常驻 health×3。证据=acceptance/{mobile-chat-relay-e2e/run3-run7, deepseek-managed-e2e/}；门禁终态 typecheck 0+fast 133/full 235/:app 177/:core 322；授权门 `deepseek_managed_enabled`（默认停用，用户置 1 即用）。
+> - **留档如实**：caps 自愈重发路径真机未自然触发（探针网使 caps age 恒<300s，结构性防患；一次性语义由 :core 单测锁定）；并发会话验证 DEFERRED（预算）；无 wire cancel（kill 阶梯兜底）；approval never v1（工具调用不询问，workspace-write 限界，UI 如实）；转录非实时推送（重进刷新，通用 P2）；ChildSessions ModeBadge 未隐藏待裁。
+
+
 
 > **✅ 手机远程对话线（09-14 深夜~09-15 凌晨，用户问「能不能做手机远程对话」）——端到端 PASS**：RD run1 定位阻断（管道全 PASS：配对/中继/200 会话投影/命令面；**kimi 无 startManagedSession=SPAWN_REJECTED**）→ KC 批补齐（选型 B「spawn 即带首条消息一次性物化」，与 codex/zcode 同构；真机自证 spawn 1s+sendReply 13s executed）→ RD run2 **PASS**：模拟器经真实 Relay→spawn executed→会话 managed→输入门开放→**3 条真实 Kimi 推理回流上屏**（10.5-13.4s/条）+上下文追问命中+桌面投影逐字一致；**顺手修真缺陷**（relay 模式 session_list detail 不带 capabilities→输入门恒关，hostLegRequests 收窄+caps 投影，纯列表路径逐字节不变）；X14 换装进常驻（PID 26992）。P2 观察项留档：App 转录非实时推送（需重进会话刷新）、RelayEndpoint 404 陷阱已修、Kimi 推理消耗全程最小 prompt。
 

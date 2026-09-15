@@ -20,21 +20,11 @@
 - **解除路径**：需 ZCode 官方公开控制通道或输入注入 API（第三方无法自造）；
   语料出现 pending 形态后判定表按现有映射自动生效，无需改判定逻辑。
 
-### 1.2 DeepSeek Harness：observed 会话投影已实接；控制通道仍未验证（2026-09-14 ds 批更新）
+### 1.2 DeepSeek Harness：observed+managed 均已实接（2026-09-15 dm/dsw/dsn 批更新；用户 09-14 授权「必须实现类似 zcode 的远程控制」）
 
-- **现状（2026-09-14 ds 批，真机只读侦察 + 最小 observed 适配）**：确认用户侧
-  数据根 `~/.dsh`（env `DSH_HOME` 可覆盖，dsh-home-paths 约定）实存会话事实源：
-  `sessions/<projectKey>/session-<uuid>/session.jsonl.zstd`（拼接 zstd 帧容器，
-  首帧 header + 事件批次 JSONL）+ `storages/session_projcache.json`（title/
-  createdAt/cwd/lastPromptAt 投影缓存）。deepseekProvider 已按真实布局实装
-  observed 只读投影（listSessions/readMessages/startMonitor；zstd 解码走
-  `node:zlib` 内建 API，零新依赖、零子进程；未知事件容忍计数；残尾帧跳过）。
-  控制通道（harness 源码 packages/acp 的 ACP-stdio 与 packages/sdk 的 stdio
-  JSON-RPC）在位但**未真机验证**（验证需启动 harness 进程，红线禁止）→
-  getCapabilities 恒 observed + 空集；sendReply/pause/resume 结构化 unsupported。
-- **影响面**：会话列表/消息投影/监控可用；回复注入、暂停/恢复、托管启动不可用。
-- **解除路径**：新批次获用户授权真机运行 harness 后，按 zcode app-server 同
-  口径验证 ACP/SDK 通道（握手 + 方法探测），再评估 managed 接入。
+- **现状（2026-09-15 dm/dsw/dsn 批）**：**managed 已实装并真机端到端 PASS**（run7：模拟器经真实 Relay 发起→5 回合全 executed+真实 DeepSeek 推理回流上屏，间隔 13.1/22.1min 直过）。通道=SDK jsonrpc 直连（DSH-SCOUT 判定 GO，docs/27：acp 单变体 NO-GO/host NO-GO）；授权门=settings `deepseek_managed_enabled`（恰 '1'，默认停用，键=0 行为逐字节不变）+可选 `deepseek_managed_model`/`deepseek_managed_workspace`（默认安全目录 <data>/dsh-workspace）/`deepseek_managed_node`（载体解析链三级：显式>where.exe node>electron RUN_AS_NODE 降级+如实标注——harness cordis loader 不兼容 Electron 内置运行时，plain node 必需）。live 会话窗口 idle 1800s/lifetime 7200s；无 wire cancel（取消=kill 阶梯 shutdown→taskkill /T→/F，如实呈现）；approval never v1（工具调用不询问、sandbox workspace-write 限界，UI 如实标注）；并发会话验证 DEFERRED；版本漂移哨兵（bin 在位性+initialize 握手核对）。
+- **observed 面不变**：~/.dsh 同根投影（listSessions/readMessages/startMonitor，zstd 内建解码）；managed live 会话落盘后 observed 同 sessionId 可见（同一性实证）。
+- **影响面（残余如实）**：取消=终止进程非优雅暂停；跨 idle 窗口的死会话 sendReply=显式结构化失败（SDK 无 session/resume，须新开会话）；caps 过期族拒绝有 App 侧自愈（自动重探+一次性重发，dm2 批）+managed 详情 ≥120s 低频探针兜底。
 
 ### 1.3 Grok CLI：本机存在但本期未接入（预留位）
 
