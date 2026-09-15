@@ -397,6 +397,18 @@ You are producing a review report of this machine's development environment from
 | `devhub.services.stop`（Phase B 候选） | CONFIRM_REQUIRED |
 | 任意 shell / 命令执行 | BLOCKED |
 
+> **MEM 批次注记（2026-09-15，Phase B SAFE 首批启用）**：记忆域知识图谱并入
+> DevHub MCP（docs/briefs/mem-mcp.md），10 个 `devhub.memory.*` 工具静态入
+> permissions.ts 分类表：读三类 `read_graph` / `search_nodes` / `open_nodes` =
+> READ_ONLY；写六类 `create_entities` / `create_relations` / `add_observations` /
+> `delete_entities` / `delete_observations` / `delete_relations` + `import_jsonl` =
+> **SAFE**（本节 §9.1 "Phase B 起才出现此类 tool" 的首批落地）。SAFE 依据：
+> 全部为域特定结构化写入——zod strict 入参、具名、最小授权、可枚举，操作对象
+> 仅限 DevHub 自有记忆库三表（memory_entities / memory_observations /
+> memory_relations），不触碰 §9.4 红线（无 shell、无任意路径写、无万能执行
+> 接口）；`import_jsonl` 只读调用方显式给路径的原型 server-memory JSONL 记忆
+> 文件（DevHub 零硬编码用户路径），逐条走 create 语义入库，绝不写回源文件。
+
 ### 9.4 设计红线
 
 **明令禁止出现 `devhub.execute_command` 类万能接口。** 任何"把 shell 交给外部 AI"的能力

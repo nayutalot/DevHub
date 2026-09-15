@@ -1,9 +1,9 @@
 /**
  * server.ts — DevHub MCP Server 组装（docs/08 §5-§11）。
  *
- * - createDevhubMcpServer(): McpServer —— 注册 16 个点分名 tools（docs/08 §6 的
- *   12 个 + docs/09 §10 的 4 个只读扩展）、6 个 devhub://* resources、4 个 prompts；
- *   对传输零感知（§11）。
+ * - createDevhubMcpServer(): McpServer —— 注册 26 个点分名 tools（docs/08 §6 的
+ *   12 个 + docs/09 §10 的 4 个只读扩展 + MEM 批次的 10 个记忆域工具）、
+ *   6 个 devhub://* resources、4 个 prompts；对传输零感知（§11）。
  * - 每个 tool handler 经统一 wrapper（safeHandler 语义，§9.2/§10.4）：
  *     1) assertPermission（首个动作，权限先于一切业务逻辑）；
  *     2) zod strict 入参（SDK 先行校验；wrapper 内 defineTool 再 parse 一次属防御纵深）；
@@ -24,6 +24,7 @@ import { dashboardTools } from './tools/dashboard.ts'
 import { dockerTools } from './tools/docker.ts'
 import { environmentTools } from './tools/environment.ts'
 import { gitTools } from './tools/git.ts'
+import { memoryTools } from './tools/memory.ts'
 import { projectTools } from './tools/projects.ts'
 import { serviceTools } from './tools/services.ts'
 import { skillTools } from './tools/skills.ts'
@@ -37,7 +38,7 @@ import type { PromptDefinition, ResourceDefinition, ToolDefinition } from './too
 export const MCP_SERVER_NAME = 'devhub'
 export const MCP_SERVER_VERSION = '0.1.0'
 
-/** 16 个 tools（点分名）：docs/08 §6 的 12 个 + docs/09 §10 的 4 个只读扩展；注册顺序稳定（tools/list 输出确定）。 */
+/** 26 个 tools（点分名）：docs/08 §6 的 12 个 + docs/09 §10 的 4 个只读扩展 + MEM 批次的 10 个记忆域工具；注册顺序稳定（tools/list 输出确定）。 */
 const TOOL_DEFINITIONS: ToolDefinition[] = [
   ...environmentTools,
   ...projectTools,
@@ -49,6 +50,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
   ...skillTools,
   ...versionTools,
   ...archiveTools,
+  ...memoryTools,
 ]
 
 interface TextContent {
@@ -125,7 +127,7 @@ function registerDevhubPrompt(server: McpServer, def: PromptDefinition): void {
   })
 }
 
-/** 组装 DevHub MCP Server：16 tools + 6 resources + 4 prompts，权限管线就位。 */
+/** 组装 DevHub MCP Server：26 tools + 6 resources + 4 prompts，权限管线就位。 */
 export function createDevhubMcpServer(): McpServer {
   const server = new McpServer({ name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION })
   for (const def of TOOL_DEFINITIONS) registerDevhubTool(server, def)

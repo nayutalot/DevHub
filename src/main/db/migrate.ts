@@ -78,6 +78,11 @@ export function setUserVersionLiteral(db: DatabaseSync, version: number): void {
       // 007 落地后本 case 不变（LR1 批次注记：升序 1..8 完整，语义不变）
       db.exec('PRAGMA user_version = 8')
       return
+    case 9:
+      // MEM 批次（记忆域知识图谱并入，docs/briefs/mem-mcp.md）：009_memory_graph.sql
+      // 新增 memory_entities / memory_observations / memory_relations 三表
+      db.exec('PRAGMA user_version = 9')
+      return
     default:
       throw new Error(`no literal user_version statement registered for migration version ${version}`)
   }
