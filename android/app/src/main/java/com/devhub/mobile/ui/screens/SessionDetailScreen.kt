@@ -299,7 +299,15 @@ fun SessionDetailScreen(
             ModeBadge(d.session.sessionMode)
             if (d.session.stale) Text("信息可能不是最新", fontSize = 11.sp, color = Color(0xFFC7A008)) // UX-P1 D3
         }
-        d.session.statusDetail?.let { Text(it, fontSize = 12.sp) }
+        // UX-Z2 结构层（任务书 §2.4 杂项）：statusDetail 工程串人话化收口（走查词表
+        // 漏网「turn/end (seq 806)」等）——core.StatusDetailHumanize 纯查表翻译；
+        // 未命中原样透出（零吞码，U2-M1 同纪律：翻译不删除）
+        d.session.statusDetail?.let {
+            Text(
+                com.devhub.mobile.core.StatusDetailHumanize.display(it) ?: it,
+                fontSize = 12.sp,
+            )
+        }
         // —— U2-M1（AUDIT P2#1 + P3#7）：capabilities 人话化 + 头部压缩 ——
         // 原样直出行（mode=… granted=[…] evidence=…英文原句，06/08/24 号截图）退役：
         // 常态 = 一行人话摘要（core.CapabilitiesExplain 纯函数译码，:core 单测穷举锁）+ ⓘ 弹层；

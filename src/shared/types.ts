@@ -1538,6 +1538,14 @@ export interface AgentProviderView {
   enabled: boolean
   /** unix 秒；从未探测为 null。 */
   lastProbeAt: number | null
+  /**
+   * 托管面当前模型（UX-Z2 结构层，docs/28 §5.4 模型弹层诚实三态：纯只读追加，
+   * 展示不承诺切换——E10' 切换=C 档设备侧 settings 写端点不存在）。
+   * 值 = settings 键原样（zcode_managed_model / deepseek_managed_model，完整
+   * "provider/model" 串）；缺行 = 托管面停用 → 缺省（App 据此分停用态）；
+   * kimi=CLI 自管无模型概念 → 恒缺省（App 对 kimi 隐藏模型区）。
+   */
+  managedModel?: string
 }
 
 export interface AgentProvidersPayload extends EmptyPayload {}
@@ -1590,6 +1598,12 @@ export interface AgentSessionView {
   archivedAt?: number
   /** 子会话（R2；含已结束；仅 sessionDetail 响应的 session 视图填充，列表行缺省）。 */
   childSessions?: AgentSessionView[]
+  /**
+   * 会话工作目录（UX-Z2 结构层，docs/28 §3.1 E2a：纯只读追加，既有字段零变化）。
+   * 数据源 = agent_sessions.workdir（zcode sessions.directory / deepseek proj.cwd
+   * 均已落库）；缺失缺省（旧数据无 workdir → App 归「未分组」组，绝不丢弃）。
+   */
+  workdir?: string
 }
 
 export interface AgentSessionsPayload {
@@ -1605,6 +1619,33 @@ export interface AgentSessionsPayload {
 }
 export interface AgentSessionsResult {
   sessions: AgentSessionView[]
+}
+
+/**
+ * 工作区聚合组（UX-Z2 结构层，docs/28 §4 工作区任务列表的桌面只读投影；
+ * GET /v1/sessions/workspaces 与 agents:sessionWorkspaces 同构）。
+ * 分组口径与 App 端 :core WorkspaceGrouping 纯函数一致：键 = workdir 归一串
+ * （大小写/尾斜杠归一）；workdir 缺失的会话聚进 workdir=null 的「未分组」组
+ * （绝不丢弃）；组间按 lastActivityAt 降序，未分组组恒排尾部。
+ */
+export interface AgentSessionWorkspaceGroup {
+  /** 归一化 workdir（分组键）；null = 未分组（缺失 workdir 的会话聚合组）。 */
+  workdir: string | null
+  /**
+   * 显示名：workdir → projects.win_path 匹配 → win_path 尾段；未匹配 = workdir
+   * 尾段（docs/28 §3.1 E2a「匹配不上=路径尾段兜底，绝不造行」）；未分组组 = null
+   * （显示名由客户端词表定，服务端不造）。
+   */
+  name: string | null
+  /** 原始路径（首个出现的 workdir 原样；未分组组 = null）。中段省略由 UI 层做。 */
+  path: string | null
+  /** 组内主会话数（默认过滤口径：主会话 + 未归档，与 agents:sessions 缺省一致）。 */
+  sessionCount: number
+  /** 组内最近活动 MAX(COALESCE(last_activity_at, started_at, updated_at))；unix 秒；组内全缺 → null。 */
+  lastActivityAt: number | null
+}
+export interface AgentSessionWorkspacesResult {
+  groups: AgentSessionWorkspaceGroup[]
 }
 
 // --- agents:sessionDetail ---
@@ -3056,6 +3097,8 @@ export interface ChannelContract {
   //     deviceRevoke / gatewayRestart 为 CONFIRM_REQUIRED 两段式) ---
   'agents:providers': [AgentProvidersPayload, AgentProvidersResult]
   'agents:sessions': [AgentSessionsPayload, AgentSessionsResult]
+  // UX-Z2 结构层（docs/28 §4）：工作区聚合投影（零参数只读面）
+  'agents:sessionWorkspaces': [EmptyPayload, AgentSessionWorkspacesResult]
   'agents:sessionDetail': [AgentSessionDetailPayload, AgentSessionDetailResult]
   'agents:messages': [AgentMessagesPayload, AgentMessagesResult]
   'agents:events': [AgentEventsPayload, AgentEventsResult]

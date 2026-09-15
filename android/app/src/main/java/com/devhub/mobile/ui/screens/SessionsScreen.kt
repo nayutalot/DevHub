@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -49,12 +50,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.devhub.mobile.core.ProviderPalette
 import com.devhub.mobile.core.SessionListOps
+import com.devhub.mobile.core.WorkspaceGrouping
 import com.devhub.mobile.connect.ConnectionManager
 import com.devhub.mobile.connect.ConnState
 import com.devhub.mobile.connect.WorkspaceLinkCard
 import com.devhub.mobile.connect.WorkspaceLinkController
 import com.devhub.mobile.data.ApiProvider
 import com.devhub.mobile.data.FixtureMode
+import com.devhub.mobile.data.RemoteWorkspaceUrl
 import com.devhub.mobile.data.db.DevHubDb
 import com.devhub.mobile.data.db.SessionCacheEntity
 import com.devhub.mobile.data.remote.AgentDto
@@ -87,6 +90,12 @@ import java.io.IOException
  * T1 批（ZCode 遥控合并进会话流）：列表顶部加「ZCode 工作区」智能卡（置顶「电脑」卡，
  * 复用 WorkspaceLinkCardView / WorkspaceLinkController——点击 → 取/建智能条目 →
  * remote/{entryId}；卡上管理入口（小图标）→ 条目管理屏，手工 URL 条目功能不丢）。
+ *
+ * UX-Z2 结构层（docs/28 §4/§5）：顶部段控「最近对话｜工作区」（三标签 IA 不动、
+ * 不加一级页）；「工作区」段 = 原生工作区分组卡片（E1 汇总行/E2 卡/E3 相对时间，
+ * 分组纯函数 core.WorkspaceGrouping 单测锁定）；WebView 遥控置顶卡并存（§4.1
+ * 职责分离）；「+」动线进入 composer-first 新建页（NewChatScreen，E4/E5/E8/E10）；
+ * 助手页「开始对话」跳转经 autoOpenComposer 一次性语义聚焦（P3 升级迁移）。
  */
 @Composable
 fun SessionsScreen(
@@ -94,6 +103,8 @@ fun SessionsScreen(
     onOpenRemoteEntry: (Long) -> Unit = {},
     onManageRemote: () -> Unit = {},
     onGoAgentsStart: () -> Unit = {},
+    autoOpenComposer: Boolean = false,
+    onAutoComposerConsumed: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val db = remember { DevHubDb.get(context) }
@@ -156,6 +167,7 @@ fun SessionsScreen(
                         providerLabel = s.providerLabel,
                         archived = s.archived,
                         parentSessionId = s.parentSessionId,
+                        workdir = s.workdir,
                     )
                 }
                 withContext(Dispatchers.IO) {
@@ -201,6 +213,51 @@ fun SessionsScreen(
         .filter { SessionListOps.isVisible(it.archived, showArchived) }
         .filter { SessionListOps.matchesProvider(it.providerId, selectedProviderId) }
 
+    // —— UX-Z2 结构层（docs/28 §4）：段控/新建页状态 + 工作区分组 ——
+    // 分组口径（§4.2）：主会话 + 未归档（与最近对话缺省一致）；workdir 归一键，
+    // 缺失归「未分组」组尾部；组间最近活动降序（core.WorkspaceGrouping 单测锁定）
+    var segment by rememberSaveable { mutableStateOf("recent") } // recent | workspaces
+    var showComposer by rememberSaveable { mutableStateOf(false) }
+    var expandedGroups by rememberSaveable { mutableStateOf(setOf<String>()) }
+    val workspaceGroups = remember(allSessions) {
+        WorkspaceGrouping.group(
+            allSessions
+                .filter { it.parentSessionId == null }
+                .filter { !it.archived }
+                .map {
+                    WorkspaceGrouping.SessionRef(
+                        sessionId = it.sessionId,
+                        workdir = it.workdir,
+                        lastActivityAtSec = it.lastActivityAtSec ?: it.startedAtSec,
+                        title = it.title,
+                        status = it.status,
+                    )
+                },
+        )
+    }
+    val spawnTargetId = remember(agents, fixtureOn) { autoSpawnTargetId(agents, fixtureOn) }
+    // 助手页「开始对话」跳转（autoOpenSpawn 机制复用，跨 tab 一次性语义）：
+    // 名单就绪且可对话目标存在 → 打开新建页（输入框聚焦由 NewChatScreen 消费）
+    LaunchedEffect(autoOpenComposer, spawnTargetId) {
+        if (autoOpenComposer && spawnTargetId != null) {
+            showComposer = true
+        }
+    }
+
+    // —— composer-first 新建页（P3 升级迁移载体）：占据本 tab 主面，「+」动线/空态
+    // CTA/助手页跳转进入；关闭即回到段控视图 ——
+    if (showComposer) {
+        NewChatScreen(
+            agents = agents,
+            fixtureOn = fixtureOn,
+            focusOnOpen = autoOpenComposer,
+            onFocusConsumed = onAutoComposerConsumed,
+            onOpenSession = onOpenSession,
+            onClose = { showComposer = false },
+        )
+        return
+    }
+
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -208,7 +265,19 @@ fun SessionsScreen(
             Spacer(Modifier.width(8.dp))
             Text("${visible.size}", fontSize = 13.sp)
             Spacer(Modifier.weight(1f))
-            // UX-P2：演示模式开关迁「我的→演示模式」（入口收敛；下方琥珀标注不弱化保留）
+            // UX-Z2（docs/28 §4.3 E2f）：「+ 新对话」动线——仅存在可对话（managed 且非
+            // 演示）助手时出现（canSpawnManagedSession 门，绝不假开）；composer-first 页
+            if (spawnTargetId != null) {
+                Text(
+                    "＋ 新对话",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clickable { showComposer = true }
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                )
+            }
         }
         if (fixtureOn) {
             // UX-P1 S3：演示模式标注不弱化（琥珀底保留；夹具/批次号工程语退役）
@@ -244,6 +313,70 @@ fun SessionsScreen(
             com.devhub.mobile.ui.components.WakeHostCard()
         }
 
+        // —— UX-Z2（docs/28 §4.1）：段控「最近对话｜工作区」——对话 tab 内二分段，
+        // 不新增底部标签/一级页（三标签 IA 不动）；默认最近对话 = 现状零回归 ——
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            FilterChip(
+                selected = segment == "recent",
+                onClick = { segment = "recent" },
+                label = { Text("最近对话", fontSize = 12.sp, fontWeight = FontWeight.Medium) },
+            )
+            FilterChip(
+                selected = segment == "workspaces",
+                onClick = { segment = "workspaces" },
+                label = { Text("工作区", fontSize = 12.sp, fontWeight = FontWeight.Medium) },
+            )
+        }
+
+        if (segment == "workspaces") {
+            // —— 「工作区」段：原生工作区分组卡片（E1 汇总行/E2 卡/E3 相对时间）——
+            // WebView 遥控置顶卡并存（上方智能卡，§4.1 职责分离：原生=快览动线，
+            // WebView=全功能遥控）；分组键/排序见 core.WorkspaceGrouping（单测锁定）
+            when {
+                loading -> Column(Modifier.padding(24.dp)) { CircularProgressIndicator() }
+                error != null && workspaceGroups.isEmpty() ->
+                    com.devhub.mobile.ui.components.ErrorPresentation(
+                        presentable = error!!,
+                        headlinePrefix = "加载失败：",
+                    )
+
+                workspaceGroups.isEmpty() ->
+                    // 空态（docs/28 §4.3）：一句事实 + 真实存在的动线（+/助手页）
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("电脑上还没有对话。连上电脑后，点右上角「＋ 新对话」或到「助手」开始第一个对话", fontSize = 13.sp)
+                        Button(onClick = onGoAgentsStart) { Text("去助手看看") }
+                    }
+
+                else -> LazyColumn {
+                    item {
+                        Text(
+                            "${workspaceGroups.size} 个工作区 · ${workspaceGroups.sumOf { it.sessions.size }} 个对话",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 4.dp),
+                        )
+                    }
+                    items(workspaceGroups, key = { it.key ?: "__ungrouped__" }) { group ->
+                        WorkspaceCard(
+                            group = group,
+                            expanded = (group.key ?: "__ungrouped__") in expandedGroups,
+                            onToggle = {
+                                val k = group.key ?: "__ungrouped__"
+                                expandedGroups = if (k in expandedGroups) expandedGroups - k else expandedGroups + k
+                            },
+                            onOpenSession = onOpenSession,
+                            onNewChat = { showComposer = true },
+                            canNewChat = spawnTargetId != null,
+                        )
+                    }
+                }
+            }
+        } else {
         // —— R4 provider 过滤 chips（全部 + /v1/agents 名录）——
         // U2-M5（AUDIT P3#8）：横向滚动两端 24dp 渐隐 falloff——截断的 chip 有视觉收口提示，
         // 不再「第 5 枚只露一角」生硬截断（遮罩为纯绘制层，不拦触摸）。
@@ -314,14 +447,18 @@ fun SessionsScreen(
                 )
 
             // UX-P1 S5 + UX-P3（docs/26 §4.3）：空态 = 一句事实 + 一步动作 CTA
-            // （「去助手开始第一个对话」→ 切助手 tab + 自动展开第一条消息输入框；
-            // 目的地 tab 真实存在，非伪造入口）
+            // （UX-Z2 升级：可对话助手在册 → 直开本 tab 新建页（composer-first 动线，
+            // 一步到输入框聚焦）；无 → 仍去「助手」页（能力披露+原因卡真实存在））
             visible.isEmpty() -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    "这里会显示电脑上的 AI 对话。还没有内容——先确认电脑在线（看顶部状态），再到「助手」开始第一个对话",
+                    "这里会显示电脑上的 AI 对话。还没有内容——先确认电脑在线（看顶部状态）",
                     fontSize = 13.sp,
                 )
-                Button(onClick = onGoAgentsStart) { Text("去助手开始第一个对话") }
+                if (spawnTargetId != null) {
+                    Button(onClick = { showComposer = true }) { Text("开始第一个对话") }
+                } else {
+                    Button(onClick = onGoAgentsStart) { Text("去助手开始第一个对话") }
+                }
             }
                 else -> LazyColumn {
                     items(visible, key = { it.sessionId }) { session ->
@@ -359,6 +496,7 @@ fun SessionsScreen(
                 }
             }
         }
+        }
     }
 
     // R3 删除二次确认（文案写明仅移除 DevHub 记录）
@@ -388,6 +526,111 @@ fun SessionsScreen(
             },
             dismissButton = { TextButton(onClick = { confirmDelete = null }) { Text("取消") } },
         )
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun WorkspaceCard(
+    group: WorkspaceGrouping.Group,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    onOpenSession: (Long) -> Unit,
+    onNewChat: () -> Unit,
+    canNewChat: Boolean,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+    ) {
+        // —— 卡头（E2）：类型图标（本地文件夹恒定，无远程工作区语义不画 tag——E2b C 档）
+        // + 名称 + 路径（中段省略）+「N 个对话」+「更新于 X」（E3 相对时间）+ chevron ——
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable { onToggle() },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("📁", fontSize = 16.sp)
+            Spacer(Modifier.width(8.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    group.name ?: "未分组",
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+                group.path?.let { path ->
+                    Text(
+                        // 中段省略纪律（RemoteWorkspaceUrl.elideMiddle 先例）
+                        RemoteWorkspaceUrl.elideMiddle(path, head = 22, tail = 8),
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+            Column(horizontalAlignment = Alignment.End) {
+                Text("${group.sessions.size} 个对话", fontSize = 12.sp)
+                Text(
+                    listOf("更新于", TimeFmt.rel(group.lastActivityAtSec, System.currentTimeMillis()))
+                        .filter { it.isNotBlank() }
+                        .joinToString(" "),
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.width(6.dp))
+            Text(if (expanded) "▾" else "▸", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        // —— chevron 展开：组内对话行（标题 + 状态角标 + 相对时间；点行进详情=既有路由）——
+        if (expanded) {
+            Spacer(Modifier.height(4.dp))
+            group.sessions.forEach { s ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { onOpenSession(s.sessionId) }
+                        .padding(horizontal = 4.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            com.devhub.mobile.core.RichTextTokenizer.stripDisplayMarkers(s.title) ?: "未命名对话",
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            TimeFmt.rel(s.lastActivityAtSec, System.currentTimeMillis()),
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    StatusBadge(s.status)
+                }
+            }
+            // —— 「+ 新对话」（E2f）：v1 语义 = 新建对话（不带工作区绑定，C 档不做）；
+            // canNewChat=false（无 managed/演示）不画（假可供性红线）——
+            if (canNewChat) {
+                Text(
+                    "＋ 新对话",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clickable { onNewChat() }
+                        .padding(horizontal = 4.dp, vertical = 6.dp),
+                )
+            }
+        }
     }
 }
 

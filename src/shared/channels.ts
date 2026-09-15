@@ -175,6 +175,9 @@ export const IPC_CHANNELS = [
   // 全部为 renderer 轮询 channel——不新增广播/推送 channel，docs/14 §A.3）
   'agents:providers',
   'agents:sessions',
+  // UX-Z2 结构层（docs/28 §4）：工作区聚合投影（GROUP BY workdir 只读面；
+  // 轮询 channel 追加，docs/14 §A.3 授权的同一追加模式）
+  'agents:sessionWorkspaces',
   'agents:sessionDetail',
   'agents:messages',
   'agents:events',

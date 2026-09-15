@@ -47,6 +47,10 @@ data class AgentDto(
     val displayName: String,
     val health: String,
     val capabilities: CapabilitiesDto,
+    // UX-Z2 结构层（docs/28 §5.4 模型弹层诚实三态）：managed_model 设置值（桌面
+    // provider 投影追加；旧端点缺失 → null，UI 回退不显示）。展示不承诺切换
+    // （E10' 设备侧 settings 写端点不存在，C 档不做）。
+    val managedModel: String? = null,
 )
 
 data class SessionDto(
@@ -66,6 +70,9 @@ data class SessionDto(
     val providerLabel: String? = null,
     val archived: Boolean = false,
     val parentSessionId: Long? = null,
+    // UX-Z2 结构层（docs/28 §3.1 E2a）：会话工作目录（桌面 SessionView 只读追加；
+    // 旧端点/旧数据缺失 → null，App 归「未分组」组，绝不丢弃）。
+    val workdir: String? = null,
 )
 
 data class SessionDetailDto(
@@ -171,6 +178,7 @@ object Dtos {
             displayName = o.getString("displayName"),
             health = o.getString("health"),
             capabilities = parseCapabilities(o.getJSONObject("capabilities")),
+            managedModel = o.optString("managedModel").takeIf { it.isNotEmpty() },
         )
     }
 
@@ -193,6 +201,8 @@ object Dtos {
         providerLabel = o.optString("providerLabel").takeIf { it.isNotEmpty() },
         archived = o.optBoolean("archived", false) || o.optLong("archivedAt", -1) > 0,
         parentSessionId = o.optLong("parentSessionId", -1).takeIf { it > 0 },
+        // UX-Z2 结构层（docs/28 §3.1 E2a）：workdir 只读追加（旧端点缺失 → null）
+        workdir = o.optString("workdir").takeIf { it.isNotEmpty() },
     )
 
     fun parseSessions(body: JSONObject): List<SessionDto> =

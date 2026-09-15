@@ -78,6 +78,9 @@ class FixtureProjection private constructor() : ProjectionApi {
         parent: Long? = null,
         startedDaysAgo: Int = 2,
         lastActivitySec: Long,
+        // UX-Z2 结构层（docs/28 §4）：夹具演示工作区（纯只读演示数据，绝不伪造
+        // 控制通道；「工作区」分段在演示模式下同构可走查）。
+        workdir: String? = null,
     ) = SessionDto(
         id = id,
         providerId = providerId,
@@ -94,6 +97,7 @@ class FixtureProjection private constructor() : ProjectionApi {
         providerLabel = label,
         archived = archived,
         parentSessionId = parent,
+        workdir = workdir,
     )
 
     private fun addSession(s: SessionDto) {
@@ -113,7 +117,7 @@ class FixtureProjection private constructor() : ProjectionApi {
             session(
                 id = 880_001, providerId = 4, key = "zcode", label = "ZCode",
                 title = "DevHub App 阅读体验重构（演示长对话）", status = "running",
-                lastActivitySec = nowSec - 5 * 60,
+                lastActivitySec = nowSec - 5 * 60, workdir = "C:/code/devhub",
             ),
         )
         // 2 天前 60 条；昨天 80 条；今天 120 条 → 跨两个日界；id 1..260 升序
@@ -182,7 +186,7 @@ class FixtureProjection private constructor() : ProjectionApi {
             session(
                 id = 880_002, providerId = 1, key = "codex", label = "Codex",
                 title = "Codex 短对话样例", status = "completed",
-                lastActivitySec = nowSec - daySec - 3600,
+                lastActivitySec = nowSec - daySec - 3600, workdir = "C:/code/devhub",
             ),
         )
         msg(880_002, 1, "user", "跑一下单元测试。", nowSec - daySec - 3600)
@@ -193,7 +197,7 @@ class FixtureProjection private constructor() : ProjectionApi {
             session(
                 id = 880_003, providerId = 2, key = "claude", label = "Claude Code",
                 title = "Claude 长文本与代码块样例", status = "waiting_input",
-                lastActivitySec = nowSec - 3 * 3600,
+                lastActivitySec = nowSec - 3 * 3600, workdir = "C:/code/contestpin",
             ),
         )
         msg(880_003, 1, "user", "给出迷你渲染器的实现要点。", nowSec - 3 * 3600 - 120)
@@ -219,7 +223,7 @@ class FixtureProjection private constructor() : ProjectionApi {
             session(
                 id = 880_004, providerId = 3, key = "kimi", label = "Kimi Code",
                 title = "Kimi Code observed 只读样例", status = "running",
-                startedDaysAgo = 0,
+                startedDaysAgo = 0, workdir = "C:/code/contestpin",
                 lastActivitySec = nowSec - 15 * 60,
             ),
         )
@@ -230,7 +234,7 @@ class FixtureProjection private constructor() : ProjectionApi {
         addSession(
             session(
                 id = 880_005, providerId = 5, key = "deepseek", label = "DeepSeek",
-                title = "DeepSeek 历史对话（已归档样例）", status = "completed",
+                title = "DeepSeek 历史对话（已归档样例）", status = "completed", // UX-Z2：无 workdir →「未分组」组样例
                 archived = true,
                 startedDaysAgo = 3,
                 lastActivitySec = nowSec - 2 * daySec - 7200,
@@ -247,7 +251,7 @@ class FixtureProjection private constructor() : ProjectionApi {
                     "用于验证列表行单行截断省略号与标题 ** 记号的显示层清理样例",
                 status = "completed",
                 startedDaysAgo = 0,
-                lastActivitySec = nowSec - 3 * 60,
+                lastActivitySec = nowSec - 3 * 60, workdir = "D:/ws/blog",
             ),
         )
         msg(880_006, 1, "assistant", "**任务**：验证标题清理与省略号。**六项要求**：全部满足即过。", nowSec - 3 * 60)
@@ -257,7 +261,7 @@ class FixtureProjection private constructor() : ProjectionApi {
             session(
                 id = 880_101, providerId = 4, key = "zcode", label = "ZCode",
                 title = "子代理：气泡组件实现", status = "running", parent = 880_001,
-                startedDaysAgo = 0,
+                startedDaysAgo = 0, workdir = "C:/code/devhub",
                 lastActivitySec = nowSec - 8 * 60,
             ),
         )
@@ -267,7 +271,7 @@ class FixtureProjection private constructor() : ProjectionApi {
             session(
                 id = 880_102, providerId = 4, key = "zcode", label = "ZCode",
                 title = "子代理：scrubber 数学", status = "completed", parent = 880_001,
-                startedDaysAgo = 0,
+                startedDaysAgo = 0, workdir = "C:/code/devhub",
                 lastActivitySec = nowSec - 45 * 60,
             ),
         )

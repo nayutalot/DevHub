@@ -18,12 +18,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -34,6 +37,8 @@ import com.devhub.mobile.core.DateGrouping
 import com.devhub.mobile.core.MessageSegments
 import com.devhub.mobile.core.ProviderPalette
 import com.devhub.mobile.data.db.MessageCacheEntity
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /** 分段 JSON → core 归一化分段模型（:core MessageSegments；null = 回退整段纯文本）。 */
 fun parseSegments(json: String?): List<MessageSegments.Segment>? {
@@ -267,15 +272,40 @@ private fun BubbleBody(
                     }
                 }
             }
-            // R11 时间戳入气泡尾注
-            message.occurredAtSec?.let {
+            // R11 时间戳入气泡尾注 + UX-Z2 复制钮（docs/28 §3.1 E20a：纯客户端
+            // ClipboardManager；复制 contentRedacted 脱敏投影原文；点后 1.5s「已复制」
+            // 回执；赞/踩=无后端语义不画（C 档红线））
+            val clipboard = LocalClipboardManager.current
+            val scope = rememberCoroutineScope()
+            var copied by remember(message.messageId) { mutableStateOf(false) }
+            Row(
+                modifier = Modifier.align(Alignment.End).padding(top = 3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                message.occurredAtSec?.let {
+                    Text(
+                        TimeFmt.mdHm(it),
+                        fontSize = 9.sp,
+                        color = contentColor.copy(alpha = 0.65f),
+                    )
+                }
+                Spacer(Modifier.width(6.dp))
                 Text(
-                    TimeFmt.mdHm(it),
+                    text = if (copied) "已复制" else "复制",
                     fontSize = 9.sp,
-                    color = contentColor.copy(alpha = 0.65f),
+                    fontWeight = FontWeight.Medium,
+                    color = contentColor.copy(alpha = 0.75f),
                     modifier = Modifier
-                        .align(Alignment.End)
-                        .padding(top = 3.dp),
+                        .background(contentColor.copy(alpha = 0.10f), RoundedCornerShape(6.dp))
+                        .clickable {
+                            clipboard.setText(AnnotatedString(message.contentRedacted))
+                            copied = true
+                            scope.launch {
+                                delay(1500)
+                                copied = false
+                            }
+                        }
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
             }
         }

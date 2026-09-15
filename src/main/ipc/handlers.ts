@@ -38,6 +38,7 @@ import {
   listAgentEvents,
   listAgentMessages,
   listAgentProviders,
+  listAgentSessionWorkspaces,
   listAgentSessions,
   listDevices,
   probeProviderById,
@@ -879,6 +880,8 @@ export function createHandlerRegistry(deps: HandlerDeps): HandlerRegistry {
         includeArchived: optionalBoolean('agents:sessions', p, 'includeArchived'),
       })
     },
+    // UX-Z2 结构层（docs/28 §4）：工作区聚合投影（GROUP BY workdir 只读面，零参数）
+    'agents:sessionWorkspaces': async () => listAgentSessionWorkspaces(),
     'agents:sessionDetail': async (payload) => {
       const p = asPayloadObject('agents:sessionDetail', payload)
       return getAgentSessionDetail(requireId('agents:sessionDetail', p, 'sessionId'))
