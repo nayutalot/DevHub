@@ -152,8 +152,11 @@ if (isEntrypoint()) {
   // 钮前置，绝不自动下载）/ updates:install 安装受理（确认弹窗前置 →
   // quitAndInstall，绝不静默重启）；全部轮询模式无广播；控制器经 updateRegistry
   // 单例注入，纯 Node 环境缺省 NOT_AVAILABLE）。
+  // UX-Z2 批次 note（docs/28 §4 工作区聚合投影授权的同一模式就地更新）：
+  // agents:sessionWorkspaces 1 条并入，115 → 116（GROUP BY workdir 只读面，
+  // REST GET /v1/sessions/workspaces 同构；docs/14 §A.3 轮询 channel 追加模式）。
   // ------------------------------------------------------------------
-  registerCase('step1: channels whitelist has exactly 115 entries (X-U 就地更新 111→115) and IPC_GATEWAY', async () => {
+  registerCase('step1: channels whitelist has exactly 116 entries (UX-Z2 就地更新 115→116) and IPC_GATEWAY', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     assert.equal(channels.IPC_GATEWAY, 'devhub:invoke', 'gateway channel')
     const expected = [
@@ -219,9 +222,10 @@ if (isEntrypoint()) {
       'archive:history',
       'archive:rollback',
       'archive:status',
-      // AC2 agents group (docs/14 §A.1，13 条轮询 channel)
+      // AC2 agents group (docs/14 §A.1，13 条轮询 channel；UX-Z2 追加 1 条)
       'agents:providers',
       'agents:sessions',
+      'agents:sessionWorkspaces',
       'agents:sessionDetail',
       'agents:messages',
       'agents:events',
@@ -292,9 +296,9 @@ if (isEntrypoint()) {
       'updates:download',
       'updates:install',
     ]
-    assert.equal(channels.IPC_CHANNELS.length, 115, `expected 115 channels, got ${channels.IPC_CHANNELS.length}`)
-    assert.deepEqual([...channels.IPC_CHANNELS], expected, 'whitelist must match docs/04 + docs/09 §9 + docs/10 §11 + docs/14 §A.1 + docs/04 ContestPin 追加节 + docs/22 §4/§5/§6/§7/§8/§9 + docs/04 LR1 追加节 + docs/09 §9 D5/X-U 注记 exactly')
-    assert.equal(new Set(channels.IPC_CHANNELS).size, 115, 'no duplicate channels')
+    assert.equal(channels.IPC_CHANNELS.length, 116, `expected 116 channels, got ${channels.IPC_CHANNELS.length}`)
+    assert.deepEqual([...channels.IPC_CHANNELS], expected, 'whitelist must match docs/04 + docs/09 §9 + docs/10 §11 + docs/14 §A.1 + docs/04 ContestPin 追加节 + docs/22 §4/§5/§6/§7/§8/§9 + docs/04 LR1 追加节 + docs/09 §9 D5/X-U 注记 + docs/28 §4 UX-Z2 注记 exactly')
+    assert.equal(new Set(channels.IPC_CHANNELS).size, 116, 'no duplicate channels')
   }, 'fast')
 
   // ------------------------------------------------------------------
@@ -1366,14 +1370,14 @@ if (isEntrypoint()) {
   // CHANNEL_NOT_ALLOWED（文档权威原则，约束 #6）。
   // ------------------------------------------------------------------
   registerCase(
-    'step6: handler registry keys equal the 115-channel whitelist (X-U 就地更新 111→115); app:version returns injected value; unknown channel folds to CHANNEL_NOT_ALLOWED envelope',
+    'step6: handler registry keys equal the 116-channel whitelist (UX-Z2 就地更新 115→116); app:version returns injected value; unknown channel folds to CHANNEL_NOT_ALLOWED envelope',
     async () => {
       const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
       const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
       const registry = handlers.createHandlerRegistry({ appVersion: '0.1.0-smoke' })
       const keys = Object.keys(registry).sort()
-      assert.equal(keys.length, 115, `registry must hold exactly 115 handlers, got ${keys.length}`)
+      assert.equal(keys.length, 116, `registry must hold exactly 116 handlers, got ${keys.length}`)
       assert.deepEqual(keys, [...channels.IPC_CHANNELS].sort(), 'registry keys must equal IPC_CHANNELS (no more, no less)')
 
       const version = await registry['app:version']({})
@@ -3905,12 +3909,12 @@ if (isEntrypoint()) {
   //  识别配置 4 条；CP3b 就地更新 88→97，CP4 就地更新 97→100；LR1 并入 main
   //  100→104，docs/04「LR1 追加」节 LLM 复核层 4 条）：
   //  registry 键集 = 白名单 = 契约覆盖
-  registerCase('s4-68: whitelist 45→50 (S5 就地更新为 55，AC2 就地更新 55→68，夜间#1 就地更新 68→70，CP1 就地更新 70→79，CP2 就地更新 79→84，CP3a 就地更新 84→88，CP3b 就地更新 88→97，CP4 就地更新 97→100，LR1 并入 main 100→104，CP5 就地更新 104→108，CP6 就地更新 108→110，D5 就地更新 110→111，X-U 就地更新 111→115) — registry keys equal the whitelist and the compile-time contract assertion holds', async () => {
+  registerCase('s4-68: whitelist 45→50 (S5 就地更新为 55，AC2 就地更新 55→68，夜间#1 就地更新 68→70，CP1 就地更新 70→79，CP2 就地更新 79→84，CP3a 就地更新 84→88，CP3b 就地更新 88→97，CP4 就地更新 97→100，LR1 并入 main 100→104，CP5 就地更新 104→108，CP6 就地更新 108→110，D5 就地更新 110→111，X-U 就地更新 111→115，UX-Z2 就地更新 115→116) — registry keys equal the whitelist and the compile-time contract assertion holds', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
-    assert.equal(channels.IPC_CHANNELS.length, 115, 'whitelist extended 45 → 50 (S4), 50 → 55 (S5 archive), 55 → 68 (AC2 agents), 68 → 70 (夜间#1), 70 → 79 (CP1 contestpin 9 条), 79 → 84 (CP2 contestpin 悬浮窗 5 条), 84 → 88 (CP3a contestpin 识别配置 4 条), 88 → 97 (CP3b contestpin 材料导入/识别管线/核对界面 9 条), 97 → 100 (CP4 contestpin 提醒 3 条), 100 → 104 (LR1 LLM 复核层 4 条), 104 → 108 (CP5 contestpin Agent 模式 4 条), 108 → 110 (CP6 contestpin 备份恢复 2 条), 110 → 111 (D5 dialog:pickPath 1 条), 111 → 115 (X-U updates 4 条)')
-    assert.equal(new Set(channels.IPC_CHANNELS).size, 115, 'no duplicates after extension')
+    assert.equal(channels.IPC_CHANNELS.length, 116, 'whitelist extended 45 → 50 (S4), 50 → 55 (S5 archive), 55 → 68 (AC2 agents), 68 → 70 (夜间#1), 70 → 79 (CP1 contestpin 9 条), 79 → 84 (CP2 contestpin 悬浮窗 5 条), 84 → 88 (CP3a contestpin 识别配置 4 条), 88 → 97 (CP3b contestpin 材料导入/识别管线/核对界面 9 条), 97 → 100 (CP4 contestpin 提醒 3 条), 100 → 104 (LR1 LLM 复核层 4 条), 104 → 108 (CP5 contestpin Agent 模式 4 条), 108 → 110 (CP6 contestpin 备份恢复 2 条), 110 → 111 (D5 dialog:pickPath 1 条), 111 → 115 (X-U updates 4 条), 115 → 116 (UX-Z2 agents:sessionWorkspaces 1 条)')
+    assert.equal(new Set(channels.IPC_CHANNELS).size, 116, 'no duplicates after extension')
     // 编译期断言 AssertContractCoversWhitelist 的解析产物（ChannelContract 恰好覆盖白名单）
     assert.equal(handlers.contractCoversWhitelist, true, 'ChannelContract covers exactly the whitelist (compile-time, observed at runtime)')
 
@@ -5051,13 +5055,14 @@ if (isEntrypoint()) {
   }, 'fast')
 
   // 84. agents 13 条 channel：白名单尾部按 docs/14 §A.1 顺序逐字存在 + 注册表覆盖
-  registerCase('ac2-84: agents channels (14, 夜间#1 就地更新 13→14) — whitelist tail in docs/14 §A.1 order, registry handlers, compile-time contract assertion holds（LR1 并入 main 100→104：LLM 复核层尾窗；CP5 就地更新 104→108：Agent 模式尾窗；CP6 就地更新 108→110：备份恢复 2 条尾窗；D5 就地更新 110→111：dialog:pickPath 尾窗；X-U 就地更新 111→115：updates 4 条尾窗，其余尾窗再前移）', async () => {
+  registerCase('ac2-84: agents channels (15, UX-Z2 就地更新 14→15) — whitelist tail in docs/14 §A.1 order, registry handlers, compile-time contract assertion holds（LR1 并入 main 100→104：LLM 复核层尾窗；CP5 就地更新 104→108：Agent 模式尾窗；CP6 就地更新 108→110：备份恢复 2 条尾窗；D5 就地更新 110→111：dialog:pickPath 尾窗；X-U 就地更新 111→115：updates 4 条尾窗；UX-Z2 就地更新 115→116：agents:sessionWorkspaces 尾窗，其余尾窗再前移）', async () => {
     const channels = await import(new URL('../src/shared/channels.ts', import.meta.url).href)
     const handlers = await import(new URL('../src/main/ipc/handlers.ts', import.meta.url).href)
 
     const expectedAgents = [
       'agents:providers',
       'agents:sessions',
+      'agents:sessionWorkspaces',
       'agents:sessionDetail',
       'agents:messages',
       'agents:events',
@@ -5071,9 +5076,9 @@ if (isEntrypoint()) {
       'agents:diagnostics',
       'agents:probeProvider',
     ]
-    assert.equal(channels.IPC_CHANNELS.length, 115, 'whitelist 55 → 70 (docs/14 §A.2; 夜间#1 就地更新 68→70), 70 → 79 (CP1 就地更新，docs/04 ContestPin 追加节), 79 → 84 (CP2 就地更新，docs/22 §4 悬浮窗 5 条), 84 → 88 (CP3a 就地更新，docs/22 §6 识别配置 4 条), 88 → 97 (CP3b 就地更新，docs/22 §5 材料导入/识别管线 9 条), 97 → 100 (CP4 就地更新，docs/22 §7 提醒 3 条), 100 → 104 (LR1 并入 main，docs/04 LR1 追加节 LLM 复核层 4 条), 104 → 108 (CP5 就地更新，docs/22 §8 Agent 模式 4 条), 108 → 110 (CP6 就地更新，docs/22 §9 备份恢复 2 条), 110 → 111 (D5 就地更新，docs/09 §9 注记 dialog:pickPath 1 条), 111 → 115 (X-U 就地更新，docs/briefs/xu-updater.md updates 4 条)')
-    // D5 就地更新 1 条（dialog:pickPath）并入后——X-U 就地更新 4 条（updates）并入后——agents 尾窗再前移为 slice(-59, -45)
-    assert.deepEqual([...channels.IPC_CHANNELS.slice(-59, -45)], expectedAgents, '14 agents channels appended verbatim in docs/14 §A.1 order (夜间#1 就地更新 13→14)')
+    assert.equal(channels.IPC_CHANNELS.length, 116, 'whitelist 55 → 70 (docs/14 §A.2; 夜间#1 就地更新 68→70), 70 → 79 (CP1 就地更新，docs/04 ContestPin 追加节), 79 → 84 (CP2 就地更新，docs/22 §4 悬浮窗 5 条), 84 → 88 (CP3a 就地更新，docs/22 §6 识别配置 4 条), 88 → 97 (CP3b 就地更新，docs/22 §5 材料导入/识别管线 9 条), 97 → 100 (CP4 就地更新，docs/22 §7 提醒 3 条), 100 → 104 (LR1 并入 main，docs/04 LR1 追加节 LLM 复核层 4 条), 104 → 108 (CP5 就地更新，docs/22 §8 Agent 模式 4 条), 108 → 110 (CP6 就地更新，docs/22 §9 备份恢复 2 条), 110 → 111 (D5 就地更新，docs/09 §9 注记 dialog:pickPath 1 条), 111 → 115 (X-U 就地更新，docs/briefs/xu-updater.md updates 4 条), 115 → 116 (UX-Z2 就地更新，docs/28 §4 agents:sessionWorkspaces 1 条)')
+    // D5 就地更新 1 条（dialog:pickPath）并入后——X-U 就地更新 4 条（updates）并入后——UX-Z2 就地更新 1 条（agents:sessionWorkspaces）并入后——agents 尾窗再前移为 slice(-60, -45)
+    assert.deepEqual([...channels.IPC_CHANNELS.slice(-60, -45)], expectedAgents, '15 agents channels appended verbatim in docs/14 §A.1 order (UX-Z2 就地更新 14→15)')
     assert.deepEqual(
       [...channels.IPC_CHANNELS.slice(-45, -36)],
       [
@@ -8044,18 +8049,18 @@ if (isEntrypoint()) {
         'INSERT INTO remote_devices (device_name, platform, token_hash, token_version, status, paired_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       ).run('ac5-phone', 'android', FAKE_TOKEN_HASH, 1, 'active', now, now, now)
 
-      // 13 条 agents channel 全清单（与白名单一致，防漏）
+      // 13 条 agents channel 全清单（与白名单一致，防漏；UX-Z2 就地更新 14→15）
       const agentsChannels = channelsMod.IPC_CHANNELS.filter((c) => c.startsWith('agents:'))
-      assert.equal(agentsChannels.length, 14, 'exactly 14 agents channels in the whitelist (夜间#1 就地更新 13→14)')
+      assert.equal(agentsChannels.length, 15, 'exactly 15 agents channels in the whitelist (UX-Z2 就地更新 14→15)')
       assert.deepEqual(
         agentsChannels,
         [
-          'agents:providers', 'agents:sessions', 'agents:sessionDetail', 'agents:messages', 'agents:events',
+          'agents:providers', 'agents:sessions', 'agents:sessionWorkspaces', 'agents:sessionDetail', 'agents:messages', 'agents:events',
           'agents:sessionAction', 'agents:pairingCreate', 'agents:devices', 'agents:deviceRevoke',
           'agents:gatewayStatus', 'agents:gatewayRestart', 'agents:setAutoStart', 'agents:diagnostics',
           'agents:probeProvider',
         ],
-        'agents channel set matches docs/14 §A.1 (夜间#1 就地更新 +probeProvider)',
+        'agents channel set matches docs/14 §A.1 (夜间#1 就地更新 +probeProvider; UX-Z2 就地更新 +sessionWorkspaces)',
       )
 
       const registry = handlersMod.createHandlerRegistry({ appVersion: 'ac5-smoke' })
@@ -17913,6 +17918,184 @@ if (isEntrypoint()) {
       dbModule.closeDatabase()
     }
   }, 'full')
+
+  // ---------------------------------------------------------------------------
+  // UX-Z2 结构层（docs/28 §4/§5.4；任务书 §1）：桌面只读聚合投影——
+  //   w1（fast）：SessionView workdir 追加 + workdir 归一/尾段纯函数 + 工作区
+  //              GROUP BY 聚合（未分组尾部/归档排除）+ managedModel 投影三断言。
+  //   w2（full）：REST 同构面（/v1/sessions/workspaces + /v1/agents managedModel
+  //              + /v1/sessions workdir 字段）。
+  // 追加铁律：既有用例零删改；本批只 append。
+  // ---------------------------------------------------------------------------
+  registerCase('uxz2-w1: desktop read-only aggregate projection — SessionView carries workdir (pure addition), normalizeWorkdirKey/pathTailSegment semantics, listAgentSessionWorkspaces GROUP BY workdir (archived excluded, missing-workdir ungrouped group sorted last), providerView managedModel (zcode/deepseek keys; kimi no model concept; empty key = disabled face omitted)', async () => {
+    const { mkdtempSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const { DatabaseSync } = await import('node:sqlite')
+    const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+    const svc = await import(new URL('../src/main/services/agentControl/agentControlService.ts', import.meta.url).href)
+    const zcodeMod = await import(new URL('../src/main/services/agentControl/providers/zcodeProvider.ts', import.meta.url).href)
+    const settings = await import(new URL('../src/main/services/settingsService.ts', import.meta.url).href)
+
+    await makeTempHome('devhub-uxz2-w1-')
+    // 纯函数：归一 + 尾段（与 App 端 :core WorkspaceGrouping 同口径语义）
+    assert.equal(svc.normalizeWorkdirKey('C:\\Ws\\Demo\\'), 'c:/ws/demo', 'backslash/trailing-slash/case normalized')
+    assert.equal(svc.normalizeWorkdirKey('c:/WS/Demo'), 'c:/ws/demo', 'same key for case-insensitive variants')
+    assert.equal(svc.normalizeWorkdirKey(null), null, 'null workdir -> null key')
+    assert.equal(svc.normalizeWorkdirKey('   '), null, 'blank workdir -> null key (never an empty group key)')
+    assert.equal(svc.normalizeWorkdirKey('/'), '/', 'root stays single slash')
+    assert.equal(svc.pathTailSegment('C:/ws/DevHub'), 'DevHub', 'tail segment wins')
+    assert.equal(svc.pathTailSegment('/home/u/devhub/'), 'devhub', 'trailing slash tolerated')
+    assert.equal(svc.pathTailSegment('///'), null, 'no segment -> null (caller falls back)')
+
+    // zcode 夹具：两 workdir 三会话（directory 列 → workdir 落库既有管线）
+    const dir = mkdtempSync(join(tmpdir(), 'devhub-uxz2-w1-fx-'))
+    const dbPath = join(dir, 'zcode.sqlite')
+    const fdb = new DatabaseSync(dbPath)
+    fdb.exec(`
+      CREATE TABLE session (id TEXT, directory TEXT, title TEXT, time_created INTEGER, time_updated INTEGER, task_type TEXT, parent_id TEXT);
+      CREATE TABLE message (id TEXT, session_id TEXT, data TEXT, sequence INTEGER, time_created INTEGER);
+      CREATE TABLE tool_usage (id TEXT, session_id TEXT, tool_name TEXT, approval_status TEXT, status TEXT, started_at INTEGER, completed_at INTEGER);
+      CREATE TABLE part (id TEXT, message_id TEXT, data TEXT, sequence INTEGER);
+    `)
+    const nowSec = Math.floor(Date.now() / 1000)
+    const ins = fdb.prepare('INSERT INTO session (id, directory, title, time_created, time_updated, task_type, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    ins.run('uxz2_s1', 'C:/ws/devhub', 'DevHub session one', (nowSec - 300) * 1000, (nowSec - 60) * 1000, 'interactive', null)
+    ins.run('uxz2_s2', 'C:/WS/DevHub', 'DevHub session two (case-insensitive same workdir)', (nowSec - 200) * 1000, (nowSec - 30) * 1000, 'interactive', null)
+    ins.run('uxz2_s3', 'C:/ws/other', 'Other workspace session', (nowSec - 100) * 1000, (nowSec - 10) * 1000, 'interactive', null)
+    fdb.close()
+
+    const provider = zcodeMod.createZcodeProvider({ zcodeDbPath: dbPath, tasksIndexPath: join(dir, 'absent.sqlite'), snapshotRoot: join(dir, 'snaps') })
+    for (const pid of ['codex', 'claude-code', 'kimi', 'deepseek']) svc.setProviderOverride(pid, stubAgentProvider(pid))
+    svc.setProviderOverride('zcode', provider)
+    svc.ensureAgentProviderRows()
+    try {
+      await svc.refreshProviderSessions('zcode', true)
+
+      // SessionView workdir 纯追加：原样透传 provider 落库值；既有字段零变化
+      const list = svc.listAgentSessions({})
+      assert.equal(list.sessions.length, 3, 'three main sessions')
+      const s1 = list.sessions.find((s) => s.nativeId === 'uxz2_s1')
+      const s2 = list.sessions.find((s) => s.nativeId === 'uxz2_s2')
+      assert.equal(s1.workdir, 'C:/ws/devhub', 'workdir projected verbatim')
+      assert.equal(s2.workdir, 'C:/WS/DevHub', 'second spelling projected verbatim (no silent rewrite)')
+      assert.ok(s1.providerKey === 'zcode' && typeof s1.status === 'string' && 'stale' in s1, 'existing projection fields intact')
+
+      // 聚合：大小写变体同组（归一键）；组间 lastActivity 降序
+      const agg = svc.listAgentSessionWorkspaces()
+      assert.equal(agg.groups.length, 2, 'two workspace groups (case-insensitive variants merged)')
+      const devhubGroup = agg.groups.find((g) => g.workdir === 'c:/ws/devhub')
+      assert.ok(devhubGroup, 'devhub group present with normalized key')
+      assert.equal(devhubGroup.sessionCount, 2, 'case-variant sessions counted together')
+      assert.equal(devhubGroup.lastActivityAt, nowSec - 30, 'lastActivityAt = MAX over group')
+      assert.equal(devhubGroup.name, 'devhub', 'display name = path tail segment fallback (projects unmatched; raw spelling preserved)')
+      const otherGroup = agg.groups.find((g) => g.workdir === 'c:/ws/other')
+      assert.equal(otherGroup.sessionCount, 1, 'other group single session')
+      assert.deepEqual(agg.groups.map((g) => g.workdir), ['c:/ws/other', 'c:/ws/devhub'], 'groups sorted by lastActivity desc (other has the newer activity)')
+
+      // 归档排除 + 未分组（workdir NULL）组恒排尾部
+      const db = dbModule.getDatabase()
+      const rowId = db.prepare("SELECT id FROM agent_sessions WHERE native_id = 'uxz2_s3'").get().id
+      db.prepare('UPDATE agent_sessions SET archived_at = ? WHERE id = ?').run(nowSec, rowId)
+      db.prepare(
+        "INSERT INTO agent_sessions (provider_id, native_id, session_mode, workdir, status, created_at, updated_at) VALUES ((SELECT id FROM agent_providers WHERE provider = 'zcode'), 'uxz2_legacy', 'observed', NULL, 'unknown', ?, ?)",
+      ).run(nowSec, nowSec)
+      const agg2 = svc.listAgentSessionWorkspaces()
+      assert.deepEqual(agg2.groups.map((g) => g.workdir), ['c:/ws/devhub', null], 'archived excluded; ungrouped group sorted last')
+      const ungrouped = agg2.groups.find((g) => g.workdir === null)
+      assert.equal(ungrouped.sessionCount, 1, 'missing-workdir session kept in ungrouped group (never dropped)')
+      assert.equal(ungrouped.path, null, 'ungrouped group carries no path')
+      assert.equal(ungrouped.name, null, 'server never fabricates an ungrouped display name (client word table decides)')
+
+      // projects.win_path 匹配 → 显示名走 win_path 尾段（E2a 匹配分支）
+      db.prepare("INSERT INTO projects (name, slug, win_path, created_at, updated_at) VALUES ('DevHub', 'devhub', 'D:/code/DevHub', ?, ?)").run(nowSec, nowSec)
+      db.prepare("UPDATE agent_sessions SET workdir = 'D:/CODE/DevHub/' WHERE native_id = 'uxz2_s1'").run()
+      const agg3 = svc.listAgentSessionWorkspaces()
+      const matched = agg3.groups.find((g) => g.workdir === 'd:/code/devhub')
+      assert.ok(matched, 'normalized key group present after projects match')
+      assert.equal(matched.name, 'DevHub', 'matched projects.win_path tail segment used as display name')
+
+      // managedModel 投影：键有值 → 原样；键缺行/空 → 缺省（停用面）；kimi 无模型概念
+      const provs0 = (await svc.listAgentProviders()).providers
+      assert.equal(provs0.find((p) => p.displayName === 'ZCode').managedModel, undefined, 'missing settings key -> managedModel omitted (disabled face)')
+      assert.ok(!('managedModel' in provs0.find((p) => p.displayName === 'Kimi Code')), 'kimi has no model concept -> field always omitted')
+      settings.setSetting('zcode_managed_model', 'zcode/glm-5-turbo')
+      settings.setSetting('deepseek_managed_model', 'deepseek-official/deepseek-v4-flash')
+      const provs1 = (await svc.listAgentProviders()).providers
+      assert.equal(provs1.find((p) => p.displayName === 'ZCode').managedModel, 'zcode/glm-5-turbo', 'zcode managed_model value projected verbatim')
+      assert.equal(provs1.find((p) => p.displayName === 'DeepSeek Harness').managedModel, 'deepseek-official/deepseek-v4-flash', 'deepseek managed_model value projected verbatim')
+      settings.setSetting('zcode_managed_model', '')
+      const provs2 = (await svc.listAgentProviders()).providers
+      assert.ok(!('managedModel' in provs2.find((p) => p.displayName === 'ZCode')), 'empty key = disabled face -> omitted (three-state rendering input)')
+    } finally {
+      svc.stopAllAgentControlRuntime()
+      dbModule.closeDatabase()
+    }
+  }, 'fast')
+
+  registerCase('uxz2-w2: REST surface isomorphic — GET /v1/sessions/workspaces (bearer, groups shape), GET /v1/sessions rows carry workdir, GET /v1/agents carries managedModel only when set, /v1/sessions/{id} numeric route unaffected by workspaces prefix route', async () => {
+    const { mkdtempSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const { DatabaseSync } = await import('node:sqlite')
+    const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+    const svc = await import(new URL('../src/main/services/agentControl/agentControlService.ts', import.meta.url).href)
+    const zcodeMod = await import(new URL('../src/main/services/agentControl/providers/zcodeProvider.ts', import.meta.url).href)
+    const settings = await import(new URL('../src/main/services/settingsService.ts', import.meta.url).href)
+
+    const dir = mkdtempSync(join(tmpdir(), 'devhub-uxz2-w2-'))
+    const dbPath = join(dir, 'zcode.sqlite')
+    const fdb = new DatabaseSync(dbPath)
+    fdb.exec(`
+      CREATE TABLE session (id TEXT, directory TEXT, title TEXT, time_created INTEGER, time_updated INTEGER, task_type TEXT, parent_id TEXT);
+      CREATE TABLE message (id TEXT, session_id TEXT, data TEXT, sequence INTEGER, time_created INTEGER);
+      CREATE TABLE tool_usage (id TEXT, session_id TEXT, tool_name TEXT, approval_status TEXT, status TEXT, started_at INTEGER, completed_at INTEGER);
+      CREATE TABLE part (id TEXT, message_id TEXT, data TEXT, sequence INTEGER);
+    `)
+    const nowMs = 1788537360124
+    fdb.prepare('INSERT INTO session (id, directory, title, time_created, time_updated, task_type, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+      'uxz2_rest_s1', 'C:/ws/rest', 'REST fixture session', nowMs, nowMs + 5000, 'interactive', null,
+    )
+    fdb.close()
+
+    const m = await gwCaseSetup('devhub-uxz2-w2-')
+    try {
+      const provider = zcodeMod.createZcodeProvider({ zcodeDbPath: dbPath, tasksIndexPath: join(dir, 'absent.sqlite'), snapshotRoot: join(dir, 'snaps') })
+      for (const pid of ['codex', 'claude-code', 'kimi', 'deepseek']) svc.setProviderOverride(pid, stubAgentProvider(pid))
+      svc.setProviderOverride('zcode', provider)
+      svc.ensureAgentProviderRows()
+      await svc.refreshProviderSessions('zcode', true)
+      settings.setSetting('zcode_managed_model', 'zcode/glm-5-turbo')
+
+      const port = (await startGatewayEnabled(m)).actualPort
+      const dev = await pairViaHttp(port, 'uxz2-w2-phone')
+      const rWs = await gwRequest(port, 'GET', '/v1/sessions/workspaces', { token: dev.token, headers: replayHeaders() })
+      assert.equal(rWs.status, 200)
+      assert.deepEqual(Object.keys(rWs.json).sort(), ['groups'], 'workspaces top-level shape')
+      assert.equal(rWs.json.groups.length, 1, 'one workspace group over REST')
+      assert.deepEqual(
+        Object.keys(rWs.json.groups[0]).sort(),
+        ['lastActivityAt', 'name', 'path', 'sessionCount', 'workdir'],
+        'group shape = workdir/name/path/sessionCount/lastActivityAt',
+      )
+      assert.equal(rWs.json.groups[0].workdir, 'c:/ws/rest', 'normalized key over REST')
+      assert.equal(rWs.json.groups[0].sessionCount, 1, 'count over REST')
+      const rSessions = await gwRequest(port, 'GET', '/v1/sessions', { token: dev.token, headers: replayHeaders() })
+      assert.equal(rSessions.json.sessions[0].workdir, 'C:/ws/rest', 'session rows carry workdir over REST')
+      const rAgents = await gwRequest(port, 'GET', '/v1/agents', { token: dev.token, headers: replayHeaders() })
+      const zcodeAgent = rAgents.json.providers.find((p) => p.displayName === 'ZCode')
+      assert.equal(zcodeAgent.managedModel, 'zcode/glm-5-turbo', 'managedModel projected over REST when key set')
+      settings.setSetting('zcode_managed_model', '')
+      const rAgents2 = await gwRequest(port, 'GET', '/v1/agents', { token: dev.token, headers: replayHeaders() })
+      const zcodeAgent2 = rAgents2.json.providers.find((p) => p.displayName === 'ZCode')
+      assert.ok(!('managedModel' in zcodeAgent2), 'managedModel omitted when key empty (disabled face over REST)')
+      const detail = await gwRequest(port, 'GET', '/v1/sessions/' + rSessions.json.sessions[0].id, { token: dev.token, headers: replayHeaders() })
+      assert.equal(detail.status, 200, 'numeric {id} detail route unaffected by workspaces prefix route')
+      assert.equal(detail.json.session.workdir, 'C:/ws/rest', 'detail session view carries workdir too')
+    } finally {
+      await gwCaseTeardown(m)
+    }
+  })
 
   await run(parseTierArg())
 }

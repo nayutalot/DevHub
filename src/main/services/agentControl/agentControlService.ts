@@ -42,6 +42,8 @@ import type {
   AgentSessionActionResult,
   AgentSessionView,
   AgentSessionsResult,
+  AgentSessionWorkspaceGroup,
+  AgentSessionWorkspacesResult,
   AgentEventsResult,
   AgentMessagesResult,
   EventDeliveryState,
@@ -343,10 +345,26 @@ function sessionView(
     stale: !(monitorEnabled && providerHealth === 'ok'),
     ...(providerIdentity !== undefined ? { providerKey: providerIdentity.key, providerLabel: providerIdentity.label } : {}),
     ...(row.archived_at !== null ? { archivedAt: row.archived_at } : {}),
+    // UX-Z2 结构层（docs/28 §3.1 E2a）：workdir 纯只读追加（列 004 已有；zcode/
+    // deepseek 两 provider 均已落库）。缺省 = 列 NULL（App 归「未分组」组）。
+    ...(row.workdir !== null && row.workdir !== '' ? { workdir: row.workdir } : {}),
   }
 }
 
+/**
+ * UX-Z2 结构层（docs/28 §5.4）：provider 业务键 → 托管面模型 settings 键映射。
+ * 仅两 managed provider 有模型概念；kimi=CLI 自管无此键（模型区对 kimi 隐藏，
+ * 绝不伪造）；其余 provider 无托管面 → 无键。缺行 = 托管面停用（settingsService
+ * 既有语义），投影缺省该字段——App 据此渲染模型弹层「托管停用」态。
+ */
+const MANAGED_MODEL_SETTING_KEYS: Readonly<Record<string, string>> = {
+  zcode: 'zcode_managed_model',
+  deepseek: 'deepseek_managed_model',
+}
+
 function providerView(row: ProviderRow): AgentProviderView {
+  const modelKey = MANAGED_MODEL_SETTING_KEYS[row.provider]
+  const managedModel = modelKey !== undefined ? getSetting(modelKey) : undefined
   return {
     id: row.id,
     displayName: row.display_name,
@@ -358,6 +376,7 @@ function providerView(row: ProviderRow): AgentProviderView {
     capabilities: parseCapabilitySet(row.capabilities_json),
     enabled: row.enabled === 1,
     lastProbeAt: row.last_probe_at,
+    ...(managedModel !== undefined && managedModel !== '' ? { managedModel } : {}),
   }
 }
 
@@ -641,6 +660,104 @@ export function listAgentSessions(filter: AgentSessionsFilter = {}): AgentSessio
       ),
     ),
   }
+}
+
+// ---------------------------------------------------------------------------
+// UX-Z2 结构层（docs/28 §4）：工作区聚合投影（只读；GROUP BY workdir）
+// ---------------------------------------------------------------------------
+
+/**
+ * workdir 归一串（分组键；与 App 端 :core WorkspaceGrouping 同一口径）：
+ * 反斜杠→斜杠统一、小写化（Windows 路径大小写不敏感）、去尾斜杠（根除外）。
+ * 空串 → null（缺失归「未分组」，绝不造空键）。
+ */
+export function normalizeWorkdirKey(workdir: string | null | undefined): string | null {
+  if (workdir === null || workdir === undefined) return null
+  const trimmed = workdir.trim()
+  if (trimmed === '') return null
+  let key = trimmed.replaceAll('\\', '/').toLowerCase()
+  while (key.length > 1 && key.endsWith('/')) key = key.slice(0, -1)
+  return key === '' ? null : key
+}
+
+/**
+ * 路径尾段（workspace 显示名兜底）：按 / 与 \ 切分取最后非空段；
+ * 全空 → null（调用方回退）。docs/28 §3.1 E2a「匹配不上=路径尾段兜底，绝不造行」。
+ */
+export function pathTailSegment(path: string): string | null {
+  const segments = path.split(/[\\/]/).filter((s) => s.length > 0 && s !== ':' && s.trim() !== '.')
+  return segments.length > 0 ? segments[segments.length - 1] : null
+}
+
+/**
+ * 工作区显示名：workdir → projects.win_path 归一匹配 → win_path 尾段；
+ * 未匹配 = workdir 尾段（docs/28 §3.1 E2a）；两者皆不可得 → null（服务端不造名，
+ * 客户端词表兜底）。projects 行绝不因 workdir 而创建（004 DDL 同纪律）。
+ */
+function resolveWorkspaceDisplayName(workdir: string): string | null {
+  const key = normalizeWorkdirKey(workdir)
+  if (key === null) return null
+  const rows = getDatabase().prepare('SELECT win_path FROM projects WHERE win_path IS NOT NULL').all() as {
+    win_path: string
+  }[]
+  for (const row of rows) {
+    if (normalizeWorkdirKey(row.win_path) === key) {
+      const tail = pathTailSegment(row.win_path)
+      if (tail !== null) return tail
+    }
+  }
+  return pathTailSegment(workdir)
+}
+
+/** agents:sessionWorkspaces（UX-Z2 结构层；REST GET /v1/sessions/workspaces 同构）。 */
+export function listAgentSessionWorkspaces(): AgentSessionWorkspacesResult {
+  // 默认过滤口径与 agents:sessions 缺省一致（主会话 + 未归档）。分组键 = 归一化
+  // workdir（本函数归一，SQL 只投影原始行——Windows 路径大小写/尾斜杠变体同组）；
+  // workdir 缺失 → 键 null 的「未分组」组，绝不丢弃任何会话行。
+  const rows = getDatabase()
+    .prepare(
+      `SELECT s.workdir AS workdir, COALESCE(s.last_activity_at, s.started_at, s.updated_at) AS la
+       FROM agent_sessions s
+       WHERE s.parent_session_id IS NULL AND s.archived_at IS NULL`,
+    )
+    .all() as unknown as { workdir: string | null; la: number | null }[]
+  const byKey = new Map<string, { workdir: string | null; path: string | null; sessionCount: number; lastActivityAt: number | null }>()
+  for (const row of rows) {
+    const key = normalizeWorkdirKey(row.workdir)
+    const mapKey = key ?? '\u0000ungrouped'
+    let g = byKey.get(mapKey)
+    if (g === undefined) {
+      g = {
+        workdir: key,
+        path: key !== null && row.workdir !== null && row.workdir !== '' ? row.workdir : null,
+        sessionCount: 0,
+        lastActivityAt: null,
+      }
+      byKey.set(mapKey, g)
+    }
+    g.sessionCount += 1
+    if (row.la !== null && (g.lastActivityAt === null || Number(row.la) > g.lastActivityAt)) {
+      g.lastActivityAt = Number(row.la)
+    }
+  }
+  const groups: AgentSessionWorkspaceGroup[] = [...byKey.values()].map((g) => ({
+    workdir: g.workdir,
+    name: g.path !== null ? resolveWorkspaceDisplayName(g.path) : null,
+    path: g.path,
+    sessionCount: g.sessionCount,
+    lastActivityAt: g.lastActivityAt,
+  }))
+  // 组间排序 = lastActivityAt 降序（null 垫底）；未分组组恒排尾部（docs/28 §4.2）。
+  const named = groups
+    .filter((g) => g.workdir !== null)
+    .sort((a, b) => {
+      const av = a.lastActivityAt ?? -1
+      const bv = b.lastActivityAt ?? -1
+      if (av !== bv) return bv - av
+      return (a.workdir ?? '').localeCompare(b.workdir ?? '')
+    })
+  const ungrouped = groups.filter((g) => g.workdir === null)
+  return { groups: [...named, ...ungrouped] }
 }
 
 /**

@@ -17,6 +17,8 @@
  *   GET    /v1/agents                Bearer；providers 受限投影
  *   GET    /v1/sessions              Bearer；query providerId/status/limit/parentId(R2)/
  *                                    includeArchived(R3)；默认主会话 + 非归档
+ *   GET    /v1/sessions/workspaces   Bearer；UX-Z2 工作区聚合投影（GROUP BY workdir
+ *                                    只读面；先于 {id} 数字路由匹配）
  *   GET    /v1/sessions/{id}         Bearer；{ session(含 childSessions/providerKey/
  *                                    providerLabel), capabilities }
  *   GET    /v1/sessions/{id}/messages Bearer；after 正向 / last|before 尾部取数
@@ -57,6 +59,7 @@ import {
   isGatewayEnabled,
   listAgentMessages,
   listAgentProviders,
+  listAgentSessionWorkspaces,
   listAgentSessions,
   listDevices,
   MANAGED_SESSION_TASK_MAX_CHARS,
@@ -695,7 +698,15 @@ async function route(
     requireDevice(req, sourceKey)
     const { providers } = await listAgentProviders()
     sendJson(res, 200, {
-      providers: providers.map((p) => ({ id: p.id, displayName: p.displayName, health: p.health, capabilities: p.capabilities })),
+      // UX-Z2 结构层（docs/28 §5.4）：managedModel 可选追加（有值才带；展示不承诺
+      // 切换——E10' 设备侧 settings 写端点不存在，C 档不做）。
+      providers: providers.map((p) => ({
+        id: p.id,
+        displayName: p.displayName,
+        health: p.health,
+        capabilities: p.capabilities,
+        ...(p.managedModel !== undefined ? { managedModel: p.managedModel } : {}),
+      })),
     })
     return 200
   }
@@ -715,6 +726,14 @@ async function route(
       includeArchived: optionalIncludeArchived(url.searchParams.get('includeArchived')),
     })
     sendJson(res, 200, result)
+    return 200
+  }
+
+  // --- GET /v1/sessions/workspaces（UX-Z2 结构层，docs/28 §4 工作区聚合投影；
+  //     GROUP BY workdir 只读面；注意必须先于 /v1/sessions/{id} 数字 id 路由匹配） --
+  if (method === 'GET' && pathname === '/v1/sessions/workspaces') {
+    requireDevice(req, sourceKey)
+    sendJson(res, 200, listAgentSessionWorkspaces())
     return 200
   }
 
