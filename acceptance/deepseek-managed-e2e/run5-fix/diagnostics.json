@@ -1,0 +1,10 @@
+{
+  "dataSource": {
+    "kind": "session-jsonl-zstd",
+    "readable": true,
+    "detail": "root present: D:/Apps/deepseek-harness, package.json @deepseek-ai/dsh-root, version 0.1.0-rc.5, AGENTS.md present, CLAUDE.md present, apps present, packages present; session data home verified at C:\\Users\\sakuya\\.dsh (sessions dir readable)"
+  },
+  "control": {
+    "note": "managed face enabled (deepseek-official/deepseek-v4-flash; idle 1800000ms / lifetime 7200000ms); live connections: 0; spawn carrier: level 2 system node via where.exe → C:\\Program Files\\nodejs\\node.exe (node v24.15.0); last spawn verdict: session session-9c172304-b7c8-47c3-b4ef-751f5165cc88 spawned (deepseek-harness-sdk-runtime 0.0.1); first turn in flight; firehose events seen: 46 (chunks streamed: 0), unknown frames: 0, unknown notifications: 0, late/foreign events: 0, sink errors: 0, subagent notices: 0, shutdown-ok/killTree: 1/0"
+  }
+}

@@ -134,13 +134,17 @@ export const DEEPSEEK_MANAGED_MODEL_DEFAULT = 'deepseek-v4-flash'
 export const DEEPSEEK_MANAGED_BIN_RELATIVE = 'packages/examples/jsonrpc-demo/lib/bin.js'
 
 /**
- * managed 运行态超时（覆盖 provider 默认）：idle 180s——回合间隙（用户阅读回复
- * 后再追问）连接静默期宽裕上限，超时树杀 → 后续 sendReply 走 one-shot resume
- * 回退（两态并存设计）；总生命周期 1800s（live 连接天花板；超时树杀→结构化，
- * 不存在无超时状态——spawnManaged 双上限纪律）。
+ * managed 运行态超时（run5-fix 批重定标）：idle 1800s（30min 回合间隙宽限）——
+ * RD run5 实测用户 sendReply 距 msg1 完成 251s+（重试达 782s），原 180s 会在真人
+ * 节奏内把 live 连接 idle 树杀，把后续回合逼进协议上不可行的回退路径（wire 实锤：
+ * 新 runtime 对已持久化 sessionId 的 prompt 被「already has a persisted log on
+ * disk」turn/end error 拒绝——SDK 无 session/resume 方法）；总生命周期 7200s
+ * （2h live 连接天花板，绝对护栏；超时树杀→结构化，不存在无超时状态——
+ * spawnManaged 双上限纪律）。回合间隙超过 idle 的 sendReply = live 连接已亡 →
+ * 显式结构化失败（绝不假成功，见 provider sendReply）。
  */
-export const DEEPSEEK_MANAGED_IDLE_TIMEOUT_MS = 180_000
-export const DEEPSEEK_MANAGED_LIFETIME_TIMEOUT_MS = 1_800_000
+export const DEEPSEEK_MANAGED_IDLE_TIMEOUT_MS = 1_800_000
+export const DEEPSEEK_MANAGED_LIFETIME_TIMEOUT_MS = 7_200_000
 
 /** initialize/单请求等待宽限（握手秒级；宽容忍冷启动）。 */
 export const DEEPSEEK_MANAGED_REQUEST_TIMEOUT_MS = 30_000

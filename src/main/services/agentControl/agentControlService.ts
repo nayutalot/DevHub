@@ -2211,17 +2211,33 @@ export function applySessionStatus(providerKey: string, nativeId: string, to: Se
   return sessionId
 }
 
-/** 消息投影落库（content_redacted 经 redact；source_ref 指向源文件+offset；UNIQUE 幂等）。
- *  ux 批 A：segments（R1，provider 有明确转录结构时携带）落 segments_json；
- *  R5.1 source-to-db 打点（源 occurredAt → 入库）。 */
+/**
+ * 消息投影落库（content_redacted 经 redact；source_ref 指向源文件+offset；UNIQUE 幂等）。
+ * ux 批 A：segments（R1，provider 有明确转录结构时携带）落 segments_json；
+ * R5.1 source-to-db 打点（源 occurredAt → 入库）。
+ * run5-fix 批（缺陷 C 单气泡增长）：INSERT OR IGNORE → **upsert**——同
+ * (session_id, native_msg_id) 的重复投影从「忽略」改为「覆盖内容」（deepseek
+ * 流式形态：同 turn+step 的 text-delta 累积投影共用同一 nativeMsgId，逐段增长
+ * 同一条消息；committed 到达时以最终全文+segments 覆盖同一条）。既有五家投影
+ * 面语义不变（各自的游标/去重保证无重复投影，upsert 在其路径下等价于 IGNORE）。
+ * message.appended 事件指纹同步推进（nativeMsgId:内容长度）——增长步产生新事件
+ * （App refreshSignal 依据），同内容重投影零重复（幂等键纪律不变）。
+ */
 export function persistMessage(providerKey: string, nativeId: string, message: RedactedMessage): { sessionId: number | null; recorded: boolean } {
   const sessionId = ensureSessionRow(providerKey, nativeId)
   if (sessionId === null) return { sessionId: null, recorded: false }
   const db = getDatabase()
   const now = nowSec()
+  const segmentsJson = message.segments !== undefined ? JSON.stringify(message.segments) : null
   const info = db
     .prepare(
-      'INSERT OR IGNORE INTO agent_messages (session_id, native_msg_id, role, content_redacted, source_ref, seq_in_session, occurred_at, segments_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      `INSERT INTO agent_messages (session_id, native_msg_id, role, content_redacted, source_ref, seq_in_session, occurred_at, segments_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(session_id, native_msg_id) DO UPDATE SET
+         content_redacted = excluded.content_redacted,
+         segments_json = COALESCE(excluded.segments_json, segments_json),
+         occurred_at = COALESCE(excluded.occurred_at, occurred_at),
+         source_ref = excluded.source_ref`,
     )
     .run(
       sessionId,
@@ -2231,7 +2247,7 @@ export function persistMessage(providerKey: string, nativeId: string, message: R
       message.sourceRef,
       dbVal(message.seqInSession ?? null),
       dbVal(message.occurredAt ?? null),
-      dbVal(message.segments !== undefined ? JSON.stringify(message.segments) : null),
+      dbVal(segmentsJson),
       now,
     )
   const recorded = Number(info.changes) > 0
@@ -2245,7 +2261,8 @@ export function persistMessage(providerKey: string, nativeId: string, message: R
         sessionId,
       )
     }
-    // message.appended（可折叠；本轮逐条，指纹 = native_msg_id，重放零重复）
+    // message.appended（可折叠；指纹 = native_msg_id:内容长度——流式增长步产生
+    // 新事件，同内容重放零重复；preview 随内容推进）
     recordEvent({
       eventType: 'message.appended',
       providerKey,
@@ -2256,9 +2273,10 @@ export function persistMessage(providerKey: string, nativeId: string, message: R
         role: message.role,
         preview: message.contentRedacted.slice(0, 120),
         nativeMsgId: message.nativeMsgId,
+        contentLength: message.contentRedacted.length,
       },
       summary: message.contentRedacted.slice(0, 120),
-      fingerprint: message.nativeMsgId,
+      fingerprint: `${message.nativeMsgId}:${message.contentRedacted.length}`,
     })
   }
   return { sessionId, recorded }

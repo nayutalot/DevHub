@@ -70,3 +70,58 @@
   （turn/end error）；DevHub 每回合新生成 id 不受影响。
 - **默认 workspace=home 的沙箱约束**：bash 工具要求 temp root 在 workspace 外
   （Windows ACL）；生产建议将工作区指向项目目录（settings 注入缝已在）。
+
+---
+
+## run5-fix 追验（2026-09-15，RD run5 双缺陷修复后）
+
+> 证据：run5-fix/（verify-log.jsonl 全程、t1-t3-evidence.json 逐回合三证、
+> caps-managed/reverted）；诊断工具：repro-run5.mjs（双场景复现）、resume-probe.mjs
+> （resume 语义 wire 级精查）。
+
+### 缺陷 A（阻断）根因链与修复
+
+- **复现实锤**（repro-run5.mjs 双场景）：live 近距离 sendReply 全通（wire mtime
+  推进+投影增量）；idle 杀后回退路径 `one-shot resume` 报 **executed 但零内容**。
+- **wire 级根因**（resume-probe.mjs）：新 runtime 对已持久化 sessionId 的
+  session/prompt——spliced 回执照发 + turn/start → **turn/end reason error
+  「already has a persisted log on disk that does not match this live session」**
+  → status idle。旧回退的 receipt+idle 双判据据此全真 → **假 executed**；且回退
+  连接 noticeRoute 不接 sink → 零投影。SDK 协议无 session/resume（docs/27 §1.2
+  早已断言），同 id 回退在协议上不可行。
+- **触发时序**（run5 t-latency.txt）：msg2 首发距 spawn 251s > idle 180s → live
+  连接被 spawnManaged idle-timeout 树杀 → 全部 msg2 落入假回退。
+- **修复**：① idle 180s→**1800s**、lifetime→**7200s**（真人节奏 251s/782s 全落
+  live 窗口）；② one-shot resume 路径整体废除——死会话 sendReply = 显式结构化
+  失败（detail 如实陈述 no session-resume wire 事实），live prompt 失败竞态同样
+  显式失败，绝不假成功。
+
+### 缺陷 C（UX）根因与修复
+
+- **根因**：每 text-delta 独立 nativeMsgId（`chunk-<seq>`）+ L3 persistMessage
+  INSERT OR IGNORE（append-only）→ 13 段=13 条气泡。
+- **修复**：① provider 侧同 turn+step 的 delta 累积投影共用
+  `assistant-t<N>s1`（handle.streaming 累积态；committed 终态覆盖同一条；
+  turn/step 缺失漂移回退独立身份绝不猜合并）；② persistMessage 改 **upsert**
+  （ON CONFLICT(session_id, native_msg_id) 覆盖 content/segments；五家既有投影
+  面无重复投影，语义等价）；③ message.appended 事件指纹 →
+  `nativeMsgId:内容长度`（增长步新事件驱动 App refresh，同内容重放零重复）。
+
+### 多回合真机验证（run5-fix-verify.mjs；生产默认门，恰 3 条最小 prompt）
+
+| 回合 | sendReply | 流式增量（单气泡） | wire mtime/size | observed seq 游标 |
+|---|---|---|---|---|
+| T1（spawn） | — | 3 段「第一→第一回合」 | …4105562/4215B | 8 |
+| T2 | live executed | 3 段「第二→第二回合」 | …4107166/5260B | 22 |
+| T3 | live executed | 3 段「第三→第三回合」 | …4107801/6214B | 36 |
+
+三证交叉：wire mtime/size 逐回合推进 ✓、事件 seq 游标 8→22→36 逐回合推进 ✓、
+每回合恰一个 assistant 气泡 id（t1s1/t2s1/t3s1）回合内增长 ✓（部分增量与状态沿
+同毫秒到达——严格小于注记如实）。kill 阶梯收尾 22ms、零孤儿 runtime 进程
+（powershell 扫描）、键归 0 caps 回 observed（legacy 形态逐字节）、常驻实例
+health×3 过（uptime 连续递增零触碰）。
+
+### 消耗（如实）
+
+3 条最小 prompt（每回合一条，回复各 5 字内）；验证窗口内 `~/.dsh/sessions` 新增
+1 个会话（session-9c172304…）。

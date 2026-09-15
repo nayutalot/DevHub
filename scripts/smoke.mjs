@@ -5513,8 +5513,10 @@ if (isEntrypoint()) {
       const persist1 = svc.persistMessage('codex', 'ac3a0960-0000-7000-8000-000000000001', page1.messages[0])
       assert.equal(persist1.recorded, true)
       const persist2 = svc.persistMessage('codex', 'ac3a0960-0000-7000-8000-000000000001', page1.messages[0])
-      assert.equal(persist2.recorded, false, 'UNIQUE(session_id, native_msg_id) replay deduped')
-      assert.equal(Number(db.prepare('SELECT COUNT(*) AS c FROM agent_messages').get().c), 1)
+      // run5-fix 批就地更新：IGNORE → upsert（同 id 重投影覆盖内容，行数不变；
+      // deepseek 流式单气泡增长的落库语义；既有投影面无重复投影，等价于旧 IGNORE）
+      assert.equal(persist2.recorded, true, 'UNIQUE(session_id, native_msg_id) replay upserts in place (run5-fix single-bubble growth)')
+      assert.equal(Number(db.prepare('SELECT COUNT(*) AS c FROM agent_messages').get().c), 1, 'upsert keeps one row per native_msg_id (no duplicate rows)')
 
       // 增量游标：append 后从 cursor 续读
       appendFileSync(
@@ -5888,8 +5890,10 @@ if (isEntrypoint()) {
       assert.equal(p1.recorded, true)
       assert.equal(countMessageEvents(), 1)
       const p2 = svc.persistMessage('codex', 'edge-sess-1', msg)
-      assert.equal(p2.recorded, false, 'message row deduped by UNIQUE')
-      assert.equal(countMessageEvents(), 1, 'replay produces zero duplicate events')
+      // run5-fix 批就地更新：同内容重投影 upsert 同一行（行数不变），事件指纹
+      // = nativeMsgId:内容长度 → 同内容重放零重复事件（幂等键纪律不变）
+      assert.equal(p2.recorded, true, 'same-content replay upserts in place (one row)')
+      assert.equal(countMessageEvents(), 1, 'same-content replay produces zero duplicate events (fingerprint = id:contentLength)')
     } finally {
       svc.stopAllAgentControlRuntime()
       dbModule.closeDatabase()
@@ -16476,16 +16480,17 @@ if (isEntrypoint()) {
     "let seq = 0",
     "let messageId = 'msg-0'",
     "let lastSid = 'session-fixture'",
+    "let turnNo = 0",
     "const emitEvent = (sessionId, type, data) => { seq += 1; notify('session.event', { sessionId, event: { type, seq, time: Date.now(), data } }) }",
     "const emitStatus = (sessionId, status) => notify('session.status', { sessionId, status })",
-    "const runTurn = (sessionId, text, base) => {",
-    "  setTimeout(() => { emitStatus(sessionId, 'running'); emitEvent(sessionId, 'turn/start', { turn: 1 }) }, base + 10)",
+    "const runTurn = (sessionId, text, base, turnNo) => {",
+    "  setTimeout(() => { emitStatus(sessionId, 'running'); emitEvent(sessionId, 'turn/start', { turn: turnNo }) }, base + 10)",
     "  setTimeout(() => emitEvent(sessionId, 'agent/inbox/spliced', { messages: [{ id: messageId }] }), base + 30)",
-    "  setTimeout(() => emitEvent(sessionId, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'Hello ' } }), base + 60)",
-    "  setTimeout(() => emitEvent(sessionId, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'from ' } }), base + 110)",
-    "  setTimeout(() => emitEvent(sessionId, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: text } }), base + 160)",
-    "  setTimeout(() => emitEvent(sessionId, 'assistant/message', { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'Hello from ' + text }] } }), base + 210)",
-    "  setTimeout(() => emitEvent(sessionId, 'turn/end', { turn: 1, reason: 'completed' }), base + 240)",
+    "  setTimeout(() => emitEvent(sessionId, 'assistant/chunk', { turn: turnNo, step: 1, chunk: { type: 'text-delta', index: 0, text: 'Hello ' } }), base + 60)",
+    "  setTimeout(() => emitEvent(sessionId, 'assistant/chunk', { turn: turnNo, step: 1, chunk: { type: 'text-delta', index: 0, text: 'from ' } }), base + 110)",
+    "  setTimeout(() => emitEvent(sessionId, 'assistant/chunk', { turn: turnNo, step: 1, chunk: { type: 'text-delta', index: 0, text: text } }), base + 160)",
+    "  setTimeout(() => emitEvent(sessionId, 'assistant/message', { turn: turnNo, step: 1, message: { content: [{ type: 'text', text: 'Hello from ' + text }] } }), base + 210)",
+    "  setTimeout(() => emitEvent(sessionId, 'turn/end', { turn: turnNo, reason: { kind: 'completed' } }), base + 240)",
     "  setTimeout(() => emitStatus(sessionId, 'idle'), base + 270)",
     "}",
     "const handleLine = (line) => {",
@@ -16501,12 +16506,13 @@ if (isEntrypoint()) {
     "    }",
     "    if (m.method === 'session/prompt') {",
     "      const p = m.params ?? {}",
-    "      lastSid = typeof p.sessionId === 'string' ? p.sessionId : lastSid",
+    "      if (lastSid !== p.sessionId) { lastSid = p.sessionId; turnNo = 0 }",
+    "      turnNo += 1",
     "      messageId = 'msg-' + Date.now() + '-' + Math.floor(Math.random() * 1e6)",
     "      respond(m.id, { messageId })",
     "      const text = (Array.isArray(p.contentBlocks) && p.contentBlocks[0] && p.contentBlocks[0].text) || 'x'",
-    "      if (mode === 'stall') { setTimeout(() => { emitStatus(lastSid, 'running'); emitEvent(lastSid, 'turn/start', { turn: 1 }) }, 10); return }",
-    "      runTurn(lastSid, String(text), 0)",
+    "      if (mode === 'stall') { setTimeout(() => { emitStatus(lastSid, 'running'); emitEvent(lastSid, 'turn/start', { turn: turnNo }) }, 10); return }",
+    "      runTurn(lastSid, String(text), 0, turnNo)",
     "      return",
     "    }",
     "    if (m.method === 'shutdown') { respond(m.id, {}); setTimeout(() => process.exit(0), 30); return }",
@@ -16894,13 +16900,14 @@ if (isEntrypoint()) {
 
       // 流式时序证据：三条 chunk 消息按发出序到达、且全部先于 waiting_input 状态沿
       await pollUntil(() => seen.statuses.some((s) => s.nativeId === ref.nativeId && s.to === 'waiting_input'), 8000, 20, 'turn settled to waiting_input')
-      const chunkMsgs = seen.messages.filter((m) => m.nativeId === ref.nativeId && m.msg.contentRedacted.startsWith && (m.msg.contentRedacted === 'Hello ' || m.msg.contentRedacted === 'from ' || m.msg.contentRedacted === 'fixture turn one'))
-      assert.equal(chunkMsgs.length, 3, `three streaming chunk messages projected: ${chunkMsgs.length}`)
-      assert.deepEqual(chunkMsgs.map((m) => m.msg.contentRedacted), ['Hello ', 'from ', 'fixture turn one'], 'chunks arrive in emission order (firehose, not a final-state batch)')
+      // run5-fix 缺陷 C 单气泡：同 turn+step 的 text-delta 累积投影共用同一
+      // nativeMsgId（assistant-t1s1），内容逐段增长；committed 覆盖同一条
+      const bubbleMsgs = seen.messages.filter((m) => m.nativeId === ref.nativeId && m.msg.nativeMsgId === 'assistant-t1s1')
+      assert.equal(bubbleMsgs.length, 4, `ONE bubble id carries 3 streaming increments + the committed overwrite: ${bubbleMsgs.length}`)
+      assert.deepEqual(bubbleMsgs.slice(0, 3).map((m) => m.msg.contentRedacted), ['Hello ', 'Hello from ', 'Hello from fixture turn one'], 'bubble grows in emission order (firehose, not a final-state batch)')
       const idleAt = seen.statuses.find((s) => s.to === 'waiting_input').at
-      assert.ok(chunkMsgs.every((m) => m.at < idleAt), 'every chunk landed in the projection strictly before the idle edge (streaming, launch-verify #3 shape)')
-      const committed = seen.messages.find((m) => m.msg.contentRedacted === 'Hello from fixture turn one')
-      assert.ok(committed !== undefined, 'assistant/message projected (committed text)')
+      assert.ok(bubbleMsgs.slice(0, 3).every((m) => m.at < idleAt), 'every increment landed in the projection strictly before the idle edge (streaming, launch-verify #3 shape)')
+      assert.equal(bubbleMsgs[3].msg.contentRedacted, 'Hello from fixture turn one', 'assistant/message finalized the SAME bubble id with the committed text')
       const running = seen.statuses.find((s) => s.to === 'running')
       assert.ok(running !== undefined && running.nativeId === ref.nativeId, 'running edge projected')
       const waiting = seen.statuses.find((s) => s.to === 'waiting_input')
@@ -16952,7 +16959,7 @@ if (isEntrypoint()) {
   //      pause = 无 wire cancel 如实（kill 阶梯终止进程 + 幂等收尾）；死会话 sendReply
   //      回退 one-shot resume——新 runtime + 同 sessionId（同一性）+ 回执/idle 确认，
   //      evidence 诚实区分两态。
-  registerCase('dsh-105: deepseek kill ladder + dead-session one-shot resume — pause terminates the process honestly (no wire cancel), a later sendReply spawns a fresh runtime with the SAME sessionId and confirms receipt+idle, evidence distinguishes live-prompt vs one-shot-resume', async () => {
+  registerCase('dsh-105: deepseek kill ladder + dead-session honest refusal — pause terminates the process honestly (no wire cancel); a later sendReply on the dead session is refused with a structured no-resume reason (wire probe proved a fresh runtime rejects a persisted sessionId — the old accepted-but-never-processed fake success is gone)', async () => {
     const { mkdtempSync, mkdirSync, writeFileSync, readFileSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
     const { join } = await import('node:path')
@@ -17018,26 +17025,120 @@ if (isEntrypoint()) {
       assert.equal(pauseAgain.ok, false)
       assert.equal(pauseAgain.status, 'failed')
 
-      // 死会话 sendReply → one-shot resume（同 sessionId）
+      // 死会话 sendReply → 显式结构化失败（run5-fix 缺陷 A：wire 探针实锤新
+      // runtime 以「already has a persisted log on disk」turn/end error 拒绝已
+      // 持久化 sessionId 且 spliced 回执/idle 照发——旧 one-shot 回退据此产出
+      // accepted-but-never-processed 假成功；SDK 无 session/resume → 回退废除）
       process.env['DSH_FIXTURE_MODE'] = 'happy'
       const reply = await provider.sendReply(ref, 'resume after kill')
-      assert.equal(reply.ok, true, `one-shot resume executed: ${reply.detail ?? ''}`)
-      assert.equal(reply.status, 'executed')
-      assert.ok(reply.detail.includes('one-shot resume ok'), `evidence honestly names the resume state: ${reply.detail}`)
-      assert.ok(reply.detail.includes(ref.nativeId), 'evidence carries the same sessionId (identity across runtime processes)')
+      assert.equal(reply.ok, false, `dead-session reply refused: ${JSON.stringify(reply)}`)
+      assert.equal(reply.status, 'failed')
+      assert.equal(reply.errorCode, 'COMMAND_NOT_EXECUTABLE')
+      assert.ok(reply.detail.includes('no live dsh connection'), `refusal names the dead connection: ${reply.detail}`)
+      assert.ok(reply.detail.includes('no session-resume method'), `refusal explains the wire fact: ${reply.detail}`)
+      assert.ok(reply.detail.includes(ref.nativeId), 'refusal carries the sessionId')
+      // 零第二次 spawn（假回退废除）：夹具日志仅一个 runtime 进程、仅一条 prompt
       const entries = readFileSync(logPath, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
       const boots = entries.filter((e) => e.boot !== undefined)
-      assert.equal(boots.length, 2, `two runtime processes (live + one-shot resume): ${boots.length}`)
+      assert.equal(boots.length, 1, `exactly one runtime process (no phantom resume spawn): ${boots.length}`)
       const prompts = entries.filter((e) => e.request !== undefined && e.request.method === 'session/prompt')
-      assert.equal(prompts.length, 2)
-      assert.ok(prompts.every((e) => e.request.params.sessionId === ref.nativeId), 'both runtimes prompted with the identical sessionId')
-      // 第二个进程（one-shot）的 idle 收尾在回执之后（消费收尾语义）
-      const resumeBootIdx = entries.findIndex((e) => e.boot !== undefined && e !== boots[0])
-      await pollUntil(() => readFileSync(logPath, 'utf8').trim().split('\n').slice(resumeBootIdx).map((l) => { try { return JSON.parse(l) } catch { return {} } }).some((e) => e.request !== undefined && e.request.method === 'shutdown'), 8000, 20, 'one-shot resume tears down with the kill ladder graceful segment')
+      assert.equal(prompts.length, 1, 'the refused reply never reached any runtime')
 
       await provider.dispose()
     } finally {
       for (const [k, v] of savedEnv105) {
+        if (v === undefined) delete process.env[k]
+        else process.env[k] = v
+      }
+      dbModule.closeDatabase()
+    }
+  }, 'full')
+
+  // 108. 多回合 live 会话（run5-fix，full，fake dsh runtime）：spawn→t1→t2→t3
+  //      连续回合——每回合 session/prompt 计数推进（fixture log）、投影增量推进、
+  //      单气泡（各回合独立 nativeMsgId assistant-t<N>s1 且回合内累积增长）、
+  //      idle 收尾后连接保持受理下一条 prompt（sendReply 全部 live executed）。
+  registerCase('dsh-108: deepseek multi-turn live session — three consecutive replies all execute on the SAME live connection (session/prompt count 3, same sessionId), each turn streams its own growing bubble id (assistant-t1s1/t2s1/t3s1) and settles to waiting_input; the connection is never re-spawned mid-conversation', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, readFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const dbModule = await import(new URL('../src/main/db/index.ts', import.meta.url).href)
+    const mod = await import(new URL('../src/main/services/agentControl/providers/deepseekProvider.ts', import.meta.url).href)
+
+    const dir = mkdtempSync(join(tmpdir(), 'devhub-dsh-108-'))
+    mkdirSync(join(dir, 'examples', 'node_modules'), { recursive: true })
+    const logPath = join(dir, 'fixture-log.jsonl')
+    const fixtureScript = join(dir, 'dsh-fake-runtime.mjs')
+    const configPath = join(dir, 'cordis.yml')
+    const ws = join(dir, 'ws')
+    mkdirSync(ws, { recursive: true })
+    writeFileSync(fixtureScript, DMD_FAKE_RUNTIME_SCRIPT)
+    const savedEnv = ['DSH_FIXTURE_LOG', 'DSH_FIXTURE_MODE', 'DSH_CORDIS_CONFIG', 'DEEPSEEK_API_KEY'].map((k) => [k, process.env[k]])
+    for (const [k] of savedEnv) delete process.env[k]
+    process.env['DSH_FIXTURE_LOG'] = logPath
+    await makeTempHome('devhub-dsh-108-home-')
+    try {
+      const provider = mod.createDeepseekProvider({
+        dshHome: join(dir, 'dsh-home'),
+        managedGate: () => ({
+          enabled: true,
+          harnessRoot: dir,
+          binPath: fixtureScript,
+          configPath,
+          workspacePath: ws,
+          provider: 'deepseek-official',
+          model: 'deepseek-v4-flash',
+          spawnCommand: process.execPath,
+          spawnArgs: [fixtureScript],
+          spawnEnv: { DSH_CORDIS_CONFIG: configPath },
+          managedIdleTimeoutMs: 15_000,
+          managedLifetimeTimeoutMs: 60_000,
+          dshHome: join(dir, 'dsh-home'),
+        }),
+        managedCommand: process.execPath,
+        managedArgs: [fixtureScript],
+        managedConfigPath: configPath,
+        managedWorkspacePath: ws,
+        managedRequestTimeoutMs: 10_000,
+        managedShutdownTimeoutMs: 3_000,
+      })
+      const timeline = []
+      const sink = {
+        onSessionDiscovered: () => {},
+        onStatusChanged: (ref, from, to, detail) => timeline.push({ at: Date.now(), id: ref.nativeId, kind: 'status', to, detail }),
+        onMessageAppended: (ref, m) => timeline.push({ at: Date.now(), id: ref.nativeId, kind: 'msg', nid: m.nativeMsgId, role: m.role, text: m.contentRedacted }),
+      }
+      const start = await provider.startManagedSession('turn one text', sink)
+      assert.equal(start.ok, true, `spawn ok: ${start.detail ?? ''}`)
+      const ref = { providerId: 'deepseek', nativeId: start.nativeId }
+
+      const turnTexts = ['turn two text', 'turn three text']
+      for (let turn = 1; turn <= 3; turn++) {
+        const base = timeline.length
+        if (turn > 1) {
+          const r = await provider.sendReply(ref, turnTexts[turn - 2])
+          assert.equal(r.ok, true, `t${turn} live executed: ${r.detail ?? ''}`)
+          assert.equal(r.status, 'executed')
+          assert.ok(r.detail.includes('live session/prompt ok'), `t${turn} ran on the SAME live connection: ${r.detail}`)
+        }
+        await pollUntil(() => timeline.slice(base).some((e) => e.id === ref.nativeId && e.kind === 'status' && e.to === 'waiting_input'), 8000, 20, `t${turn} idle`)
+        const bubbleId = `assistant-t${turn}s1`
+        const bubbleMsgs = timeline.slice(base).filter((e) => e.kind === 'msg' && e.nid === bubbleId && e.role === 'assistant')
+        assert.equal(bubbleMsgs.length, 4, `t${turn}: ONE bubble id carries 3 increments + the committed overwrite (${bubbleMsgs.length})`)
+        const finalText = `Hello from ${turn === 1 ? 'turn one text' : turnTexts[turn - 2]}`
+        assert.deepEqual(bubbleMsgs.slice(0, 3).map((e) => e.text), ['Hello ', 'Hello from ', finalText], `t${turn}: bubble grows in order to the committed text`)
+        assert.equal(bubbleMsgs[3].text, finalText, `t${turn}: committed overwrite lands on the same bubble id`)
+      }
+      // 三回合同一 runtime：夹具日志恰一个 boot + 三条 prompt（同 sessionId）
+      const entries = readFileSync(logPath, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+      assert.equal(entries.filter((e) => e.boot !== undefined).length, 1, 'one runtime for the whole conversation')
+      const prompts = entries.filter((e) => e.request !== undefined && e.request.method === 'session/prompt')
+      assert.equal(prompts.length, 3, 'three session/prompt requests')
+      assert.ok(prompts.every((e) => e.request.params.sessionId === ref.nativeId), 'all three turns share the same sessionId')
+
+      await provider.dispose()
+    } finally {
+      for (const [k, v] of savedEnv) {
         if (v === undefined) delete process.env[k]
         else process.env[k] = v
       }

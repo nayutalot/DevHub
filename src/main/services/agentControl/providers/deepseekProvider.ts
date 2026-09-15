@@ -78,6 +78,7 @@ import {
 } from '../monitorRegistry.ts'
 import { redactText } from '../redact.ts'
 import {
+  DEEPSEEK_MANAGED_IDLE_TIMEOUT_MS,
   DEEPSEEK_MANAGED_REQUEST_TIMEOUT_MS,
   DEEPSEEK_MANAGED_SHUTDOWN_TIMEOUT_MS,
   DEEPSEEK_HARNESS_ROOT_DEFAULT,
@@ -95,7 +96,6 @@ import {
   encodeDshRequest,
   evalDshEventStatus,
   extractDshServerInfo,
-  extractDshMessageId,
   extractDshSessionEvent,
   extractDshSessionStatus,
   extractDshSubagentNotice,
@@ -693,8 +693,13 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
     /** 流式证据：最近一次 assistant/chunk 到达时刻（秒）与条数（诊断面）。 */
     lastChunkAtSec: number | null
     chunksStreamed: number
-    /** sendReply evidence 通道记忆（live prompt vs one-shot resume 如实区分）。 */
-    lastReplyMode: 'live-prompt' | 'one-shot-resume' | null
+    /** sendReply evidence 通道记忆（live prompt 单一真实路径）。 */
+    lastReplyMode: 'live-prompt' | null
+    /**
+     * 流式累积态（run5-fix 缺陷 C 单气泡）：同 turn+step 的 text-delta 累积进
+     * 同一 nativeMsgId 投影；committed 到达收束置空。
+     */
+    streaming: { key: string; text: string } | null
   }
 
   interface DshRpcSession {
@@ -873,10 +878,15 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
 
   /**
    * firehose 事件 → 消息投影（managed 消费面；与 observed projectEvent 同脱敏
-   * 惯例 + messageSegments 薄适配）。投影面（判定源 = 44 型词表内可验证结构）：
+   * 惯例 + messageSegments 薄适配；run5-fix 缺陷 C 改版：**同 turn+step 的
+   * assistant 流式 delta 与 committed message 共用同一 nativeMsgId**（
+   * `assistant-t<turn>s<step>`）——text-delta 逐段累积进同一消息投影（服务端
+   * persistMessage upsert 单气泡增长，对齐 zcode 流式形态），committed 到达时
+   * 以最终全文+segments 覆盖同一条。turn/step 缺失（形态漂移）→ 回退逐事件
+   * 独立身份（绝不猜合并）。
+   * 投影面（判定源 = 44 型词表内可验证结构）：
    * - user/message → role 'user'（content[].text）；
-   * - assistant/chunk（text-delta）→ role 'assistant' 逐 delta 增量投影
-   *   （nativeMsgId = `chunk-<seq>`；流式证据面——launch-verify #3）；
+   * - assistant/chunk（text-delta）→ role 'assistant' 累积投影（流式增长）；
    *   reasoning-delta/usage/finish 等 chunk 变体不投影（内部推理/记账面）；
    * - assistant/message → role 'assistant'（text 块 + tool-call 块折叠
    *   `[tool_call <name>]`；tool-call 块映射 toolInvocation 段，label=name）；
@@ -884,32 +894,49 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
    * - tool/result → role 'tool' `[tool_result]`（内容不投影，与 observed 同口径）；
    * - 其余类型 → null（非对话面；容忍计数由调用方做）。
    */
-  function projectDshLiveEvent(ev: DshSessionEventParams, file: string): RedactedMessage | null {
+  function projectDshLiveEvent(handle: DshManagedHandle, ev: DshSessionEventParams, file: string): RedactedMessage | null {
     if (ev.type === null) return null
     const data = ev.data
     const seqTag = ev.seq !== null ? String(ev.seq) : 'na'
-    const base = {
-      nativeMsgId: `${ev.type.replaceAll('/', '-')}-${seqTag}`,
+    const record = data !== null && typeof data === 'object' && !Array.isArray(data) ? (data as Record<string, unknown>) : null
+    const turnStepKey = (): string | null => {
+      const turn = record?.['turn']
+      const step = record?.['step']
+      return typeof turn === 'number' && Number.isSafeInteger(turn) && typeof step === 'number' && Number.isSafeInteger(step)
+        ? `assistant-t${turn}s${step}`
+        : null
+    }
+    const baseOf = (nativeMsgId: string): { nativeMsgId: string; occurredAt?: number; sourceRef: string } => ({
+      nativeMsgId,
       ...(ev.timeMs !== null && Number.isFinite(ev.timeMs) ? { occurredAt: Math.floor(ev.timeMs / 1000) } : {}),
       sourceRef: `${file}#seq=${seqTag}`,
-    }
-    const record = data !== null && typeof data === 'object' && !Array.isArray(data) ? (data as Record<string, unknown>) : null
+    })
     if (ev.type === 'user/message') {
       const text = textFromContentBlocks(record?.['content'])
       if (text.length === 0) return null
-      return { role: 'user', contentRedacted: redactText(text).slice(0, messageTextCap), ...base }
+      return { role: 'user', contentRedacted: redactText(text).slice(0, messageTextCap), ...baseOf(`user-message-${seqTag}`) }
     }
     if (ev.type === 'assistant/chunk') {
       const chunk = record?.['chunk']
       if (chunk === null || typeof chunk !== 'object' || Array.isArray(chunk)) return null
       const c = chunk as Record<string, unknown>
       if (c['type'] !== 'text-delta' || typeof c['text'] !== 'string' || c['text'].length === 0) return null
-      const segments = buildSegments([{ kind: 'text', content: c['text'] }], messageTextCap)
+      const key = turnStepKey()
+      if (key === null) {
+        // turn/step 缺失：形态漂移 → 逐 delta 独立身份（绝不猜合并）
+        return { role: 'assistant', contentRedacted: redactText(c['text']).slice(0, messageTextCap), ...baseOf(`assistant-chunk-${seqTag}`) }
+      }
+      if (handle.streaming === null || handle.streaming.key !== key) {
+        handle.streaming = { key, text: c['text'] }
+      } else {
+        handle.streaming.text += c['text']
+      }
+      const segments = buildSegments([{ kind: 'text', content: handle.streaming.text }], messageTextCap)
       return {
         role: 'assistant',
-        contentRedacted: redactText(c['text']).slice(0, messageTextCap),
+        contentRedacted: redactText(handle.streaming.text).slice(0, messageTextCap),
         ...(segments !== undefined ? { segments } : {}),
-        ...base,
+        ...baseOf(key),
       }
     }
     if (ev.type === 'assistant/message') {
@@ -931,11 +958,14 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
       }
       if (parts.length === 0) return null
       const segments = buildSegments(blocks, messageTextCap)
+      // 与同 turn+step 的流式累积投影共用身份（单气泡：committed 终态覆盖流式态）
+      const key = turnStepKey() ?? `assistant-message-${seqTag}`
+      if (handle.streaming !== null && handle.streaming.key === key) handle.streaming = null // 该步流式收束
       return {
         role: 'assistant',
         contentRedacted: redactText(parts.join('\n')).slice(0, messageTextCap),
         ...(segments !== undefined ? { segments } : {}),
-        ...base,
+        ...baseOf(key),
       }
     }
     if (ev.type === 'tool/call') {
@@ -946,11 +976,11 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
         role: 'tool',
         contentRedacted: `[tool_call ${name}]`,
         ...(segments !== undefined ? { segments } : {}),
-        ...base,
+        ...baseOf(`tool-call-${seqTag}`),
       }
     }
     if (ev.type === 'tool/result') {
-      return { role: 'tool', contentRedacted: '[tool_result]', ...base }
+      return { role: 'tool', contentRedacted: '[tool_result]', ...baseOf(`tool-result-${seqTag}`) }
     }
     return null
   }
@@ -984,7 +1014,7 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
         handle.lastChunkAtSec = nowSec()
       }
       const ref: SessionRef = { providerId: 'deepseek', nativeId: handle.nativeId }
-      const message = projectDshLiveEvent(ev, `dsh-live://${handle.nativeId}`)
+      const message = projectDshLiveEvent(handle, ev, `dsh-live://${handle.nativeId}`)
       if (message !== null) {
         try {
           sink.onMessageAppended?.(ref, message)
@@ -1181,6 +1211,7 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
       lastChunkAtSec: null,
       chunksStreamed: 0,
       lastReplyMode: null,
+      streaming: null,
     }
     // 通知路由：登记后绑定（握手期通知走 lateEvents 计数）
     conn.noticeRoute.target = (method, params) => handleDshNotice(sink, handle, method, params)
@@ -1236,14 +1267,21 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
   }
 
   /**
-   * 九方法 5：sendReply（两态并存，evidence 诚实区分）：
-   * - live 会话 → 同连接 session/prompt（turn 增量续投）；
-   * - 死会话（DevHub 重启/idle-timeout 树杀后）→ one-shot resume 回退：spawn
-   *   新 runtime → initialize → session/prompt 携同一 sessionId（runtime 惰性
-   *   建会话；会话历史由 persistence 同根落盘，observed 面可读）。协议级会话
-   *   连续性由真机验证序列证明（launch-verify #4），此处 evidence 如实标注。
+   * 九方法 5：sendReply（run5-fix 批改版——单一真实路径 + 显式失败）：
+   * - live 会话 → 同连接 session/prompt（turn 增量续投；firehose 流式落投影——
+   *   连接消费面持续存活，idle 后仍受理下一条 prompt）；
+   * - live 连接已亡（idle-timeout/lifetime 树杀、runtime 崩溃、DevHub 重启）→
+   *   **显式结构化失败**。wire 实锤（run5-fix 复现探针）：新 runtime 对已持久化
+   *   sessionId 的 prompt 被持久化日志守卫拒绝（turn/end error「already has a
+   *   persisted log on disk that does not match this live session」）且 spliced
+   *   回执照发+idle 照发——旧 one-shot resume 回退据此产出「executed 零内容」假
+   *   成功（run5 缺陷 A）；SDK 协议无 session/resume 方法（docs/27 §1.2），同 id
+   *   回退在协议上不可行 → 废除回退，绝不假成功。idle 窗口已放宽至 30min
+   *   （DEEPSEEK_MANAGED_IDLE_TIMEOUT_MS）覆盖真人节奏。
+   * - 键≠'1'：legacy unsupported 形态逐字节不变（REST 面零漂移）。
    */
   async function sendReply(ref: SessionRef, text: string): Promise<CommandOutcome> {
+    const gate = managedGate()
     const live = managedSessions.get(ref.nativeId)
     if (live !== undefined && !live.finalized) {
       try {
@@ -1253,170 +1291,32 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
         })
         live.turnInFlight = true
         live.lastReplyMode = 'live-prompt'
-        return { ok: true, status: 'executed', detail: 'live session/prompt ok (turn in flight on the existing connection)' }
+        return { ok: true, status: 'executed', detail: 'live session/prompt ok (turn in flight on the existing connection; firehose streams to the projection)' }
       } catch (err) {
-        // live 路径失败（连接已死等）：落 kill 阶梯后走 one-shot resume 回退
+        // live 路径失败（连接刚死竞态等）：落 kill 阶梯收尾 → 显式失败（绝不回退假成功）
         const reason = err instanceof Error ? err.message : String(err)
         finalizeDshSession(ref.nativeId, `live prompt failure: ${reason.slice(0, 80)}`)
-      }
-    }
-    // 键≠'1'：legacy unsupported 形态逐字节不变（REST 面零漂移；无 live 连接是
-    // 键=1 时的常态——observed 会话的 reply 由 L3 caps 门先行拒绝）
-    const gate = managedGate()
-    if (!gate.enabled) return unsupported()
-    return sendReplyOneShotResume(ref, text)
-  }
-
-  /** one-shot resume 回退（死会话）：门停用零 spawn；每次回复一次受控生命周期。 */
-  async function sendReplyOneShotResume(ref: SessionRef, text: string): Promise<CommandOutcome> {
-    const gate = managedGate()
-    if (!gate.enabled) {
-      return {
-        ok: false,
-        status: 'failed',
-        errorCode: 'COMMAND_NOT_EXECUTABLE',
-        detail: `deepseek managed gate disabled: ${gate.reason ?? 'unknown'}`,
-      }
-    }
-    // spawn 载体解析链（DSN 批；同 startManagedSession——哨兵失败结构化拒绝，
-    // managedCommand 注入缝存在时跳过）
-    let carrier: DeepseekSpawnCarrier & { ok: true } | null = null
-    if (options.managedCommand === undefined) {
-      const resolved = await resolveCarrier()
-      if (!resolved.ok) {
+        if (!gate.enabled) return unsupported()
         return {
           ok: false,
           status: 'failed',
           errorCode: 'COMMAND_NOT_EXECUTABLE',
-          detail: `deepseek managed spawn carrier refused: ${resolved.reason}`,
+          detail: `live dsh connection lost during reply (${reason.slice(0, 120)}); the DSH SDK wire has no session-resume method (a fresh runtime refuses a persisted sessionId), so the reply is refused rather than silently dropped — reply again within the live window or start a new managed session`,
         }
       }
-      carrier = resolved
     }
-    const workspace = options.managedWorkspacePath ?? gate.workspacePath
-    // 工作区目录按需创建（同 startManagedSession；one-shot 亦受保护）
-    if (workspace !== undefined) {
-      const wsDir = ensureDeepseekManagedWorkspaceDir(workspace)
-      if (!wsDir.ok) {
-        return { ok: false, status: 'failed', errorCode: 'COMMAND_NOT_EXECUTABLE', detail: `deepseek managed workspace failed: ${wsDir.reason}` }
-      }
-    }
-    const ensured = ensureDeepseekCordisConfig(
-      { workspacePath: workspace ?? homedir(), harnessRoot: gate.harnessRoot },
-      ...(options.managedConfigPath !== undefined || gate.configPath !== undefined ? [{ configPath: options.managedConfigPath ?? gate.configPath }] : []),
-    )
-    if (!ensured.ok) {
-      return { ok: false, status: 'failed', errorCode: 'COMMAND_NOT_EXECUTABLE', detail: `deepseek managed cordis config failed: ${ensured.reason ?? 'unknown'}` }
-    }
-    const configPath = ensured.path ?? gate.configPath ?? ''
-    const spawnGate: DeepseekManagedGateState = {
-      ...gate,
-      configPath,
-      spawnEnv: { ...(gate.spawnEnv ?? {}), DSH_CORDIS_CONFIG: configPath },
-      ...(carrier !== null
-        ? { spawnCommand: carrier.command, spawnEnv: { DSH_CORDIS_CONFIG: configPath, ...carrier.env } }
-        : {}),
-    }
-    // one-shot 通知旁路记忆（单槽——one-shot 通道无并发设计；每次清零重用）
-    receiptMemory.receiptSeen = false
-    receiptMemory.idleSeen = false
-    const pendingMessageId: { id: string | null } = { id: null }
-    const conn = spawnDshRpcConnection(spawnGate)
-    conn.noticeRoute.target = (method, params) => {
-      const ev = extractDshSessionEvent(method, params)
-      if (ev !== null && ev.sessionId === ref.nativeId && ev.type === 'agent/inbox/spliced') {
-        // durable 回执判据（SDK api.ts:225-229 同款）：spliced 事件含本 prompt 的
-        // messageId；messageId 由 prompt 结果回填（resultReceived 槽）
-        const messageId = pendingMessageId.id
-        if (messageId === null || JSON.stringify(ev.data ?? {}).includes(messageId)) {
-          receiptMemory.receiptSeen = true
-        }
-        return
-      }
-      const st = extractDshSessionStatus(method, params)
-      if (st !== null && st.sessionId === ref.nativeId && st.status === 'idle') {
-        receiptMemory.idleSeen = true
-      }
-    }
-    const exitFlag = trackEarlyExit(conn.proc)
-    try {
-      if (conn.proc.pid <= 0) {
-        return { ok: false, status: 'failed', errorCode: 'COMMAND_NOT_EXECUTABLE', detail: 'dsh runtime spawn failed (one-shot resume)' }
-      }
-      await conn.rpc.call('initialize', {
-        cwd: workspace ?? homedir(),
-        provider: gate.provider ?? 'deepseek-official',
-        model: gate.model ?? 'deepseek-v4-flash',
-      })
-      const promptResult = await conn.rpc.call('session/prompt', {
-        sessionId: ref.nativeId,
-        contentBlocks: [{ type: 'text', text }],
-      })
-      pendingMessageId.id = extractDshMessageId(promptResult)
-      // 回执确认 = agent/inbox/spliced 含本消息（api.ts:225-229 判据）；消费收尾 =
-      // session.status idle（有界轮询 90s）。进程先退且无回执 ≠ 成功（红线）。
-      const receipt = await pollDshReceipt(exitFlag)
-      if (receipt.ok) {
-        return {
-          ok: true,
-          status: 'executed',
-          detail: `one-shot resume ok (fresh runtime; same sessionId ${ref.nativeId}; ${receipt.detail})`,
-        }
-      }
-      return {
-        ok: false,
-        status: 'failed',
-        errorCode: 'COMMAND_NOT_EXECUTABLE',
-        detail: `one-shot resume not confirmed: ${receipt.detail}`,
-      }
-    } catch (err) {
-      return {
-        ok: false,
-        status: 'failed',
-        errorCode: 'COMMAND_NOT_EXECUTABLE',
-        detail: `one-shot resume failed: ${(err instanceof Error ? err.message : String(err)).slice(0, 200)}`,
-      }
-    } finally {
-      void teardownDshConnection({ proc: conn.proc, rpc: conn.rpc }, 'one-shot resume teardown').catch(() => {})
+    // 键≠'1'：legacy unsupported 形态逐字节不变（REST 面零漂移）
+    if (!gate.enabled) return unsupported()
+    const idleSec = Math.round((gate.managedIdleTimeoutMs ?? DEEPSEEK_MANAGED_IDLE_TIMEOUT_MS) / 1000)
+    lastSpawnVerdict = `sendReply refused: no live connection for ${ref.nativeId} (connection expired; wire cannot resume a persisted session)`
+    return {
+      ok: false,
+      status: 'failed',
+      errorCode: 'COMMAND_NOT_EXECUTABLE',
+      detail: `no live dsh connection for session ${ref.nativeId} (expired after the ${idleSec}s idle window, lifetime cap, runtime exit, or DevHub restart); the DSH SDK wire has no session-resume method — a fresh runtime refuses a persisted sessionId ("already has a persisted log on disk" turn-end error), so the reply is refused instead of accepted-but-never-processed; reply again within the live window or start a new managed session`,
     }
   }
 
-  /** one-shot resume 通知旁路记忆（receipt = agent/inbox/spliced 含 messageId；idle = 收尾沿）。 */
-  const receiptMemory = { receiptSeen: false, idleSeen: false }
-
-  /** 回执+idle 有界确认轮询（one-shot 专供；90s 上限——一切等待有上限纪律）。 */
-  async function pollDshReceipt(exitFlag: { get(): boolean }): Promise<{ ok: boolean; detail: string }> {
-    const deadline = Date.now() + 90_000
-    while (Date.now() < deadline) {
-      if (receiptMemory.receiptSeen && receiptMemory.idleSeen) {
-        return { ok: true, detail: 'inbox receipt + session.status idle confirmed' }
-      }
-      if (exitFlag.get()) {
-        if (receiptMemory.receiptSeen) {
-          return { ok: true, detail: 'inbox receipt confirmed; process exited before idle' }
-        }
-        return { ok: false, detail: 'process exited before any inbox receipt (process exit ≠ success)' }
-      }
-      await new Promise((r) => setTimeout(r, 200))
-    }
-    return receiptMemory.receiptSeen
-      ? { ok: false, detail: 'inbox receipt seen but session.status idle not observed within 90000ms' }
-      : { ok: false, detail: 'no inbox receipt within 90000ms' }
-  }
-
-  /** 进程「是否已退出」非阻塞标记（kimi trackEarlyExit 同款）。 */
-  function trackEarlyExit(proc: ManagedProcess): { get(): boolean } {
-    let exited = false
-    void proc.exited.then(
-      () => {
-        exited = true
-      },
-      () => {
-        exited = true
-      },
-    )
-    return { get: () => exited }
-  }
 
   /**
    * 九方法 6：pause — SDK 协议无 wire cancel（docs/27 §1.6 唯一硬缺口）：取消
