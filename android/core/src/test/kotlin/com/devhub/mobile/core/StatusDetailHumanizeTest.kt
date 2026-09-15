@@ -50,4 +50,33 @@ class StatusDetailHumanizeTest {
         // 表外事件型原样透出
         assertEquals("dsh event: future/type", StatusDetailHumanize.display("dsh event: future/type"))
     }
+
+    // —— UX-Z3 运行态层（任务书 #4）：终态族补全（zcode managed 面两形态）——
+
+    @Test
+    fun `zcode turn completed resultType family is humanized`() {
+        // 形态源 = zcodeProvider.handleManagedEvent 实产；resultType 七值 = evalZcodeEventStatus 实产
+        assertEquals("本轮已完成", StatusDetailHumanize.display("turn completed (resultType: success)"))
+        assertEquals("本轮已取消", StatusDetailHumanize.display("turn completed (resultType: cancelled)"))
+        assertEquals("本轮出错结束：达到轮次上限", StatusDetailHumanize.display("turn completed (resultType: error_max_turns)"))
+        assertEquals("本轮出错结束：达到预算上限", StatusDetailHumanize.display("turn completed (resultType: error_max_budget)"))
+        assertEquals("本轮执行中出错", StatusDetailHumanize.display("turn completed (resultType: error_during_execution)"))
+        assertEquals("本轮出错结束：达到工具调用次数上限", StatusDetailHumanize.display("turn completed (resultType: error_max_tool_calls)"))
+    }
+
+    @Test
+    fun `zcode unknown resultType falls back neutral without guessing`() {
+        assertEquals("本轮已结束", StatusDetailHumanize.display("turn completed (resultType: future_kind)"))
+    }
+
+    @Test
+    fun `zcode event prefix shape is humanized for known types`() {
+        assertEquals("新一轮任务开始", StatusDetailHumanize.display("zcode event: turn.started"))
+        assertEquals("本轮出错结束", StatusDetailHumanize.display("zcode event: turn.failed"))
+        assertEquals("等待工具批准", StatusDetailHumanize.display("zcode event: permission.requested"))
+        assertEquals("等待你的输入", StatusDetailHumanize.display("zcode event: userInput.requested"))
+        assertEquals("会话已关闭", StatusDetailHumanize.display("zcode event: session.closed"))
+        // 表外事件型原样透出（零吞码）
+        assertEquals("zcode event: future.type", StatusDetailHumanize.display("zcode event: future.type"))
+    }
 }

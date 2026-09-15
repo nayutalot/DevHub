@@ -829,6 +829,8 @@ object ConnectionManager {
         // 会话缓存行状态随事件推进（事件即服务端权威投影，非本地伪造）
         val newStatus = statusTo ?: payloadStatus
         if (sessionId != null && newStatus != null) {
+            // UX-Z3 运行态层（docs/28 §6.1）：运行 turn 锚点登记（与 local 同映射面）。
+            SessionRunRegistry.observeStatus(sessionId, newStatus, System.currentTimeMillis())
             val cached = db?.sessionCacheDao()?.get(sessionId)
             if (cached != null && newStatus != cached.status) {
                 db?.sessionCacheDao()?.upsertAll(listOf(cached.copy(status = newStatus)))
@@ -1026,6 +1028,9 @@ object ConnectionManager {
         // 会话缓存行状态随事件推进（事件即服务端权威投影，非本地伪造）
         val newStatus = statusTo ?: payloadStatus
         if (sessionId != null && newStatus != null) {
+            // UX-Z3 运行态层（docs/28 §6.1）：运行 turn 锚点登记——status_changed to:'running'
+            // 起、五终态停；WS 实时沿，详情页未打开也登记（进程内内存态，重启即失=降级路径）。
+            SessionRunRegistry.observeStatus(sessionId, newStatus, System.currentTimeMillis())
             val cached = db?.sessionCacheDao()?.get(sessionId)
             if (cached != null && newStatus != cached.status) {
                 db?.sessionCacheDao()?.upsertAll(listOf(cached.copy(status = newStatus)))
