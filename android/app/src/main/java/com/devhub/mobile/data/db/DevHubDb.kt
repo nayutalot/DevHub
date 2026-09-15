@@ -70,6 +70,9 @@ data class SessionCacheEntity(
     val providerLabel: String? = null,
     val archived: Boolean = false,
     val parentSessionId: Long? = null,
+    // UX-Z2 结构层（docs/28 §3.1 E2a）：会话工作目录（SessionView 只读追加；
+    // 旧端点/旧数据缺失 → null，「工作区」分段归「未分组」组）。
+    val workdir: String? = null,
 )
 
 /** 消息投影缓存（脱敏 contentRedacted；按会话分区，游标 after = 消息 id）。 */
@@ -302,7 +305,9 @@ interface RemoteWorkspaceEntryDao {
     // v4（M3-E1，docs/18 §5.3）：pending_command + providerId（spawn_session 队列行补发载体）。
     // v5（Q 批「远程工作区」）：新表 remote_workspace_entries——加表 = 安全 migrate，
     // 走 MIGRATION_4_5 增量路径（既有数据保留，不走破坏性重建）。
-    version = 5,
+    // v6（UX-Z2 结构层，docs/28 §4）：session_cache + workdir——加列 = 安全 migrate，
+    // 走 MIGRATION_5_6 增量路径（缓存库 ALTER TABLE ADD COLUMN，既有数据保留）。
+    version = 6,
     exportSchema = false,
 )
 abstract class DevHubDb : RoomDatabase() {
@@ -336,6 +341,18 @@ abstract class DevHubDb : RoomDatabase() {
             }
         }
 
+        /**
+         * v5→v6（UX-Z2 结构层，docs/28 §4）：session_cache 加 `workdir` 可空列
+         * （SessionView 只读追加）——ALTER TABLE ADD COLUMN 与 Room 生成 schema
+         * 逐字一致（可空 TEXT 无默认值）；既有缓存行 workdir 为 null（「工作区」
+         * 分段归「未分组」组，下一次轮询刷新补齐）。
+         */
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `session_cache` ADD COLUMN `workdir` TEXT")
+            }
+        }
+
         fun get(context: Context): DevHubDb =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -343,7 +360,7 @@ abstract class DevHubDb : RoomDatabase() {
                     DevHubDb::class.java,
                     "devhub-mobile.db",
                 )
-                    .addMigrations(MIGRATION_4_5)
+                    .addMigrations(MIGRATION_4_5, MIGRATION_5_6)
                     // v5 以前的历史升级路径保持既有破坏性口径（纯缓存库，先例 v2 注释）；
                     // 4→5 已被上方增量迁移精确接管，不落破坏路径。
                     .fallbackToDestructiveMigration()

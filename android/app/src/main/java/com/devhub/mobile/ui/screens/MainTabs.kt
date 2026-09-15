@@ -58,9 +58,10 @@ fun MainTabs(
     // Q 批：rememberSaveable——跳「远程工作区」全屏 WebView 后返回，选中 tab 不再
     // 丢失回默认会话（main 条目在返回栈上，状态随 SavedStateRegistry 存续）。
     var selected by rememberSaveable { mutableStateOf(normalizeTab(initialTab)) }
-    // UX-P3 一键化 funnel：对话页空态 CTA「去助手开始第一个对话」→ 切助手 tab 并让
-    // 首个可对话助手自动展开内联输入框（一次性语义：名单就绪即消费）
-    var pendingAutoSpawn by rememberSaveable { mutableStateOf(false) }
+    // UX-P3 一键化 funnel（UX-Z2 升级迁移，docs/28 §5.1）：助手页「开始对话」→
+    // 切对话 tab + 打开 composer-first 新建页并聚焦输入框（autoOpenSpawn 复用的
+    // 跨 tab 一次性语义：名单就绪且可对话目标存在时由 SessionsScreen/NewChatScreen 消费）
+    var pendingAutoCompose by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(
         // 视觉打磨批 D：顶部 inset 单计——外层 DevHubRoot Scaffold 已把状态栏 inset
@@ -101,15 +102,18 @@ fun MainTabs(
                 onGoConnect = onGatewayConfig,
             )
             when (selected) {
-                // 批次 C R6.2：Agents 页「启动托管会话」→ 202 后跳入新会话详情
+                // 批次 C R6.2：Agents 页「开始对话」→ UX-Z2 起跳转对话 tab 新建页
+                //（composer-first；autoOpenComposer 一次性语义聚焦输入框）
                 // T1 批：zcode provider 卡加「打开遥控」→ remote/{entryId}
-                // UX-P3：空态 CTA「诊断连接问题」出口 + CTA 带入的自动展开消费
+                // UX-P3：空态 CTA「诊断连接问题」出口保留
                 "agents" -> AgentsScreen(
                     onOpenSession = onOpenSession,
                     onOpenRemoteEntry = onOpenRemoteEntry,
                     onOpenConnectionStatus = onOpenConnectionStatus,
-                    autoOpenSpawn = pendingAutoSpawn,
-                    onAutoSpawnConsumed = { pendingAutoSpawn = false },
+                    onGoSessionsCompose = {
+                        selected = "sessions"
+                        pendingAutoCompose = true
+                    },
                 )
                 // UX-P2：「我的」页（诊断/设备挂载点移入；电脑连接状态卡+入口列表+开发者折叠）
                 "mine" -> MineScreen(
@@ -119,15 +123,17 @@ fun MainTabs(
                     onManageRemote = onManageRemote,
                 )
                 // T1 批：会话页顶部「ZCode 工作区」智能卡（点击开遥控 / 管理入口进条目管理屏）
-                // UX-P3：空态 CTA「去助手开始第一个对话」→ 切助手 tab + 自动展开输入框
+                // UX-P3：空态 CTA（可对话在册 → 直开 composer-first 新建页；无 → 去助手页）
+                // UX-Z2：助手页「开始对话」跳转经 autoOpenComposer 跨 tab 一次性语义聚焦
                 else -> SessionsScreen(
                     onOpenSession = onOpenSession,
                     onOpenRemoteEntry = onOpenRemoteEntry,
                     onManageRemote = onManageRemote,
                     onGoAgentsStart = {
                         selected = "agents"
-                        pendingAutoSpawn = true
                     },
+                    autoOpenComposer = pendingAutoCompose,
+                    onAutoComposerConsumed = { pendingAutoCompose = false },
                 )
             }
         }
