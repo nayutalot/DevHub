@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "level": "explicit",
+  "command": "C:\\Program Files\\nodejs\\node.exe",
+  "env": {},
+  "detail": "level 1 explicit settings key deepseek_managed_node → C:\\Program Files\\nodejs\\node.exe (node v24.15.0)",
+  "resolutionMs": 0,
+  "settingsKey": "deepseek_managed_node"
+}

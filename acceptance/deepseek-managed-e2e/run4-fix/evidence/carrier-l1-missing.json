@@ -1,0 +1,4 @@
+{
+  "enabled": false,
+  "reason": "settings key deepseek_managed_node points to a missing file: C:\\Users\\sakuya\\AppData\\Local\\Temp\\devhub-dsn-fix-23emZb\\no-such-node.exe (spawn carrier refused; point it at an existing Node.js executable, or clear the key to let the resolver probe the system node via where.exe)"
+}

@@ -1,0 +1,24 @@
+L2 carrier: level=system command=C:\Program Files\nodejs\node.exe (164ms where+sentinel)
+L2 detail: level 2 system node via where.exe → C:\Program Files\nodejs\node.exe (node v24.15.0)
+L2 env: {} (plain node → zero switch)
+L2 cache: second resolution 182ms (sentinel cached on first success; where re-probed)
+L1 carrier: level=explicit command=C:\Program Files\nodejs\node.exe (0ms sentinel, cached)
+L1 missing-file: gate enabled=false reason=settings key deepseek_managed_node points to a missing file: C:\Users\sakuya\AppData\Local\Temp\devhub-dsn-fix-23emZb\no-such-node.exe (spawn carrier refused; point it at an existing Node.js executable, or clear the key to let the resolver probe the system node via where.exe)
+L3 fallback (injected demo): degradation=载体降级：需系统 Node.js（harness loader 不兼容 Electron 内置运行时）
+gate: enabled=true provider=deepseek-official model=deepseek-v4-flash spawnCommand=C:\Program Files\nodejs\node.exe
+gate: binPath=D:\Apps\deepseek-harness\packages\examples\jsonrpc-demo\lib\bin.js
+caps: mode=managed granted=reply workspace=C:\Users\sakuya\AppData\Local\Temp\devhub-dsn-fix-23emZb\dsh-workspace
+caps evidence: deepseek managed face enabled (deepseek-official/deepseek-v4-flash): version sentinel layer-1 ok (bin present at D:\Apps\deepseek-harness\packages\examples\jsonrpc-demo\lib\bin.js); layer-2 initialize handshake identity check enforced at spawn; spawn carrier: level 2 system node via where.exe → C:\Program Files\nodejs\node.exe (node v24.15.0); reply = live session/prompt or one-shot resume fallback (evidence distinguishes both states); NO wire cancel (SDK protocol has none; cancel semantics = process kill ladder); approval policy 'never' v1 (no remote approval channel; out-of-workspace ops auto-refused)
+M0: cordis.yml rendered at C:\Users\sakuya\AppData\Local\Temp\devhub-dsn-fix-23emZb\deepseek-managed\cordis.yml; workspace dir ok=true created=true
+M0: initialize answered VIA SYSTEM NODE — spawn→response total 582ms, write→response 82ms (run4 baseline: 30000ms budget exhausted = COMMAND_NOT_EXECUTABLE, electron runtime rejected by cordis loader)
+M0: serverInfo={"name":"deepseek-harness-sdk-runtime","version":"0.0.1"} sentinel ok=true
+M0: shutdown → exit=0 in 25ms
+T1 start: ok=true nativeId=session-603f4a94-f3d6-4289-8026-d78481d71bbc totalMs=780 (spawn on the RESOLVED carrier + initialize + prompt accept)
+T1 turn: 3 assistant projections landed, all before idle = false; text=["收到","。","收到。"]
+identity: observed listSessions sees sessionId=session-603f4a94-f3d6-4289-8026-d78481d71bbc: true (mode=managed)
+identity: harness projectKey dir = --C-Users-sakuya-AppData-Local-Temp-devhub-dsn-fix-23emZb-dsh-workspace--
+diagnostics control note: managed face enabled (deepseek-official/deepseek-v4-flash; idle 180000ms / lifetime 1800000ms); live connections: 1; spawn carrier: level 2 system node via where.exe → C:\Program Files\nodejs\node.exe (node v24.15.0); last spawn verdict: session session-603f4a94-f3d6-4289-8026-d78481d71bbc spawned (deepseek-harness-sdk-runtime 0.0.1); first turn in flight; firehose events seen: 18 (chunks streamed: 6), unknown frames: 0, unknown notifications: 0, late/foreign events: 0, sink errors: 0, subagent notices: 0, shutdown-ok/killTree: 0/0
+revert: key=0 → caps mode=observed granted=0 evidence=observed session projection wired; managed face (SDK jsonrpc direct) implemented but gated off by default (settings key deepseek_managed_enabled must be exactly '1')
+revert: startManagedSession refused = true detail=deepseek managed gate disabled: settings key deepseek_managed_enabled is not '1' (managed face disabled by default; real inference + ~/.dsh writes require explicit authorization)
+wire: dispose done in 19ms
+RUN4-FIX COMPLETE: carrier chain L1/L2 real evidence + L3 injected demo; M0 initialize latency captured on the RESOLVED system-node carrier (vs run4 30s timeout); 1 real prompt consumed (T1); zero credentials read/injected/logged

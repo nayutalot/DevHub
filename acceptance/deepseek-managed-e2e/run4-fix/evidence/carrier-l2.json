@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "level": "system",
+  "command": "C:\\Program Files\\nodejs\\node.exe",
+  "env": {},
+  "detail": "level 2 system node via where.exe → C:\\Program Files\\nodejs\\node.exe (node v24.15.0)",
+  "resolutionMs": 164,
+  "brief": "docs/briefs/dsn-carrier.md §1 level 2 (where.exe node single source + node --version sentinel)"
+}

@@ -33,16 +33,18 @@
  * - **observed 面（默认，键≠'1' 行为逐字节不变）**：harness 控制通道源码在位，
  *   getCapabilities 恒 observed + 空集；sendReply/pause/resume 结构化 unsupported。
  * - **managed 面（settings 键 `deepseek_managed_enabled` 恰 '1' 授权）**：SDK
- *   jsonrpc 直连（docs/27 §4 设计全案）——spawn Electron 内置 node +
- *   jsonrpc-demo bin.js（DSH_CORDIS_CONFIG 指 DevHub 渲染 cordis.yml）→
- *   initialize 握手（版本哨兵）→ session/prompt 惰性 create→prompt 合一 →
- *   session.event 44 型 firehose 薄适配（event→payload 槽，复用 zcodeProtocol
- *   帧解析）喂 sink（流式 chunk 增量落投影）→ session.status idle 收尾；
- *   sendReply 对 live 会话走 prompt、死会话回退 one-shot resume（evidence 诚实
- *   区分）；无 wire cancel（SDK 协议事实）——pause=kill 阶梯（shutdown→
- *   taskkill 温和→/T /F 强制，docs/27 SDK client 阶梯的 Windows 映射）+双超时；
- *   approval policy never v1（无远程应答通道，UI/ⓘ 如实标注）。
- *   授权门/渲染/哨兵在 deepseekManagedConfig.ts；协议纯函数在 deepseekProtocol.ts。
+ *   jsonrpc 直连（docs/27 §4 设计全案）——spawn 载体解析链（DSN 批：显式键
+ *   `deepseek_managed_node` > `where.exe node` 系统探测 > Electron 内置 runtime
+ *   降级 + 如实标注）+ jsonrpc-demo bin.js（DSH_CORDIS_CONFIG 指 DevHub 渲染
+ *   cordis.yml）→ initialize 握手（版本哨兵）→ session/prompt 惰性
+ *   create→prompt 合一 → session.event 44 型 firehose 薄适配（event→payload 槽，
+ *   复用 zcodeProtocol 帧解析）喂 sink（流式 chunk 增量落投影）→ session.status
+ *   idle 收尾；sendReply 对 live 会话走 prompt、死会话回退 one-shot resume
+ *   （evidence 诚实区分）；无 wire cancel（SDK 协议事实）——pause=kill 阶梯
+ *   （shutdown→taskkill 温和→/T /F 强制，docs/27 SDK client 阶梯的 Windows 映射）
+ *   +双超时；approval policy never v1（无远程应答通道，UI/ⓘ 如实标注）。
+ *   授权门/渲染/哨兵/载体解析链在 deepseekManagedConfig.ts；协议纯函数在
+ *   deepseekProtocol.ts。
  * - **工作区旋钮（DSW 批，docs/briefs/dsw-workspace.md §1）**：settings 键
  *   `deepseek_managed_workspace`——缺行 = 默认安全目录 <data>/dsh-workspace
  *   （spawn 前按需创建；绝不默认 home 根——run3 home×ACL 确定性失败修法）；
@@ -82,8 +84,11 @@ import {
   ensureDeepseekCordisConfig,
   ensureDeepseekManagedWorkspaceDir,
   readDeepseekManagedGate,
+  resolveDeepseekSpawnCarrier,
   verifyDeepseekHandshake,
+  type DeepseekCarrierDeps,
   type DeepseekManagedGateState,
+  type DeepseekSpawnCarrier,
 } from './deepseekManagedConfig.ts'
 import {
   describeDshTurnEndData,
@@ -151,6 +156,11 @@ export interface DeepseekProviderOptions {
   /** managed caps 探测注入（默认零 spawn：门态+bin 在位即 managed——caps 探测
    * 零推理红线；smoke 注入假探针验证 caps 链）。 */
   managedCapsProbe?: () => { alive: boolean; detail: string }
+  /**
+   * spawn 载体解析依赖注入（DSN 批；默认真实 where.exe node 单源 + node
+   * --version 哨兵——smoke/夹具注入假 where/哨兵实现隔离，e.g. 强制降级/哨兵拒）。
+   */
+  managedCarrierDeps?: DeepseekCarrierDeps
   /** 消息投影单条字符上限沿用 messageTextCap；managed 流式 chunk 逐条投影共用。 */
 }
 
@@ -713,10 +723,24 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
     killTreeUsed: 0,
   }
   let lastSpawnVerdict: string | null = null
+  /** 最近一次 spawn 载体解析结论（DSN 批诊断投影；null = 尚未解析过）。 */
+  let lastCarrierNote: string | null = null
 
   /** 门读取（生产注入缝；smoke 覆盖）。 */
   function managedGate(): DeepseekManagedGateState {
     return options.managedGate?.() ?? readDeepseekManagedGate()
+  }
+
+  /**
+   * 载体解析链调用点（DSN 批）：解析 + 结论记忆（诊断投影）一步完成。生产依赖
+   * = 真实 where.exe node 单源 + 哨兵；options.managedCarrierDeps 注入缝供夹具。
+   */
+  async function resolveCarrier(): Promise<DeepseekSpawnCarrier> {
+    const carrier = await resolveDeepseekSpawnCarrier(options.managedCarrierDeps)
+    lastCarrierNote = carrier.ok
+      ? `${carrier.detail}${carrier.degradation !== undefined ? `; ${carrier.degradation}` : ''}`
+      : `refused: ${carrier.reason}`
+    return carrier
   }
 
   /**
@@ -1035,7 +1059,9 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
    *   wire cancel（docs/27 §1.6 唯一硬缺口如实呈现——取消语义=终止进程，v1 caps
    *   不通告）；approval 无远程应答（policy never v1）如实注记。就绪面 caps 另携
    *   生效工作区（`workspace` 字段——DSW 批用户面可见 agent 在哪读写；键≠'1'
-   *   停用面不携带，逐字节不变）。
+   *   停用面不携带，逐字节不变）。DSN 批：evidence 另带 spawn 载体解析链结论
+   *   （哪一级命中如实投影；哨兵拒绝 → observed + 结构化 reason；降级载体必带
+   *   「载体降级」如实标注——绝不静默用必败载体）。
    */
   async function getCapabilities(_ref: SessionRef): Promise<AgentCapabilitySet> {
     const gate = managedGate()
@@ -1044,6 +1070,17 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
       // 同一常量；门态 reason 只进诊断面——REST 面零漂移）
       return { mode: 'observed', granted: [], verifiedAt: nowSec(), evidence: DEEPSEEK_CONTROL_NOTE }
     }
+    const carrier = await resolveCarrier()
+    if (!carrier.ok) {
+      // 载体哨兵拒绝：managed 面不可用如实降 observed（结构化 reason 点名命令与键）
+      return {
+        mode: 'observed',
+        granted: [],
+        verifiedAt: nowSec(),
+        evidence: `deepseek managed face gated on but spawn carrier refused: ${carrier.reason}`,
+      }
+    }
+    const carrierNote = `spawn carrier: ${carrier.detail}${carrier.degradation !== undefined ? `; ${carrier.degradation}` : ''}`
     if (options.managedCapsProbe !== undefined) {
       const probe = options.managedCapsProbe()
       if (!probe.alive) {
@@ -1058,7 +1095,7 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
         mode: 'managed',
         granted: ['reply'],
         verifiedAt: nowSec(),
-        evidence: `deepseek managed face enabled (${gate.provider}/${gate.model}): ${probe.detail}; reply = live session/prompt or one-shot resume fallback; NO wire cancel (SDK protocol has none; cancel semantics = process kill ladder); approval policy 'never' v1 (no remote approval channel; out-of-workspace ops auto-refused)`,
+        evidence: `deepseek managed face enabled (${gate.provider}/${gate.model}): ${probe.detail}; ${carrierNote}; reply = live session/prompt or one-shot resume fallback; NO wire cancel (SDK protocol has none; cancel semantics = process kill ladder); approval policy 'never' v1 (no remote approval channel; out-of-workspace ops auto-refused)`,
         // 生效工作区（DSW 批：用户面可见 agent 在哪读写——spawn 表单/详情 ⓘ 一行）
         ...(gate.workspacePath !== undefined ? { workspace: gate.workspacePath } : {}),
       }
@@ -1067,7 +1104,7 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
       mode: 'managed',
       granted: ['reply'],
       verifiedAt: nowSec(),
-      evidence: `deepseek managed face enabled (${gate.provider}/${gate.model}): version sentinel layer-1 ok (bin present at ${gate.binPath}); layer-2 initialize handshake identity check enforced at spawn; reply = live session/prompt or one-shot resume fallback (evidence distinguishes both states); NO wire cancel (SDK protocol has none; cancel semantics = process kill ladder); approval policy 'never' v1 (no remote approval channel; out-of-workspace ops auto-refused)`,
+      evidence: `deepseek managed face enabled (${gate.provider}/${gate.model}): version sentinel layer-1 ok (bin present at ${gate.binPath}); layer-2 initialize handshake identity check enforced at spawn; ${carrierNote}; reply = live session/prompt or one-shot resume fallback (evidence distinguishes both states); NO wire cancel (SDK protocol has none; cancel semantics = process kill ladder); approval policy 'never' v1 (no remote approval channel; out-of-workspace ops auto-refused)`,
       ...(gate.workspacePath !== undefined ? { workspace: gate.workspacePath } : {}),
     }
   }
@@ -1089,6 +1126,18 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
     if (!gate.enabled) {
       return { ok: false, detail: `deepseek managed gate disabled: ${gate.reason ?? 'unknown'}` }
     }
+    // spawn 载体解析链（DSN 批；显式键 > where.exe 系统 node > 降级）：哨兵失败
+    // 结构化拒绝（零侧效——工作区/渲染物尚未落盘）；降级命中仅记忆标注不拒绝
+    // （caps/诊断面已带「载体降级」如实标注）。managedCommand 注入缝（smoke 夹具）
+    // 存在时跳过解析——夹具自管载体，行为与既有逐字节一致。
+    let carrier: DeepseekSpawnCarrier & { ok: true } | null = null
+    if (options.managedCommand === undefined) {
+      const resolved = await resolveCarrier()
+      if (!resolved.ok) {
+        return { ok: false, detail: `deepseek managed spawn carrier refused: ${resolved.reason}` }
+      }
+      carrier = resolved
+    }
     const workspace = options.managedWorkspacePath ?? gate.workspacePath
     // 工作区目录按需创建（DSW 批：默认安全目录 <data>/dsh-workspace 首次 spawn
     // 落盘；显式键/注入缝路径已在位 → 幂等跳过；失败结构化拒绝——绝不 spawn 无
@@ -1109,11 +1158,15 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
     }
     const configPath = ensured.path ?? gate.configPath ?? ''
     // spawn（env 增量仅 DSH_CORDIS_CONFIG 配置路径——零凭据；渲染物路径以实际
-    // 写盘路径为准，覆盖门态 spawnEnv）
+    // 写盘路径为准，覆盖门态 spawnEnv）。DSN 批：解析链命中（显式键/系统 node）
+    // → 载体命令改写为纯 node + env 零开关（ELECTRON_RUN_AS_NODE 仅降级形态）。
     const spawnGate: DeepseekManagedGateState = {
       ...gate,
       configPath,
       spawnEnv: { ...(gate.spawnEnv ?? {}), DSH_CORDIS_CONFIG: configPath },
+      ...(carrier !== null
+        ? { spawnCommand: carrier.command, spawnEnv: { DSH_CORDIS_CONFIG: configPath, ...carrier.env } }
+        : {}),
     }
     const conn = spawnDshRpcConnection(spawnGate)
     const nativeId = `session-${randomUUID()}`
@@ -1225,6 +1278,21 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
         detail: `deepseek managed gate disabled: ${gate.reason ?? 'unknown'}`,
       }
     }
+    // spawn 载体解析链（DSN 批；同 startManagedSession——哨兵失败结构化拒绝，
+    // managedCommand 注入缝存在时跳过）
+    let carrier: DeepseekSpawnCarrier & { ok: true } | null = null
+    if (options.managedCommand === undefined) {
+      const resolved = await resolveCarrier()
+      if (!resolved.ok) {
+        return {
+          ok: false,
+          status: 'failed',
+          errorCode: 'COMMAND_NOT_EXECUTABLE',
+          detail: `deepseek managed spawn carrier refused: ${resolved.reason}`,
+        }
+      }
+      carrier = resolved
+    }
     const workspace = options.managedWorkspacePath ?? gate.workspacePath
     // 工作区目录按需创建（同 startManagedSession；one-shot 亦受保护）
     if (workspace !== undefined) {
@@ -1245,6 +1313,9 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
       ...gate,
       configPath,
       spawnEnv: { ...(gate.spawnEnv ?? {}), DSH_CORDIS_CONFIG: configPath },
+      ...(carrier !== null
+        ? { spawnCommand: carrier.command, spawnEnv: { DSH_CORDIS_CONFIG: configPath, ...carrier.env } }
+        : {}),
     }
     // one-shot 通知旁路记忆（单槽——one-shot 通道无并发设计；每次清零重用）
     receiptMemory.receiptSeen = false
@@ -1606,7 +1677,7 @@ export function createDeepseekProvider(options: DeepseekProviderOptions = {}): A
     const sessionSource = probeSessionSource()
     const gate = managedGate()
     const managedNote = gate.enabled
-      ? `managed face enabled (${gate.provider}/${gate.model}; idle ${gate.managedIdleTimeoutMs}ms / lifetime ${gate.managedLifetimeTimeoutMs}ms); live connections: ${managedSessions.size}; last spawn verdict: ${lastSpawnVerdict ?? 'none yet'}; firehose events seen: ${managedStats.eventsSeen} (chunks streamed: ${[...managedSessions.values()].reduce((acc, h) => acc + h.chunksStreamed, 0)}), unknown frames: ${managedStats.unknownFrames}, unknown notifications: ${managedStats.unknownNotifications}, late/foreign events: ${managedStats.lateEvents}, sink errors: ${managedStats.sinkErrors}, subagent notices: ${managedStats.subagentNotices}, shutdown-ok/killTree: ${managedStats.shutdownOk}/${managedStats.killTreeUsed}`
+      ? `managed face enabled (${gate.provider}/${gate.model}; idle ${gate.managedIdleTimeoutMs}ms / lifetime ${gate.managedLifetimeTimeoutMs}ms); live connections: ${managedSessions.size}; spawn carrier: ${lastCarrierNote ?? 'unresolved yet (no managed call since start)'}; last spawn verdict: ${lastSpawnVerdict ?? 'none yet'}; firehose events seen: ${managedStats.eventsSeen} (chunks streamed: ${[...managedSessions.values()].reduce((acc, h) => acc + h.chunksStreamed, 0)}), unknown frames: ${managedStats.unknownFrames}, unknown notifications: ${managedStats.unknownNotifications}, late/foreign events: ${managedStats.lateEvents}, sink errors: ${managedStats.sinkErrors}, subagent notices: ${managedStats.subagentNotices}, shutdown-ok/killTree: ${managedStats.shutdownOk}/${managedStats.killTreeUsed}`
       : DEEPSEEK_CONTROL_NOTE
     return {
       dataSource: {

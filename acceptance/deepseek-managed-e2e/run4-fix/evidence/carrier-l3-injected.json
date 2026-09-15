@@ -1,0 +1,11 @@
+{
+  "ok": true,
+  "level": "fallback",
+  "command": "C:\\Program Files\\nodejs\\node.exe",
+  "env": {
+    "ELECTRON_RUN_AS_NODE": "1"
+  },
+  "detail": "level 3 fallback to the Electron built-in runtime at C:\\Program Files\\nodejs\\node.exe (injected seam: where unavailable (demo))",
+  "degradation": "载体降级：需系统 Node.js（harness loader 不兼容 Electron 内置运行时）",
+  "note": "INJECTED where-seam demo — this machine HAS system node; real absence not forceable without hiding node"
+}

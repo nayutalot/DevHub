@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "carrierCommand": "C:\\Program Files\\nodejs\\node.exe",
+  "spawnToResponseMs": 582,
+  "writeToResponseMs": 82,
+  "run4TimeoutBudgetMs": 30000,
+  "serverInfo": {
+    "name": "deepseek-harness-sdk-runtime",
+    "version": "0.0.1"
+  },
+  "sentinel": {
+    "ok": true,
+    "name": "deepseek-harness-sdk-runtime",
+    "version": "0.0.1"
+  },
+  "stderrTail": []
+}
