@@ -1,0 +1,45 @@
+{
+  "sessionId": 1,
+  "nativeId": "session-91cfb69f-c768-4280-8f1b-8b0b9f8c7318",
+  "turns": 2,
+  "wireScanDistinctMessages": 5,
+  "wireScanKeys": [
+    "4",
+    "5",
+    "assistant-t1s1",
+    "22",
+    "assistant-t2s1"
+  ],
+  "actualRows": 5,
+  "duplicateKeyGroups": 0,
+  "legacyPrefixKeyRows": 0,
+  "rowsAllInScanKeySet": true,
+  "rows": [
+    {
+      "nid": "4",
+      "role": "user",
+      "sourceRef": "session.jsonl.zstd#seq=4"
+    },
+    {
+      "nid": "5",
+      "role": "user",
+      "sourceRef": "session.jsonl.zstd#seq=5"
+    },
+    {
+      "nid": "assistant-t1s1",
+      "role": "assistant",
+      "sourceRef": "session.jsonl.zstd#seq=15"
+    },
+    {
+      "nid": "22",
+      "role": "user",
+      "sourceRef": "session.jsonl.zstd#seq=22"
+    },
+    {
+      "nid": "assistant-t2s1",
+      "role": "assistant",
+      "sourceRef": "session.jsonl.zstd#seq=29"
+    }
+  ],
+  "run6Baseline": "pre-fix run6 (agent_messages 29392-29395): dual-path wrote 2 rows per wire event (firehose key + wire-scan seq key) -> 2x duplicate bubbles in App"
+}

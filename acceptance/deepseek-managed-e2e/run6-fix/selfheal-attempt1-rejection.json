@@ -1,0 +1,5 @@
+{
+  "at": 1789454449772,
+  "code": "AGENT_CAPABILITY_MISSING",
+  "message": "sessionAction: capabilities for session 1 are not verified or stale (>300s), re-probe required"
+}

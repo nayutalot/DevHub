@@ -1,0 +1,20 @@
+gate: enabled=true idle=1800000ms lifetime=7200000ms (production defaults, no overrides)
+orphan baseline: deepseek-harness node processes = 0
+T1 start: ok=true nativeId=session-91cfb69f-c768-4280-8f1b-8b0b9f8c7318 spawnMs=767 detail=dsh runtime spawned + initialize handshake ok (serverInfo deepseek-harness-sdk-runtime v0.0.1); lazy create+prompt in one (turn in flight; 44-type firehose streams to idle)
+T1 evidence: bubble=assistant-t1s1 increments=3 (texts: ["第一","第一回合","第一回合"]) wire={"file":"session.jsonl.zstd","mtimeMs":1789454364537.0615,"size":4211}
+session row: id=1 mode=managed
+probe0 (caps seeded): at=1789454365503 mode=managed granted=reply verifiedAt=1789454447
+monitor started (wire-scan refresh path live, production-identical sink)
+caps staleness simulated: verifiedAt=1789454049 (age=400s > 300s TTL; last_probe_at rewound 61s)
+① attempt1 rejected (App-visible): code=AGENT_CAPABILITY_MISSING at=1789454449772 (+84389ms after T1 idle) message=sessionAction: capabilities for session 1 are not verified or stale (>300s), re-probe required
+① self-heal probe: at=1789454449773 doneAt=1789454449975 probeMs=202 mode=managed granted=reply verifiedAt=1789454449 fresh=true
+① retry: at=1789454449976 executed=true commandId=cmd-00783c66-0fcb-4af0-a6c9-f774b7628ae9 detailMs=140
+① self-heal chain timing: reject→probe→retry→stream→idle = {"t1IdleAt":1789454365383,"staleSimulatedAt":1789454449769,"attempt1RejectedAt":1789454449772,"rejectionCode":"AGENT_CAPABILITY_MISSING","probeAt":1789454449773,"probeDoneAt":1789454449975,"probeMs":202,"retryAt":1789454449976,"retryExecutedAt":1789454450116,"t2FirstStreamAt":1789454450654,"t2IdleAt":1789454450664,"chainMs":892,"retryToFirstStreamMs":538}
+T2 evidence: bubble=assistant-t2s1 increments=3 (texts: ["第二","第二回合","第二回合"]) wire={"file":"session.jsonl.zstd","mtimeMs":1789454450756.9524,"size":5807}
+② dedup rows: wireScanDistinct=5 actual=5 dupGroups=0 legacyKeys=0 allInScanKeySet=true
+② rows: [{"nid":"4","role":"user","sourceRef":"session.jsonl.zstd#seq=4"},{"nid":"5","role":"user","sourceRef":"session.jsonl.zstd#seq=5"},{"nid":"assistant-t1s1","role":"assistant","sourceRef":"session.jsonl.zstd#seq=15"},{"nid":"22","role":"user","sourceRef":"session.jsonl.zstd#seq=22"},{"nid":"assistant-t2s1","role":"assistant","sourceRef":"session.jsonl.zstd#seq=29"}]
+dispose (kill ladder): done in 138ms
+orphan check: baseline=0 after=0 (zero orphans)
+revert: key=0 → caps mode=observed granted=0 (byte-identical legacy observed shape)
+resident health×3: PASS (resident instance untouched; uptime monotonic) (uptime=8853, uptime=8855, uptime=8857)
+RUN6-FIX VERIFY COMPLETE: 2 real prompts (T1 spawn + T2 self-heal retry); zero credentials read/injected/logged
