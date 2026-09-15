@@ -16645,7 +16645,7 @@ if (isEntrypoint()) {
     assert.equal(gate.enabled, true)
     assert.equal(gate.provider, 'deepseek-official', 'model route defaults to the runtime default provider (api.ts:40-41)')
     assert.equal(gate.model, 'deepseek-v4-flash')
-    assert.deepEqual(gate.spawnEnv, { DSH_CORDIS_CONFIG: join(binDir, 'cordis.yml') }, 'spawn env carries the config path only (zero credentials)')
+    assert.deepEqual(gate.spawnEnv, { DSH_CORDIS_CONFIG: join(binDir, 'cordis.yml'), ELECTRON_RUN_AS_NODE: '1' }, 'spawn env carries config path + electron-as-node switch (zero credentials)')
     assert.equal(gate.managedIdleTimeoutMs, cfg.DEEPSEEK_MANAGED_IDLE_TIMEOUT_MS)
 
     // 模型路由键：合规值解析；形态不符 = 结构化拒（门关，绝不猜）

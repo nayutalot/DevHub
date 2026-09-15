@@ -687,8 +687,11 @@ export function readDeepseekManagedGate(deps: DeepseekManagedGateDeps = {}): Dee
     spawnCommand,
     spawnArgs: [binPath],
     // env 增量仅配置路径（DSH_CORDIS_CONFIG 优先于 argv——runner.ts:24-29）；
-    // 零凭据零 key（凭据三零红线）
-    spawnEnv: { DSH_CORDIS_CONFIG: configPath },
+    // 零凭据零 key（凭据三零红线）。ELECTRON_RUN_AS_NODE=1：打包常驻里
+    // process.execPath=electron.exe，直接派生会作为第二个 GUI 实例被单实例锁
+    // 静默秒退 → initialize 永不应答（RD run4 实证 30s 超时 COMMAND_NOT_
+    // EXECUTABLE）；该开关强制其以纯 node 运行 bin.js（plain node 下无副作用）。
+    spawnEnv: { DSH_CORDIS_CONFIG: configPath, ELECTRON_RUN_AS_NODE: '1' },
     managedIdleTimeoutMs: DEEPSEEK_MANAGED_IDLE_TIMEOUT_MS,
     managedLifetimeTimeoutMs: DEEPSEEK_MANAGED_LIFETIME_TIMEOUT_MS,
     dshHome: resolveDshHome(deps.homeDir),

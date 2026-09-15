@@ -282,6 +282,13 @@ function parseCapabilitySet(json: string | null): AgentCapabilitySet {
             : [],
           verifiedAt: typeof parsed.verifiedAt === 'number' ? parsed.verifiedAt : 0,
           evidence: typeof parsed.evidence === 'string' ? parsed.evidence : '',
+          // RD-mobile-chat run4 投影保真修复：DSW 批给 AgentCapabilitySet 增设的
+          // workspace（managed 生效工作区，shared/types.ts）在重建时被此固定形态
+          // 丢弃 → agents 列表/relay agent_list/会话详情三条投影一律缺 workspace →
+          // App 启动面板「工作区：<路径>」恒不显示。按原样透传（缺省不构造）。
+          ...(typeof parsed.workspace === 'string' && parsed.workspace.length > 0
+            ? { workspace: parsed.workspace }
+            : {}),
         }
       }
     } catch {
